@@ -1,0 +1,16 @@
+[package]
+name = "quire-api"
+description = "Quire's public API contract: DTOs, error envelope, scopes, token format and CLI exit codes (no I/O)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+ts-rs.workspace = true
+utoipa.workspace = true
+uuid.workspace = true
+crc32fast.workspace = true

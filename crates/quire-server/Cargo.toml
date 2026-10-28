@@ -1,0 +1,56 @@
+[package]
+name = "quire-server"
+description = "Quire's HTTP server (axum) and its admin commands; binary quire-server. Links no TLS stack (D29)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[[bin]]
+name = "quire-server"
+path = "src/main.rs"
+
+[features]
+# quire_server::testing::TestServer, for the CLI's tests (crates/quire-cli/tests/cli).
+testing = ["dep:tempfile"]
+
+[dependencies]
+quire-api.workspace = true
+quire-core.workspace = true
+quire-store.workspace = true
+quire-assets.workspace = true
+inkboard-core.workspace = true
+rusqlite.workspace = true
+axum.workspace = true
+tower = { workspace = true, features = ["util"] }
+tower-http.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "signal", "sync", "time", "fs", "io-util"] }
+tokio-util = { workspace = true, features = ["io"] }
+bytes.workspace = true
+futures-util.workspace = true
+argon2.workspace = true
+governor.workspace = true
+clap.workspace = true
+cookie.workspace = true
+percent-encoding.workspace = true
+utoipa.workspace = true
+utoipa-axum.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid = { workspace = true, features = ["v7"] }
+sha2.workspace = true
+base64.workspace = true
+thiserror.workspace = true
+getrandom.workspace = true
+rustix.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tempfile = { workspace = true, optional = true }
+
+[dev-dependencies]
+axum-test.workspace = true
+tempfile.workspace = true
+oas3.workspace = true
+proptest.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }

@@ -2713,6 +2713,43 @@ asynchronous (board previews).
     `moby/buildkit:v0.34.0@sha256:b059f8d7226d0b326bc871af489a5dddf65e36af4d20d14251b072974d9ee87c`**, not v0.34.1:
     v0.34.1 was released on 2026-10-20 and so was under two weeks old on 2026-10-28; v0.34.0 (2026-10-07) is the newest
     older patch. §13.1 still names v0.34.1. To move up, change `BUILDKIT_IMAGE` in `scripts/toolchain.sh` and recreate.
+24. **W0b pin checks (2026-10-28)**: what W0b could not confirm as written, and the fallback chosen.
+    - Base images (§13.2), each pinned by the index digest its tag resolved to on 2026-10-28:
+      `rust:1.99.1-trixie@sha256:53766005847cbe02c3f59bfa49c1c4bb16695f2c9e5829c3d576a15406f5e733` (a Docker rebuild
+      of that day; rustc 1.99.1 itself dates from 2026-10-13),
+      `node:24-trixie-slim@sha256:89c5244bc22a9bc3287d89ebc7e49b9cb5bb84cd40e6175ac3421d5a9f68b95a` (rebuilt that day;
+      node 24.22.1, released about 2026-10-20, kept because the toolchain image already had it; the newest digest at
+      least two weeks old carries node 24.21.0) and
+      `gcr.io/distroless/cc-debian13:nonroot@sha256:3ee00291cf386ec52a552e6a858d555debd74776eb4bfa53fa3df2cd6677515e`
+      (uploaded 2026-10-23). `scripts/e2e.sh` pins
+      `mcr.microsoft.com/playwright:v1.64.1-noble@sha256:47b510dd9230bf0b9bfc9b20102241e577ea7a99334ab4c3ca19f19770e9b8ea`
+      (2026-10-23), which @playwright/test 1.64.1 must match. All four digests were under two weeks old; if the
+      two-week rule is meant for digests too, older digests of the same tags are in the registries' history.
+      binaryen `version_131` (2026-07-15) is pinned by its release checksum.
+    - rust-embed 8.13.0 is used without `interpolate-folder-path`: that feature pulls option-ext (MPL-2.0, not on the
+      licence allow-list). quire-assets uses relative `#[folder = "../../web/dist"]` paths, which rust-embed resolves
+      against `CARGO_MANIFEST_DIR`.
+    - Risk 12: deadpool-sqlite 0.14.0 and rusqlite_migration 2.6.0 both take rusqlite ^0.40, so the graph has one
+      libsqlite3-sys (0.38.2) and the D2 fallback is not needed. The tower-http 0.7.1 layers build and run in the API
+      tests. TypeScript 7.0.2 checks both web projects, so there is no 6.x fallback.
+      `@tiptap/extension-drag-handle-react` 3.32.0 is MIT. comrak 0.59.0 (`default-features = false`) and ureq 3.5.0
+      (`rustls-no-provider`, `json`, `gzip`, with rustls 0.23.46 and ring) build; ureq 3.5.0 needs ureq-proto ^0.6.5,
+      published 2026-10-17.
+    - Risk 14: utoipa 6.0.0 (utoipa-gen 6.0.1) and utoipa-axum 0.3.0 work with axum 0.8.9, and the served spec parses
+      as OpenAPI 3.1. No fallback.
+    - Risk 17: ring compiles with `musl-gcc` in the image's `cli` stage, so the static musl CLI needs no fallback.
+    - ts-rs 12 (12.0.1) exports `i64` and `u64` fields as `bigint` by default, but the API's JSON numbers are
+      JavaScript numbers. `.cargo/config.toml` therefore also sets `[env] TS_RS_LARGE_INT = "number"` (besides the
+      `TS_RS_EXPORT_DIR` of §3), and every such DTO field is `number` in `web/src/api/gen`.
+    - Pins used as written although they were under two weeks old on 2026-10-28: tokio 1.54.1, uuid 1.29.0, ureq
+      3.5.0, comrak 0.59.0, react and react-dom 19.3.1, vite 8.3.5 and vitest 5.0.5. Where §4.1 gives only a minor
+      version, the newest release at least two weeks old was taken (crc32fast 1.5.2, not 1.5.3 of 2026-10-20; rustix
+      1.1.5, not 1.1.6). Younger transitive crates were moved back with `cargo update --precise`, and the npm lockfile
+      was resolved with a 14-day `minimumReleaseAge` apart from those pins.
+    - **Open, for the owner:** vite 8.3.5 has lightningcss 1.33.0 and lightningcss-linux-x64-gnu as hard
+      dependencies, and both are MPL-2.0, which is not on the licence allow-list. They run only at build time, and
+      none of their code ships in `web/dist`. The choices are to accept MPL-2.0 for build-only tools, or to re-pin to
+      Vite 7 with @vitejs/plugin-react 5.
 
 ---
 

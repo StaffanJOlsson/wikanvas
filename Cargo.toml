@@ -1,0 +1,94 @@
+[workspace]
+resolver = "3"
+members  = ["crates/*"]
+exclude  = ["vendor"]          # inkboard-core belongs to vendor/inkboard's own workspace
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+license = "MIT"
+
+[profile.release]
+lto = "thin"
+codegen-units = 8
+strip = "debuginfo"
+
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package.argon2]
+opt-level = 3
+
+[profile.dev.package.blake2]
+opt-level = 3
+
+# Every dependency of the workspace (docs/ARCHITECTURE.md §4.1). Members take them with `workspace = true` and add
+# features of their own; the versions in Cargo.lock are the pins (scripts/check-pins.sh keeps serde, serde_json,
+# base64 and thiserror equal to vendor/inkboard/Cargo.lock).
+[workspace.dependencies]
+quire-api = { path = "crates/quire-api" }
+quire-core = { path = "crates/quire-core" }
+quire-store = { path = "crates/quire-store" }
+quire-server = { path = "crates/quire-server" }
+quire-assets = { path = "crates/quire-assets" }
+inkboard-core = { path = "vendor/inkboard/crates/inkboard-core" }
+
+# Storage
+rusqlite = { version = "0.40.2", features = ["bundled", "backup", "hooks"] }
+deadpool-sqlite = { version = "0.14.0", features = ["rt_tokio_1"] }
+rusqlite_migration = { version = "2.6.0", features = ["from-directory"] }
+include_dir = "0.7.4"
+flate2 = { version = "1.1.10", default-features = false, features = ["rust_backend"] }
+tar = { version = "0.4.46", default-features = false }
+imagesize = "0.15.0"
+rustix = { version = "1.1.5", features = ["fs"] }
+
+# Server
+axum = { version = "0.8.9", features = ["macros"] }
+tower = "0.5.3"
+tower-http = { version = "0.7.1", features = ["trace", "timeout", "limit", "set-header", "request-id", "catch-panic",
+  "sensitive-headers", "compression-gzip", "cors"] }
+tokio = "1.54.1"
+tokio-util = "0.7.20"
+bytes = "1.12.1"
+futures-util = "0.3.34"
+argon2 = "0.6.0"
+governor = "0.10.4"
+cookie = "0.18.2"
+percent-encoding = "2.3.2"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+utoipa = { version = "6.0.0", features = ["macros", "uuid"] }   # never preserve_order or preserve_path_order (D41)
+utoipa-axum = "0.3.0"
+# Not `interpolate-folder-path`: it pulls option-ext (MPL-2.0); relative folders resolve against CARGO_MANIFEST_DIR anyway.
+rust-embed = { version = "8.13.0", features = ["mime-guess"] }
+
+# Content
+yrs = "0.28.0"
+comrak = { version = "0.59.0", default-features = false }
+
+# Shared
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.154", features = ["raw_value"] }
+base64 = "0.23.1"
+sha2 = "0.11.1"
+thiserror = "2.0.21"
+uuid = { version = "1.29.0", features = ["serde"] }
+getrandom = "0.4.3"
+crc32fast = "1.5.2"
+ts-rs = { version = "12.0.1", features = ["uuid-impl", "serde-json-impl"] }
+clap = { version = "4.6.7", features = ["derive", "env"] }
+
+# CLI only (D54): never ureq's `rustls` feature (it adds webpki-roots)
+ureq = { version = "3.5.0", default-features = false, features = ["rustls-no-provider", "json", "gzip"] }
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
+etcetera = "0.11.0"
+toml = "1.1.8"
+
+# Tests
+axum-test = "21.1.0"
+tempfile = "3.27.0"
+proptest = "1.12.0"
+assert_cmd = "2.2.2"
+oas3 = "0.22.0"

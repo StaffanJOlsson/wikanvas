@@ -1,0 +1,101 @@
+/* Design tokens (docs/ARCHITECTURE.md §9.6.1). public/theme-init.js sets <html data-theme> to light, dark or system
+   before the first paint; system follows prefers-color-scheme. */
+
+:root {
+  --font-ui: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+
+  --radius-row: 4px;
+  --radius-control: 6px;
+  --radius-menu: 8px;
+  --radius-dialog: 12px;
+
+  --motion: 120ms ease-out;
+
+  --sidebar-width: 260px;
+  --sidebar-min: 216px;
+  --sidebar-max: 400px;
+  --row-height: 30px;
+  --indent: 16px;
+  --icon: 16px;
+  --topbar-height: 52px;
+  --doc-max: 720px;
+  --contents-width: 220px;
+
+  --focus: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+:root,
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #ffffff;
+  --bg-sidebar: #f6f7f9;
+  --bg-hover: #eceef2;
+  --bg-active: #e2e7f0;
+  --text: #1d2430;
+  --text-secondary: #5f6878;
+  --text-tertiary: #8b93a1;
+  --border: #e4e7ec;
+  --accent: #3a6df0;
+  --accent-text: #ffffff;
+  --danger: #d93b3b;
+  --warning: #b86e00;
+  --success: #1f8f50;
+  --mark: #fff0a0;
+  --shadow-pop: 0 6px 20px rgb(0 0 0 / .10), 0 0 0 1px var(--border);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #16181d;
+  --bg-sidebar: #1c1f26;
+  --bg-hover: #262a33;
+  --bg-active: #2f3542;
+  --text: #e6e8ec;
+  --text-secondary: #a3aab6;
+  --text-tertiary: #7a8291;
+  --border: #2c313b;
+  --accent: #6c95ff;
+  --accent-text: #0d1117;
+  --danger: #f06a6a;
+  --warning: #e0a040;
+  --success: #4cc184;
+  --mark: #5c4f12;
+  --shadow-pop: 0 6px 20px rgb(0 0 0 / .45), 0 0 0 1px var(--border);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-theme="dark"]) {
+    color-scheme: dark;
+    --bg: #16181d;
+    --bg-sidebar: #1c1f26;
+    --bg-hover: #262a33;
+    --bg-active: #2f3542;
+    --text: #e6e8ec;
+    --text-secondary: #a3aab6;
+    --text-tertiary: #7a8291;
+    --border: #2c313b;
+    --accent: #6c95ff;
+    --accent-text: #0d1117;
+    --danger: #f06a6a;
+    --warning: #e0a040;
+    --success: #4cc184;
+    --mark: #5c4f12;
+    --shadow-pop: 0 6px 20px rgb(0 0 0 / .45), 0 0 0 1px var(--border);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion: 0ms linear;
+  }
+}

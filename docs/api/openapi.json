@@ -1,0 +1,1013 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Quire API",
+    "description": "The public API of Quire, a self-hosted wiki. The web client uses it with its session cookie; external clients and the `quire` CLI use personal access tokens (`Authorization: Bearer qpat_…`). Errors have the shape `{\"error\": {\"code\", \"message\", \"details\"?}, \"request_id\"}`; clients treat an unknown `code` by its HTTP status. Within v1, changes are additive only.",
+    "license": {
+      "name": "MIT",
+      "identifier": "MIT"
+    },
+    "version": "1.0"
+  },
+  "paths": {
+    "/api/v1/auth/me": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "The current user, the workspace, and how this request was authenticated (`auth.token` for a token).",
+        "operationId": "get_me",
+        "responses": {
+          "200": {
+            "description": "The caller",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Me"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      }
+    },
+    "/api/v1/collections": {
+      "post": {
+        "tags": [
+          "collections"
+        ],
+        "summary": "Creates a collection (last, unless `position` says otherwise).",
+        "operationId": "create_collection",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewCollection"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The new collection",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Collection"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`, `csrf_rejected`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "`payload_too_large`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "`unsupported_media_type`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`validation` (`field`: `name`, `color`, `description` or `position`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "write"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      }
+    },
+    "/api/v1/openapi.json": {
+      "get": {
+        "tags": [
+          "meta"
+        ],
+        "summary": "The OpenAPI 3.1 document of this API.",
+        "operationId": "get_openapi",
+        "parameters": [
+          {
+            "name": "If-None-Match",
+            "in": "header",
+            "description": "A previous ETag: 304 when unchanged",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The spec (`Cache-Control: no-cache`)",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "The spec's version"
+              }
+            },
+            "content": {
+              "application/json": {}
+            }
+          },
+          "304": {
+            "description": "Unchanged since the ETag in `If-None-Match`"
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/v1/tokens": {
+      "get": {
+        "tags": [
+          "tokens"
+        ],
+        "summary": "The caller's live tokens and expired ones (not revoked), newest first, at most 100. Never the secret or its hash.",
+        "operationId": "list_tokens",
+        "responses": {
+          "200": {
+            "description": "The tokens",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ApiToken"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "admin"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "tokens"
+        ],
+        "summary": "Creates a token; the response is the only place its secret ever appears.",
+        "description": "Scopes cannot exceed the caller's; a calling token cannot grant `admin` (403 `session_required`) and the new\ntoken cannot outlive it (422, `field: \"expires_in_days\"`). A session sends `password` for an `admin` or\nnever-expiring token (422, `field: \"password\"`, when missing or wrong). At most 100 live tokens per user.",
+        "operationId": "create_token",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewToken"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The token and its secret",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedToken"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`, `session_required`, `csrf_rejected`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "`payload_too_large`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "`unsupported_media_type`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`validation` (`field`: `name`, `scopes`, `expires_in_days` or `password`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "admin"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tokens/current": {
+      "delete": {
+        "tags": [
+          "tokens"
+        ],
+        "summary": "Revokes the calling token itself (`quire auth logout --revoke`), and the tokens it created.",
+        "operationId": "revoke_current_token",
+        "responses": {
+          "204": {
+            "description": "Revoked"
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`forbidden` (a session, not a token)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/tokens/{id}": {
+      "delete": {
+        "tags": [
+          "tokens"
+        ],
+        "summary": "Revokes a token of the caller, and the tokens it created. Takes effect on the next request.",
+        "operationId": "revoke_token",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The token's id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Revoked"
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`, `csrf_rejected`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found`: no live token of the caller has this id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "admin"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ApiToken": {
+        "type": "object",
+        "description": "A personal access token as lists show it. Never the secret or its hash.",
+        "required": [
+          "id",
+          "name",
+          "prefix",
+          "scopes",
+          "created_at",
+          "created_via"
+        ],
+        "properties": {
+          "created_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "created_via": {
+            "$ref": "#/components/schemas/CreatedVia"
+          },
+          "expires_at": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Timestamp",
+                "description": "`null`: never expires."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "last_used_at": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Timestamp"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "last_used_ip": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "parent_token_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The token that created this one; it is revoked with it (D42)."
+          },
+          "prefix": {
+            "type": "string",
+            "description": "The first 12 characters of the token (`qpat_` + 7), for recognizing it."
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Scope"
+            },
+            "description": "Expanded: a `write` token lists `read` and `write`."
+          }
+        }
+      },
+      "AuthMethodKind": {
+        "type": "string",
+        "description": "How the current request was authenticated.",
+        "enum": [
+          "session",
+          "token"
+        ]
+      },
+      "ChildOrder": {
+        "type": "string",
+        "description": "How a collection orders its items in the tree. Non-manual orders are computed at read time.",
+        "enum": [
+          "manual",
+          "title",
+          "updated",
+          "created"
+        ]
+      },
+      "Collection": {
+        "type": "object",
+        "description": "A collection in the sidebar.",
+        "required": [
+          "id",
+          "url_id",
+          "name",
+          "description",
+          "color",
+          "sort_key",
+          "child_order",
+          "item_count",
+          "updated_at"
+        ],
+        "properties": {
+          "child_order": {
+            "$ref": "#/components/schemas/ChildOrder"
+          },
+          "color": {
+            "type": "string",
+            "description": "`#RRGGBB`."
+          },
+          "description": {
+            "type": "string"
+          },
+          "icon": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A lucide icon name; `null` shows a letter tile."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "item_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Live items in the collection, at every depth.",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string"
+          },
+          "sort_key": {
+            "type": "string"
+          },
+          "updated_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "url_id": {
+            "type": "string",
+            "description": "10 base62 characters, used in URLs (`/collection/<slug>-<url_id>`)."
+          }
+        }
+      },
+      "CreatedToken": {
+        "type": "object",
+        "description": "Response of `POST /tokens`: the only response that ever contains the secret.",
+        "required": [
+          "token",
+          "api_token"
+        ],
+        "properties": {
+          "api_token": {
+            "$ref": "#/components/schemas/ApiToken"
+          },
+          "token": {
+            "type": "string",
+            "description": "`qpat_…`, 51 characters."
+          }
+        }
+      },
+      "CreatedVia": {
+        "type": "string",
+        "description": "Where a token was created.",
+        "enum": [
+          "web",
+          "api",
+          "admin"
+        ]
+      },
+      "ErrorBody": {
+        "type": "object",
+        "description": "The error envelope.",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorInfo"
+          },
+          "request_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The `X-Request-Id` of the response. Always set by the server; `null` only in errors the CLI raises itself."
+          }
+        }
+      },
+      "ErrorCode": {
+        "type": "string",
+        "description": "A stable, machine-readable error code.",
+        "enum": [
+          "unauthenticated",
+          "invalid_credentials",
+          "invalid_token",
+          "forbidden",
+          "csrf_rejected",
+          "insufficient_scope",
+          "session_required",
+          "not_found",
+          "method_not_allowed",
+          "request_timeout",
+          "conflict",
+          "cycle",
+          "parent_invalid",
+          "missing_deps",
+          "setup_required",
+          "already_setup",
+          "read_only",
+          "not_empty",
+          "schema_too_new",
+          "rev_mismatch",
+          "payload_too_large",
+          "doc_too_large",
+          "unsupported_media_type",
+          "host_not_allowed",
+          "validation",
+          "invalid_board",
+          "board_too_new",
+          "invalid_update",
+          "invalid_document",
+          "precondition_required",
+          "rate_limited",
+          "internal",
+          "unavailable",
+          "insufficient_storage"
+        ]
+      },
+      "ErrorInfo": {
+        "type": "object",
+        "description": "`ErrorBody.error`.",
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/ErrorCode"
+          },
+          "details": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Per-code details, see the `*Details` schemas."
+          },
+          "message": {
+            "type": "string",
+            "description": "English, for people; may change."
+          }
+        }
+      },
+      "Me": {
+        "type": "object",
+        "description": "Response of `GET /auth/me`.",
+        "required": [
+          "user",
+          "workspace",
+          "must_change_password",
+          "auth"
+        ],
+        "properties": {
+          "auth": {
+            "$ref": "#/components/schemas/MeAuth"
+          },
+          "must_change_password": {
+            "type": "boolean"
+          },
+          "user": {
+            "$ref": "#/components/schemas/User"
+          },
+          "workspace": {
+            "$ref": "#/components/schemas/Workspace"
+          }
+        }
+      },
+      "MeAuth": {
+        "type": "object",
+        "description": "`Me.auth`.",
+        "required": [
+          "method"
+        ],
+        "properties": {
+          "method": {
+            "$ref": "#/components/schemas/AuthMethodKind"
+          },
+          "token": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ApiToken",
+                "description": "The calling token, when `method` is `token`."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "NewCollection": {
+        "type": "object",
+        "description": "Body of `POST /collections`.",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "color": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`#RRGGBB`; default `#8D8D8D`."
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "icon": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "position": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Position",
+                "description": "Omitted: last."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "NewToken": {
+        "type": "object",
+        "description": "Body of `POST /tokens`.",
+        "required": [
+          "name",
+          "scopes"
+        ],
+        "properties": {
+          "expires_in_days": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "1–3650. Omitted: 90 days; `null`: never (a session must then send `password`; a calling token's expiry caps\nit).",
+            "maximum": 3650,
+            "minimum": 1
+          },
+          "name": {
+            "type": "string",
+            "description": "1–100 characters."
+          },
+          "password": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The session's password, required for an `admin` or never-expiring token."
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Scope"
+            },
+            "description": "At most the caller's scopes; a calling token can never grant `admin`."
+          }
+        }
+      },
+      "Position": {
+        "type": "object",
+        "description": "A position among siblings (or collections, or stars). The server computes the sort key (D6). With both ids\nomitted (or `null`) the row goes last.",
+        "properties": {
+          "after_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Place the row right after this sibling."
+          },
+          "before_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Place the row right before this sibling."
+          }
+        }
+      },
+      "Role": {
+        "type": "string",
+        "description": "A user's role (lookup table `user_roles`). M1 has a single owner.",
+        "enum": [
+          "owner",
+          "admin",
+          "member",
+          "viewer"
+        ]
+      },
+      "Scope": {
+        "type": "string",
+        "description": "A token scope. The hierarchy is `read` ⊂ `write` ⊂ `admin` (the variant order); a session has every scope.\n`read`: every GET except token and session management and export; `write`: content and structure; `admin`:\npurge, workspace and account settings, sessions, tokens, export and backup (§7.3).",
+        "enum": [
+          "read",
+          "write",
+          "admin"
+        ]
+      },
+      "Theme": {
+        "type": "string",
+        "description": "A user's colour theme.",
+        "enum": [
+          "light",
+          "dark",
+          "system"
+        ]
+      },
+      "Timestamp": {
+        "type": "string",
+        "format": "date-time",
+        "description": "A point in time. Unix milliseconds in Rust and SQL (D5); on the wire an RFC 3339 UTC string with millisecond\nprecision, e.g. `2026-10-28T09:30:00.000Z`. Parsing accepts any RFC 3339 offset and fraction (truncated to\nmilliseconds)."
+      },
+      "User": {
+        "type": "object",
+        "description": "A user, as every response shows it.",
+        "required": [
+          "id",
+          "email",
+          "name",
+          "role",
+          "theme"
+        ],
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/Role"
+          },
+          "theme": {
+            "$ref": "#/components/schemas/Theme"
+          }
+        }
+      },
+      "Workspace": {
+        "type": "object",
+        "description": "The workspace's name and logo.",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "logo_url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`/api/v1/attachments/<id>`, or `null` without a logo."
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "bearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "qpat",
+        "description": "A personal access token, `qpat_` + 46 base62 characters, with the scopes read ⊂ write ⊂ admin."
+      },
+      "session": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "quire_session",
+        "description": "The web client's session cookie. Over HTTPS (behind the proxy) it is named `__Host-quire_session`. A session has every scope; cookie-authenticated mutations must pass the Fetch-Metadata / Origin check."
+      }
+    }
+  }
+}

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Builds the quire-toolchain image with the capped quire-limited builder (docs/ARCHITECTURE.md §13.1, D38).
+# Builds the quire-toolchain image (the toolchain target of docker/Dockerfile) with the capped quire-limited builder
+# (docs/ARCHITECTURE.md §13.1, §13.2, D38).
 #   scripts/toolchain.sh                  # set up (or check) the builder, then build quire-toolchain:latest
 #   scripts/toolchain.sh --builder-only   # set up (or check) the builder only
 # The builder is the BuildKit container quire-buildkit (moby/buildkit, pinned by digest) with the dev.sh caps and CPU
@@ -23,7 +24,7 @@ volume=quire-buildkit-state
 config=/etc/buildkit/buildkitd.toml
 
 usage() {
-  sed -n '2,12s/^# \{0,1\}//p' "$root/scripts/toolchain.sh"
+  sed -n '2,13s/^# \{0,1\}//p' "$root/scripts/toolchain.sh"
 }
 
 builder_only=0
@@ -119,5 +120,7 @@ if [ "$builder_only" = 1 ]; then
   exit 0
 fi
 
+# The toolchain target of docker/Dockerfile, with the repo root as context (.dockerignore keeps .cache, target,
+# node_modules, the dists and data out of it; this target copies nothing from the context anyway).
 docker buildx build --builder "$builder" --load \
-  -t quire-toolchain:latest -f "$root/docker/toolchain.Dockerfile" "$root/docker"
+  -t quire-toolchain:latest -f "$root/docker/Dockerfile" --target toolchain "$root"

@@ -1,0 +1,30 @@
+[package]
+name = "quire-cli"
+description = "The quire command-line client over /api/v1 (D54). Never depends on quire-core, quire-store, rusqlite, yrs or Inkboard."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[[bin]]
+name = "quire"
+path = "src/main.rs"
+
+[dependencies]
+quire-api.workspace = true
+clap.workspace = true
+ureq.workspace = true
+rustls.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+etcetera.workspace = true
+toml.workspace = true
+base64.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+quire-server = { workspace = true, features = ["testing"] }
+assert_cmd.workspace = true
+tempfile.workspace = true

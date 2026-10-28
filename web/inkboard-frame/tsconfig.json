@@ -1,0 +1,20 @@
+{
+  // Type-checks the frame page (plain ES module, `// @ts-check`) against src/board/bridge.ts and inkboard.d.ts:
+  // `tsc --noEmit -p inkboard-frame`, part of `pnpm --dir web typecheck` (docs/ARCHITECTURE.md §10.4).
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "strict": true,
+    "isolatedModules": true,
+    "skipLibCheck": false,
+    "forceConsistentCasingInFileNames": true,
+    "types": []
+  },
+  "include": ["frame.js", "inkboard.d.ts"]
+}

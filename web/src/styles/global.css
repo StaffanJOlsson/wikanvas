@@ -1,0 +1,194 @@
+/* Base styles and the W0b shell layout. W3 owns and replaces the layout (docs/ARCHITECTURE.md §9.3, §9.6). */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/20px var(--font-ui);
+}
+
+a {
+  color: inherit;
+}
+
+button,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.app-shell {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.app-sidebar {
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border);
+  padding: var(--space-3) var(--space-2);
+  overflow-y: auto;
+}
+
+.app-sidebar a {
+  display: block;
+  height: var(--row-height);
+  line-height: var(--row-height);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-row);
+  text-decoration: none;
+}
+
+.app-sidebar a:hover {
+  background: var(--bg-hover);
+}
+
+.app-sidebar a[aria-current="page"] {
+  background: var(--bg-active);
+}
+
+.app-main {
+  overflow: auto;
+}
+
+.top-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: var(--topbar-height);
+  padding: 0 var(--space-4);
+}
+
+.top-bar .breadcrumbs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+
+.top-bar .breadcrumbs a {
+  text-decoration: none;
+}
+
+.top-bar .save-status {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.item-header {
+  max-width: var(--doc-max);
+  margin: var(--space-6) auto 0;
+  padding: 0 var(--space-4);
+}
+
+.item-header .title-input {
+  width: 100%;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  font-size: 34px;
+  line-height: 42px;
+  font-weight: 700;
+}
+
+.item-header .title-input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.item-header .meta-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-tertiary);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  padding: var(--space-1);
+  cursor: pointer;
+}
+
+.icon-button:hover {
+  background: var(--bg-hover);
+}
+
+.menu {
+  position: relative;
+}
+
+.menu [role="menu"] {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  z-index: 10;
+  min-width: 180px;
+  padding: var(--space-1);
+  border-radius: var(--radius-menu);
+  background: var(--bg);
+  box-shadow: var(--shadow-pop);
+}
+
+.menu [role="menuitem"] {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-radius: var(--radius-row);
+  background: transparent;
+  padding: var(--space-1) var(--space-2);
+  text-align: left;
+  cursor: pointer;
+}
+
+.menu [role="menuitem"]:hover {
+  background: var(--bg-hover);
+}
+
+.menu [role="separator"] {
+  height: 1px;
+  margin: var(--space-1) 0;
+  background: var(--border);
+}
+
+.placeholder-page {
+  padding: var(--space-6) var(--space-7);
+}

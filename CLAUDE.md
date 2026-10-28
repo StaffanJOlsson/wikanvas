@@ -17,8 +17,8 @@ The owner's machine has been brought to 100% by Rust builds before; caps are a h
   `scripts/toolchain.sh` creates it: the BuildKit container `quire-buildkit` with the same caps and cores, registered
   with buildx's `remote` driver. If it prints a `docker buildx rm quire-limited; docker rm -f quire-buildkit;
   scripts/toolchain.sh` instruction (caps, slice or config changed), run exactly that. The default builder has no caps.
-- `scripts/toolchain.sh` rebuilds the toolchain image after editing docker/toolchain.Dockerfile
-  (`scripts/toolchain.sh --builder-only` only sets up or checks the builder).
+- `scripts/toolchain.sh` rebuilds the toolchain image, the `toolchain` target of `docker/Dockerfile`, after editing its
+  `toolchain-base` or `toolchain` stage (`scripts/toolchain.sh --builder-only` only sets up or checks the builder).
 - **One build at a time, by lock.** The build scripts take one per-user lock (`scripts/lib/lock.sh`, a flock on
   `~/.cache/quire/build.lock` resolved through the passwd database) and print "waiting for another Quire build…" while
   another holds it. A script started from a lock holder sees `QUIRE_LOCK_HELD=1` and never waits for the lock, so nested
@@ -32,6 +32,8 @@ The owner's machine has been brought to 100% by Rust builds before; caps are a h
 - **Never build inside `vendor/inkboard`** and never modify it (`git -C vendor/inkboard status --porcelain` stays
   empty); Inkboard builds run from the patched copy in `.cache/inkboard-src`.
 - **Format only with `scripts/fmt.sh`**, never `cargo fmt --all` (it reaches into `vendor/inkboard`).
+- The agent harness runs only through `scripts/agent-test.sh`, and agents use the `quire` CLI as described in
+  `docs/AGENTS.md`.
 
 ## Hosting
 

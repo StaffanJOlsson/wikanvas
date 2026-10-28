@@ -1,0 +1,37 @@
+[package]
+name = "quire-store"
+description = "Quire's SQLite store: pools, migrations, repositories, blob store, tokens, backup, export and seed."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+quire-core.workspace = true
+inkboard-core.workspace = true
+yrs.workspace = true
+rusqlite.workspace = true
+deadpool-sqlite.workspace = true
+rusqlite_migration.workspace = true
+include_dir.workspace = true
+flate2.workspace = true
+tar.workspace = true
+imagesize.workspace = true
+rustix.workspace = true
+tokio = { workspace = true, features = ["rt", "sync", "fs", "io-util"] }
+bytes.workspace = true
+futures-util.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+base64.workspace = true
+thiserror.workspace = true
+uuid = { workspace = true, features = ["v7"] }
+getrandom.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+proptest.workspace = true
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }

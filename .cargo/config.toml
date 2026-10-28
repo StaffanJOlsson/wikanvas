@@ -1,3 +1,9 @@
 # Second line of defence if cargo is ever run outside scripts/dev.sh: never more than 6 parallel compile jobs.
 [build]
 jobs = 6
+
+# ts-rs writes the TypeScript bindings of quire-api here (`cargo test -p quire-api export_bindings`, ARCHITECTURE §3).
+[env]
+TS_RS_EXPORT_DIR = { value = "web/src/api/gen", relative = true }
+# JSON numbers are JavaScript numbers: i64/u64 fields are exported as `number`, not `bigint`.
+TS_RS_LARGE_INT = "number"

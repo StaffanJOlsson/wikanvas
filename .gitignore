@@ -5,3 +5,10 @@ dist/
 *.sqlite
 *.sqlite-*
 /data/
+# docs/ARCHITECTURE.md §3: build and test output
+/web/dist-inkboard/
+/web/.dist-inkboard.*/
+/e2e/test-results/
+/e2e/playwright-report/
+/e2e/agent/results/
+/dist/
