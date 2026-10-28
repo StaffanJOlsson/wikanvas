@@ -70,6 +70,14 @@ export const useEmbedStore = create<EmbedStore>(() => ({ board: null, cards: [],
 export const OPEN_FAILED = 'Could not open the page';
 export const INSERT_FAILED = 'Could not add the page to the board';
 
+/** How `insertCard` places a card. */
+export interface InsertOptions {
+  /** Start editing the new card (the "Text doc" button); otherwise the frame gets focus. */
+  edit?: boolean;
+  /** Place it only while this board is the open one (the board the action was started on). */
+  board?: string;
+}
+
 /** A target a card may be edited for: a live, unarchived document. */
 export function isEditableTarget(d: ItemDetail): boolean {
   return d.item.kind === 'doc' && d.trashed_at === null && d.archived_at === null;
@@ -542,14 +550,17 @@ export class EmbedController implements EmbedSink {
 
   /**
    * §18.6: places a card for document `target` centred on `at` (the view centre or a frame point), titled
-   * `title.trim() || 'Untitled'`; with `edit`, editing starts on it, otherwise the frame gets focus. Null (and the
-   * error toast) when it could not be placed.
+   * `title.trim() || 'Untitled'`; with `edit`, editing starts on it, otherwise the frame gets focus. `board`: the
+   * board the action was started on (the "Text doc" button awaits a POST, during which the page may have moved to
+   * another board): the card is placed only while that board is the open one. Null (and the error toast) when it
+   * could not be placed.
    */
-  insert(target: { id: string; title: string }, at: 'center' | FramePoint, opts: { edit?: boolean } = {}): string | null {
+  insert(target: { id: string; title: string }, at: 'center' | FramePoint, opts: InsertOptions = {}): string | null {
     const frame = frameApi();
     const b = useEmbedStore.getState().board;
     let id: string | null = null;
-    if (frame?.insertEmbed && b && !b.readOnly && isItemId(target.id) && frame.current() === b.itemId) {
+    const onBoard = b !== null && (opts.board === undefined || opts.board === b.itemId);
+    if (frame?.insertEmbed && b && onBoard && !b.readOnly && isItemId(target.id) && frame.current() === b.itemId) {
       try {
         id = frame.insertEmbed({ item: target.id, title: snapshotTitle(target.title), at });
       } catch (e) {
@@ -594,11 +605,7 @@ export class EmbedController implements EmbedSink {
 // ------------------------------------------------------------------------------------------- for the board page
 
 /** §18.6: see `EmbedController.insert`. Null without an overlay. */
-export function insertCard(
-  target: { id: string; title: string },
-  at: 'center' | FramePoint,
-  opts: { edit?: boolean } = {},
-): string | null {
+export function insertCard(target: { id: string; title: string }, at: 'center' | FramePoint, opts: InsertOptions = {}): string | null {
   const c = instance;
   if (!c) {
     toast({ message: INSERT_FAILED, kind: 'error' });

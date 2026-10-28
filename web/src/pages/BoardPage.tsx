@@ -70,15 +70,19 @@ export function BoardView({ item }: { item: ItemDetail }) {
   if (created.current?.id !== id) {
     created.current = { id, created: (location.state as { created?: boolean } | null)?.created === true };
   }
-  const { collection_id: collectionId, parent_id: parentId } = item.item;
+  // Where the board is now (a move changes both while the page stays on it): read when the page leaves the board.
+  const place = useRef({ collectionId: item.item.collection_id, parentId: item.item.parent_id });
+  place.current = { collectionId: item.item.collection_id, parentId: item.item.parent_id };
   // The "Text doc" documents created on this board in this page session (§18.6 (a) step 4).
   const textDocs = useRef<{ id: string; docs: string[] }>({ id, docs: [] });
   if (textDocs.current.id !== id) textDocs.current = { id, docs: [] };
+  // Runs its cleanup only when the page leaves the board (unmount or a board switch), never on a move or a rename.
   useEffect(() => {
     const discard = created.current?.id === id && created.current.created;
     const mine = textDocs.current;
     return () => {
       const docs = mine.docs.splice(0);
+      const { collectionId, parentId } = place.current;
       void (async () => {
         // First the created documents that are on no card (the server keeps embedded ones), then the board itself:
         // its `has_children` check would otherwise keep it for a child about to go.
@@ -97,7 +101,7 @@ export function BoardView({ item }: { item: ItemDetail }) {
         );
       })();
     };
-  }, [id, qc, collectionId, parentId]);
+  }, [id, qc]);
   const canAdd = useCanAddCards(id);
   const createdDocs = textDocs.current;
   const reason = fallbackReason({
@@ -138,7 +142,7 @@ export function BoardView({ item }: { item: ItemDetail }) {
             {embeds && (
               <>
                 <TextDocButton item={item} disabled={addDisabled} onCreated={(doc) => createdDocs.docs.push(doc)} />
-                <EmbedPageButton disabled={addDisabled} />
+                <EmbedPageButton boardId={id} disabled={addDisabled} />
               </>
             )}
             <StarToggle item={item} />

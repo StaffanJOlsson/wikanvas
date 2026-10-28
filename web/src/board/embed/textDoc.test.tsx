@@ -5,6 +5,7 @@ import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ItemDetail } from '../../api/gen/ItemDetail';
 import type { ItemSummary } from '../../api/gen/ItemSummary';
+import { updateCachedItem } from '../../api/queries/items';
 import {
   boardItem,
   boardPath,
@@ -128,6 +129,73 @@ describe('Text doc', () => {
     await waitFor(() => expect(deletes(m.requests).map((q) => q.path)).toContain('/api/v1/items/board-1'));
     const order = deletes(m.requests).map((q) => `${q.path}${q.search}`);
     expect(order).toEqual([`/api/v1/items/${DOC_3}?discard_empty=true`, '/api/v1/items/board-1?discard_empty=true']);
+  });
+
+  it('a board switch while the document is created places nothing on the next board and discards it', async () => {
+    const a = boardItem(1);
+    const b = boardItem(2);
+    let release: (() => void) | null = null;
+    const m = mockFetch({
+      ...routes(a),
+      ...boardRoutes(b),
+      'POST /api/v1/items': () =>
+        new Promise<Reply>((resolve) => {
+          release = () => resolve([201, summary(DOC_3)]);
+        }),
+      [`DELETE /api/v1/items/${DOC_3}`]: [204],
+    });
+    vi.stubGlobal('fetch', m.fetch);
+    const r = (app = await openBoardApp(a));
+    await waitFor(() => expect(textDoc().disabled).toBe(false));
+    fireEvent.click(textDoc());
+    await waitFor(() => expect(release).not.toBeNull());
+    // The sidebar takes the page to another board before the POST answers.
+    await act(() => r.router.navigate(boardPath(b)));
+    await waitFor(() => expect(useEmbedStore.getState().board?.itemId).toBe('board-2'));
+    await act(async () => release?.());
+    // The child of board 1 is never placed on board 2; it is discarded like any created document on no card.
+    await waitFor(() =>
+      expect(deletes(m.requests).map((q) => `${q.path}${q.search}`)).toEqual([`/api/v1/items/${DOC_3}?discard_empty=true`]),
+    );
+    expect(r.fake.calls.filter((c) => c.method === 'insertEmbed')).toEqual([]);
+    expect(r.fake.embedEditing()).toBeNull();
+    expect(embedController()?.editingId()).toBeNull();
+  });
+
+  it('moving the board while its page shows it discards nothing; leaving it later still does', async () => {
+    const board = boardItem(1, { title: '' });
+    const m = mockFetch(
+      routes(board, {
+        [`DELETE /api/v1/items/${DOC_3}`]: [204],
+        'DELETE /api/v1/items/board-1': [409, errorBody('not_empty')],
+      }),
+    );
+    vi.stubGlobal('fetch', m.fetch);
+    const r = (app = renderBoardApp('/home'));
+    await act(() => r.router.navigate(boardPath(board), { state: { created: true } }));
+    await waitFor(() => expect(useEmbedStore.getState().board?.itemId).toBe('board-1'));
+    await waitFor(() => expect(textDoc().disabled).toBe(false));
+    fireEvent.click(textDoc());
+    await waitFor(() => expect(r.fake.inserted).toHaveLength(1));
+    // The card is deleted in the engine: the document is on no card now.
+    act(() => {
+      r.fake.layout({ embeds: [] });
+    });
+    // The board is moved (the sidebar's drag and drop, another tab): its detail gets a new parent and collection.
+    act(() => {
+      updateCachedItem(r.queryClient, 'board-1', (d) => ({
+        ...d,
+        item: { ...d.item, parent_id: 'folder-1', collection_id: 'col-2' },
+      }));
+    });
+    await act(() => new Promise((resolve) => setTimeout(resolve, 30)));
+    expect(deletes(m.requests)).toEqual([]);
+    await act(() => r.router.navigate('/home'));
+    await waitFor(() => expect(deletes(m.requests)).toHaveLength(2));
+    expect(deletes(m.requests).map((q) => `${q.path}${q.search}`)).toEqual([
+      `/api/v1/items/${DOC_3}?discard_empty=true`,
+      '/api/v1/items/board-1?discard_empty=true',
+    ]);
   });
 
   it('an insert failure shows the toast and discards the new document at once', async () => {

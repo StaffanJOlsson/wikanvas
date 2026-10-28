@@ -38,7 +38,9 @@ export function TextDocButton({ item, disabled, onCreated }: {
     setBusy(true);
     try {
       const doc = await create.mutateAsync({ collection_id: item.item.collection_id, parent_id: item.item.id, kind: 'doc' });
-      const placed = insertCard({ id: doc.id, title: doc.title }, 'center', { edit: true });
+      // Only on this board: the page may have moved to another one while the POST ran (the document is then
+      // discarded below, as for any insert failure).
+      const placed = insertCard({ id: doc.id, title: doc.title }, 'center', { edit: true, board: item.item.id });
       if (placed === null) {
         await discardTextDoc(qc, { id: item.item.id, collectionId: item.item.collection_id }, doc.id);
       } else {
@@ -124,15 +126,15 @@ export function EmbedPagePicker({ onPick, onClose }: { onPick(item: ItemSummary)
   );
 }
 
-export function EmbedPageButton({ disabled }: { disabled: boolean }) {
+export function EmbedPageButton({ boardId, disabled }: { boardId: string; disabled: boolean }) {
   const [open, setOpen] = useState(false);
   // The card is placed after the dialog is gone: the dialog gives focus back to this button when it unmounts, and
   // the insert then moves it into the frame.
-  const [chosen, setChosen] = useState<ItemSummary | null>(null);
+  const [chosen, setChosen] = useState<{ item: ItemSummary; board: string } | null>(null);
   useEffect(() => {
     if (!chosen) return;
     setChosen(null);
-    insertCard({ id: chosen.id, title: chosen.title }, 'center');
+    insertCard({ id: chosen.item.id, title: chosen.item.title }, 'center', { board: chosen.board });
   }, [chosen]);
   return (
     <>
@@ -151,7 +153,7 @@ export function EmbedPageButton({ disabled }: { disabled: boolean }) {
           onClose={() => setOpen(false)}
           onPick={(item) => {
             setOpen(false);
-            setChosen(item);
+            setChosen({ item, board: boardId });
           }}
         />
       )}
