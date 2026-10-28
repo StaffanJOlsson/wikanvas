@@ -6,8 +6,10 @@
 //!   small tmpfs), then opens the copy on its own connection (not through the §5 PRAGMA path) with
 //!   `journal_mode=DELETE` and `secure_delete=ON`, deletes every session and API token and clears every password
 //!   hash (also the `sqlite_stat1` / `sqlite_stat4` rows of those tables: stat4 samples index keys, so it would keep
-//!   token and session hashes), and closes it, so no `-wal` or `-journal` file keeps the deleted rows. The returned
-//!   [`ExportCopy`] deletes the file when dropped.
+//!   token and session hashes), and closes it, so no `-wal` or `-journal` file keeps the deleted rows. Then a second
+//!   `VACUUM INTO` writes the file that is exported from that copy's remaining rows, because unused page space of the
+//!   first copy can still hold older copies of deleted rows; the first copy is deleted. The returned [`ExportCopy`]
+//!   deletes the file when dropped.
 //! - [`write_tar`] writes the tar into any `Write`, reading the copy and each file through 256 KiB buffers; the server
 //!   hands it a writer that sends 256 KiB chunks through a 4-chunk channel (D25: at most about 1 MiB in flight).
 
@@ -94,7 +96,7 @@ pub fn prepare_copy(db: &Db, tmp_dir: &Path) -> Result<ExportCopy> {
     let path = tmp_dir.join(format!("export-{}.db", crate::shared::random_base62(12)?));
     let maintenance = db.maintenance()?;
     // From here the guard owns the file: any error below deletes it.
-    let mut copy = ExportCopy {
+    let copy = ExportCopy {
         path,
         schema_version: 0,
     };
@@ -135,9 +137,29 @@ pub fn prepare_copy(db: &Db, tmp_dir: &Path) -> Result<ExportCopy> {
         }
     }
     conn.execute_batch("COMMIT;")?;
-    copy.schema_version = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    // secure_delete zeroes the deleted cells, but older copies of them can stay in unused page space: the first
+    // VACUUM INTO rebalances b-trees without clearing it (stat4 samples of token hashes survived there). A second
+    // VACUUM INTO writes a file from the remaining rows only; the first copy is deleted when it drops.
+    let clean = ExportCopy {
+        path: tmp_dir.join(format!("export-{}.db", crate::shared::random_base62(12)?)),
+        schema_version: conn.query_row("PRAGMA user_version", [], |r| r.get(0))?,
+    };
+    vacuum_into(&conn, &clean.path)?;
     conn.close().map_err(|(_, e)| Error::from(e))?;
-    Ok(copy)
+    drop(copy);
+    let conn = Connection::open_with_flags(
+        &clean.path,
+        OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
+    let mode: String = conn.query_row("PRAGMA journal_mode = DELETE", [], |r| r.get(0))?;
+    conn.close().map_err(|(_, e)| Error::from(e))?;
+    if !mode.eq_ignore_ascii_case("delete") {
+        return Err(Error::new(
+            ErrorCode::Internal,
+            format!("the export copy stayed in journal mode {mode}"),
+        ));
+    }
+    Ok(clean)
 }
 
 /// Writes the tar: `manifest.json`, `quire.db` (the copy), then `files/aa/bb/<sha256>` for every file under
