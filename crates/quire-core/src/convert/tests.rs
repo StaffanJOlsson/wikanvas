@@ -445,7 +445,8 @@ fn write_server_fixtures() {
         };
         let pm_json = format!(
             "{}\n",
-            serde_json::to_string_pretty(&pm::read(&doc_of(&full)).unwrap()).unwrap()
+            serde_json::to_string_pretty(&schema::sorted(&pm::read(&doc_of(&full)).unwrap()))
+                .unwrap()
         );
         let (bin_path, pm_path) = (
             dir.join(format!("{name}.bin")),

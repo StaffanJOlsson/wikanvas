@@ -124,7 +124,9 @@ pub fn base_tree(raw: &Value) -> Value {
 fn hash(node: &Value) -> [u8; 32] {
     let mut n = node.clone();
     strip(&mut n);
-    Sha256::digest(serde_json::to_vec(&n).unwrap_or_default()).into()
+    let mut h = Sha256::new();
+    schema::canonical(&n, &mut |b| h.update(b));
+    h.finalize().into()
 }
 
 fn strip(node: &mut Value) {
@@ -524,8 +526,7 @@ impl Writer {
         for (ai, aj) in gaps {
             // Pair the gap b[bi..ai] with t[tj..aj].
             let mut x = bi;
-            for j in tj..aj {
-                let tj_node = &t[j];
+            for (j, tj_node) in t.iter().enumerate().take(aj).skip(tj) {
                 let tid = block_id(tj_node);
                 if json && tid.is_some_and(|id| base_ids.contains(id)) {
                     continue;

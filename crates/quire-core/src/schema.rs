@@ -840,6 +840,58 @@ fn parse_seq(t: &[String], pos: &mut usize, schema: &Schema) -> Result<Expr, Str
     })
 }
 
+/// Feeds a canonical serialization of `v` to `out`: object keys sorted, no whitespace, with an explicit stack.
+/// `serde_json::Map` keeps insertion order when any crate in the build turns on serde_json's `preserve_order`
+/// (oas3 does, in the workspace's test builds), so nothing that compares or stores JSON may rely on its order.
+pub fn canonical(v: &Value, out: &mut dyn FnMut(&[u8])) {
+    enum Tok<'a> {
+        V(&'a Value),
+        Raw(&'static [u8]),
+        Key(&'a str),
+    }
+    let mut stack = vec![Tok::V(v)];
+    while let Some(t) = stack.pop() {
+        match t {
+            Tok::Raw(b) => out(b),
+            Tok::Key(k) => {
+                out(&serde_json::to_vec(k).unwrap_or_default());
+                out(b":");
+            }
+            Tok::V(Value::Array(items)) => {
+                stack.push(Tok::Raw(b"]"));
+                for (i, x) in items.iter().enumerate().rev() {
+                    stack.push(Tok::V(x));
+                    if i > 0 {
+                        stack.push(Tok::Raw(b","));
+                    }
+                }
+                stack.push(Tok::Raw(b"["));
+            }
+            Tok::V(Value::Object(map)) => {
+                let mut entries: Vec<(&String, &Value)> = map.iter().collect();
+                entries.sort_by(|a, b| a.0.cmp(b.0));
+                stack.push(Tok::Raw(b"}"));
+                for (i, (k, x)) in entries.into_iter().enumerate().rev() {
+                    stack.push(Tok::V(x));
+                    stack.push(Tok::Key(k));
+                    if i > 0 {
+                        stack.push(Tok::Raw(b","));
+                    }
+                }
+                stack.push(Tok::Raw(b"{"));
+            }
+            Tok::V(scalar) => out(&serde_json::to_vec(scalar).unwrap_or_default()),
+        }
+    }
+}
+
+/// `v` with every object's keys in sorted order, whatever serde_json's map type (see [`canonical`]).
+pub fn sorted(v: &Value) -> Value {
+    let mut bytes = Vec::new();
+    canonical(v, &mut |b| bytes.extend_from_slice(b));
+    serde_json::from_slice(&bytes).unwrap_or_else(|_| v.clone())
+}
+
 /// The type name of a JSON node (`""` when it has none).
 pub fn type_of(node: &Value) -> &str {
     node.get("type").and_then(Value::as_str).unwrap_or("")
@@ -1365,6 +1417,23 @@ mod tests {
             ours,
             fixture(),
             "schema v1 differs from the TipTap dump; run scripts/dev.sh pnpm --dir web fixtures"
+        );
+    }
+
+    #[test]
+    fn canonical_json_sorts_keys() {
+        let mut m = Map::new();
+        m.insert("z".into(), json!([1, {"b": true, "a": null}]));
+        m.insert("a".into(), json!("x\"y"));
+        let mut out = Vec::new();
+        canonical(&Value::Object(m.clone()), &mut |b| out.extend_from_slice(b));
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            r#"{"a":"x\"y","z":[1,{"a":null,"b":true}]}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&sorted(&Value::Object(m))).unwrap(),
+            r#"{"a":"x\"y","z":[1,{"a":null,"b":true}]}"#
         );
     }
 
