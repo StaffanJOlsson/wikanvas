@@ -1,0 +1,3 @@
+[submodule "vendor/inkboard"]
+	path = vendor/inkboard
+	url = https://github.com/VictorLetirand/inkboard.git

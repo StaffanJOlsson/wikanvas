@@ -1,0 +1,79 @@
+name: quire
+services:
+  quire:
+    image: ${QUIRE_IMAGE:-quire:latest}          # built by scripts/image.sh (quire-limited builder only)
+    pull_policy: never
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 20s
+    expose: ["8080"]                             # the project network only: no published port; Caddy is the way in (D57)
+    environment:
+      QUIRE_DOMAIN: ${QUIRE_DOMAIN:-localhost}   # allowed Host (any port) and the default public URL (§8)
+      QUIRE_TLS: ${QUIRE_TLS:-internal}          # internal | acme; HSTS only with acme (§11)
+      QUIRE_HTTPS_PORT: ${QUIRE_HTTPS_PORT:-443} # appended to the derived public URL unless 443
+      QUIRE_PUBLIC_URL: ${QUIRE_PUBLIC_URL:-}    # empty: https://$QUIRE_DOMAIN[:$QUIRE_HTTPS_PORT] (§8)
+      QUIRE_ALLOWED_HOSTS: ${QUIRE_ALLOWED_HOSTS:-}
+      QUIRE_TRUSTED_PROXIES: ${QUIRE_PROXY_IP:-172.31.240.2}   # Caddy only: X-Forwarded-* from anyone else is ignored
+      QUIRE_BACKUP_INTERVAL: ${QUIRE_BACKUP_INTERVAL:-24h}
+      QUIRE_BACKUP_KEEP: ${QUIRE_BACKUP_KEEP:-7}
+      QUIRE_MAX_UPLOAD_MB: ${QUIRE_MAX_UPLOAD_MB:-25}
+      QUIRE_MAX_BOARD_MB: ${QUIRE_MAX_BOARD_MB:-50}
+      QUIRE_TOKEN_RATE: ${QUIRE_TOKEN_RATE:-600}             # requests per minute per API token (D47)
+      QUIRE_TOKEN_BYTES_PER_HOUR: ${QUIRE_TOKEN_BYTES_PER_HOUR:-1073741824}   # request body bytes per API token (D47)
+      QUIRE_MIN_FREE_MB: ${QUIRE_MIN_FREE_MB:-1024}         # free-space floor, capped at 10% of /data (D33)
+      QUIRE_CORS_ORIGINS: ${QUIRE_CORS_ORIGINS:-}           # empty = no CORS (D48)
+      QUIRE_WORKER_THREADS: "2"                  # one per CPU of the cap below (D25)
+      QUIRE_MAX_BLOCKING_THREADS: "16"
+      RUST_LOG: ${RUST_LOG:-info}
+    volumes: ["quire-data:/data"]
+    # Runtime caps (owner requirement, D25). Raise only on purpose.
+    cpus: "${QUIRE_CPUS:-2}"
+    mem_limit: ${QUIRE_MEM:-1g}
+    memswap_limit: ${QUIRE_MEM:-1g}              # = mem_limit → no swap
+    pids_limit: 256
+    ulimits: { nofile: { soft: 4096, hard: 8192 } }
+    read_only: true
+    tmpfs: ["/tmp:size=32m"]                     # charged to mem_limit; uploads and exports stage in /data/tmp
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    logging: { driver: local, options: { max-size: "10m", max-file: "3" } }
+  caddy:
+    image: caddy:2.11.7@sha256:5e5286cb37d44086d651a5363f05f43a692ce4d649d88fb1bd844579f45fa9e8   # official image, pinned by digest (D57)
+    pull_policy: missing
+    restart: unless-stopped
+    depends_on: { quire: { condition: service_healthy } }
+    ports:                                       # TCP only: HTTP/3 is off in the Caddyfile
+      - "${QUIRE_BIND:-127.0.0.1}:${QUIRE_HTTP_PORT:-80}:80"     # http → https redirect, ACME HTTP-01
+      - "${QUIRE_BIND:-127.0.0.1}:${QUIRE_HTTPS_PORT:-443}:443"
+    environment:
+      QUIRE_DOMAIN: ${QUIRE_DOMAIN:-localhost}
+      QUIRE_TLS: ${QUIRE_TLS:-internal}
+      GOMEMLIMIT: 100MiB                         # Go's GC stays under mem_limit
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data                         # certificates, ACME account, the local CA's root and keys (§13.4)
+      - caddy-config:/config
+    networks:
+      default: { ipv4_address: "${QUIRE_PROXY_IP:-172.31.240.2}" }   # fixed: Quire trusts this address only
+    # Caddy's own caps (D57).
+    cpus: "${QUIRE_CADDY_CPUS:-0.5}"
+    mem_limit: ${QUIRE_CADDY_MEM:-128m}
+    memswap_limit: ${QUIRE_CADDY_MEM:-128m}      # no swap
+    pids_limit: 128
+    read_only: true
+    tmpfs: ["/tmp:size=8m"]
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]                  # ports 80 and 443 inside the container
+    security_opt: ["no-new-privileges:true"]
+    logging: { driver: local, options: { max-size: "10m", max-file: "3" } }
+networks:
+  default:
+    ipam:
+      config:
+        # Dynamic addresses come only from ip_range (.8–.14), so `quire`, which starts first, can never take Caddy's
+        # fixed address (.2, inside the subnet, outside the range). Without ip_range Docker hands out .2 to `quire`.
+        - { subnet: "${QUIRE_NET_SUBNET:-172.31.240.0/28}", ip_range: "${QUIRE_NET_RANGE:-172.31.240.8/29}" }
+volumes:
+  quire-data:
+  caddy-data:
+  caddy-config:

@@ -1,0 +1,27 @@
+# Quire's HTTPS front (docs/ARCHITECTURE.md §13.4). compose.yaml sets QUIRE_DOMAIN and QUIRE_TLS.
+{
+	admin off                 # no admin API; a Caddyfile change needs `docker compose restart caddy`
+	skip_install_trust        # never touch a trust store; the owner trusts the local root by hand (below)
+	servers {
+		protocols h1 h2       # no HTTP/3: UDP 443 is not published
+	}
+}
+
+(tls_internal) {
+	tls internal
+}
+(tls_acme) {
+	tls {
+		protocols tls1.2 tls1.3   # Caddy's automatic HTTPS: public ACME certificates, default issuers
+	}
+}
+
+{$QUIRE_DOMAIN} {
+	import tls_{$QUIRE_TLS}
+	# No `encode` and no `header`: Quire sends its own precompressed br/gzip and every security header.
+	reverse_proxy quire:8080 {
+		transport http {
+			compression off   # do not add Accept-Encoding toward Quire or decode its answer
+		}
+	}
+}

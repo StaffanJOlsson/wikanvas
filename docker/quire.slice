@@ -1,0 +1,9 @@
+# Parent of quire-build.slice (docs/ARCHITECTURE.md §13.1, D38). Weights only rank siblings, so the low CPU and IO
+# priority lives here, next to user.slice and system.slice; the absolute limits live in quire-build.slice.
+# Installed into /etc/systemd/system/ by scripts/install-build-slice.sh.
+[Unit]
+Description=Quire: low CPU and IO priority for its builds
+
+[Slice]
+CPUWeight=20
+IOWeight=20

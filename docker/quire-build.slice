@@ -1,0 +1,14 @@
+# Quire's total build cap (docs/ARCHITECTURE.md §13.1, D38): every build container, the BuildKit daemon behind the
+# quire-limited builder, and the e2e, agent and smoke containers run inside it. The dash in the name nests it under
+# quire.slice (systemd.slice(5)), which carries the low weights against user.slice and system.slice.
+# Installed into /etc/systemd/system/ by scripts/install-build-slice.sh (root, run once by the coordinator).
+[Unit]
+Description=Quire builds: 6 CPUs, 12 GB RAM, no swap, low priority
+
+[Slice]
+CPUQuota=600%
+MemoryMax=12G
+MemorySwapMax=0
+CPUWeight=20
+IOWeight=20
+TasksMax=16384

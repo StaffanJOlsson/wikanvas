@@ -1,0 +1,10 @@
+# The BuildKit daemon behind the quire-limited builder (docs/ARCHITECTURE.md §13.1, D38). scripts/toolchain.sh copies
+# this file into the quire-buildkit container with `docker cp` (never a bind mount from a worktree that may disappear)
+# before starting it. buildkitd reads it only at start: after a change, recreate the container (toolchain.sh detects
+# the difference and prints how).
+[worker.oci]
+  # At most two build steps at once, inside the container's caps (6 CPUs, 12 GB, no swap).
+  max-parallelism = 2
+  # Collect the build cache above 30 GB; BuildKit derives its default GC policies from this bound.
+  gc = true
+  maxUsedSpace = "30GB"
