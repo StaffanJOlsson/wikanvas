@@ -1,0 +1,1001 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: quire <quire@localhost>
+Date: Wed, 28 Oct 2026 13:51:55 +0100
+Subject: [PATCH 2/4] embed: js api
+
+Feature `embed` (wasm32 only): instead of starting the page of its own, the
+wasm `main` installs `globalThis.inkboardEmbed`, so that another page can show
+a board inside its own interface and own the file (docs/WEB.md, "Embedding").
+
+- `mount(canvas, options)` resolves to a handle: `snapshot`, `setBoard`,
+  `revision`, `isDirty`, `markSaved`, `setTheme`, `setReadOnly`, `setName`,
+  `setActive`, `focus`, `fitView`, `destroy`. One board per page: a second
+  mount rejects with `start` until the first is destroyed.
+- Host mode (`App::host`): no New, Open, Join, Save as, Quit, Language or
+  "Present full screen" (F5 does nothing either), no board name field, no
+  "Saved" label and no tab title; Ctrl/Cmd+S calls the host's `onSave`;
+  `onChange` reports a new revision, or a change of the text being typed, at
+  most once per frame and never in the middle of a gesture.
+- `setBoard` resets the history and every transient editor state (text being
+  typed, gesture, draft, dialog, presentation) before the new board shows.
+- `setActive(false)` drops the periodic repaint of a hidden host page.
+- `platform::init` is split: `init_ctx` (context, paste listener once per page,
+  ignoring pastes while the board is not focused) and `init_page` (address and
+  network listeners, the page of its own only), plus `clear_ctx`.
+- A panic is reported to `onError` through a timer of the page, which still
+  fires after the instance has trapped.
+
+No new interface text: what a host page owns is hidden, not relabelled.
+---
+ crates/inkboard-app/Cargo.toml           |   4 +
+ crates/inkboard-app/src/app.rs           | 144 +++++++-
+ crates/inkboard-app/src/chrome.rs        |  65 ++--
+ crates/inkboard-app/src/embed.rs         | 429 +++++++++++++++++++++++
+ crates/inkboard-app/src/main.rs          |  12 +-
+ crates/inkboard-app/src/platform_web.rs  |  33 +-
+ crates/inkboard-app/src/session_guest.rs |   6 +-
+ crates/inkboard-app/src/web.rs           |   6 +-
+ 8 files changed, 660 insertions(+), 39 deletions(-)
+ create mode 100644 crates/inkboard-app/src/embed.rs
+
+diff --git a/crates/inkboard-app/Cargo.toml b/crates/inkboard-app/Cargo.toml
+index 075c3ad..df30aa4 100644
+--- a/crates/inkboard-app/Cargo.toml
++++ b/crates/inkboard-app/Cargo.toml
+@@ -1,3 +1,4 @@
++# Changed for Quire (embed feature): see patches/inkboard/README.md
+ [package]
+ name = "inkboard-app"
+ description = "Inkboard desktop application (egui)."
+@@ -16,6 +17,9 @@ web-glow = ["eframe/glow"]
+ web-wgpu = ["eframe/wgpu", "dep:wgpu"]
+ # Test hook `window.__inkboard_test` of the browser end-to-end bench (web/test/e2e.mjs); never in the published page.
+ web-test = []
++# JS API for pages that embed the board (`globalThis.inkboardEmbed`, docs/WEB.md "Embedding"; wasm32 only): the wasm `main`
++# installs it instead of starting the page of its own.
++embed = []
+ 
+ [dependencies]
+ inkboard-fonts = { path = "../inkboard-fonts" }
+diff --git a/crates/inkboard-app/src/app.rs b/crates/inkboard-app/src/app.rs
+index 7ce0815..e54512d 100644
+--- a/crates/inkboard-app/src/app.rs
++++ b/crates/inkboard-app/src/app.rs
+@@ -1,3 +1,4 @@
++// Changed for Quire (embed feature): see patches/inkboard/README.md
+ //! Application state, files, keyboard shortcuts and the main loop.
+ 
+ use crate::fonts::{self, EguiMeasurer};
+@@ -59,6 +60,32 @@ pub struct Bench {
+ /// Raw image: width, height, RGBA pixels.
+ pub type RawImage = (usize, usize, Vec<u8>);
+ 
++/// What the page that embeds the board hears (feature `embed`, see `embed.rs`). Each is called at most once per frame.
++pub trait HostEvents {
++    /// The first frame is drawn.
++    fn ready(&self);
++    /// The board changed, or the text being typed did; `rev` is the editor's revision.
++    fn changed(&self, rev: u64);
++    /// Ctrl/Cmd+S: the host page saves the board (it owns the file).
++    fn save(&self);
++}
++
++/// The board is embedded in a page that owns the file (feature `embed`): no New, Open, Save as, Join or Quit, no window title, no
++/// presentation, and the host page is told about changes instead of an autosave.
++#[cfg_attr(not(all(target_arch = "wasm32", feature = "embed")), allow(dead_code, reason = "only the embed feature builds one"))]
++pub struct HostMode {
++    /// Read-only for the host page (on top of a read-only session).
++    pub read_only: bool,
++    /// Interface theme chosen by the host page (`Some(true)`: dark); `None` follows the board background.
++    pub dark: Option<bool>,
++    /// The host page is hidden: no periodic repaint.
++    pub paused: bool,
++    pub events: Box<dyn HostEvents>,
++    /// Revision and text being typed last reported by `changed`.
++    pub last_key: (u64, u64),
++    pub ready_sent: bool,
++}
++
+ /// Caches rebuilt when the document revision changes: positions by id and the spatial index.
+ pub struct Caches {
+     pub rev: u64,
+@@ -178,6 +205,8 @@ pub struct App {
+     pub guest: Option<Box<crate::session_guest::GuestSession>>,
+     pub mirror: crate::session_guest::MirrorState,
+     pub join: crate::join_ui::JoinUi,
++    /// Embedded in a host page (feature `embed`); `None` for the desktop and the web page of its own.
++    pub host: Option<HostMode>,
+ }
+ 
+ fn autosave_path() -> PathBuf {
+@@ -277,6 +306,7 @@ impl App {
+             guest: None,
+             mirror: crate::session_guest::MirrorState::default(),
+             join: crate::join_ui::JoinUi::default(),
++            host: None,
+         };
+         if restore && platform::PERSISTS {
+             app.load_keymap();
+@@ -384,6 +414,55 @@ impl App {
+         self.ed.revision() != self.saved_rev || self.editing_pending()
+     }
+ 
++    /// Is the board embedded in a host page (see [`HostMode`])?
++    pub fn hosted(&self) -> bool {
++        self.host.is_some()
++    }
++
++    /// The text being typed, as far as it is not yet part of the board (0 when nothing is pending): a change of it is a change for
++    /// the host page, which saves what [`App::host_snapshot`] returns.
++    fn pending_text_key(&self) -> u64 {
++        use std::hash::{Hash as _, Hasher as _};
++        let Some(e) = self.editing.as_ref().filter(|_| self.editing_pending()) else { return 0 };
++        let mut h = std::hash::DefaultHasher::new();
++        (&e.id, &e.buf, format!("{:?}", e.align)).hash(&mut h);
++        h.finish() | 1
++    }
++
++    /// A read-only host page: like a read-only guest, the board can only be looked at and pointed at.
++    fn host_guard(&mut self) {
++        if !self.host.as_ref().is_some_and(|h| h.read_only) {
++            return;
++        }
++        if !matches!(self.tool, Tool::Hand | Tool::Laser) {
++            self.tool = Tool::Hand;
++        }
++        if !matches!(self.drag, None | Some(Drag::Pan { .. })) {
++            self.drag = None;
++        }
++        self.draft = None;
++        self.editing = None;
++    }
++
++    /// Tells the host page that the first frame is drawn, and about a change of the board or of the text being typed: at most once
++    /// per frame, and never in the middle of a gesture (the board is only consistent once it ends).
++    fn host_frame(&mut self) {
++        if self.host.is_none() {
++            return;
++        }
++        let key = (self.ed.revision(), self.pending_text_key());
++        let settled = !self.objects_moving() && self.drag.is_none();
++        let Some(h) = self.host.as_mut() else { return };
++        if !h.ready_sent {
++            h.ready_sent = true;
++            h.events.ready();
++        }
++        if settled && key != h.last_key {
++            h.last_key = key;
++            h.events.changed(key.0);
++        }
++    }
++
+     pub fn title(&self) -> String {
+         let name = self.path.as_ref().and_then(|p| p.file_name()).and_then(|n| n.to_str()).map_or_else(|| self.ed.doc.name.clone(), str::to_owned);
+         format!("{}{} — Inkboard", if self.dirty() { "● " } else { "" }, name)
+@@ -865,6 +944,13 @@ impl App {
+         }
+         let sel = self.sel.clone();
+         match a {
++            // a host page owns the file and the window: no other board, no dialog, no full screen; "Save" is the host's
++            Action::New | Action::Open | Action::Present if self.hosted() => {}
++            Action::Save | Action::SaveAs if self.hosted() => {
++                if let Some(h) = &self.host {
++                    h.events.save();
++                }
++            }
+             Action::New => self.request_new_document(),
+             Action::Open => self.open_dialog(),
+             Action::Save => self.save(),
+@@ -1112,6 +1198,46 @@ impl App {
+     }
+ }
+ 
++/// The board as the host page sees it (feature `embed`, see `embed.rs`).
++#[cfg(all(target_arch = "wasm32", feature = "embed"))]
++impl App {
++    /// The board for the host page to save, in the native format: the text being typed included, unused assets left out. Both
++    /// happen on a copy: the live document keeps its editing and its assets (undoing the removal of an image still finds it).
++    pub fn host_snapshot(&self) -> String {
++        let mut doc = self.pending_document().unwrap_or_else(|| self.ed.doc.clone());
++        doc.prune_assets();
++        inkboard_core::serial::to_json(&doc, false)
++    }
++
++    /// Replaces the board with one from the host page (native format): see [`App::host_load_doc`].
++    pub fn host_load(&mut self, json: &str) -> Result<(), inkboard_core::serial::LoadError> {
++        self.host_load_doc(inkboard_core::serial::from_json(json)?);
++        Ok(())
++    }
++
++    /// Shows another board: a fresh history, nothing of the previous board left in the editor (the text being typed, a gesture, a
++    /// dialog; `open_text` can rely on the menu to validate the editing first, a host page cannot), saved as it is.
++    pub fn host_load_doc(&mut self, doc: Document) {
++        self.editing = None;
++        self.drag = None;
++        self.draft = None;
++        self.prop_edit = None;
++        self.dialog = None;
++        self.present_req = None;
++        self.presenting = false;
++        self.ed.reset(doc);
++        self.saved_rev = self.ed.revision();
++        self.sel.clear();
++        self.textures.clear();
++        self.paste_count = 0;
++        self.fit_pending = true;
++        let rev = self.ed.revision();
++        if let Some(h) = self.host.as_mut() {
++            h.last_key = (rev, 0);
++        }
++    }
++}
++
+ impl App {
+     /// Closing the application ends the shared session cleanly: guests are told, the network threads and sockets are released.
+     fn shutdown(&mut self) {
+@@ -1123,6 +1249,12 @@ impl App {
+ }
+ 
+ impl eframe::App for App {
++    // `WebRunner::app_mut` reaches the application through this (the embed feature's JS API); the method exists only on the web
++    #[cfg(target_arch = "wasm32")]
++    fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
++        Some(&mut *self)
++    }
++
+     // eframe passes the OpenGL context to `on_exit` only when its `glow` feature is on (not in a `web-wgpu` build)
+     #[cfg(not(all(target_arch = "wasm32", feature = "web-wgpu", not(feature = "web-glow"))))]
+     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+@@ -1140,12 +1272,13 @@ impl eframe::App for App {
+         if let Some(p) = self.pending_open.take() {
+             self.open_path(&p);
+         }
+-        let dark = self.ed.doc.background.preset.is_dark();
++        let dark = self.host.as_ref().and_then(|h| h.dark).unwrap_or_else(|| self.ed.doc.background.preset.is_dark());
+         if dark != self.ui_dark {
+             crate::theme::apply(ctx, dark);
+             self.ui_dark = dark;
+         }
+         self.poll_platform();
++        self.host_guard();
+         self.apply_present_request(ctx);
+         self.guest_frame(ctx);
+         #[cfg(all(target_arch = "wasm32", feature = "web-test"))]
+@@ -1175,11 +1308,13 @@ impl eframe::App for App {
+             crate::pen_test::panel(r, ctx, self.pen_force);
+         }
+         ui::toast(self, ctx);
++        // the title of a host page is the host's
+         let title = self.title();
+-        if title != self.last_title {
++        if title != self.last_title && !self.hosted() {
+             platform::set_title(ctx, &title);
+             self.last_title = title;
+         }
++        self.host_frame();
+         self.autosave();
+         self.screenshot_step(ctx);
+         if ctx.input(|i| i.viewport().close_requested()) && self.screenshot.is_none() {
+@@ -1189,7 +1324,10 @@ impl eframe::App for App {
+                 let _ = inkboard_core::serial::save(&self.ed.doc, &autosave_path());
+             }
+         }
+-        ctx.request_repaint_after(Duration::from_millis(500));
++        // a hidden host page asks for no frame (input and the host's calls still repaint)
++        if !self.host.as_ref().is_some_and(|h| h.paused) {
++            ctx.request_repaint_after(Duration::from_millis(500));
++        }
+         self.bench_step(ctx, started);
+         self.icon_bench_step(ctx, started);
+     }
+diff --git a/crates/inkboard-app/src/chrome.rs b/crates/inkboard-app/src/chrome.rs
+index fb79e6f..9d4d5f4 100644
+--- a/crates/inkboard-app/src/chrome.rs
++++ b/crates/inkboard-app/src/chrome.rs
+@@ -1,3 +1,4 @@
++// Changed for Quire (embed feature): see patches/inkboard/README.md
+ //! Application frame: floating cards above the full-screen canvas, like the web prototype
+ //! (title bar and menu top left, tools top center, undo/zoom bottom left, help bottom right).
+ 
+@@ -56,9 +57,12 @@ fn title_card(app: &mut App, ctx: &Context) {
+                 .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                 .width(250.0)
+                 .show(|ui| main_menu(app, ui));
+-            board_name(app, ui);
+-            let (text, p) = (save_state(app), theme::current(ui.ctx()));
+-            ui.label(egui::RichText::new(text).size(11.0).color(p.mute));
++            // a host page has its own title and saves the board itself
++            if !app.hosted() {
++                board_name(app, ui);
++                let (text, p) = (save_state(app), theme::current(ui.ctx()));
++                ui.label(egui::RichText::new(text).size(11.0).color(p.mute));
++            }
+             ui.add_space(6.0);
+         });
+     });
+@@ -423,20 +427,23 @@ fn main_menu(app: &mut App, ui: &mut Ui) {
+         theme::menu_style(ui);
+         ui.set_min_width(238.0);
+         // in a shared session the board is the host's: no new board, no opening another one
+-        let (guest, view_only) = (app.guest_active(), app.view_only());
+-        if mi_if(ui, "filenew", "New board", &key(app, Action::New), !guest) {
+-            app.request_new_document();
+-        }
+-        if mi_if(ui, "folder", "Open / import a file…", &key(app, Action::Open), !guest) {
+-            app.open_dialog();
+-        }
+-        if guest || app.guest.is_some() {
+-            if mi(ui, "play", "Leave the session", "") {
+-                app.leave_guest();
+-                app.join.window = None;
++        let (guest, view_only, hosted) = (app.guest_active(), app.view_only(), app.hosted());
++        // a host page owns the file: no other board, and the host saves (Ctrl/Cmd+S still asks it to)
++        if !hosted {
++            if mi_if(ui, "filenew", "New board", &key(app, Action::New), !guest) {
++                app.request_new_document();
++            }
++            if mi_if(ui, "folder", "Open / import a file…", &key(app, Action::Open), !guest) {
++                app.open_dialog();
++            }
++            if guest || app.guest.is_some() {
++                if mi(ui, "play", "Leave the session", "") {
++                    app.leave_guest();
++                    app.join.window = None;
++                }
++            } else if mi(ui, "play", "Join a session…", "") {
++                app.open_join_window(None);
+             }
+-        } else if mi(ui, "play", "Join a session…", "") {
+-            app.open_join_window(None);
+         }
+         if mi_if(ui, "mermaid", "Import Mermaid…", "", !guest) {
+             app.dialog = Some(Dialog::Mermaid {
+@@ -445,11 +452,13 @@ fn main_menu(app: &mut App, ui: &mut Ui) {
+                 error: None,
+             });
+         }
+-        if mi(ui, "save", "Save", &key(app, Action::Save)) {
+-            app.save();
+-        }
+-        if mi(ui, "save", "Save as…", &key(app, Action::SaveAs)) {
+-            app.save_as();
++        if !hosted {
++            if mi(ui, "save", "Save", &key(app, Action::Save)) {
++                app.save();
++            }
++            if mi(ui, "save", "Save as…", &key(app, Action::SaveAs)) {
++                app.save_as();
++            }
+         }
+         export_items(app, ui);
+         theme::menu_sep(ui);
+@@ -491,7 +500,7 @@ fn main_menu(app: &mut App, ui: &mut Ui) {
+         }
+         theme::menu_sep(ui);
+         background_items(app, ui, &p);
+-        if theme::menu_item(ui, Some("select"), "Animate the agent", "", app.agent.animate, true) {
++        if !hosted && theme::menu_item(ui, Some("select"), "Animate the agent", "", app.agent.animate, true) {
+             app.agent.animate = !app.agent.animate;
+             crate::presence::save_animate(app.agent.animate);
+             if !app.agent.animate {
+@@ -504,7 +513,8 @@ fn main_menu(app: &mut App, ui: &mut Ui) {
+         }
+         theme::menu_sep(ui);
+         theme::menu_label(ui, "View");
+-        if mi(ui, "play", "Present full screen", &key(app, Action::Present)) {
++        // the host page decides about full screen; presenting inside it would leave its frame without a way out
++        if !hosted && mi(ui, "play", "Present full screen", &key(app, Action::Present)) {
+             app.present_req = Some(true);
+         }
+         if mi(ui, "fit", "Fit all", &key(app, Action::ZoomFit)) {
+@@ -516,8 +526,11 @@ fn main_menu(app: &mut App, ui: &mut Ui) {
+         }
+         timer_menu(app, ui);
+         theme::menu_sep(ui);
+-        language_items(app, ui);
+-        theme::menu_sep(ui);
++        // the host page chooses the language when it mounts the board
++        if !hosted {
++            language_items(app, ui);
++            theme::menu_sep(ui);
++        }
+         if mi(ui, "keyboard", "Keyboard shortcuts…", "") {
+             app.dialog = Some(Dialog::Shortcuts { filter: String::new(), recording: None });
+         }
+@@ -526,7 +539,7 @@ fn main_menu(app: &mut App, ui: &mut Ui) {
+             app.ed.remove(&ids);
+             app.sel.clear();
+         }
+-        if mi(ui, "full", "Quit", "") {
++        if !hosted && mi(ui, "full", "Quit", "") {
+             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+         }
+     });
+diff --git a/crates/inkboard-app/src/embed.rs b/crates/inkboard-app/src/embed.rs
+new file mode 100644
+index 0000000..cea5dc4
+--- /dev/null
++++ b/crates/inkboard-app/src/embed.rs
+@@ -0,0 +1,429 @@
++// Changed for Quire (embed feature): see patches/inkboard/README.md
++//! JS API of the `embed` feature, for a page that shows a board inside its own interface and owns the file: the wasm `main`
++//! installs `globalThis.inkboardEmbed` instead of starting the page of its own (`web.rs`). See `docs/WEB.md`, "Embedding".
++//!
++//! - `version` (the package version + `"+embed"`) and `formatVersion` (the native format version);
++//! - `mount(canvas, options)`: a promise of a handle (`snapshot`, `setBoard`, `revision`, `isDirty`, `markSaved`, `setTheme`,
++//!   `setReadOnly`, `setName`, `setActive`, `focus`, `fitView`, `destroy`). It rejects with `{kind, message}`: `webgl` (no WebGL 2),
++//!   `load` (the board cannot be read) or `start` (eframe could not start, or another board is mounted: one board per page, because
++//!   the browser side of `platform` keeps one application state).
++//!
++//! The workspace forbids unsafe code, so nothing is exported with `#[wasm_bindgen]`: the API is an object of closures, like the test
++//! hook of `web_test.rs`. Calls to the page's callbacks always go through `spawn_local`, because eframe holds the application while it
++//! builds a frame; the panic report goes through a plain timer of the page, which still fires after the wasm instance has trapped.
++
++use crate::app::{App, HostEvents, HostMode};
++use crate::{i18n, platform, web};
++use eframe::egui;
++use js_sys::{Function, Object, Promise, Reflect};
++use std::cell::{Cell, RefCell};
++use std::rc::Rc;
++use wasm_bindgen::JsCast as _;
++use wasm_bindgen::closure::WasmClosure;
++use wasm_bindgen::prelude::*;
++
++/// The board on the page.
++struct Mounted {
++    /// Which mount this is: a handle only drives the board it was made for.
++    generation: u32,
++    runner: eframe::WebRunner,
++    ctx: egui::Context,
++    canvas: web_sys::HtmlCanvasElement,
++}
++
++thread_local! {
++    /// A board is mounted, or being mounted.
++    static MOUNTED: Cell<bool> = const { Cell::new(false) };
++    static CURRENT: RefCell<Option<Mounted>> = const { RefCell::new(None) };
++    static GENERATION: Cell<u32> = const { Cell::new(0) };
++    /// `onError` of the mounted board, for the panic hook.
++    static ON_ERROR: RefCell<Option<Function>> = const { RefCell::new(None) };
++    static PANIC_HOOK: Cell<bool> = const { Cell::new(false) };
++}
++
++/// Puts `inkboardEmbed` on the global object (the wasm `main` of the `embed` build).
++pub fn install_global() {
++    eframe::WebLogger::init(log::LevelFilter::Error).ok();
++    let api = Object::new();
++    set(&api, "version", &JsValue::from_str(concat!(env!("CARGO_PKG_VERSION"), "+embed")));
++    set(&api, "formatVersion", &JsValue::from(inkboard_core::serial::VERSION));
++    method(&api, "mount", Closure::<dyn Fn(JsValue, JsValue) -> Promise>::new(|canvas, options: JsValue| mount(canvas, &options)));
++    let _ = Object::freeze(&api);
++    set(&js_sys::global(), "inkboardEmbed", &api);
++}
++
++/* ------------------------------------------------------------------------------------------------------------------- mount */
++
++/// What `mount` reads from its options (unknown or missing values: today's behaviour of the page of its own).
++struct MountOptions {
++    board: Option<String>,
++    name: Option<String>,
++    dark: Option<bool>,
++    lang: Option<i18n::Lang>,
++    read_only: bool,
++    events: JsEvents,
++    on_error: Option<Function>,
++}
++
++impl MountOptions {
++    fn read(o: &JsValue) -> Result<Self, JsValue> {
++        let board = get(o, "board");
++        let board = if board.is_null() || board.is_undefined() {
++            None
++        } else {
++            Some(board.as_string().ok_or_else(|| error("load", "`board` must be the board's JSON text, or null"))?)
++        };
++        let lang = match get(o, "lang").as_string().as_deref() {
++            Some("en") => Some(i18n::Lang::En),
++            Some("fr") => Some(i18n::Lang::Fr),
++            _ => None,
++        };
++        Ok(Self {
++            board,
++            name: get(o, "name").as_string(),
++            dark: theme_of(&get(o, "theme")),
++            lang,
++            read_only: get(o, "readOnly").is_truthy(),
++            events: JsEvents { ready: function(o, "onReady"), change: function(o, "onChange"), save: function(o, "onSave") },
++            on_error: function(o, "onError"),
++        })
++    }
++}
++
++fn mount(canvas: JsValue, options: &JsValue) -> Promise {
++    if MOUNTED.get() {
++        return Promise::reject(&error("start", "already mounted"));
++    }
++    let Ok(canvas) = canvas.dyn_into::<web_sys::HtmlCanvasElement>() else {
++        return Promise::reject(&error("start", "mount needs a canvas element"));
++    };
++    let opts = match MountOptions::read(options) {
++        Ok(o) => o,
++        Err(e) => return Promise::reject(&e),
++    };
++    let Some(document) = web_sys::window().and_then(|w| w.document()) else {
++        return Promise::reject(&error("start", "no document"));
++    };
++    if cfg!(not(feature = "web-wgpu")) && !web::webgl_available(&document) {
++        return Promise::reject(&error("webgl", "WebGL 2 is not available"));
++    }
++    // the ids come from a clock natively; a browser has none, and two browsers must never draw the same ids
++    inkboard_core::model::seed_ids(platform::random_seed());
++    let doc = match opts.board.as_deref().map(inkboard_core::serial::from_json) {
++        Some(Ok(doc)) => doc,
++        Some(Err(e)) => return Promise::reject(&error("load", &e.to_string())),
++        None => inkboard_core::Document::default(),
++    };
++    MOUNTED.set(true);
++    let generation = GENERATION.get().wrapping_add(1);
++    GENERATION.set(generation);
++    ON_ERROR.with(|e| e.borrow_mut().clone_from(&opts.on_error));
++    wasm_bindgen_futures::future_to_promise(async move {
++        let runner = eframe::WebRunner::new();
++        // after eframe's own hook (installed by `WebRunner::new`), which it then calls first
++        install_panic_hook();
++        let slot: Rc<RefCell<Option<egui::Context>>> = Rc::default();
++        let creator_slot = Rc::clone(&slot);
++        let MountOptions { name, dark, lang, read_only, events, .. } = opts;
++        let started = runner
++            .start(
++                canvas.clone(),
++                eframe::WebOptions::default(),
++                Box::new(move |cc| {
++                    platform::init_ctx(&cc.egui_ctx);
++                    let mut app = App::new(cc, None, None);
++                    app.host = Some(HostMode { read_only, dark, paused: false, events: Box::new(events), last_key: (0, 0), ready_sent: false });
++                    if let Some(lang) = lang {
++                        i18n::set(lang);
++                    }
++                    app.host_load_doc(doc);
++                    app.ed.set_read_only(read_only);
++                    if let Some(name) = name {
++                        app.ed.doc.name = name;
++                    }
++                    *creator_slot.borrow_mut() = Some(cc.egui_ctx.clone());
++                    Ok(Box::new(app))
++                }),
++            )
++            .await;
++        let ctx = slot.borrow_mut().take();
++        match (started, ctx) {
++            (Ok(()), Some(ctx)) => {
++                CURRENT.with(|c| *c.borrow_mut() = Some(Mounted { generation, runner, ctx, canvas }));
++                Ok(handle(generation))
++            }
++            (started, _) => {
++                runner.destroy();
++                platform::clear_ctx();
++                ON_ERROR.with(|e| e.borrow_mut().take());
++                MOUNTED.set(false);
++                let message = started.err().map_or_else(|| "the application was not created".to_owned(), |e| message_of(&e));
++                Err(error("start", &message))
++            }
++        }
++    })
++}
++
++/* ------------------------------------------------------------------------------------------------------------------ handle */
++
++/// The handle `mount` resolves to. Once `destroy` was called (or another board was mounted after it) it does nothing: `snapshot`
++/// and `setBoard` throw `{kind: 'start'}`, `revision` is 0 and `isDirty` false.
++fn handle(generation: u32) -> JsValue {
++    let h = Object::new();
++    board_methods(&h, generation);
++    view_methods(&h, generation);
++    method(&h, "destroy", Closure::<dyn Fn()>::new(move || destroy(generation)));
++    let _ = Object::freeze(&h);
++    h.into()
++}
++
++/// The board itself: `snapshot`, `setBoard`, `revision`, `isDirty`, `markSaved`.
++fn board_methods(h: &Object, generation: u32) {
++    method(
++        h,
++        "snapshot",
++        Closure::<dyn Fn() -> Result<JsValue, JsValue>>::new(move || {
++            with_app(generation, false, |app, _| {
++                let o = Object::new();
++                set(&o, "board", &JsValue::from_str(&app.host_snapshot()));
++                set(&o, "revision", &js_number(app.ed.revision()));
++                JsValue::from(o)
++            })
++            .ok_or_else(not_mounted)
++        }),
++    );
++    method(
++        h,
++        "setBoard",
++        Closure::<dyn Fn(JsValue, JsValue) -> Result<(), JsValue>>::new(move |board: JsValue, name: JsValue| {
++            // read before anything changes: a board that cannot be read leaves the current one as it is
++            let doc = if board.is_null() || board.is_undefined() {
++                inkboard_core::Document::default()
++            } else {
++                let json = board.as_string().ok_or_else(|| error("load", "the board must be its JSON text, or null"))?;
++                inkboard_core::serial::from_json(&json).map_err(|e| error("load", &e.to_string()))?
++            };
++            with_app(generation, true, |app, _| {
++                app.host_load_doc(doc);
++                if let Some(name) = name.as_string() {
++                    app.ed.doc.name = name;
++                }
++            })
++            .ok_or_else(not_mounted)
++        }),
++    );
++    method(h, "revision", Closure::<dyn Fn() -> JsValue>::new(move || js_number(with_app(generation, false, |app, _| app.ed.revision()).unwrap_or(0))));
++    method(h, "isDirty", Closure::<dyn Fn() -> bool>::new(move || with_app(generation, false, |app, _| app.dirty()).unwrap_or(false)));
++    method(
++        h,
++        "markSaved",
++        Closure::<dyn Fn(JsValue)>::new(move |rev: JsValue| {
++            let Some(rev) = rev.as_f64() else { return };
++            with_app(generation, true, |app, _| app.saved_rev = inkboard_core::num::to_u64(rev));
++        }),
++    );
++}
++
++/// How the board is shown: `setTheme`, `setReadOnly`, `setName`, `setActive`, `focus`, `fitView`.
++fn view_methods(h: &Object, generation: u32) {
++    method(
++        h,
++        "setTheme",
++        Closure::<dyn Fn(JsValue)>::new(move |theme: JsValue| {
++            with_app(generation, true, |app, _| {
++                if let Some(host) = app.host.as_mut() {
++                    host.dark = theme_of(&theme);
++                }
++            });
++        }),
++    );
++    method(
++        h,
++        "setReadOnly",
++        Closure::<dyn Fn(JsValue)>::new(move |on: JsValue| {
++            let on = on.is_truthy();
++            with_app(generation, true, |app, _| {
++                if on {
++                    // the text typed so far stays, while the editor still accepts it
++                    app.commit_editing();
++                }
++                if let Some(host) = app.host.as_mut() {
++                    host.read_only = on;
++                }
++                app.ed.set_read_only(on);
++            });
++        }),
++    );
++    method(
++        h,
++        "setName",
++        Closure::<dyn Fn(JsValue)>::new(move |name: JsValue| {
++            let Some(name) = name.as_string() else { return };
++            // the name only names the exported files: no undo step, no revision
++            with_app(generation, true, |app, _| app.ed.doc.name = name);
++        }),
++    );
++    method(
++        h,
++        "setActive",
++        Closure::<dyn Fn(JsValue)>::new(move |on: JsValue| {
++            let on = on.is_truthy();
++            // active again: a frame now; inactive: no frame is asked for at all
++            with_app(generation, on, |app, _| {
++                if let Some(host) = app.host.as_mut() {
++                    host.paused = !on;
++                }
++            });
++        }),
++    );
++    method(
++        h,
++        "focus",
++        Closure::<dyn Fn()>::new(move || {
++            with_app(generation, true, |_, m| m.canvas.focus().ok());
++        }),
++    );
++    method(
++        h,
++        "fitView",
++        Closure::<dyn Fn()>::new(move || {
++            with_app(generation, true, |app, _| app.fit_pending = true);
++        }),
++    );
++}
++
++/// Runs `f` on the board of `generation` and, with `repaint`, asks for a frame. `None` when that board is gone (destroyed, or the
++/// engine stopped after a panic).
++fn with_app<R>(generation: u32, repaint: bool, f: impl FnOnce(&mut App, &Mounted) -> R) -> Option<R> {
++    CURRENT.with(|c| {
++        let c = c.borrow();
++        let m = c.as_ref().filter(|m| m.generation == generation)?;
++        let r = {
++            let mut app = m.runner.app_mut::<App>()?;
++            f(&mut app, m)
++        };
++        if repaint {
++            m.ctx.request_repaint();
++        }
++        Some(r)
++    })
++}
++
++fn destroy(generation: u32) {
++    let gone = CURRENT.with(|c| {
++        let mut c = c.borrow_mut();
++        if c.as_ref().is_some_and(|m| m.generation == generation) { c.take() } else { None }
++    });
++    if let Some(m) = gone {
++        m.runner.destroy();
++        platform::clear_ctx();
++        ON_ERROR.with(|e| e.borrow_mut().take());
++        MOUNTED.set(false);
++    }
++}
++
++/* ------------------------------------------------------------------------------------------------------------- page events */
++
++/// The page's callbacks of one mount.
++struct JsEvents {
++    ready: Option<Function>,
++    change: Option<Function>,
++    save: Option<Function>,
++}
++
++impl HostEvents for JsEvents {
++    fn ready(&self) {
++        later(self.ready.as_ref(), JsValue::UNDEFINED);
++    }
++
++    fn changed(&self, rev: u64) {
++        let e = Object::new();
++        set(&e, "revision", &js_number(rev));
++        later(self.change.as_ref(), e.into());
++    }
++
++    fn save(&self) {
++        later(self.save.as_ref(), JsValue::UNDEFINED);
++    }
++}
++
++/// Calls `f(arg)` once the current frame is over (eframe holds the application while it builds one, so a callback that calls the
++/// handle would find it taken).
++fn later(f: Option<&Function>, arg: JsValue) {
++    let Some(f) = f.cloned() else { return };
++    wasm_bindgen_futures::spawn_local(async move {
++        if let Err(e) = f.call1(&JsValue::NULL, &arg) {
++            web_sys::console::error_1(&e);
++        }
++    });
++}
++
++/// Reports a panic to the page's `onError` (`{kind: 'panic', message}`), chained after the hooks already installed.
++fn install_panic_hook() {
++    if PANIC_HOOK.replace(true) {
++        return;
++    }
++    let previous = std::panic::take_hook();
++    std::panic::set_hook(Box::new(move |info| {
++        previous(info);
++        report_panic(&info.to_string());
++    }));
++}
++
++fn report_panic(message: &str) {
++    let Some(f) = ON_ERROR.with(|e| e.try_borrow().ok().and_then(|e| e.clone())) else { return };
++    let Some(window) = web_sys::window() else { return };
++    // a timer of the page, not `spawn_local`: the wasm instance traps right after this hook, and its tasks never run again
++    let call: Function = f.bind1(&JsValue::NULL, &error("panic", message)).unchecked_into();
++    let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(&call, 0);
++}
++
++/* ---------------------------------------------------------------------------------------------------------------- helpers */
++
++fn set(o: &JsValue, key: &str, value: &JsValue) {
++    let _ = Reflect::set(o, &JsValue::from_str(key), value);
++}
++
++fn get(o: &JsValue, key: &str) -> JsValue {
++    if o.is_object() { Reflect::get(o, &JsValue::from_str(key)).unwrap_or(JsValue::UNDEFINED) } else { JsValue::UNDEFINED }
++}
++
++fn function(o: &JsValue, key: &str) -> Option<Function> {
++    get(o, key).dyn_into::<Function>().ok()
++}
++
++/// Puts a closure on `o` for good (a few bytes per mount).
++fn method<T: ?Sized + WasmClosure>(o: &Object, name: &str, f: Closure<T>) {
++    set(o, name, f.as_ref());
++    f.forget();
++}
++
++/// `'light'` → light, `'dark'` → dark, anything else (`'board'`, missing): the board background decides.
++fn theme_of(theme: &JsValue) -> Option<bool> {
++    match theme.as_string().as_deref() {
++        Some("light") => Some(false),
++        Some("dark") => Some(true),
++        _ => None,
++    }
++}
++
++/// `{kind, message}`, what the API rejects with and throws.
++fn error(kind: &str, message: &str) -> JsValue {
++    let o = Object::new();
++    set(&o, "kind", &JsValue::from_str(kind));
++    set(&o, "message", &JsValue::from_str(message));
++    o.into()
++}
++
++fn not_mounted() -> JsValue {
++    error("start", "the board is not mounted (destroyed, or the engine stopped)")
++}
++
++fn message_of(e: &JsValue) -> String {
++    e.dyn_ref::<js_sys::Error>().map_or_else(|| e.as_string().unwrap_or_else(|| format!("{e:?}")), |err| String::from(err.message()))
++}
++
++#[expect(clippy::cast_precision_loss, reason = "a revision counts edits: it stays far below 2^53")]
++fn js_number(n: u64) -> JsValue {
++    JsValue::from_f64(n as f64)
++}
+diff --git a/crates/inkboard-app/src/main.rs b/crates/inkboard-app/src/main.rs
+index 20f1319..f1d2f87 100644
+--- a/crates/inkboard-app/src/main.rs
++++ b/crates/inkboard-app/src/main.rs
+@@ -1,3 +1,4 @@
++// Changed for Quire (embed feature): see patches/inkboard/README.md
+ //! Inkboard desktop application (egui).
+ // Test code counts, casts and compares freely: these `clippy::pedantic` lints are for the code that ships.
+ #![cfg_attr(
+@@ -78,6 +79,9 @@ mod ui;
+ mod watch;
+ #[cfg(target_arch = "wasm32")]
+ mod web;
++// the JS API of a board embedded in another page (`globalThis.inkboardEmbed`), installed instead of starting the page of its own
++#[cfg(all(target_arch = "wasm32", feature = "embed"))]
++mod embed;
+ #[cfg(all(target_arch = "wasm32", feature = "web-test"))]
+ mod web_test;
+ 
+@@ -200,11 +204,17 @@ Your last saved file is intact.",
+     }));
+ }
+ 
+-#[cfg(target_arch = "wasm32")]
++#[cfg(all(target_arch = "wasm32", not(feature = "embed")))]
+ fn main() {
+     web::start();
+ }
+ 
++/// The host page mounts the board itself (see `embed.rs`).
++#[cfg(all(target_arch = "wasm32", feature = "embed"))]
++fn main() {
++    embed::install_global();
++}
++
+ #[cfg(not(target_arch = "wasm32"))]
+ fn main() -> eframe::Result {
+     let l = parse_args(&std::env::args().skip(1).collect::<Vec<_>>());
+diff --git a/crates/inkboard-app/src/platform_web.rs b/crates/inkboard-app/src/platform_web.rs
+index 1e979b4..de5822b 100644
+--- a/crates/inkboard-app/src/platform_web.rs
++++ b/crates/inkboard-app/src/platform_web.rs
+@@ -1,7 +1,8 @@
++// Changed for Quire (embed feature): see patches/inkboard/README.md
+ //! Browser side of [`crate::platform`].
+ //!
+ //! What the browser delivers late (a picked file, a pasted image, the downloaded icon pack) is queued here, then taken by
+-//! [`poll`] / [`request_icon_pack`] on the next frame; the context given to [`init`] wakes the application up.
++//! [`poll`] / [`request_icon_pack`] on the next frame; the context given to [`init_ctx`] wakes the application up.
+ 
+ use super::{Incoming, Pack};
+ use crate::app::RawImage;
+@@ -37,17 +38,36 @@ thread_local! {
+     static ICONS: Cell<Option<&'static inkboard_icons::Library>> = const { Cell::new(None) };
+     /// The browser said the network is back (or the tab is visible again) since the session last looked.
+     static NET_EVENT: Cell<bool> = const { Cell::new(false) };
++    /// The paste listener is installed (once per page, whatever the number of boards mounted one after the other).
++    static PASTE_LISTENER: Cell<bool> = const { Cell::new(false) };
+ }
+ 
+-/// Called once at startup: remembers the context (to wake the application up), listens to the clipboard, to the address of the page
+-/// (an invitation link) and to the browser's network events.
+-pub fn init(ctx: &egui::Context) {
++/// Called at startup: remembers the context (to wake the application up) and listens to the clipboard. An embedded board (feature
++/// `embed`) calls only this one, and again for each new mount.
++pub fn init_ctx(ctx: &egui::Context) {
+     CTX.with(|c| *c.borrow_mut() = Some(ctx.clone()));
+-    install_paste_listener();
++    if !PASTE_LISTENER.with(|p| p.replace(true)) {
++        install_paste_listener();
++    }
++}
++
++/// Called once at startup by the page of its own (not by a host page, which owns its address and its events): listens to the
++/// address of the page (an invitation link) and to the browser's network events.
++pub fn init_page() {
+     install_link_listener();
+     install_network_listeners();
+ }
+ 
++/// Forgets the context given to [`init_ctx`] (the embedded board is destroyed): nothing wakes it up or reaches it any more.
++pub fn clear_ctx() {
++    CTX.with(|c| *c.borrow_mut() = None);
++}
++
++/// Does the board have the keyboard focus? (A host page has fields of its own, whose pastes are not for the board.)
++fn board_focused() -> bool {
++    CTX.with(|c| c.borrow().as_ref().is_some_and(|ctx| ctx.input(|i| i.focused)))
++}
++
+ fn wake() {
+     CTX.with(|c| {
+         if let Some(ctx) = c.borrow().as_ref() {
+@@ -148,6 +168,9 @@ pub fn copy_image(width: usize, height: usize, rgba: Vec<u8>) -> Result<(), Stri
+ fn install_paste_listener() {
+     let Some(document) = web_sys::window().and_then(|w| w.document()) else { return };
+     let on_paste = Closure::<dyn FnMut(web_sys::ClipboardEvent)>::new(|ev: web_sys::ClipboardEvent| {
++        if !board_focused() {
++            return;
++        }
+         let Some(data) = ev.clipboard_data() else { return };
+         // when there is text, the text wins (eframe handles it)
+         if data.get_data("text/plain").is_ok_and(|t| !t.is_empty()) {
+diff --git a/crates/inkboard-app/src/session_guest.rs b/crates/inkboard-app/src/session_guest.rs
+index 78695b6..e7f25de 100644
+--- a/crates/inkboard-app/src/session_guest.rs
++++ b/crates/inkboard-app/src/session_guest.rs
+@@ -1,3 +1,4 @@
++// Changed for Quire (embed feature): see patches/inkboard/README.md
+ //! Guest side of a shared session (lot D): joining by link, the mirror of the host's board, reconnection, network-failure diagnosis.
+ //!
+ //! `GuestSession` is independent of the interface and of the real network: it speaks to the host through a [`GuestLink`] (any
+@@ -1591,9 +1592,10 @@ impl App {
+         self.guest.is_some() && self.mirror.stash.is_some()
+     }
+ 
+-    /// Read-only guest: editing tools are disabled (and the editor refuses every modification).
++    /// Read-only guest, or a read-only host page (feature `embed`): editing tools are disabled (and the editor refuses every
++    /// modification).
+     pub fn view_only(&self) -> bool {
+-        self.guest_active() && self.guest.as_ref().is_some_and(|g| g.role() == Role::View)
++        self.host.as_ref().is_some_and(|h| h.read_only) || (self.guest_active() && self.guest.as_ref().is_some_and(|g| g.role() == Role::View))
+     }
+ 
+     pub fn can_undo(&self) -> bool {
+diff --git a/crates/inkboard-app/src/web.rs b/crates/inkboard-app/src/web.rs
+index c9ab247..b2b734b 100644
+--- a/crates/inkboard-app/src/web.rs
++++ b/crates/inkboard-app/src/web.rs
+@@ -1,3 +1,4 @@
++// Changed for Quire (embed feature): see patches/inkboard/README.md
+ //! Web entry point: mounts the application on the `<canvas id="inkboard_canvas">` of `web/index.html`.
+ //!
+ //! The page owns the "loading" indicator (`#loading`) and the error messages (`#error`, shown with `data-case="webgl"` or
+@@ -21,7 +22,7 @@ fn log_level(query: &str) -> log::LevelFilter {
+ }
+ 
+ /// Can this browser give a WebGL 2 context? (The `glow` painter cannot work without; `wgpu` has WebGPU as well.)
+-fn webgl_available(document: &web_sys::Document) -> bool {
++pub(crate) fn webgl_available(document: &web_sys::Document) -> bool {
+     let probe = document.create_element("canvas").ok().and_then(|c| c.dyn_into::<web_sys::HtmlCanvasElement>().ok());
+     probe.is_some_and(|c| matches!(c.get_context("webgl2"), Ok(Some(_))))
+ }
+@@ -66,7 +67,8 @@ pub fn start() {
+                 canvas,
+                 eframe::WebOptions::default(),
+                 Box::new(|cc| {
+-                    platform::init(&cc.egui_ctx);
++                    platform::init_ctx(&cc.egui_ctx);
++                    platform::init_page();
+                     let mut app = app::App::new(cc, None, None);
+                     app.join.factory = Some(crate::session_net::guest_factory());
+                     #[cfg(feature = "web-test")]
