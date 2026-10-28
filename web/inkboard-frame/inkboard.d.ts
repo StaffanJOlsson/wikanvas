@@ -39,6 +39,10 @@ export interface MountOptions {
   onChange?(e: { revision: number }): void;
   onSave?(): void;                     // Ctrl/Cmd+S or menu Save
   onError?(e: { kind: 'panic'; message: string }): void;
+  // Patch 0005, embedded documents (docs/ARCHITECTURE.md §18.3). Called after the frame, like the others.
+  onEmbedLayout?(e: EngineEmbedLayout): void;   // at most once per frame, when anything in it changed
+  onEmbedOpen?(e: EngineEmbedOpen): void;       // instead of editing a card's label
+  onEmbedEditEnd?(e: EngineEmbedEditEnd): void; // the editing set by setEmbedEditing ended in the engine
 }
 
 export interface InkboardHandle {
@@ -54,9 +58,71 @@ export interface InkboardHandle {
   focus(): void;
   fitView(): void;
   destroy(): void;                                  // runner.destroy(), clear_ctx(); handle becomes inert; mount allowed again
+  // Patch 0005, embedded documents (§18.3); absent from an engine built without it.
+  insertEmbed?(a: EngineInsertEmbed): string | null; // one undo step, selected; null when read-only; throws {kind:'start'} when inert
+  setEmbedEditing?(id: string | null): void;
+  setEmbedTitles?(titles: Record<string, string>): void; // replaces the map; labels change in place (no undo, no revision)
+  requestEmbedLayout?(): void;                      // onEmbedLayout after the next frame even when unchanged
 }
 // An inert handle (after destroy, or once the engine stopped) throws {kind:'start'} from snapshot() and setBoard(), returns 0
 // from revision() and false from isDirty(), and ignores the other calls.
+
+// Patch 0005 (docs/ARCHITECTURE.md §18.3). Engine coordinates are CSS pixels of the canvas element (top left 0, 0):
+// egui points times `zoom_factor`. frame.js adds the canvas's offset in the frame to make them frame-viewport points
+// (bridge.ts FramePoint, FrameRect). World units are the board's own.
+
+/** A rectangle in CSS pixels of the canvas element. */
+export interface CanvasRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** A card: a `rect` box with `kind.embed = {item}`, on a visible layer of the current page. */
+export interface EngineEmbed {
+  id: string;                          // the object id
+  item: string;                        // embed.item as stored
+  x: number;                           // the frame in world units
+  y: number;
+  w: number;
+  h: number;
+  angle: number;                       // radians, about the frame's centre
+  label: string;                       // the label's plain text (the title snapshot)
+  selected: boolean;
+  locked: boolean;                     // the object or its layer
+}
+
+export interface EngineEmbedLayout {
+  page: string;                        // the current page's id
+  zoom: number;                        // CSS px per world unit: view.zoom × zoom_factor
+  originX: number;                     // canvas CSS px of world (0, 0)
+  originY: number;
+  canvas: CanvasRect;                  // the drawing area (the central panel)
+  occluders: CanvasRect[];             // every visible egui layer above Order::Background
+  embeds: EngineEmbed[];               // drawing order, bottom first
+  items: string[];                     // distinct embed.item values of every page and layer, sorted
+  editing: string | null;              // the id set by setEmbedEditing, while it lasts
+}
+
+export interface EngineEmbedOpen {
+  id: string;
+  item: string;
+  point: { x: number; y: number } | null; // canvas CSS px of the double-click; null for Enter or the menu
+}
+
+export interface EngineEmbedEditEnd {
+  id: string;
+  reason: 'press' | 'focus' | 'gone';
+}
+
+export interface EngineInsertEmbed {
+  item: string;
+  title: string;
+  at: 'center' | { x: number; y: number }; // the new card's centre: the view's centre, or a canvas CSS px point
+  w?: number;                          // world units; default 480
+  h?: number;                          // default 360
+}
 
 /** What `mount` rejects with, and what `setBoard` throws (`kind: 'load'`). */
 export interface InkboardError {
