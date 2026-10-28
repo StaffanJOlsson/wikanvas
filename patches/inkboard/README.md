@@ -13,7 +13,7 @@ patch series, applied to a self-contained copy in `.cache/inkboard-src` by `scri
 | Commit | `41e0295d50433faa5d05b2ff48f85eac079a981d` (tag `v0.2.0-beta.3`, merge of PR #31, 2026-10-27) |
 | Workspace version | `0.2.0-beta.3` (`vendor/inkboard/Cargo.toml`; `scripts/inkboard.sh src` refuses any other) |
 | Board format | `inkboard_core::serial::VERSION = 2` (`crates/inkboard-core/src/serial.rs`) |
-| Patchset | `1` |
+| Patchset | `1` (bump it with every change to the series: the dist's `engine_version` is `0.2.0-beta.3+embed.quire.<patchset>`) |
 
 `scripts/check-pins.sh` (on the host) checks that the submodule is at this commit and clean, and that the crates Quire
 shares with `inkboard-core` (serde, serde_json, base64, thiserror) have the same versions in both lockfiles.
@@ -26,12 +26,17 @@ unpatched from the same commit as the wasm.
 
 | Patch | Change | Upstream PR |
 |---|---|---|
-| `0001-theme-sync-egui-theme.patch` | `theme::apply` syncs egui's theme, so the OS light/dark switch no longer reverts the visuals | not opened yet |
-| `0002-embed-js-api.patch` | feature `embed`: the JS API on `globalThis.inkboardEmbed` (§10.3), host mode, `host_load` resets, pause, single mount, Present hidden when hosted | not opened yet |
-| `0003-optional-net.patch` | feature `net`: `inkboard-net` optional for the wasm build; droppable | not opened yet |
-| `0004-docs-embedding.patch` | "Embedding (feature `embed`)" in `docs/WEB.md`, `docs/fr/WEB.md` and `CHANGELOG.md` | not opened yet |
+| `0001-theme-sync-egui-theme.patch` | `theme::apply` syncs egui's theme, so the OS light/dark switch no longer reverts the visuals; with a regression test | not opened yet |
+| `0002-embed-js-api.patch` | feature `embed`: the JS API on `globalThis.inkboardEmbed` (§10.3, `src/embed.rs`), host mode (`App::host`), `host_load` resets, pause, single mount, Present and the host-owned menu entries hidden when hosted, `platform::init` split | not opened yet |
+| `0003-optional-net.patch` | feature `net` (default): `inkboard-net` optional for the wasm build, `session_net_off.rs`; droppable | not opened yet |
+| `0004-docs-embedding.patch` | "Embedding (feature `embed`)" in `docs/WEB.md`, `docs/fr/WEB.md`, and the `CHANGELOG.md` entries | not opened yet |
 
-No patch exists yet: W5 writes the series (PLAN W5). Until then `scripts/inkboard.sh stub` provides a placeholder dist.
+The engine Quire ships is built with `--no-default-features --features web-glow,embed` (no `net`). 0003 stays
+droppable: without it the same build compiles `inkboard-net` in (a larger `.wasm`), and host mode still hides the Join
+entry.
+
+`check-baseline.txt` holds the warnings of `check` on the unpatched base (rustc 1.99.1: clippy pedantic on the wasm
+target, in files the series does not change, plus `inkboard-net`); `check` fails on any warning not in it.
 
 ## Notices (Apache-2.0 §4(b))
 
@@ -53,15 +58,27 @@ repository, so it works the same in the main tree, a worktree and the Docker bui
 
 ```sh
 scripts/dev.sh scripts/inkboard.sh src       # fresh .cache/inkboard-src: copy of the submodule, `base` commit, git am of this series
-# edit and commit inside .cache/inkboard-src, then:
+# edit and commit inside .cache/inkboard-src (one commit per patch; `git commit --amend` / rebase as needed), then:
 scripts/dev.sh scripts/inkboard.sh export    # regenerate patches/inkboard/*.patch (old files removed first)
 scripts/dev.sh scripts/inkboard.sh check     # check + clippy for every feature set of the applied patches
-scripts/dev.sh scripts/inkboard.sh build     # web/dist-inkboard/
-scripts/dev.sh scripts/inkboard.sh size      # the numbers below
+scripts/dev.sh scripts/inkboard.sh build --quick   # iteration: release code without LTO, incremental, no wasm-opt (~2 min)
+scripts/dev.sh scripts/inkboard.sh build     # web/dist-inkboard/, as the image ships it (10-20 min)
+scripts/e2e.sh frame                         # the frame test (e2e/tests/frame.spec.ts) against web/dist-inkboard
+scripts/dev.sh scripts/inkboard.sh size      # the numbers below (two release builds)
+scripts/dev.sh scripts/inkboard.sh export --upstream   # the series without notice lines, in .cache/inkboard-upstream/
 scripts/dev.sh scripts/inkboard.sh stub      # placeholder dist (engine_version "stub")
 ```
 
-`src`, `build`, `export`, `check` and `size` print "not implemented (W5)" until W5 implements them; `stub` works.
+- `src` refuses to throw away work: uncommitted changes in `.cache/inkboard-src`, or commits that `export` has not
+  written yet (`src --force` discards them). `build`, `check` and `size` run `src` themselves when the submodule or the
+  patch files changed since the last `src` or `export`, and otherwise use the tree as it is (unexported commits
+  included, which is how the series is iterated on).
+- Subjects of the commits give the patch names (`format-patch`), and no commit message may contain the notice text.
+- `check --record-baseline` rewrites `check-baseline.txt`; it runs only on the unpatched base (`HEAD` = `base`, for
+  example after moving the patch files away and running `src --force`).
+- The feature sets of `check`: native default (`--all-targets`) and wasm `web-glow` always; wasm `web-glow,embed` with
+  0002; wasm `--no-default-features --features web-glow,embed` and `--no-default-features --features web-glow,net`
+  (the public page) with 0003.
 
 ## Dist layout (`web/dist-inkboard/`, git-ignored)
 
@@ -99,9 +116,15 @@ A flat directory that `quire-assets` embeds and the server serves under `/inkboa
 
 ## Sizes (`scripts/inkboard.sh size`)
 
+The engine as Quire builds it (`--no-default-features --features web-glow,embed`, release, `wasm-opt -Os`), measured
+on 2026-10-28 with rustc 1.99.1, wasm-bindgen 0.2.129 and binaryen 131 (bytes):
+
 | `.wasm` | raw | br | gz |
 |---|---|---|---|
-| with patch 0003 (no `net`) | not measured yet | | |
-| without patch 0003 | not measured yet | | |
+| with patch 0003 (no `net`) | 15,603,998 | 4,017,817 | 6,665,795 |
+| without patch 0003 (`net` compiled in) | 15,849,407 | 4,093,719 | 6,767,612 |
 
-W5 records the numbers when the series builds.
+0003 saves only about 1.6 %: the `embed` build's `main` never installs the guest factory, so the linker already drops
+most of the session network. Its gains are elsewhere: iroh and `ring` are not compiled at all (no C compiler for the
+wasm target, a shorter build), and the embedded engine cannot open a network connection. For comparison, Inkboard's
+own page (with `net`) is about 18 MB raw (4.7 MB br) per its `docs/WEB.md`.

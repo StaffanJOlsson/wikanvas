@@ -48,9 +48,18 @@ type Log = {
   hostKey: { key: string; mod: boolean; shift: boolean; alt: boolean }[];
 };
 
-/** Opens frame.html and connects, recording every event in window.__log; window.__api is the BoardFrameApi. */
+/**
+ * Opens frame.html (served with the frame CSP of §11, like quire-server does) and connects, recording every event in
+ * window.__log and every CSP violation in window.__csp; window.__api is the BoardFrameApi.
+ */
 async function connect(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const w = window as any;
+    w.__csp = [];
+    document.addEventListener('securitypolicyviolation', (e) => w.__csp.push(`${e.violatedDirective} ${e.blockedURI}`));
+  });
   const response = await page.goto('/frame.html');
+  expect(response?.headers()['content-security-policy']).toContain("script-src 'self' 'wasm-unsafe-eval'");
   expect(response?.status()).toBe(200);
   await page.evaluate(async () => {
     const w = window as any;
@@ -69,6 +78,12 @@ async function connect(page: Page): Promise<void> {
 
 function log(page: Page): Promise<Log> {
   return page.evaluate(() => (window as any).__log);
+}
+
+/** No onError and no CSP violation so far. */
+async function expectClean(page: Page) {
+  expect((await log(page)).error).toEqual([]);
+  expect(await page.evaluate(() => (window as any).__csp)).toEqual([]);
 }
 
 async function open(page: Page, itemId: string, board: string | null, extra: { name?: string; readOnly?: boolean } = {}) {
@@ -122,8 +137,9 @@ test.describe('Inkboard frame', () => {
     const manifest = await (await request.get('/manifest.json')).json();
     expect(manifest.format_version).toBe(2);
     expect(manifest.engine_version).toMatch(/^0\.2\.0-beta\.3\+embed\.quire\.[0-9A-Za-z.]+$/);
-    const wasm = await request.get('/inkboard_bg.wasm');
+    const wasm = await request.get('/inkboard_bg.wasm', { headers: { 'Accept-Encoding': 'br' } });
     expect(wasm.headers()['content-type']).toBe('application/wasm');
+    expect(wasm.headers()['content-encoding']).toBe('br');
 
     await connect(page);
     const progress = (await log(page)).progress;
@@ -133,7 +149,7 @@ test.describe('Inkboard frame', () => {
     expect(last.loaded).toBe(last.total);
     expect(await page.evaluate(() => (window as any).__api.engineVersion)).toBe(manifest.engine_version);
     expect(await page.evaluate(() => (window as any).__api.formatVersion)).toBe(2);
-    expect((await log(page)).error).toEqual([]);
+    await expectClean(page);
   });
 
   test('open, snapshot round trip, title, second mount', async ({ page }) => {
@@ -155,7 +171,7 @@ test.describe('Inkboard frame', () => {
       ),
     );
     expect(second).toEqual({ kind: 'start', message: 'already mounted' });
-    expect((await log(page)).error).toEqual([]);
+    await expectClean(page);
   });
 
   test('draw, onChange, markSaved, Ctrl+S, host keys', async ({ page }) => {
@@ -186,7 +202,7 @@ test.describe('Inkboard frame', () => {
       { key: 'k', mod: true, shift: false, alt: false },
       { key: 'Escape', mod: false, shift: false, alt: false },
     ]);
-    expect((await log(page)).error).toEqual([]);
+    await expectClean(page);
   });
 
   test('read-only blocks the drag; location.hash changes nothing', async ({ page }) => {
@@ -209,7 +225,7 @@ test.describe('Inkboard frame', () => {
     expect(await page.evaluate(() => location.hash)).toBe('#join=inkboard-ticket-from-the-address');
     expect((await snapshot(page)).revision).toBe(before.revision);
     expect(await call(page, 'isDirty')).toBe(false);
-    expect((await log(page)).error).toEqual([]);
+    await expectClean(page);
   });
 
   test('setBoard swaps the board and resets undo', async ({ page }) => {
@@ -234,7 +250,7 @@ test.describe('Inkboard frame', () => {
     const undone = await snapshot(page);
     expect(undone.revision).toBe(swapped.revision);
     expect(withoutViews(undone.board)).toEqual(withoutViews(other));
-    expect((await log(page)).error).toEqual([]);
+    await expectClean(page);
   });
 
   test('setBoard while a label is being edited', async ({ page }) => {
@@ -254,7 +270,7 @@ test.describe('Inkboard frame', () => {
     await page.waitForTimeout(300);
     expect(await call(page, 'isDirty')).toBe(false);
     expect((await snapshot(page)).board).not.toContain('Hello world');
-    expect((await log(page)).error).toEqual([]);
+    await expectClean(page);
   });
 
   test('F5 does not present: R and a drag still draw', async ({ page }) => {
@@ -270,7 +286,7 @@ test.describe('Inkboard frame', () => {
     const before = await snapshot(page);
     await drawRectangle(page);
     await expect.poll(async () => objectCount((await snapshot(page)).board)).toBe(objectCount(before.board) + 1);
-    expect((await log(page)).error).toEqual([]);
+    await expectClean(page);
   });
 
   test('setActive(false) stops repaints', async ({ page }) => {
@@ -314,7 +330,7 @@ test.describe('Inkboard frame', () => {
 
     await call(page, 'setActive', true);
     await expect.poll(async () => (await counts()).paints).toBeGreaterThan(end.paints);
-    expect((await log(page)).error).toEqual([]);
+    await expectClean(page);
   });
 
   test('a board opened while the page is hidden mounts once it is visible (emulated visibility)', async ({ page }) => {
@@ -369,7 +385,7 @@ test.describe('Inkboard frame', () => {
     await page.waitForTimeout(60_000);
     const snap = await snapshot(page);
     expect(objectCount(snap.board)).toBe(objectCount(FIXTURE) + 1);
-    expect((await log(page)).error).toEqual([]);
+    await expectClean(page);
 
     // a fresh frame, connected and opened while hidden, mounts only once it is in front again
     const late = await context.newPage();

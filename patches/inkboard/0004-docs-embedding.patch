@@ -1,0 +1,187 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: quire <quire@localhost>
+Date: Wed, 28 Oct 2026 14:04:05 +0100
+Subject: [PATCH 4/4] docs: embedding
+
+An "Embedding (feature `embed`)" section in docs/WEB.md and docs/fr/WEB.md:
+how to build the engine for a host page, the JS API, the single-mount rule,
+what a host page owns, and that the host page serves `icons.bin` next to
+itself. The changelog lists the `embed` and `net` features and the theme fix.
+Kept apart so that the code patches review on their own.
+---
+ CHANGELOG.md   | 15 +++++++++++++
+ docs/WEB.md    | 54 +++++++++++++++++++++++++++++++++++++++++++++++
+ docs/fr/WEB.md | 57 ++++++++++++++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 126 insertions(+)
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 969ad2c..36db7ea 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -1,3 +1,4 @@
++<!-- Changed for Quire (embed feature): see patches/inkboard/README.md -->
+ # Changelog
+ 
+ All notable changes to Inkboard are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
+@@ -5,6 +6,20 @@ follows [Semantic Versioning](https://semver.org/) (pre-releases carry a hyphen,
+ 
+ ## [Unreleased]
+ 
++### Added
++
++- **Embedding (feature `embed`):** a page can show a board inside its own interface and keep the file itself, through
++  `globalThis.inkboardEmbed` (see [Embedding](docs/WEB.md#embedding-feature-embed)): mount on a canvas, take and replace the board,
++  change and save events, read-only, interface theme, no repaint while hidden. What the host page owns (New, Open, Save as, Join, the
++  presentation, the tab title…) is hidden. One board per page.
++- **Feature `net`** (on by default): a web build can leave out the network of shared sessions (`--no-default-features`), which makes the
++  `.wasm` much smaller; such a page cannot join a session. The desktop application always has it.
++
++### Fixed
++
++- Switching the system between light and dark no longer reverts the interface's colors until the board background changes: egui's theme
++  now follows the one Inkboard applies.
++
+ ## [0.2.0-beta.3] - 2026-10-27
+ 
+ **Pre-release.** Four of the most requested whiteboard features, and live sharing moves to protocol v4: update every app that hosts or joins a session.
+diff --git a/docs/WEB.md b/docs/WEB.md
+index 711c35c..3db83e0 100644
+--- a/docs/WEB.md
++++ b/docs/WEB.md
+@@ -1,3 +1,4 @@
++<!-- Changed for Quire (embed feature): see patches/inkboard/README.md -->
+ # Inkboard in the browser
+ 
+ *Version française : [fr/WEB.md](fr/WEB.md)*
+@@ -106,6 +107,59 @@ staying blank: no WebAssembly / WebSocket / `crypto.getRandomValues` ("this brow
+ - The page is 18 MB uncompressed (4.7 MB Brotli, 7.7 MB gzip); the icon library (8 MB) is only fetched when opened.
+ - A hidden tab does not draw, so it does not process the session until it is visible again (the browser decides; the session catches up on return).
+ 
++## Embedding (feature `embed`)
++
++A page can show a board inside its own interface and keep the file itself (a wiki, a notes application). Build the engine with the
++`embed` feature, and usually without the network of shared sessions (feature `net`, on by default), which makes the `.wasm` much smaller:
++
++```bash
++cargo build --release -p inkboard-app --bin inkboard --target wasm32-unknown-unknown --no-default-features --features web-glow,embed
++wasm-bindgen --target web --no-typescript --out-name inkboard --out-dir <folder> target/wasm32-unknown-unknown/release/inkboard.wasm
++```
++
++Optionally run `wasm-opt -Os` on `<folder>/inkboard_bg.wasm`, as Trunk does for the page of its own. Serve
++`crates/inkboard-app/assets/icons.bin` **next to the host page**: the engine fetches `icons.bin` relative to the page's address the first
++time the icon library is opened. Starting the module installs the API instead of the page of its own:
++
++```js
++import init from './inkboard.js';
++await init();                                  // runs the wasm `main`, which sets globalThis.inkboardEmbed
++const board = await inkboardEmbed.mount(canvas, {
++  board: text,                                 // the native file's text; null: a new empty board
++  name: 'Plan',                                // the board's name (file names of the exports)
++  theme: 'light',                              // 'light' | 'dark' | 'board' (default): the interface only, never the board
++  lang: 'en',                                  // 'en' | 'fr'; default: the browser's language
++  readOnly: false,
++  onReady() {},                                // the first frame is drawn
++  onChange({ revision }) {},                   // the board or the text being typed changed
++  onSave() {},                                 // Ctrl/Cmd+S: the host saves
++  onError({ kind, message }) {},               // kind 'panic': the engine stopped
++});
++```
++
++`inkboardEmbed.version` is the package version followed by `+embed`, and `inkboardEmbed.formatVersion` the version of the native format
++the engine reads and writes. `mount` rejects with `{kind, message}`: `webgl` (no WebGL 2), `load` (the board cannot be read) or `start`
++(the engine could not start, or another board is mounted). The handle:
++
++| Call | What it does |
++|---|---|
++| `snapshot()` → `{board, revision}` | the board in the native format, the text being typed included, unused images left out; synchronous, and it works in a hidden tab |
++| `setBoard(text, name?)` | shows another board (`null`: a new empty one) with a new history and nothing left of the previous board's editing; an unreadable text throws `{kind: 'load', message}` and the current board stays |
++| `revision()`, `isDirty()`, `markSaved(revision)` | the revision counts the changes: after saving the snapshot of revision *r*, call `markSaved(r)` |
++| `setTheme(theme)`, `setReadOnly(on)`, `setName(name)` | `setName` adds no undo step and changes no revision |
++| `setActive(on)` | `false` while the host page hides the board: no periodic repaint; `true` repaints at once |
++| `focus()`, `fitView()` | |
++| `destroy()` | stops the engine; the handle then does nothing, and `mount` may be called again |
++
++- **One board per page.** The browser side keeps one application state, so a second `mount` rejects with `start` ("already mounted")
++  until the first board is destroyed. A host that shows several boards swaps them with `setBoard`, or gives each its own `<iframe>`.
++- **Changes:** `onChange` comes at most once per frame and never in the middle of a gesture. While text is being typed, `isDirty()` stays
++  true even after `markSaved`: the text becomes part of the board when the editing ends, which is reported as a change.
++- **What the host page owns is not shown:** the menu has no New, Open, Join, Save, Save as, Language or Quit, no "Present full screen"
++  (F5 does nothing), and no "Animate the agent"; the title card has no board name and no "Saved" label; the tab title is left alone.
++  The board reads neither the page's address (invitation links) nor the network events, and it takes pastes only while it has the focus.
++- Callbacks are called after the frame that caused them, never from inside it, so they may call the handle.
++
+ ## Test the page
+ 
+ Two scripts, both by hand (never `cargo test`): `page.mjs` (the local page) and `e2e.mjs` (**a real native host and browser guests through the public relay;
+diff --git a/docs/fr/WEB.md b/docs/fr/WEB.md
+index fbb6fef..5d24367 100644
+--- a/docs/fr/WEB.md
++++ b/docs/fr/WEB.md
+@@ -1,3 +1,4 @@
++<!-- Changed for Quire (embed feature): see patches/inkboard/README.md -->
+ # Inkboard dans le navigateur
+ 
+ *English version: [WEB.md](../WEB.md)*
+@@ -108,6 +109,62 @@ refusé par le navigateur alors que l'application affichait « Image copiée »
+ - La page pèse 18 Mo décompressée (4,7 Mo en Brotli, 7,7 Mo en gzip) ; la bibliothèque d'icônes (8 Mo) n'est téléchargée qu'à son ouverture.
+ - Un onglet caché ne dessine pas, donc ne traite pas la session tant qu'il n'est pas visible (c'est le navigateur qui décide ; la session rattrape son retard au retour).
+ 
++## Intégrer un tableau (fonctionnalité `embed`)
++
++Une page peut montrer un tableau dans sa propre interface et garder elle-même le fichier (un wiki, une application de notes). Construisez le
++moteur avec la fonctionnalité `embed`, et en général sans le réseau des sessions partagées (fonctionnalité `net`, active par défaut), ce qui
++rend le `.wasm` bien plus léger :
++
++```bash
++cargo build --release -p inkboard-app --bin inkboard --target wasm32-unknown-unknown --no-default-features --features web-glow,embed
++wasm-bindgen --target web --no-typescript --out-name inkboard --out-dir <dossier> target/wasm32-unknown-unknown/release/inkboard.wasm
++```
++
++Vous pouvez ensuite passer `wasm-opt -Os` sur `<dossier>/inkboard_bg.wasm`, comme Trunk le fait pour la page autonome. Servez
++`crates/inkboard-app/assets/icons.bin` **à côté de la page hôte** : le moteur télécharge `icons.bin` relativement à l'adresse de la page à la
++première ouverture de la bibliothèque d'icônes. Le démarrage du module installe l'API au lieu de la page autonome :
++
++```js
++import init from './inkboard.js';
++await init();                                  // lance le `main` wasm, qui définit globalThis.inkboardEmbed
++const board = await inkboardEmbed.mount(canvas, {
++  board: texte,                                // le texte du fichier natif ; null : un nouveau tableau vide
++  name: 'Plan',                                // le nom du tableau (noms des fichiers exportés)
++  theme: 'light',                              // 'light' | 'dark' | 'board' (par défaut) : l'interface seulement, jamais le tableau
++  lang: 'fr',                                  // 'en' | 'fr' ; par défaut : la langue du navigateur
++  readOnly: false,
++  onReady() {},                                // la première image est dessinée
++  onChange({ revision }) {},                   // le tableau ou le texte en cours de saisie a changé
++  onSave() {},                                 // Ctrl/Cmd+S : l'hôte enregistre
++  onError({ kind, message }) {},               // kind 'panic' : le moteur s'est arrêté
++});
++```
++
++`inkboardEmbed.version` est la version du paquet suivie de `+embed`, et `inkboardEmbed.formatVersion` la version du format natif que le
++moteur lit et écrit. `mount` échoue avec `{kind, message}` : `webgl` (pas de WebGL 2), `load` (le tableau est illisible) ou `start` (le
++moteur n'a pas pu démarrer, ou un autre tableau est monté). La poignée :
++
++| Appel | Effet |
++|---|---|
++| `snapshot()` → `{board, revision}` | le tableau au format natif, texte en cours de saisie compris, images inutilisées exclues ; synchrone, et il fonctionne dans un onglet caché |
++| `setBoard(texte, nom?)` | affiche un autre tableau (`null` : un nouveau tableau vide) avec un nouvel historique, sans rien garder de l'édition du précédent ; un texte illisible lève `{kind: 'load', message}` et le tableau courant reste |
++| `revision()`, `isDirty()`, `markSaved(revision)` | la révision compte les modifications : après avoir enregistré l'instantané de la révision *r*, appelez `markSaved(r)` |
++| `setTheme(thème)`, `setReadOnly(oui)`, `setName(nom)` | `setName` n'ajoute pas d'étape d'annulation et ne change pas la révision |
++| `setActive(oui)` | `false` tant que la page hôte cache le tableau : plus de rafraîchissement périodique ; `true` redessine aussitôt |
++| `focus()`, `fitView()` | |
++| `destroy()` | arrête le moteur ; la poignée ne fait plus rien ensuite, et `mount` peut être rappelé |
++
++- **Un tableau par page.** Le côté navigateur ne garde qu'un état de l'application : un second `mount` échoue avec `start`
++  (« already mounted ») tant que le premier tableau n'est pas détruit. Un hôte qui montre plusieurs tableaux les échange avec `setBoard`,
++  ou donne à chacun sa propre `<iframe>`.
++- **Modifications :** `onChange` arrive au plus une fois par image et jamais au milieu d'un geste. Pendant une saisie de texte, `isDirty()`
++  reste vrai même après `markSaved` : le texte entre dans le tableau à la fin de l'édition, ce qui est signalé comme une modification.
++- **Ce que possède la page hôte n'est pas affiché :** le menu n'a ni Nouveau, ni Ouvrir, ni Rejoindre, ni Enregistrer, ni Enregistrer
++  sous, ni Langue, ni Quitter, ni « Présenter en plein écran » (F5 ne fait rien), ni « Animer l'agent » ; la carte de titre n'a ni nom du
++  tableau ni mention « Enregistré » ; le titre de l'onglet n'est pas touché. Le tableau ne lit ni l'adresse de la page (liens
++  d'invitation) ni les événements réseau, et il ne prend les collages que lorsqu'il a le focus.
++- Les rappels sont appelés après l'image qui les a provoqués, jamais pendant : ils peuvent appeler la poignée.
++
+ ## Tester la page
+ 
+ Deux scripts, lancés à la main (jamais par `cargo test`) : `page.mjs` (la page locale) et `e2e.mjs` (**un vrai hôte natif et des invités navigateur à travers le relais

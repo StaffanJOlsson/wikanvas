@@ -61,11 +61,11 @@ format_version() {
   echo "$((10#$v))"
 }
 
-# The patch series id: the `| Patchset | \`N\` |` row of patches/inkboard/README.md, exactly once.
+# The patch series id: the `| Patchset | \`N\` …` row of patches/inkboard/README.md, exactly once.
 patchset() {
   local v
-  v="$(sed -n 's/^| Patchset | `\([0-9A-Za-z.]*\)` |.*$/\1/p' "$patch_dir/README.md")"
-  [[ "$v" =~ ^[0-9A-Za-z.]+$ ]] || die "expected exactly one '| Patchset | \`N\` |' row in $patch_dir/README.md"
+  v="$(sed -n 's/^| Patchset | `\([0-9A-Za-z.]*\)`.*$/\1/p' "$patch_dir/README.md")"
+  [[ "$v" =~ ^[0-9A-Za-z.]+$ ]] || die "expected exactly one '| Patchset | \`N\` …' row in $patch_dir/README.md"
   echo "$v"
 }
 
