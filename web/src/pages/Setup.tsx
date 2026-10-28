@@ -17,8 +17,11 @@ export default function Setup() {
   const [form, setForm] = useState({ code: '', workspace_name: '', name: '', email: '', password: '', confirm: '' });
   const [error, setError] = useState<{ field: string | null; message: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  // This page's own setup succeeded: the owner is signed in, and the refetched status (`needs_setup: false`) must not
+  // send them to the sign-in page on the way to Home.
+  const [done, setDone] = useState(false);
 
-  if (status.data && !status.data.needs_setup) return <Navigate to="/login" replace />;
+  if (status.data && !status.data.needs_setup) return <Navigate to={done ? '/home' : '/login'} replace />;
 
   const set = (k: keyof typeof form) => (e: { target: { value: string } }) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
@@ -42,6 +45,7 @@ export default function Setup() {
         email: form.email.trim(),
         password: form.password,
       });
+      setDone(true);
       await afterSignIn(qc);
       void navigate('/home', { replace: true });
     } catch (err) {
