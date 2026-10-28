@@ -61,6 +61,170 @@ RUN --mount=type=cache,id=quire-pnpm,target=/pnpm-store \
  && find dist -type f \( -name '*.js' -o -name '*.css' -o -name '*.html' -o -name '*.svg' -o -name '*.json' \) \
       -exec brotli -q 11 -k {} \; -exec gzip -9 -k -n {} \;
 
+# licenses.txt for Settings → About (§9.6.6), served at /licenses.txt: the crates the binaries compile for Linux
+# (`cargo metadata`, dev-only crates left out), the web client's production npm packages (`pnpm licenses list`, which
+# reads the pnpm store), and the licence files they ship. It reads metadata and files only; nothing is compiled.
+FROM web AS licenses
+WORKDIR /src
+COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+COPY .cargo .cargo
+COPY vendor/inkboard/Cargo.toml vendor/inkboard/LICENSE-MIT vendor/inkboard/LICENSE-APACHE vendor/inkboard/
+COPY vendor/inkboard/crates/inkboard-core vendor/inkboard/crates/inkboard-core
+COPY crates crates
+COPY <<'EOF' /usr/local/lib/quire-licenses.mjs
+// Writes licenses.txt, the licence list of Settings → About (docs/ARCHITECTURE.md §9.6.6, §13.2).
+//   node licenses.mjs <cargo metadata JSON> <pnpm licenses list --json --prod> <out>
+// Rust: every crate the workspace's binaries compile on this platform (normal and build dependencies, never dev).
+// npm: every production package of web/. Then the licence files those packages ship, each distinct text once with
+// the packages that carry it. Quire's own crates are left out (LICENSE).
+import { readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+
+const [cargoPath, npmPath, outPath] = process.argv.slice(2);
+const LICENCE_FILE = /^(licen[cs]e|copying|notice|unlicense|copyright)([-._ ].*)?$/i;
+
+function licenceFiles(dir) {
+  let names;
+  try {
+    names = readdirSync(dir).sort();
+  } catch {
+    return [];
+  }
+  const files = [];
+  for (const name of names) {
+    if (!LICENCE_FILE.test(name)) continue;
+    const path = join(dir, name);
+    try {
+      if (statSync(path).isFile()) files.push({ name, text: readFileSync(path, 'utf8') });
+    } catch {
+      // unreadable: listed without a text
+    }
+  }
+  return files;
+}
+
+// Rust: walk the resolve graph from the workspace members, skipping dev-only edges.
+const meta = JSON.parse(readFileSync(cargoPath, 'utf8'));
+const byId = new Map(meta.packages.map((p) => [p.id, p]));
+const members = new Set(meta.workspace_members);
+const nodes = new Map(meta.resolve.nodes.map((n) => [n.id, n]));
+const seen = new Set();
+const queue = [...members];
+while (queue.length > 0) {
+  const id = queue.pop();
+  if (seen.has(id)) continue;
+  seen.add(id);
+  for (const dep of nodes.get(id)?.deps ?? []) {
+    if (dep.dep_kinds.some((k) => k.kind !== 'dev')) queue.push(dep.pkg);
+  }
+}
+const rust = [];
+for (const id of seen) {
+  if (members.has(id)) continue;
+  const p = byId.get(id);
+  let dir = dirname(p.manifest_path);
+  let files = licenceFiles(dir);
+  // A path dependency (inkboard-core) keeps its licence files at its workspace root.
+  for (let up = 0; p.source === null && files.length === 0 && up < 3; up++) {
+    dir = dirname(dir);
+    files = licenceFiles(dir);
+  }
+  rust.push({
+    name: p.name,
+    version: p.version,
+    licence: p.license ?? (p.license_file ? 'see ' + p.license_file : 'unknown'),
+    source: p.repository ?? (p.source === null ? 'path dependency' : ''),
+    files,
+  });
+}
+
+// npm: pnpm groups the packages by licence.
+const npm = [];
+for (const [licence, pkgs] of Object.entries(JSON.parse(readFileSync(npmPath, 'utf8')))) {
+  for (const p of pkgs) {
+    p.versions.forEach((version, i) => {
+      npm.push({
+        name: p.name,
+        version,
+        licence: p.license ?? licence,
+        source: p.homepage ?? '',
+        files: p.paths?.[i] ? licenceFiles(p.paths[i]) : [],
+      });
+    });
+  }
+}
+
+const order = (a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : a.version < b.version ? -1 : 1);
+rust.sort(order);
+npm.sort(order);
+
+function table(pkgs) {
+  const label = (p) => p.name + ' ' + p.version;
+  const w1 = Math.max(...pkgs.map((p) => label(p).length));
+  const w2 = Math.max(...pkgs.map((p) => p.licence.length));
+  return pkgs.map((p) => (label(p).padEnd(w1) + '  ' + p.licence.padEnd(w2) + '  ' + p.source).trimEnd()).join('\n');
+}
+
+const texts = new Map();
+const missing = [];
+for (const [kind, pkgs] of [['crate', rust], ['npm', npm]]) {
+  for (const p of pkgs) {
+    if (p.files.length === 0) missing.push(p.name + ' ' + p.version + ' (' + kind + ', ' + p.licence + ')');
+    for (const f of p.files) {
+      const text = f.text.replace(/\r\n?/g, '\n').replace(/[ \t]+$/gm, '').replace(/\s+$/, '') + '\n';
+      if (!texts.has(text)) texts.set(text, { file: f.name, users: [] });
+      texts.get(text).users.push(p.name + ' ' + p.version + ' (' + f.name + ')');
+    }
+  }
+}
+
+const rule = (title) => title + '\n' + '-'.repeat(title.length);
+const out = [
+  'Third-party software in Quire',
+  '=============================',
+  '',
+  'Quire is licensed under the MIT License. It is built from the packages',
+  'below, each under its own licence. This file is generated when the image is built (docker/Dockerfile, stage',
+  '"licenses"): the Rust crates come from `cargo metadata` over Cargo.lock (every crate the server and the CLI compile',
+  'for Linux, build-time crates included, test-only crates left out), the npm packages from `pnpm licenses list --json',
+  '--prod` over the web client. The licence files the packages ship follow the lists, each distinct text once, with the',
+  'packages that carry it.',
+  '',
+  "Code ported into Quire itself: quire-core's convert/pm.rs follows @tiptap/y-tiptap 3.0.10 (MIT, (c) Kevin Jahns",
+  "and Tiptap GmbH; its licence file is listed under @tiptap/y-tiptap below), and quire-core's rank.rs ports the",
+  'fractional-indexing algorithm of rocicorp/fractional-indexing (CC0-1.0).',
+  '',
+  'The whiteboard engine (Inkboard, MIT OR Apache-2.0) has its own list of libraries, fonts and icons:',
+  'THIRD_PARTY_LICENSES.md and ICONS-LICENSES.txt, served with the engine under /inkboard/<build>/.',
+  '',
+  rule('Rust crates (' + rust.length + ')'),
+  table(rust),
+  '',
+  rule('npm packages of the web client (' + npm.length + ')'),
+  table(npm),
+  '',
+  rule('Packages that ship no licence file (' + missing.length + ')'),
+  'Their licence is the SPDX expression listed above.',
+  ...missing,
+  '',
+  rule('Licence files (' + texts.size + ' distinct texts)'),
+];
+for (const [text, { file, users }] of texts) {
+  out.push('', '==== ' + file + ' ====', 'Used by: ' + users.join(', '));
+  out.push('', text.trimEnd());
+}
+writeFileSync(outPath, out.join('\n') + '\n');
+console.error(
+  'licenses.txt: ' + rust.length + ' crates, ' + npm.length + ' npm packages, ' + texts.size + ' licence texts',
+);
+EOF
+RUN --mount=type=cache,id=quire-cargo-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=quire-pnpm,target=/pnpm-store \
+    mkdir -p /out \
+ && cargo metadata --format-version 1 --locked --filter-platform x86_64-unknown-linux-gnu >/tmp/cargo.json \
+ && (cd web && pnpm licenses list --json --prod --config.store-dir=/pnpm-store) >/tmp/npm.json \
+ && node /usr/local/lib/quire-licenses.mjs /tmp/cargo.json /tmp/npm.json /out/licenses.txt
+
 FROM toolchain-base AS server
 WORKDIR /src
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
@@ -71,8 +235,9 @@ COPY vendor/inkboard/Cargo.toml vendor/inkboard/Cargo.toml
 COPY vendor/inkboard/crates/inkboard-core vendor/inkboard/crates/inkboard-core
 COPY crates crates
 COPY fixtures fixtures
-# These two COPYs order the server's rustc build after the wasm build: two rustc builds never overlap.
+# These COPYs order the server's rustc build after the wasm build: two rustc builds never overlap.
 COPY --from=web /src/web/dist web/dist
+COPY --from=licenses /out/licenses.txt web/dist/licenses.txt
 COPY --from=inkboard-web /out/inkboard web/dist-inkboard
 ARG QUIRE_COMMIT=unknown
 RUN --mount=type=cache,id=quire-cargo-registry,target=/usr/local/cargo/registry \
