@@ -137,6 +137,8 @@ describe('board page', () => {
     expect(link.getAttribute('href')).toBe(itemPath(child));
     fireEvent.click(within(dialog).getByRole('button', { name: '+ Add a page' }));
     await waitFor(() => expect(r.router.state.location.pathname).toBe(itemPath(created)));
+    // The new page may be discarded when it is left empty (DocPage reads `state.created`, D20).
+    expect(r.router.state.location.state).toEqual({ created: true });
     const post = requests.find((q) => q.method === 'POST' && q.path === '/api/v1/items');
     expect(JSON.parse(post?.body ?? '{}')).toEqual({ collection_id: 'col-1', parent_id: 'board-1', kind: 'doc' });
   });

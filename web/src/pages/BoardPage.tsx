@@ -185,7 +185,7 @@ function NestedPopover({ item }: { item: ItemDetail }) {
             onClick={() =>
               create.mutate(
                 { collection_id: item.item.collection_id, parent_id: item.item.id, kind: 'doc' },
-                { onSuccess: (c) => void navigate(itemPath(c)) },
+                { onSuccess: (c) => void navigate(itemPath(c), { state: { created: true } }) },
               )
             }
           >
