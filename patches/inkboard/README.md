@@ -13,6 +13,7 @@ patch series, applied to a self-contained copy in `.cache/inkboard-src` by `scri
 | Commit | `41e0295d50433faa5d05b2ff48f85eac079a981d` (tag `v0.2.0-beta.3`, merge of PR #31, 2026-10-27) |
 | Workspace version | `0.2.0-beta.3` (`vendor/inkboard/Cargo.toml`; `scripts/inkboard.sh src` refuses any other) |
 | Board format | `inkboard_core::serial::VERSION = 2` (`crates/inkboard-core/src/serial.rs`) |
+| Patchset | `1` |
 
 `scripts/check-pins.sh` (on the host) checks that the submodule is at this commit and clean, and that the crates Quire
 shares with `inkboard-core` (serde, serde_json, base64, thiserror) have the same versions in both lockfiles.

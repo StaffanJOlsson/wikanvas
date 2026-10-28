@@ -43,7 +43,7 @@ export interface MountOptions {
 
 export interface InkboardHandle {
   snapshot(): { board: string; revision: number };  // synchronous; includes text being typed; works in hidden tabs
-  setBoard(json: string, name?: string): void;      // resets undo and transient editor state; throws {kind:'load', message}
+  setBoard(json: string | null, name?: string): void; // resets undo and transient editor state; null: a new empty board; throws {kind:'load', message}
   revision(): number;
   isDirty(): boolean;
   markSaved(revision: number): void;
@@ -55,6 +55,8 @@ export interface InkboardHandle {
   fitView(): void;
   destroy(): void;                                  // runner.destroy(), clear_ctx(); handle becomes inert; mount allowed again
 }
+// An inert handle (after destroy, or once the engine stopped) throws {kind:'start'} from snapshot() and setBoard(), returns 0
+// from revision() and false from isDirty(), and ignores the other calls.
 
 /** What `mount` rejects with, and what `setBoard` throws (`kind: 'load'`). */
 export interface InkboardError {

@@ -1,0 +1,14 @@
+# Warnings of scripts/inkboard.sh check on the unpatched base (0.2.0-beta.3, rustc 1.99.1).
+# One line per warning: <kind><TAB><file>: <message> (line numbers dropped). Rewrite only on the unpatched base:
+#   scripts/dev.sh scripts/inkboard.sh check --record-baseline   (with no patches applied)
+wasm	crates/inkboard-app/src/live_web.rs: unused `self` argument
+wasm	crates/inkboard-app/src/platform_web.rs: casting `f64` to `u64` may lose the sign of the value
+wasm	crates/inkboard-app/src/platform_web.rs: casting `f64` to `u64` may truncate the value
+wasm	crates/inkboard-app/src/platform_web.rs: this argument is passed by value, but not consumed in the function body: help: consider changing the type to: `&[u8]`
+wasm	crates/inkboard-app/src/session_net_web.rs: this function's return value is unnecessarily wrapped by `Result`
+wasm	crates/inkboard-app/src/session_net_web.rs: unused `self` argument
+wasm	crates/inkboard-app/src/watch_web.rs: unused `self` argument
+wasm	crates/inkboard-net/src/web_transport.rs: casting `u128` to `u64` may truncate the value
+wasm	crates/inkboard-net/src/web_transport.rs: these match arms have identical bodies
+wasm	crates/inkboard-net/src/web_transport.rs: this argument is passed by value, but not consumed in the function body
+wasm	crates/inkboard-net/src/web_transport.rs: this method could have a `#[must_use]` attribute
