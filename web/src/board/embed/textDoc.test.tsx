@@ -24,6 +24,7 @@ import {
   type Rendered,
   type Reply,
 } from '../testkit';
+import { isExpanded } from '../../state/expanded';
 import { embedController, useEmbedStore } from './controller';
 
 let app: Rendered | null = null;
@@ -81,6 +82,8 @@ describe('Text doc', () => {
     const title = card().querySelector('input.board-embed-card-title') as HTMLInputElement;
     expect(title.value).toBe('');
     expect(title.placeholder).toBe('Untitled');
+    // The board's sidebar row is expanded, so the new child shows in the tree.
+    expect(isExpanded('board-1')).toBe(true);
   });
 
   it('is disabled while the board is read-only', async () => {

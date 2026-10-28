@@ -1,8 +1,9 @@
 // The board page's two ways to add a card from the top bar (docs/ARCHITECTURE.md §18.6 (a), (b)): "Text doc" creates
-// a new document as a child of the board, places it in the middle of the view and starts editing it; "Embed page…"
-// opens a picker of documents and places the chosen one there (selected, not opened). Both are disabled while the
-// board is read-only, the frame has not opened it or lacks `insertEmbed`, or (Text doc) a creation runs; the page
-// renders them only when the connected frame has `insertEmbed`.
+// a new document as a child of the board, places it in the middle of the view, starts editing it and expands the
+// board's sidebar row, so the new page shows in the tree; "Embed page…" opens a picker of documents and places the
+// chosen one there (selected, not opened). Both are disabled while the board is read-only, the frame has not opened
+// it or lacks `insertEmbed`, or (Text doc) a creation runs; the page renders them only when the connected frame has
+// `insertEmbed`.
 import { useQueryClient } from '@tanstack/react-query';
 import { FilePlus, FileSymlink } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -13,6 +14,7 @@ import { searchTitles } from '../../api/queries/docs';
 import { useCreateItem } from '../../api/queries/items';
 import { KindIcon } from '../../components/item/KindIcon';
 import { Dialog } from '../../components/ui/Dialog';
+import { setExpanded } from '../../state/expanded';
 import { errorToast } from '../../state/toasts';
 import { insertCard, useEmbedStore } from './controller';
 import { discardTextDoc } from './textDocs';
@@ -45,6 +47,8 @@ export function TextDocButton({ item, disabled, onCreated }: {
         await discardTextDoc(qc, { id: item.item.id, collectionId: item.item.collection_id }, doc.id);
       } else {
         onCreated(doc.id);
+        // The new page is in the tree (owner decision 1): the board's row opens, so its child is in view.
+        setExpanded(item.item.id, true);
       }
     } catch (e) {
       errorToast(e, 'Could not create the page');
