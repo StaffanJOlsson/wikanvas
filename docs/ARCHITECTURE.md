@@ -7,7 +7,8 @@ alternatives that were rejected. §17 logs how review findings were resolved whe
 how the owner requirements of 2026-10-27 (public API, CLI, agent testing) were decided (D39–D56, §17.1), how the
 review of those amendments was resolved (§17.2), and the owner decisions of 2026-10-28 (published on create, 2 CPUs /
 1 GiB, the build slice, HTTPS through Caddy; D23, D25, D38, D57, §17.3). §17.4 records the decisions taken when the
-workstreams' deviations were folded into this document (W7, 2026-10-28).
+workstreams' deviations were folded into this document (W7, 2026-10-28). §18 is the normative design of M1.1, board
+document embeds (owner request of 2026-10-28; D58–D75), built after M1 by PLAN's workstreams E1–E3.
 
 Hard rules (from CLAUDE.md, repeated because they constrain the design):
 - No compiler, bundler or package manager runs on the host. Everything goes through `scripts/dev.sh` (quire-toolchain
@@ -41,6 +42,10 @@ CLI so we can have agents testing the tooling"):
 - the **`quire` CLI** over that API, with `--json` output and stable exit codes (§7.6, §7.7), and server-side admin
   commands in `quire-server admin` (§7.8);
 - an **agent test harness**, `scripts/agent-test.sh`, that runs CLI scenarios against the production image (§14.1).
+
+M1.1 adds **board document embeds** (§18): a text document is placed on a board as a card, shown and edited in
+place with the document editor, while it stays a real document in the tree; it is added from the board ("Text doc",
+a new child), from a picker ("Embed page…") or by dragging a document from the sidebar onto the canvas.
 
 Not built in M1: templates, sharing, invites, avatars or "Viewed by N", comments, the version-history UI, backlinks UI,
 imports (including server-side board import from draw.io, Excalidraw, Mermaid or JSON Canvas, D52), Markdown-zip export
@@ -112,6 +117,12 @@ layout slots (§15).
 | D55 | **Admin commands live in the server binary** (`quire-server admin …`, §7.8) because they open the database directly. The CLI's `quire admin …` execs `quire-server admin …`, found through `QUIRE_SERVER_BIN`, then next to the `quire` binary, then on `PATH`, so `docker compose exec quire quire admin …` works. | The CLI stays free of rusqlite and the store; the server stays free of TLS. One spelling in the docs either way. |
 | D56 | **Agent testing** has three layers: `crates/quire-cli/tests/cli` runs the CLI binary (assert_cmd 2.2) against an in-process server; `scripts/agent-test.sh` runs the production image with `compose.e2e.yaml` (the compose caps, the build lock, the build slice when installed), talks to Quire directly on the project network (Caddy is not started), refuses an image built from another commit, provisions an owner and tokens with `quire admin`, and runs bash scenarios of `quire --json` calls asserted with jq (§14.1); its `up` keeps the app for exploration for a bounded time (default 15 min) while a background holder keeps the build lock (owner-accepted default, §17.3); `docs/AGENTS.md` tells agents how to use the CLI. | Agents and CI exercise the shipped artifacts end to end with one command, under the owner's resource caps. |
 | D57 | **HTTPS is terminated by Caddy in the compose project** (official image `caddy:2.11.7`, pinned by digest; `docker/Caddyfile`, §13.4; owner decision 2026-10-28, §17.3). Quire listens only on the project network (`expose: 8080`, no published port); Caddy publishes 80 and 443 and has its own caps (0.5 CPU, 128 MiB, no swap) and volumes for `/data` and `/config`. Two modes from env: `QUIRE_TLS=acme` with a public `QUIRE_DOMAIN` (automatic certificates), and `QUIRE_TLS=internal` (default, with `QUIRE_DOMAIN=localhost`) for `localhost` or LAN names such as `quire.lan`, using Caddy's local CA, whose root the owner trusts by hand (§13.4). Caddy has a fixed address on a fixed project subnet, outside the subnet's dynamic `ip_range` so no other container can be given it (§13.3), and `QUIRE_TRUSTED_PROXIES` is exactly that address, so only Caddy's `X-Forwarded-For` (rate limits, logs) and `X-Forwarded-Proto` (Secure cookie, HSTS) count (§8). `QUIRE_DOMAIN` joins the Host allowlist. The Caddyfile has no `encode` and proxies with `compression off`, so Quire's precompressed br/gzip bytes pass through untouched. HSTS (`max-age=31536000`, no `includeSubDomains`, no `preload`) is sent by Quire, only on HTTPS requests in `acme` mode. The CSP is unchanged. | Quire stays free of TLS and outbound calls (D29): ACME runs in Caddy. Browsers offer brotli only over HTTPS, send `Sec-Fetch-*` only to secure origins, and accept `__Host-` cookies only over HTTPS, and Inkboard's copy-as-image needs a secure context. An address rule needs no shared secret and no DNS lookup from Quire. HSTS on `localhost` or on names signed by a private CA would pin every local server, or every LAN device without the root, to HTTPS for a year, so it is public-mode only; keeping it in Quire keeps every security header in one tested place (§11). |
+| D58 | **Board document embeds (M1.1, §18): a card is a `rect` box whose box kind carries an optional `embed {item}`** (§18.2). | The unpatched `inkboard-core` the server compiles ignores the field and D9's raw splicing keeps it; a new `Kind` or `BoxGeom` would make `from_json` refuse the board. |
+| D59 | Patch 0005 adds that field to `inkboard-core` (lenient deserialization); the server keeps the unpatched core (§18.3). | The engine serializes through the model, so it must know the field; the server never re-serializes. |
+| D60 | The server refuses nothing because of `embed` and links canonical-UUID targets as `item_links` kind `embed` (§18.8). | Additive to v1 (§7.1); links feed backlinks later. |
+| D61–D63 | The host, not the engine, draws a card's content in an overlay over the iframe, placed from a per-frame engine layout report and clipped out of the engine's own interface (§18.5). | Only the SPA has the document editor; one transform per frame keeps the overlay on the canvas. |
+| D64–D66 | Static cards are read-only TipTap viewers of `DocJson`; one card at a time is edited with `QuireEditor` on a `DocSession`; the engine holds the editing state and ends it on a press or focus (§18.5). | No writes from looking; the editing card behaves like Inkboard's own text. |
+| D67–D75 | Paper cards, live titles with a stored snapshot, the three ways to add a card, the sidebar drag through native external data, tree semantics, no new API, Focus over the layer, patches 0005/0006, read-only rules (§18.14). | See §18.14 for each with its rejected alternatives. |
 
 ### 2.2 Alternatives considered
 
@@ -886,6 +897,9 @@ Other operations:
   `inkboard_core::model::seed_ids(<random u64>)` once at startup, so ids it creates never repeat across restarts.
 - **Writer version:** the web client sends `X-Quire-Engine: <engineVersion>` (§10.4). The server stores it, so a future
   engine-format bump can be found per board. API clients may omit it; the server then stores `"api"`.
+- **Embedded documents (M1.1, §18.8):** a board's cards (§18.2) become `item_links` rows (board → document, kind
+  `embed`) in the PUT's writer transaction; `init_with` sets them and `copy` copies them. Nothing about them is ever
+  refused.
 
 ### 6.3 Forward compatibility of formats
 
@@ -1371,7 +1385,8 @@ Boards are read and written as the native Inkboard envelope with exactly the web
 validates with `inkboard_core::serial::from_json` (`inkboard-core/src/serial.rs:80`), splices on the raw JSON so unknown
 fields survive, splits inline base64 images into blobs, and owns `document.name`. PUT needs `If-Match: "r{rev}"` (or
 `*`). Previews are `GET …/board/pages/{n}` (`image/svg+xml`, `svg::export_approx`, `inkboard-core/src/svg.rs:456`).
-Server-side import from draw.io, Excalidraw, Mermaid or JSON Canvas is not in M1 (D52), and Quire's tooling does not
+A board can embed documents as cards, `rect` boxes with `kind.embed = {item: <uuid>}` (§18.2, AGENTS.md §8); keep
+that field when rewriting a board. Server-side import from draw.io, Excalidraw, Mermaid or JSON Canvas is not in M1 (D52), and Quire's tooling does not
 build Inkboard's `ink convert` (`crates/inkboard-cli`) or `inkboard-mcp` (tools such as `create_board`, `add_shape`,
 `import_mermaid` and `export`, `crates/inkboard-mcp/src/tools.rs:69-130`) either; neither ships in Quire's image. A
 client that builds a board from scratch follows Inkboard's model (`vendor/inkboard/docs/ARCHITECTURE.md`, "Model";
@@ -1911,6 +1926,8 @@ Interfaces that cross workstreams (all from W0b, typed):
 - **Theme.** A Quire theme change calls `setTheme`. The board background stays board content.
 - **Accessibility.** A visually hidden list next to the canvas holds the board's text, taken from
   `BoardMeta.text_excerpt` (the first 4 KB of the server-derived search text).
+- **Embedded documents (M1.1).** The host's layer also holds the cards' overlay, their editing and the three ways to
+  add a card (§18.5, §18.6); Focus then fullscreens the layer instead of the iframe.
 
 ### 9.6 UI spec (normative)
 
@@ -2161,6 +2178,11 @@ and 0004), which makes `engine_version` `0.2.0-beta.3+embed.quire.2`.
 | | `src/platform_web.rs` (337) | With `net`: re-export `check_relay_url`/`is_known_relay`. Without: `pub struct NoRelayUrl;` with `fn host_str(&self) -> Option<&str> { None }`, `check_relay_url(&str, bool) -> Result<NoRelayUrl, NoNetwork>` that always returns `Err(NoNetwork)` (a type, not `()`: clippy pedantic's `ignored_unit_patterns` fires at the `join_ui.rs` caller otherwise), and `is_known_relay` that returns `false` (callers: `join_ui.rs:53-56` uses `.host_str()`, `session_guest.rs:1125` uses `.is_ok()`). |
 | | `src/chrome.rs` | Hide "Join a session…" by a compile-time condition (wasm without `net`), not by `join.factory.is_none()`: the native screenshot and visual tests run without a factory and would lose the entry. |
 | `0004-docs-embedding.patch` | `docs/WEB.md`, `docs/fr/WEB.md`, `CHANGELOG.md` (repo root) | An "Embedding (feature `embed`)" section, in English and French: the API, the single-mount rule, and that the host page must serve `icons.bin` next to itself; `[Unreleased]` changelog entries for embed, net and the theme fix. It says that an embedded board never joins a session and that the build leaves the network out, not that the `.wasm` gets much smaller (`size` measured 1.6 %). Kept separate so the code patches review on their own. |
+
+M1.1 adds `0005-embed-documents.patch` (code) and `0006-docs-embedded-documents.patch` (docs), patchset `3`
+(§18.3). 0005 is the one exception to "nothing under `inkboard-core` changes": it adds the optional `BoxObj.embed`
+field (and `embed: None` at its construction sites in `inkboard-core` tests and `inkboard-formats`); the server still
+compiles `inkboard-core` unpatched (D59).
 
 `patches/inkboard/README.md` records the base commit, the patch list, how to regenerate (`scripts/inkboard.sh export`),
 the `size` numbers, and the upstream PR status.
@@ -3092,7 +3114,8 @@ asynchronous (board previews).
 | Multi-user, roles, invites | `users.role` lookup table, `created_by`/`updated_by`, per-user stars and views, the draft state with derived visibility and its API (publish, unpublish, `/drafts`, `drafts_count`, `include_drafts`; D23), so draft-first creation and the Drafts UI become a default change plus UI behind `config.multi_user`, the `Actor` + `authz::require` seam, `Viewer` + `shared::visible_items` on every list query, the per-viewer `viewer_epoch` in the tree ETag, attachment authorization through `item_attachments`, and the `multiUser` capability flag hiding avatars, Share, Invite and "Viewed by N". Later tables: `groups`, `collection_members`, `item_permissions`, `invites`, `shares`. |
 | OIDC/SSO | `users.password_hash` is nullable. Later: an `identities(user_id, issuer, subject)` table. Sessions are unchanged. |
 | Version history UI | `revisions` is written from M1, with format and GC roots; restore is defined in §6.1. |
-| Backlinks | `item_links` is maintained from M1. |
+| Backlinks | `item_links` is maintained from M1; from M1.1 it also holds board → document embeds (§18.8). |
+| More board embeds | §18 keeps `embed` an object, so a later kind (a board's page, a live co-edited card through the doc room of "Live doc co-editing") adds fields; the host, not the engine, draws the content, so new kinds need no engine patch beyond the field. Per-item permissions must redact the labels of cards a viewer cannot read (§18.12). |
 | Templates, icons | `is_template` and `icon` columns; the `/templates` route is reserved. |
 | Board images as attachments | `/api/v1/blobs/{sha}` is reserved; `board_assets` is already hash-based. Later: manifest-mode saves, without inline base64. |
 | New item kinds, formats, link kinds | One `INSERT` into the lookup tables (D37). |
@@ -3293,6 +3316,12 @@ asynchronous (board previews).
     but not the crates' own licence texts; a CLI-only `licenses.txt` in the `cli-dist` stage would add them.
 30. **Process note (W5 D18).** During W5 one `node --check e2e/serve-static.mjs` ran on the host, a syntax check that
     left nothing behind, against PLAN R1. It was reported, reviewed and not repeated; W7 acknowledges it here.
+31. **Board document embeds (M1.1, §18).** Checked only in a real browser, by the frame test and smoke step 17: the
+    overlay following the canvas within one frame, `posAtCoords` in a scaled card, the cross-frame drop of a sidebar
+    row (if Playwright cannot drag across the frame, the smoke dispatches the drop with the exact `DataTransfer` of
+    §18.6 and records why, and a real drag joins item 26's manual list), and the occluder clipping. Manual: IME
+    composition in a card, Focus with a card editing, a rotated card, a background tab with a card editing. The
+    overlay above canvas shapes is a documented limitation (§18.13), not a risk to fix in M1.1.
 
 ---
 
@@ -3428,3 +3457,604 @@ asked, and the owner's open decisions (§16 items 24 and 25) were left open.
 | Opening an empty document wrote to it (W7 product review: `content_at` set, "You updated", a "Leave site?" prompt) | Decided at the W7 review: the doc session holds the editor's own updates while the document is blank and was blank when it loaded, and queues them ahead of the first update that gives it content (§9.4) | Seeding an empty paragraph when the server creates a document (every API-created document and the Markdown and PM JSON writers would gain a paragraph to account for; the server's `docs::is_empty` and the discard rule would change) |
 | Board embed card of a board without a stored preview (W7 product review: the Welcome document's example board showed an empty card) | Decided at the W7 review: the card requests page 0 whenever the board has a page, and the page route renders a missing preview on demand (§9.6.5, §12) | Enqueueing previews for seeded and duplicated boards (still leaves the card empty until the job runs, and adds a write path to the seed) |
 | Discarding a new empty board (W7 product review: only documents were discarded) | The board page follows §9.6.4 like the document page: a board this page session created and left untitled and empty is deleted with `?discard_empty=true` after the save loop and the title flush; the server decides. The title input's pending entry now stays registered until its last PATCH ends, so the discard never overtakes it | A client-side emptiness check of the canvas (the engine is in the frame; the server's `boards::is_empty` is the rule) |
+
+---
+
+## 18. Board document embeds (M1.1)
+
+Owner request, 2026-10-28: "I want text docs to be able to be embedded and editable inside a board." The owner's
+decisions are binding and not reopened here:
+1. An embedded text doc is a **real document item**: it is in the tree, searchable, openable full-page, and one
+   document may be embedded on several boards (and pages).
+2. **Editing on the board** follows Inkboard's own text shapes: a single click selects, moves and resizes it like any
+   shape; a **double-click** puts the caret in the text; **Esc** or **a click outside** leaves editing.
+3. **Three ways to add one**, all in the first version: (a) a "Text doc" button that creates a new document as a
+   **child of the board**, places it in the middle of the view and starts editing it; (b) "Embed page…", a picker that
+   places any existing document; (c) **dragging a document from the sidebar tree** onto the board places it at the drop
+   point.
+
+This section is normative for M1.1 (PLAN "M1.1: board document embeds", workstreams E1–E3). It amends §6.2, §9.5,
+§10.2–§10.4 and §15 only where it says so; everything else in this document stays as it is.
+
+```
+Quire SPA (parent window)                                                       E3
+  BoardFrameHost layer (z-index 1):  <iframe frame.html>  +  .board-embeds overlay (cards: static or editing)
+  │ bridge.ts (§18.4): insertEmbed / setEmbedEditing / setEmbedTitles / requestEmbedLayout
+  │                    onEmbedLayout / onEmbedOpen / onEmbedEditEnd / onDropItem
+  ▼
+frame.js: coordinates to frame-viewport px, drag and drop of sidebar rows                E1
+  │ inkboard.d.ts (§18.3)
+  ▼
+Inkboard + patch 0005: a card is a rect box with kind.embed; per-frame layout report       E1
+  ▲
+  │ the same board JSON (§18.2), PUT and GET unchanged
+Server: unpatched inkboard-core validates; cards → item_links (board → doc, 'embed')        E2
+```
+
+### 18.1 Terms
+
+- **Card**: an Inkboard object that embeds a document (§18.2). **Target**: the document it embeds. **Board**: the
+  item the card is on.
+- **World units**: the board's coordinates (an object's `frame`). **Canvas px**: CSS pixels of the engine's
+  `<canvas>` element. **Frame px**: CSS pixels of the frame's viewport (origin at the iframe's top left; the canvas
+  fills the frame at 0, 0, `frame.css`). **Viewport px**: CSS pixels of the SPA's viewport.
+- **Static** card: the target's content drawn read-only by the host, with `pointer-events: none`, so every pointer
+  event reaches the engine underneath. **Editing** card: the one card (at most one) whose content is the real editor.
+- The engine draws the card's **box** (its fill, border, shadow, selection outline and handles, and a centred title
+  snapshot that shows only where the host draws nothing). The host draws the card's **content** (a header with the
+  live title, and the document body) in an opaque overlay inset into the box.
+
+### 18.2 Stored representation
+
+A card is an ordinary Inkboard box with `"geom": "rect"` whose box kind carries one new optional field, `embed`. The
+envelope, `format` and `version` (2) are unchanged. This is a card exactly as the M1.1 engine writes it (pretty-printed
+here; the engine writes it compact, in this field order):
+
+```json
+{
+  "id": "k3j2h1g0f9",
+  "kind": {
+    "type": "box",
+    "geom": "rect",
+    "frame": { "x": -240.0, "y": -180.0, "w": 480.0, "h": 360.0 },
+    "label": {
+      "text": [ { "text": "Meeting notes", "bold": true, "color": "#1d2430" } ],
+      "family": "sans",
+      "size": 24.0,
+      "align": "center"
+    },
+    "embed": { "item": "0192f0e0-0000-7000-8000-000000000001" }
+  },
+  "style": { "stroke": "#c4cad4", "fill": "#ffffff", "width": 1.0, "dash": "solid", "opacity": 1.0, "roundness": 0.04, "shadow": true },
+  "layer": "main"
+}
+```
+
+Rules:
+- **What is a card.** An object whose `kind.type` is `"box"`, whose `kind.geom` is `"rect"`, and whose `kind.embed` is a
+  JSON object with a string `item`. Every reader in Quire (engine, host, server) uses this one test. `embed` on any
+  other geometry, or an `embed` that is not such an object, is not a card: the server keeps it byte for byte, the
+  M1.1 engine reads it as a plain box and drops the malformed `embed` (or keeps the non-rect one, which parses) on its
+  next save, and nothing is linked.
+- **`item`** names the target. Quire's own writers put the target's UUID in canonical form (36 characters, lowercase
+  hexadecimal with hyphens, as `items.id`). The server links only canonical UUIDs (§18.8) and the host fetches only
+  canonical UUIDs; any other string is shown as "Page not found". The engine treats `item` as an opaque string.
+  Fields inside `embed` other than `item` are not kept by the engine (like any field Inkboard does not know, §6.3).
+- **Field order.** `embed` comes after `label` (and after `lang` when a box has one): it is the last field of
+  `BoxObj` (§18.3), so the engine's canonical JSON is the order above.
+- **Label: the title snapshot.** The label holds the target's title at the last save, `"Untitled"` for a blank title
+  (§18.7), as one bold span coloured `#1d2430` (sans, 24, centred). It is what previews, the board's search text, the
+  no-engine fallback and upstream Inkboard show. Quire never shows it at a zoom where the host draws the card (§18.5),
+  and refreshes it from the live title (§18.7).
+- **New cards** (`insertEmbed`, §18.3): 480 × 360 world units centred on the given point, `angle` 0, the label above,
+  `style` exactly as above (`stroke` `#c4cad4`, `fill` `#ffffff`, `width` 1, solid, opacity 1, `roundness` 0.04, shadow),
+  on the current page's first layer, no group, unlocked.
+- `angle`, `locked`, `group`, `layer` and `style` keep their Inkboard meaning. A card can be moved, resized, grouped,
+  locked, reordered, copied, pasted, duplicated, deleted and undone like any box; a copy embeds the same target.
+- **The shared fixture** `fixtures/boards/embed.inkboard` (committed with this section, frozen for E1–E3) holds two
+  cards (targets `0192f0e0-0000-7000-8000-000000000001` and `…0002`, labels "First page" and "Second page") and one
+  plain box, in the engine's canonical form, so it round-trips through the M1.1 engine byte for byte (without the
+  page `view`, which the engine refits on open, §16 item 26). Tests replace the placeholder ids with real ones.
+
+What each reader sees (checked against the code, §18.15):
+- **The server** compiles `inkboard-core` unpatched from `vendor/inkboard` (`Cargo.toml:35`). Serde ignores the unknown
+  `embed` field (no Inkboard crate uses `deny_unknown_fields`), so `from_json` accepts the board, `inspect` derives the
+  text and meta as for a plain box, and `svg::export_approx` draws a white rounded box with the centred bold title: a
+  preview shows a titled card. The server never re-serializes a board (D9, §6.2: `split` and `splice` edit raw spans),
+  so `embed` survives every PUT and GET byte for byte.
+- **The M1 engine (patchset 2) and upstream Inkboard** show the same titled box, and **drop `embed` when they save**
+  (their model has no such field). Quire ships the SPA and the engine together in one image, under one content-hashed
+  `/inkboard/{build}/`, so the web client always runs the M1.1 engine; an API client that rebuilds a board through its
+  own model must keep the field (AGENTS.md §8).
+- **The M1.1 engine** keeps `embed`, reports cards to the host (§18.3), and never edits a card's label as text.
+- A new `Kind` variant or `BoxGeom` would have broken the unpatched server: `Kind` is internally tagged and `BoxGeom` a
+  plain enum, neither has an `#[serde(other)]` arm (`inkboard-core/src/model.rs:121-132, 395-403`), so `from_json` would
+  refuse every board holding a card with 422 `invalid_board` (D58).
+
+### 18.3 Engine patch (`0005-embed-documents.patch`, `0006-docs-embedded-documents.patch`; E1)
+
+The series grows by two patches; the patchset id becomes `3`, so `engine_version` is `0.2.0-beta.3+embed.quire.3`.
+0005 is code, 0006 the documentation (the 0004 split). Every changed file gets the §10.2 notice line, the patches add
+no `t()` string (nothing visible is new: the card's content is Quire's), and `export --upstream` stays notice-free.
+**This amends §10.2** "Nothing under `inkboard-core` or `inkboard-session` changes": 0005 adds one optional serde field
+to `inkboard-core` (and its constructor sites); `inkboard-session` stays untouched, and the server keeps compiling
+`inkboard-core` unpatched (D59).
+
+| File (`crates/…`) | Change |
+|---|---|
+| `inkboard-core/src/model.rs` | `pub struct Embed { pub item: String }` (Serialize, Deserialize, Clone, Debug, PartialEq). `BoxObj` gains, as its last field, `#[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = …)] pub embed: Option<Embed>`, whose deserializer is lenient: a value that is not an object with a string `item` gives `None` instead of an error (D59). `BoxObj::is_embed()` is `geom == BoxGeom::Rect && embed.is_some()`. `Object::new_box` sets `embed: None`. Tests: a card round-trips; a box without `embed` serializes exactly as before (no new key); `"embed": 5`, `{}` and `{"item": 3}` load as `None`; `embed` on an ellipse is kept but `is_embed()` is false |
+| `inkboard-core/tests/properties.rs`, `inkboard-formats/src/mermaid.rs` | `embed: None` in the `BoxObj` literals (the only other construction sites, `grep 'BoxObj {'`) |
+| `inkboard-app/src/app.rs` | `HostEvents` gains `embed_layout(&EmbedLayout)`, `embed_open(&Id, &str, Option<Pos2>)` and `embed_edit_end(&Id, EditEnd)`, each with an empty default body. `HostMode` gains `embed_editing: Option<Id>`, `embed_titles: HashMap<String, String>`, the last reported layout, a force flag (`requestEmbedLayout`) and the focus state of the last frame. `host_frame()` builds the layout after each frame and reports it when it differs from the last one (below). After each revision change, and when the title map changes, it applies the map in place (below). `host_load_doc` ends any embed editing with `gone` and clears the title map |
+| `inkboard-app/src/rich_edit.rs` | `start_editing`: when hosted and the object `is_embed()`, it does not start label editing: it calls `embed_open` (with the double-click point when there is one) and returns. Every path into label editing goes through it: the double-click (`tools.rs` `handle_double_click`), Enter (`Action::EditText`), the context menu's "Edit text" (`chrome.rs`) |
+| `inkboard-app/src/tools.rs` | `handle_double_click` hands its point to `start_editing` for the event. `selection_box()` returns no handles while `embed_editing` is set (as it does while a label is edited), and a single selected card gets `rotate: false` (no rotation handle). While `embed_editing` is set, the first primary press anywhere in the frame (canvas or engine chrome), or the frame gaining focus, ends it: `embed_editing = None`, `embed_edit_end(…, press \| focus)`, and a press on the canvas is swallowed (it neither selects, nor drags, nor creates), as Inkboard's own text editing does |
+| `inkboard-app/src/embed.rs` | The JS side: the three new `MountOptions` callbacks (read with `Reflect::get`, called through `later`), and the handle methods `insertEmbed`, `setEmbedEditing`, `setEmbedTitles` and `requestEmbedLayout` (`with_app`, repaint) |
+| 0006: `docs/WEB.md`, `docs/fr/WEB.md`, `CHANGELOG.md` (repo root) | The embedded-documents API in the "Embedding (feature `embed`)" section, in English and French, and an `[Unreleased]` entry |
+
+JS API additions (exactly `web/inkboard-frame/inkboard.d.ts`, committed with this section):
+
+```ts
+interface MountOptions {                                // … plus §10.3's members
+  onEmbedLayout?(e: EngineEmbedLayout): void;           // after a frame in which anything below changed
+  onEmbedOpen?(e: EngineEmbedOpen): void;               // instead of editing a card's label
+  onEmbedEditEnd?(e: EngineEmbedEditEnd): void;         // the editing set by setEmbedEditing ended in the engine
+}
+interface InkboardHandle {                              // … plus §10.3's members
+  insertEmbed?(a: EngineInsertEmbed): string | null;    // one undo step, selected; null when read-only; throws {kind:'start'} when inert
+  setEmbedEditing?(id: string | null): void;
+  setEmbedTitles?(titles: Record<string, string>): void;
+  requestEmbedLayout?(): void;
+}
+interface CanvasRect { x: number; y: number; width: number; height: number }          // canvas px
+interface EngineEmbed { id: string; item: string; x: number; y: number; w: number; h: number; angle: number;
+                        label: string; selected: boolean; locked: boolean }             // frame in world units
+interface EngineEmbedLayout { page: string; zoom: number; originX: number; originY: number; canvas: CanvasRect;
+                              occluders: CanvasRect[]; embeds: EngineEmbed[]; items: string[]; editing: string | null }
+interface EngineEmbedOpen { id: string; item: string; point: { x: number; y: number } | null }   // canvas px
+interface EngineEmbedEditEnd { id: string; reason: 'press' | 'focus' | 'gone' }
+interface EngineInsertEmbed { item: string; title: string; at: 'center' | { x: number; y: number }; w?: number; h?: number }
+```
+
+How it works:
+- **Units.** Engine coordinates are canvas px: egui points times `ctx.zoom_factor()` (1 in Quire: Inkboard turns
+  keyboard zoom off, `app.rs:236-237`, and nothing else sets it). devicePixelRatio is egui's native pixels per point
+  and never enters these numbers.
+- **The camera.** Each page stores `view {x, y, zoom}` (`model.rs:546`); the canvas draws with
+  `Cam { origin: canvas_rect.min + (view.x, view.y), zoom: view.zoom }` (`tools.rs:845`, `render.rs:25-41`), so
+  `screen = origin + world × zoom`. The layout reports `zoom = view.zoom × zoom_factor` and
+  `originX/Y = (canvas_rect.min + view.x/y) × zoom_factor`. Panning and zooming never bump the revision
+  (`set_view`, `app.rs:755`), which is why `onChange` cannot carry them.
+- **The layout** (`EngineEmbedLayout`):
+  - `page` is the current page's id; `canvas` is `app.canvas_rect`, the central panel the board is drawn in
+    (`tools.rs:831-833`).
+  - `occluders` are the rects of every visible egui layer whose order is above `Order::Background` (egui 0.33:
+    `Memory::areas().visible_layer_ids()` and `Memory::area_rect`), intersected with `canvas` and dropped when empty.
+    That covers Inkboard's floating cards (title and menu, tools, style panel, pages, zoom, help, library;
+    `chrome.rs:37-46`), popups and context menus, tooltips, toasts, windows and the dialog backdrop.
+  - `embeds` are the current page's cards (§18.2) on visible layers, in drawing order, with the frames as drawn this
+    frame, including a gesture's live state (`set_live` moves objects without a revision). `selected` is membership of
+    `app.sel`; `locked` is `Page::is_locked`.
+  - `items` is every distinct `embed.item` of a card on any page and layer, sorted (recomputed only when the revision
+    changes).
+  - `editing` is `embed_editing`.
+  - It is reported after the frame (`later`, like `changed`), at most once per frame, when any field differs from the
+    last report; floats are compared after rounding to 1/1000. While the current page has no card and had none in the
+    last report, a change of `zoom`, `origin`, `canvas` or `occluders` alone is not reported. `requestEmbedLayout`
+    forces the next report. The first frame after `mount` or `setBoard` always reports.
+  - Cost: one pass over the current page's objects per frame (the renderer already makes one), the egui layer list,
+    and a comparison; the object is built for JS only when something changed.
+- **Open.** `embed_open` is called instead of label editing (`rich_edit.rs:118`) and the card is selected (the
+  double-click already selects it, `tools.rs:937`). `point` is the double-click position in canvas px, `null` for Enter
+  and the menu. A read-only host never gets there (`host_guard` keeps the Hand tool, `app.rs:433-447`). When not hosted
+  (Inkboard's own page or app) a card's label is edited as any box label.
+- **Editing state.** `setEmbedEditing(id)` sets `embed_editing` (an id that is not a card on the current page is
+  ignored), keeps that card the only selected object and hides its handles. It ends in the engine on: the first
+  primary press in the frame (`press`; a canvas press is swallowed), the frame gaining keyboard focus without a press
+  (`focus`, egui's `focused` going from false to true; a press in the same frame wins), or the card leaving the
+  current page (deleted, page changed, `setBoard`/`host_load_doc`: `gone`). Each sends `onEmbedEditEnd` once and clears
+  `embed_editing`.
+  `setEmbedEditing(null)` clears it without an event. The press that ends it is swallowed so that, as with Inkboard's
+  own text, the click that leaves editing does nothing else; a double-click on another card still opens that card
+  (egui counts the double-click from the two presses).
+- **Insert.** `insertEmbed` adds a card (§18.2 defaults, `w` and `h` when given and > 0) centred on `at` (`'center'`:
+  `view_center()`, `app.rs:662`; a point: `cam.w(point / zoom_factor)` with the last frame's camera) to the current
+  page with `ed.insert` (one undo step), selects it, sets the Select tool, asks for a repaint, and returns the new
+  object id. It returns `null` (and changes nothing) when the board is read-only. `onChange` follows on the next frame
+  as for any edit.
+- **Titles.** `setEmbedTitles(map)` replaces `embed_titles`. The engine applies it in place: every card on every page
+  whose `item` is in the map and whose label's plain text differs gets `label.text.set_plain(title)` (the first span's
+  style stays), directly on `ed.doc`, with no history entry and no revision. It is applied again after every revision
+  change (an undo can bring back an older label), and so `host_snapshot` saves the live titles with the next save,
+  while a title change alone never makes the board dirty or saves it (D68). `host_load_doc` (`mount`, `setBoard`)
+  clears the map, so one board's titles never reach another.
+- **Lenient model.** A board written by an API client with a malformed `embed` opens; the engine drops the malformed
+  value on its next save, as it drops any field it does not know.
+- **Native unit tests** in `inkboard-app` (run by `cargo test -p inkboard-app embed`, so the logic is tested outside the
+  browser): the layout of the fixture (two cards, the plain box left out, `items`, frames, the camera formula);
+  no report when nothing changed and one after a pan; no report for camera-only changes on a page without cards;
+  `start_editing` on a card calls `embed_open` and leaves `editing` empty while a plain box still edits; the ending
+  press is swallowed and reported once; `gone` after `host_load_doc`; `insertEmbed` centred on the view centre and on a
+  point, one undo step, `null` when read-only; titles in place without a revision and re-applied after an undo; no
+  rotation handle for a single card.
+
+### 18.4 Frame API additions (`web/src/board/bridge.ts`, `web/inkboard-frame/frame.js`; E1)
+
+The bridge types are committed with this section (`bridge.ts`, "board document embeds"); every new member is
+optional, so the M1 frame and the fake frame still satisfy them, and the host offers embeds only when the connected
+frame has `insertEmbed`:
+
+```ts
+export interface FrameEvents {                              // … plus §10.4's members
+  onEmbedLayout?(e: EmbedLayout): void;
+  onEmbedOpen?(e: EmbedOpenEvent): void;
+  onEmbedEditEnd?(e: EmbedEditEndEvent): void;
+  onDropItem?(e: DropItemEvent): void;
+}
+export interface BoardFrameApi {                            // … plus §10.4's members
+  insertEmbed?(a: InsertEmbedArgs): string | null;          // throws while no board is open
+  setEmbedEditing?(objectId: string | null): void;
+  setEmbedTitles?(titles: Readonly<Record<string, string>>): void;
+  requestEmbedLayout?(): void;
+}
+export type DragItemType = 'application/x-quire-item';
+export interface DraggedItem { v: 1; id: string; kind: 'doc'; title: string }
+export interface FramePoint { x: number; y: number }
+export interface FrameRect { x: number; y: number; width: number; height: number }
+export interface EmbedBox { readonly objectId: string; readonly item: string; readonly x: number; readonly y: number;
+  readonly w: number; readonly h: number; readonly angle: number; readonly label: string; readonly selected: boolean;
+  readonly locked: boolean }
+export interface EmbedLayout { readonly itemId: string; readonly page: string; readonly zoom: number;
+  readonly originX: number; readonly originY: number; readonly canvas: FrameRect; readonly occluders: readonly FrameRect[];
+  readonly embeds: readonly EmbedBox[]; readonly items: readonly string[]; readonly editing: string | null }
+export interface EmbedOpenEvent { readonly itemId: string; readonly objectId: string; readonly item: string; readonly point: FramePoint | null }
+export type EmbedEditEndReason = 'press' | 'focus' | 'gone';
+export interface EmbedEditEndEvent { readonly itemId: string; readonly objectId: string; readonly reason: EmbedEditEndReason }
+export interface DropItemEvent { readonly itemId: string; readonly item: DraggedItem; readonly point: FramePoint }
+export interface InsertEmbedArgs { item: string; title: string; at: 'center' | FramePoint; w?: number; h?: number }
+```
+
+`frame.js`:
+- **Events.** It passes the three engine callbacks at `mount` and forwards them with `itemId` = the current board
+  (dropped while `current` is null), renaming `id` to `objectId` and turning canvas px into frame px by adding
+  `canvas.getBoundingClientRect()`'s `left`/`top` to every point, rect and origin (0 today, but the frame does not
+  rely on it). The host ignores events for any board but the current one (§10.4 item 7).
+- **Methods.** `insertEmbed` (frame px → canvas px for a point), `setEmbedEditing`, `setEmbedTitles` and
+  `requestEmbedLayout` call the handle's members when it has them (`?.`); `insertEmbed` throws `Error('no board is
+  open')` while no board is open (as `snapshot` does) and `Error('this engine cannot embed documents')` when the
+  handle lacks the member.
+- **Read-only.** It remembers the last `readOnly` of `open()` and `setReadOnly()`.
+- **Drag and drop** (D70). Capture-phase `dragenter` and `dragover` listeners on `window`: when a board is open, the
+  board is not read-only and `dataTransfer.types` includes `application/x-quire-item`, they call `preventDefault()`
+  (the drop is accepted; the drop effect is the browser's default for the source's `effectAllowed`) and
+  `stopPropagation()`. A capture-phase `drop` listener does the same checks, `preventDefault()` and
+  `stopPropagation()` (so eframe's own file-drop handler on the canvas never sees it), parses
+  `getData('application/x-quire-item')` as a `DraggedItem` (a value that does not parse, whose `v` is not 1, whose
+  `kind` is not `'doc'` or whose `id` or `title` is not a string is ignored), and sends
+  `onDropItem({itemId: current, item, point: {x: clientX, y: clientY}})`. Drags without the type are left alone (an
+  image file still reaches the engine's own drop handling, `app.rs` `dropped_files`).
+- Everything of §10.4 stays: the double-Esc, host keys, the visibility wait, panics.
+
+### 18.5 Host overlay (`web/src/board/embed/`, `BoardFrameHost`; E3)
+
+**Layering and DOM.**
+- `BoardFrameHost`'s fixed layer (`.board-frame-layer`, z-index 1, §9.5) holds the iframe and, after it in DOM order, the
+  overlay `div.board-embeds` (`data-testid="board-embeds"`). The overlay is positioned by the same rAF routine as the
+  iframe, to the same rect, so frame px are overlay-local px; it has `overflow: hidden` and `pointer-events: none`, is
+  hidden and `inert` whenever the iframe is (off board routes, before `shown`, after a failure), and is emptied when
+  the frame is reset or removed. Quire's menus (10), popovers (30), dialogs and toasts stay above it; the editor's
+  popups are portaled above it (below).
+- Inside it, `div.board-embeds-world` carries `transform: translate(<originX>px, <originY>px) scale(<zoom>)`,
+  `transform-origin: 0 0`, `will-change: transform`. Each card is `div.board-embed-card` positioned in world units
+  inside it, so one transform moves every card when the camera moves.
+- **Applying a layout** happens synchronously in the `onEmbedLayout` handler, on the DOM through refs (the world
+  transform, each card's box, the clip path), never through React state. React renders only when the set of rendered
+  cards changes (ids, items, which is editing), so a pan or a drag touches no component. The engine reports from a
+  microtask right after its animation-frame callback, so the overlay and the canvas change in the same rendered frame.
+  The host store keeps the current board's last layout (`host.ts`; dropped on a board switch, a frame reset or
+  removal), and the host calls `requestEmbedLayout()` after every `open()` resolves.
+
+**Coordinates** (viewport px; `r` = the iframe's `getBoundingClientRect()`, `L` = the layout):
+- world → frame px: `fx = L.originX + wx × L.zoom`, `fy = L.originY + wy × L.zoom`; frame px → viewport px: `vx = r.left
+  + fx`, `vy = r.top + fy` (the iframe has no border or padding, `board.css`); viewport → frame: subtract `r.left`/`r.top`.
+- A card's box: `left = x + INSET`, `top = y + INSET`, `width = w − 2·INSET`, `height = h − 2·INSET` (world units), with
+  `transform: rotate(<angle>rad)` about its own centre, which is the frame's (`transform-origin: 50% 50%`).
+  `INSET = 12`: at the minimum zoom (0.5) it is 6 px, more than the 4.5 px a 9 px engine handle reaches inside the edge,
+  so the selection outline and handles stay visible.
+- Inside the box: a header 40 world units tall (kind icon, the live title in 17 px semibold, ellipsis; while editing,
+  the title input, the save status and an "Open page" button), a 1 px rule, then the body, padded 8 × 14, laid out at
+  zoom 1 with the document page's editor styles (`editor.css`), so text reflows the same at every zoom.
+
+**Which cards are drawn** (`chooseCards(layout, overlaySize, editing)`, a pure function):
+- the editing card, always, whatever the zoom or position;
+- other cards only when `L.zoom ≥ 0.5`, their on-screen box is at least 120 × 80 px, and their rotated screen bounds
+  meet the canvas rect grown by 200 px;
+- of those, at most 24 (`MAX_STATIC_CARDS`), the largest on screen first (ties: drawing order);
+- in drawing order in the DOM, so a later card paints above an earlier one.
+Every other card is only the engine's titled box.
+
+**Clipping.** The overlay's `clip-path` is `path(evenodd, …)` in overlay-local px: the `canvas` rect, minus the union of
+the `occluders` (each intersected with `canvas`), decomposed into disjoint rectangles by horizontal slabs (every
+distinct top and bottom edge; within a slab the x-intervals merged), so overlapping occluders never cancel out under
+`evenodd`. Each card also clips its own content to its box (`overflow: hidden` static, `overflow-y: auto;
+overscroll-behavior: contain` editing).
+
+**Static cards.**
+- `pointer-events: none` and `aria-hidden="true"` on the card; the only exception is the save-state badge's Retry
+  button (below), which takes `pointer-events: auto`.
+- Content: `GET /api/v1/items/{id}/doc/prosemirror` (`DocJson`) under the query key `['docJson', id]`, revalidated with
+  `If-None-Match` (the `etag` option of `api()`; a 304 keeps the cache), `staleTime` 30 s, `refetchOnWindowFocus:
+  true` for this key only, and refetched when the board opens. It is shown by a **read-only TipTap viewer**: an
+  `Editor` with the live editor's schema extensions and node views (`schemaExtensions` and the views of
+  `views.tsx`), `editable: false`, `content` = the first 200 top-level blocks of `doc` (`MAX_STATIC_BLOCKS`), no
+  Collaboration, no menus. It is not an editor of the document: it has no Y.Doc and no session and cannot write
+  (D64; §6.1's "never pass `content:`" is about the live editor). Its DOM and CSS are the live editor's, so entering
+  editing does not move the text.
+- The header: the kind icon and the live title (the target's `ItemDetail`, `['item', id]`, `title || 'Untitled'`),
+  refetched on window focus and when the board opens, like the content; its `trashed_at` and `archived_at` give the
+  target states below.
+
+**Editing** (one card at a time, D65):
+1. `onEmbedOpen` for a card whose target is a live, unarchived document of a board that is not read-only: the host
+   calls `frame.setEmbedEditing(objectId)` at once, marks the card `editing` (it keeps the static viewer until the
+   editor is ready), waits for the previous session of the same target to finish its flush, then
+   `DocSession.open(target)`. If the open fails, editing ends (`setEmbedEditing(null)`) with the error toast "Could
+   not open the page". Any other `onEmbedOpen` (a trashed, archived, missing or non-document target, a read-only
+   board) changes nothing. An `onEmbedOpen` while another card is editing ends that one first.
+2. When the session is open, the card's body becomes `QuireEditor` with `variant="embed"` and `popupRoot` (additive
+   props; the default `"page"` is today's editor): `popupRoot` is one `div.board-embed-popups` that the overlay
+   appends to `document.body` (z-index 30, above the frame layer). The slash and mention popups render into it
+   through a portal (they are `position: fixed`, `editor.css:392`, and would be offset and scaled inside the
+   transformed card); the bubble and table menus use TipTap's `appendTo: () => popupRoot` with
+   `options: {strategy: 'fixed'}` (`@tiptap/extension-bubble-menu` appends to the editor's parent by default). It has
+   no block handle (no drag reorder in a card) and no heading anchors (two cards of one document would repeat the ids);
+   Backspace at the start of an empty body moves to the card's own title input (a `titleInput` prop) instead of
+   `#item-title`; the link gesture stays (Ctrl/Cmd+click follows a link while editing, §9.6.5). The card gets
+   `pointer-events: auto`, `role="region"` and `aria-label="<title> (embedded page)"`.
+3. Focus and caret: `editor.view.focus()` (focus moves from the iframe to the parent). With a `point` and `angle` 0, the
+   caret goes to `view.posAtCoords({left: r.left + point.x, top: r.top + point.y})` (prosemirror-view supports scaled
+   editors) when it hits the body; a point in the header focuses the title input; otherwise (Enter, the menu, a
+   rotated card, a point outside the text) the caret goes to the end of the document.
+4. While editing, keys go to the parent: Quire's shortcuts work (Mod+K, Mod+., Mod+S flushes the document), Ctrl+Z
+   undoes the document's text (Y.UndoManager), never the board, and the engine gets no keys. The header's title input
+   uses `useTitleAutosave` (500 ms PATCH), Enter moves to the body; "Open page" navigates to the document.
+5. Editing ends on the first of:
+   - **Esc** pressed in the card when nothing consumed it (`keydown` on the card in the bubble phase with
+     `!e.defaultPrevented`; the slash and mention menus consume their own Esc): the host calls
+     `frame.setEmbedEditing(null)` and then `frame.focus()`, so the card stays selected in the engine (Delete removes
+     it, arrows move it) and a further double Esc in the frame leaves the canvas as before (§9.5);
+   - **a press in the frame** or the frame taking focus: `onEmbedEditEnd` (`press`/`focus`); the host changes no focus;
+   - **a `pointerdown` in the parent outside the card and outside `popupRoot`** (capture phase on `document`), such
+     as the top bar or the sidebar: `frame.setEmbedEditing(null)`, focus stays where the click put it;
+   - `onEmbedEditEnd` with `gone`, the card leaving the layout, the board becoming read-only, the target becoming
+     trashed or archived, the board's session being released (route change, board switch), the frame failing.
+   Ending is idempotent: the host flushes the session (`await flush()`), destroys it, puts the static viewer back
+   with the editor's last `getJSON()` written into `['docJson', id]` (so the card does not flicker back to older
+   content), and invalidates that key.
+6. Another card of the same document on the same board shows the new content when editing ends (not while typing).
+
+**Autosave and unsaved state.** The card's `DocSession` is the document page's (§9.4): debounce 1 s / 5 s, the
+IndexedDB outbox, `missing_deps`, back-off, `registerPending` (so `beforeunload`, route changes and Mod+S flush it) and
+`setSaveStatus(target, …)`. The card header shows `useSaveStatus(target)` while editing ("Saving…", "Saved",
+"Offline", "Not saved" with Retry); a static card shows a badge only while the target's state is `offline`, `error` or
+`signed_out`, with the Retry button of `SaveStatus.retry`. A flush that fails when editing ends leaves the updates in
+the outbox, which the next session of that document (a card or the document page) sends first. The board's own save
+loop and status are untouched: editing a card's text never changes the board.
+
+**Target states** (`data-state` on the card): `loading` (the header with the label snapshot, an empty body); `static`
+or `editing` for a live document; `trashed` and `archived` (the content dimmed, a badge "In Trash" or "Archived", not
+editable); `missing` for a 404, a non-canonical `item` or a target that is not a document ("Page not found" with the
+label snapshot struck through, not editable); `error` for another failure ("Could not load this page", retried by the
+query on focus). The engine keeps every card a box in every state (select, move, resize, delete).
+
+**Board states.** A read-only board (trashed or archived; `readOnly` of `open`) shows static cards only: the buttons of
+§18.6 are disabled, the frame refuses drops, the engine never sends `onEmbedOpen` (Hand tool). If the board becomes
+read-only while a card is editing, editing ends first. Off board routes, while paused, after a panic or when the
+iframe is removed (§9.5), the overlay is hidden or emptied and any editing ends (flush, destroy). BoardPreview (no
+engine, phones) shows only the previews' titled boxes.
+
+**Focus (full screen).** Focus now calls `requestFullscreen()` on `.board-frame-layer` instead of the iframe, so the
+overlay is shown with it; while `document.fullscreenElement` is the layer, the iframe and the overlay fill it (the rAF
+routine places them at the layer's rect instead of the surface's). The iframe is never moved in the DOM.
+
+**Theme.** Cards are paper (D67): the card box, header and body use Quire's light palette (the `tokens.css` light
+values, re-declared on `.board-embed-card`) whatever the Quire theme and the board background; the engine-drawn box is
+white with a `#c4cad4` border. The editor's portaled popups follow the Quire theme.
+
+**Test contract for the smoke** (E3 provides, the merge stage uses): the top-bar buttons `role=button`, names
+"Text doc" and "Embed page…"; the picker `role=dialog`, name "Embed a page", an input with the placeholder "Find a
+page", and one button per result named by the title; `.board-embeds .board-embed-card[data-object-id][data-item-id]
+[data-state]`; the title `.board-embed-card-title`; the static body `.board-embed-static .ProseMirror`; the editor
+`.board-embed-editor .ProseMirror[contenteditable="true"]`; the status `.board-embed-status`.
+
+### 18.6 Adding a card (E3; drag data and drop path with E1)
+
+All three end in one host function, `insertCard(target, at)`: it requires a connected frame with `insertEmbed`, an
+open board that is not read-only, and a target that is a document; it calls `frame.insertEmbed({item: target.id,
+title: target.title.trim() || 'Untitled', at})`, then `frame.focus()` unless editing starts. A `null` return or a throw
+shows the error toast "Could not add the page to the board".
+
+**(a) Text doc** (top-bar button "Text doc", icon `FilePlus`, left of the star; disabled while the board is read-only,
+the frame is not ready or lacks `insertEmbed`, or a creation runs):
+1. `POST /api/v1/items {collection_id: board.collection_id, parent_id: board.id, kind: "doc"}` through
+   `useCreateItem` (it updates the tree and the board's `child_count`). Its title is empty.
+2. `insertCard(doc, 'center')`.
+3. Editing starts on the new card as if `onEmbedOpen` had arrived with `point: null` (§18.5 Editing): the caret is in
+   the empty body, the title input reads "Untitled" as its placeholder.
+4. The board page session remembers the document as created here. When the page leaves the board (BoardView
+   unmount or a board switch), every document created here whose id is not in the last layout's `items` is flushed
+   (`flushPending`) and sent `DELETE /api/v1/items/{id}?discard_empty=true` (the server decides: 409 `not_empty` is
+   ignored, §9.6.4). A created document still on the board stays, even empty. If `insertEmbed` fails after the
+   create, the document is discarded at once the same way.
+
+**(b) Embed page…** (top-bar button with the same disabling): a dialog "Embed a page": an input "Find a page"
+(`GET /search/titles?q&limit=20`, 250 ms debounce, a blank query lists recently updated items), results limited to
+`kind === 'doc'` with their path, Enter takes the first, Esc closes. Choosing one: `insertCard(doc, 'center')`, close,
+`frame.focus()`. The card is placed and selected, not opened.
+
+**(c) Sidebar drag** (D70):
+- **Drag source** (`TreeRow`): a document row's pragmatic-dnd `draggable` adds `getInitialDataForExternal: () =>
+  ({'application/x-quire-item': JSON.stringify({v: 1, id, kind: 'doc', title})})`. Board and collection rows add
+  nothing (boards are not embedded in M1.1). The tree's own drag and drop (§9.6.3) is unchanged: the native data is
+  only for drops in other documents, which the iframe is.
+- **Drop on the canvas**: the frame's listeners (§18.4) accept the drag and send `onDropItem`; the host checks that the
+  board is current and not read-only and that `id` is a canonical UUID, then `insertCard({id, title}, point)`. The card
+  is centred on the drop point and selected, not opened. pragmatic-dnd in the parent sees the drag leave its window:
+  its `onDrop` finds no drop target, so the tree does not move anything.
+- **Drop on the editing card** (the only part of the overlay that takes pointer events): a capture-phase `dragover`
+  and `drop` listener on `.board-embeds` takes drags with the type before ProseMirror does, and handles the drop like
+  a canvas drop at the point converted to frame px. Other drags (files, text) reach the editor as on the document
+  page.
+- The same type is the only contract between the two documents: `DragItemType` and `DraggedItem` in `bridge.ts`;
+  `frame.js` and the SPA each declare the string with that type, so a mismatch does not typecheck.
+
+### 18.7 Titles
+
+- The **live title** is what the host shows: the header of every drawn card reads `useItem(target)`, so a rename
+  anywhere (the sidebar, the document page, the card's title input) shows at once.
+- The **snapshot** is the label stored in the board (§18.2). `insertEmbed` writes the title at insert time. The host
+  keeps the engine's map current: whenever the titles of the cards' targets in the query cache change (a target's
+  `ItemDetail` loaded or updated), it calls `setEmbedTitles` (250 ms debounce) with `{[id]: title.trim() || 'Untitled'}`
+  for every target in the layout's `items` whose `ItemDetail` is cached. The engine shows them in place and saves them
+  with the board's next save; a rename alone never saves the board (no write on open, no cross-tab conflict, D68).
+- So previews, the board's search text and the no-engine fallback may show an older title until the board is saved
+  again. The engine's own titled box (cards beyond the cap or below the zoom threshold) shows the live title as soon
+  as the map has it.
+
+### 18.8 Server (E2)
+
+- **`quire-core::board`.** `Inspect` gains `embeds: Vec<String>`: the targets of the board's cards (§18.2 test) whose
+  `item` is a canonical UUID, distinct, in first-appearance order over pages and objects, at most
+  `EMBED_LINKS_MAX = 1000` (the rest are not linked). `inspect` finds them with a second, borrowed, typed pass over the
+  body (`serde_json::from_str` into small `Deserialize` structs that read `document.pages[].objects[].kind.{type, geom,
+  embed}` and ignore everything else; `embed` read as `&RawValue` and parsed leniently), after `from_json` has
+  validated it; no `Value` tree (D9). A pass that fails anyway gives no embeds, never an error.
+- **`quire-store::boards`.** In the PUT's writer transaction (§6.2 step 5, after the body text), `set_embed_links`:
+  `DELETE FROM item_links WHERE source_id = ?1 AND kind = 'embed'`, then `INSERT OR IGNORE` one `(board, target,
+  'embed')` row per target, skipping the board's own id. The no-op save (§6.2 step 4) leaves the links as they are (the
+  body did not change). `init_with` (seed and fixtures) sets them too; `init_empty` has none. `copy` (duplicate)
+  copies the source's `item_links` rows, as `docs::copy` does. Purging a board removes its rows (`source_id` cascades);
+  a purged target leaves the rows (`target_id` is not a foreign key, §5).
+- **Validation** is unchanged: nothing about `embed` is ever refused (a v1 tightening otherwise, §7.1), and nothing
+  checks that a target exists or is a document (links are recorded for targets that may be created, trashed or
+  purged later, as for documents).
+- **Previews, text, search, meta** are unchanged in code: the unpatched model renders a card as its titled box, the
+  board's text and `text_excerpt` hold the title snapshot (a box label, §6.2 `inspect`), so searching for a document's
+  title also finds the boards it is on. A board's text never includes its targets' bodies: each document is its own
+  search hit.
+- **Routes and DTOs** are unchanged: no new route, field or error code; `docs/api/openapi.json` does not change.
+
+### 18.9 Tree operations
+
+- **Children made by "Text doc"** are ordinary children of the board (§5): trashing, archiving, restoring, purging and
+  moving the board takes them with it; they can be moved out of the board (the card keeps working, it names the
+  target by id), renamed, opened, searched, starred and embedded elsewhere.
+- **Duplicate** copies the board's body and links (§18.8) and no children (§7.2): the copy's cards show the same
+  documents, now shared by both boards (D71).
+- **A target elsewhere** is unaffected by anything done to the board. If the target is trashed, archived, restored or
+  purged, every card of it shows that state (§18.5) the next time its `ItemDetail` is fetched (focus, board open).
+- **Deleting a card** (Delete, Cut, undo of its insert) never touches the target. The only document Quire deletes is
+  an empty "Text doc" document left unreferenced when the page leaves the board (§18.6 (a)).
+- **Purging a child that another board embeds** (by purging its board) leaves that other board's card "Page not found".
+
+### 18.10 API, CLI and AGENTS.md (E2)
+
+- No route, DTO, error code or CLI command is added (D72). The public API already does everything a card needs:
+  `POST /items` (child document), `GET`/`PUT …/board` (the representation of §18.2, preserved byte for byte),
+  `GET …/doc/prosemirror`, `GET /items/{id}`, `GET /search/titles`.
+- `docs/AGENTS.md` §8 gains "Embedded pages": the card JSON of §18.2 and its rules (rect, canonical UUID, the label is a
+  title snapshot, `embed` must be kept when rewriting a board, any object id unique on its page), and a `jq` recipe that
+  creates a child document with `quire item create --parent <board>` and appends a card to page 0 with `board get` /
+  `board put --if-match`.
+- Agent scenario `e2e/agent/scenarios/12-board-embeds.sh` (PLAN M1.1 E2) checks this path end to end.
+
+### 18.11 Performance limits
+
+| What | Limit |
+|---|---|
+| Layout reports | At most one per engine frame, only on change; camera-only changes not reported on a page without cards; applied without React |
+| Static cards drawn | 24 at most, only at zoom ≥ 0.5 and ≥ 120 × 80 px on screen; the editing card always |
+| Static content | The first 200 top-level blocks; one `DocJson` fetch per target, revalidated with `If-None-Match` (304), `staleTime` 30 s |
+| Editors | One `DocSession` and one live editor at a time; a static card has neither |
+| Engine | One pass over the current page per frame; titles applied over all pages only on a revision or map change |
+| Server | One extra borrowed pass over the PUT body; at most 1000 link rows per board, replaced in the PUT's transaction |
+
+### 18.12 Security
+
+- The overlay renders in the parent document under the SPA CSP (§11): ProseMirror's and the overlay's `style`
+  attributes are covered by `style-src-attr 'unsafe-inline'`, TipTap's base CSS is in `editor.css` (`injectCSS: false`),
+  and nothing new is inline script. Document content is rendered only through the TipTap schema, as on the document
+  page.
+- `item` values come from board JSON, which API clients write: the host fetches only canonical UUIDs, always through
+  `encodeURIComponent`, so no `item` can form another path. The drop JSON is parsed defensively in the frame and the
+  host checks the id again; the drag type is only read on `drop` (browsers expose drag data only then).
+- Authorization (future multi-user, §15): drawing a card needs `read` on the target (`GET /items/{id}`,
+  `GET …/doc/prosemirror`), editing needs `write` on it, and both go through `authz::require` like every route; a
+  viewer without access sees "Page not found". The board itself stores the target's id and title snapshot, readable by
+  anyone who can read the board; when per-item permissions arrive, the board GET should replace the labels of cards
+  whose target the viewer cannot read (as it replaces `document.name`, D31), and backlinks built on `item_links` must
+  filter targets and sources through `shared::visible_items`.
+
+### 18.13 Limitations (documented, not bugs)
+
+1. **Cards are above every canvas shape**: shapes, connectors, strokes, labels being edited and other objects' handles
+   drawn over a card are hidden where they overlap its content (the 12-unit margin, the border and the shadow are the
+   engine's and show). Bring a shape next to a card, not over it.
+2. **Rotation**: a single card has no rotation handle; a card rotated with a group, or by an API client, is drawn
+   rotated, and a double-click on it puts the caret at the end.
+3. **Fixed size**: content longer than the card is clipped (static) or scrolls (editing); a card never grows to fit.
+4. **Previews, exports, the phone fallback and upstream Inkboard** show a card as a white box with its title snapshot,
+   without the body. The snapshot may lag a rename until the board is saved again (§18.7).
+5. **Another card of the same document on one board** updates when editing ends, not while typing; another tab
+   updates on focus.
+6. **No block handle** in a card (no drag reorder of blocks); the slash, mention, bubble and table menus work.
+7. **A read-only board** never opens its cards for editing, even when the target is writable: open the document.
+8. **Only documents** can be embedded on boards in M1.1; a board row cannot be dropped and the picker lists documents.
+9. **Undo is per item**: Ctrl+Z in a card undoes its text; in the canvas it undoes board operations (moving, inserting,
+   deleting cards), never text.
+10. **An engine without 0005** (the M1 engine, upstream Inkboard, another API client's model) drops `embed` when it
+    saves the board.
+
+### 18.14 Decisions
+
+| # | Decision | Rejected alternatives and why |
+|---|---|---|
+| D58 | A card is a `rect` box with an optional `kind.embed {item}` field (§18.2) | A new `Kind` variant or `BoxGeom` (the unpatched server's `from_json` would refuse every such board); a side table keyed by object id (copy, paste, duplicate and API writers would lose the link; a board would not be self-describing for agents); encoding the target in the object id or in the label text (fragile, user-editable, ids must be unique); an object-level generic `link` (says "points to", not "render inside") |
+| D59 | 0005 adds that one optional field to `inkboard-core`, deserialized leniently; the server keeps compiling `inkboard-core` unpatched | Compiling the server against the patched copy (a generated, git-ignored path dependency, Docker ordering and `check-pins` would all change); strict deserialization (a board with an API-written `"embed": 5`, which the server accepts, could no longer be opened by the engine) |
+| D60 | The server refuses nothing because of `embed`; it links canonical-UUID targets of rect cards, at most 1000, never the board itself, whether or not they exist | 422 for a malformed `embed` (a v1 tightening, §7.1); checking existence or kind (targets are created, trashed and purged independently; `item_links` has no target key by design) |
+| D61 | Quire, not the engine, draws the content, in an overlay of the parent document (same origin, §10.1) | Rasterizing HTML into an engine texture (SVG `foreignObject` taints canvases and fights the CSP; no editing); rich text drawn by egui (no schema, no editor); an iframe per card (a second app per card, no shared query cache) |
+| D62 | The engine reports world frames and the camera once per changed frame (`onEmbedLayout`); the host applies them to the DOM synchronously | The host polling the frame (lag, wasted frames); screen rects only (the host could not scale the content consistently); routing positions through React state (a render per frame during a drag) |
+| D63 | The overlay is clipped to the drawing area minus the engine's own interface (`occluders`) | Covering the engine's menus and panels where a card lies under them; hiding all cards while any engine UI is open |
+| D64 | Static cards are read-only TipTap viewers of `DocJson` (≤ 24 cards, ≤ 200 blocks); no session, no writes | A live `DocSession` per card (N outboxes and focus syncs, and a risk of writes from merely looking); a custom JSON → React renderer (a second copy of every node's rendering); server-rendered HTML (no endpoint, and markup injection to police) |
+| D65 | One editing card at a time: `QuireEditor` `variant="embed"` on a `DocSession`, inside the scaled card, popups portaled to `document.body`, no block handle | Editing at 1:1 in an untransformed layer after zooming the view (moves the user's view); several editors at once (several sessions, focus ambiguity) |
+| D66 | The engine holds the editing state (`setEmbedEditing`) and ends it itself on a press or focus, swallowing the press | Detecting a canvas click in the parent through `blur` (the parent hears it after the engine has queued the press, so the press could not be swallowed and would also select or deselect) |
+| D67 | Cards are paper: the light palette whatever the theme or the board background | Following the Quire theme (the same board would look different per viewer, and unlike its previews); following the board background (dark document styles for every node) |
+| D68 | The live title is shown by the host; the stored label is a snapshot refreshed in place and saved with the next save | Writing title changes as board edits (opening a board would write, two tabs would conflict with 412); the server splicing labels on GET like `document.name` (deep raw-JSON edits, and immutable `?rev=` previews would go stale) |
+| D69 | "Text doc" creates a child and opens it; the picker and the drop only place a card; only documents are embeddable | Opening every new card (a drop of five documents would chain five editors); embedding boards (a board inside a board needs a second engine) |
+| D70 | The sidebar drag carries `application/x-quire-item` through pragmatic-dnd's native external data; the frame accepts it in the capture phase and reports `onDropItem`; the host inserts | Sharing the drag through a global or `postMessage` (pragmatic-dnd's monitors cannot see into the iframe, while native drag and drop crosses same-origin frames); the frame inserting by itself (a second insertion path without the host's checks) |
+| D71 | Duplicate shares the documents; trash, archive, purge and move follow the tree; deleting a card never deletes a document, except an empty "Text doc" left unreferenced | Deep-copying children on duplicate and rewriting the copy's cards (changes §7.2's "children are not copied"); deleting a child with its card (an undo would bring back a card of a deleted page) |
+| D72 | No new route, DTO, error code or CLI command; AGENTS.md documents the JSON with a `jq` recipe | `quire board embed` (a second writer of Inkboard's model in a CLI that must stay free of `inkboard-core`, §14); `BoardMeta.embeds` (no client needs it; `item_links` serves backlinks later) |
+| D73 | Focus fullscreens the frame layer (iframe and overlay) | Fullscreening the iframe (the cards would vanish in Focus) |
+| D74 | 0005 code and 0006 docs, patchset 3 | One patch (the 0004 precedent keeps code reviewable on its own upstream) |
+| D75 | A read-only board, and a trashed, archived or missing target, never open a card for editing | Editing a live target from a read-only board (a read-only context that writes) |
+
+### 18.15 Design inputs checked against the code (2026-10-28, main `d9cdef1`)
+
+Paths under `inkboard-core/`, `inkboard-app/` and `svg.rs` are in `crates/` of Inkboard; line numbers of `inkboard-app`
+files are those of the applied series (`.cache/inkboard-src`, patches 0001–0004), which leaves `tools.rs`,
+`rich_edit.rs` and `render.rs` as in `vendor/inkboard`.
+
+| Claim | Verdict and evidence |
+|---|---|
+| Kinds are Box (rect, ellipse, diamond, triangle, sticky, text), Pen, Connector, Image, Table; no embed kind | Holds: `inkboard-core/src/model.rs:121-132` (`BoxGeom`), `:395-403` (`Kind`, `#[serde(tag = "type")]`) |
+| No `deny_unknown_fields`, so an unpatched reader accepts the field | Holds: no occurrence in any `vendor/inkboard/crates/**` file; `BoxObj` (`model.rs:169-178`) already has an optional `lang` with the same serde shape |
+| The server validates with `from_json` and splices raw JSON | Holds: D9 (§2.1), `quire-core/src/board.rs:268-354` (`split`/`splice` on `RawValue` spans), `:354-373` (`inspect` calls `serial::from_json`); the server compiles `vendor/inkboard`'s core (`Cargo.toml:35`) |
+| Previews draw a titled rectangle | Holds, refined: `svg.rs:127-182` draws the box and its label; the label is drawn in the stroke colour unless a span has its own, so the snapshot's span carries `#1d2430` (§18.2) |
+| Upstream Inkboard degrades to a titled box | Holds for display; refined: it also **drops** `embed` when it saves (serde ignores and does not keep unknown fields), §18.2, §18.13 item 10 |
+| A new `BoxGeom` or `Kind` would break the unpatched server | Holds: neither enum has an `#[serde(other)]` arm (`model.rs:121-132, 395-403`) |
+| The field needs no engine-side model change | Refuted: the engine serializes through the same model, so without 0005 it would drop the field on its first save; 0005 adds it to `BoxObj` (§18.3) |
+| `item_links` has the kind `embed` | Holds: `migrations/0001-init/up.sql:24-25`; boards record no links today (`quire-store/src/boards.rs` has no `item_links`, `docs.rs:268-283` does for documents) and `boards::copy` copies none (`boards.rs:211-243`) |
+| The host can follow the camera from an engine event | Holds, with a new event: the camera is the page's `view` (`model.rs:546`), drawn with `Cam` (`tools.rs:845`, `render.rs:25-41`) and changed by `set_view` without a revision (`app.rs:755`), so `onChange` (`app.rs:449-464`) never carries it |
+| The overlay is above canvas shapes (a limitation) | Holds, and extends: Inkboard's interface is floating egui areas over a full-window central panel (`chrome.rs:37-46`, `app.rs:1299`), so the overlay also covers the engine's own menus and panels unless clipped (§18.5 "Clipping", D63) |
+| Double-click edits a box label | Holds: `tools.rs:930-952` `handle_double_click` → `rich_edit.rs:118` `start_editing`, also reached from Enter (`app.rs:977-981`, keymap `Enter`) and the menu (`chrome.rs:585-592`) |
+| `QuireEditor` and `docSession` can be reused on the board | Holds with an additive variant: the popups are `position: fixed` (`editor.css:392`) and TipTap's bubble menu appends to the editor's parent by default (`@tiptap/extension-bubble-menu` 3.32.0, `dist/index.js:233-234`), both wrong inside a scaled card (§18.5 Editing step 2) |
+| The sidebar tree can feed a drop into the iframe | Holds: rows are pragmatic-dnd `draggable`s (`TreeRow.tsx:91-96`) and pragmatic-dnd 4.0.0 writes `getInitialDataForExternal` into the native `dataTransfer` (`element-adapter.js:167-175`) |
+| Trash, restore and purge of children follow the subtree; duplicate copies no children | Holds: §5 "Trash", "Purge"; §7.2 duplicate; `quire-store/src/items.rs:257-293` |
