@@ -82,6 +82,19 @@ fn collection_tree_move_and_cycle_exit_8() {
     let moved = ok(&h, Scope::Write, &["item", "move", &b, "--top"]);
     assert_eq!(moved["parent_id"], Value::Null);
     ok(&h, Scope::Write, &["item", "move", &b, "--parent", &a]);
+    // A reorder without --parent keeps the parent: D becomes B's sibling, then moves before it.
+    let d = doc(&h, &c, "D", Some(&a));
+    let moved = ok(&h, Scope::Write, &["item", "move", &d, "--before", &b]);
+    assert_eq!(moved["parent_id"], json!(a));
+    let tree = ok(&h, Scope::Read, &["tree", &c]);
+    let order: Vec<&str> = tree["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|i| i["parent_id"] == json!(a))
+        .map(|i| i["title"].as_str().unwrap())
+        .collect();
+    assert_eq!(order, ["D", "B"]);
     let (code, _, err) = h.json(Scope::Write, &["item", "move", &a, "--parent", &cc]);
     assert_eq!(code, 8, "{err}");
     assert_eq!(last_error(&err)["error"]["code"], "cycle");

@@ -30,7 +30,7 @@ create; `item unpublish` makes a draft (D23).
 | config | `config show`, `config path` (local) | `{profile, url, url_source, token_source, token_prefix}`; `{path}` |
 | workspace | `workspace get`, `workspace set [--name N] [--logo ATT \| --no-logo]`, `sidebar` | the body |
 | collection | `collection list \| get COLL \| create --name N [--description D] [--icon I] [--color '#RRGGBB'] \| update COLL [--sort manual\|title\|updated\|created] \| move COLL \| delete COLL \| restore COLL \| updated COLL` | the body |
-| item | `item get ITEM`, `item create --collection COLL --kind doc\|board [--parent ITEM] [--title T] [--md F\|- [--title-h1]]`, `item update ITEM [--title T] [--full-width true\|false] [--if-match E]`, `item move ITEM (--parent ITEM \| --top) [--collection COLL]`, `item duplicate\|publish [--with-ancestors]\|unpublish\|archive\|unarchive\|trash [--discard-empty]\|restore\|children\|text ITEM` | `ItemSummary` (`item get`: `ItemDetail`; `create --md`: `{item, doc}`) |
+| item | `item get ITEM`, `item create --collection COLL --kind doc\|board [--parent ITEM] [--title T] [--md F\|- [--title-h1]]`, `item update ITEM [--title T] [--full-width true\|false] [--if-match E]`, `item move ITEM [--parent ITEM \| --top] [--collection COLL] [--after REF \| --before REF]` (neither `--parent` nor `--top`: the item keeps its parent, a reorder; `--collection` needs one of them), `item duplicate\|publish [--with-ancestors]\|unpublish\|archive\|unarchive\|trash [--discard-empty]\|restore\|children\|text ITEM` | `ItemSummary` (`item get`: `ItemDetail`; `create --md`: `{item, doc}`) |
 | tree | `tree COLL` | `{collection, items}` (flat; `parent_id` links them) |
 | list, trash | `list recent\|updated\|drafts\|starred\|archive`, `trash list`, `trash purge (ITEM \| --collection COLL \| --all) --yes` | a `Page` `{items, next_cursor}`; the trash; ok |
 | search | `search QUERY [--collection COLL] [--kind doc\|board] [--updated-after T] [--include-archived] [--no-drafts] [--sort relevance\|updated]`, `search --titles Q [--limit N]` | `Page<SearchHit>`; `[{item, path}]` |
@@ -48,6 +48,7 @@ quire --json config show
 quire --json collection get "$C"
 quire --json tree "$C"
 quire --json item move "$ID" --top
+quire --json item move "$ID" --before "$SIBLING"
 quire --json list drafts --all
 quire --json trash list
 quire --json attachment upload diagram.png --item "$ID"

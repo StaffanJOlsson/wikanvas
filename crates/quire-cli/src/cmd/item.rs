@@ -41,9 +41,26 @@ pub fn run(ctx: &Ctx, cmd: ItemCmd) -> Res {
         ItemCmd::Move(a) => {
             let id = ctx.item_id(&a.item)?;
             let mut body = Map::new();
-            let parent = match &a.parent {
-                Some(p) => Value::from(ctx.item_id(p)?),
-                None => Value::Null,
+            // `parent_id` is required (§7.2): without --parent or --top the item keeps its current parent.
+            let parent = match (&a.parent, a.top) {
+                (Some(p), _) => Value::from(ctx.item_id(p)?),
+                (None, true) => Value::Null,
+                (None, false) if a.collection.is_some() => {
+                    return Err(Failure::usage(
+                        "item move: --collection needs --parent or --top",
+                    ));
+                }
+                (None, false) => {
+                    let detail = ctx.get_value(Req::get(format!("/api/v1/items/{id}")))?;
+                    match detail.get("item").and_then(|i| i.get("parent_id")) {
+                        Some(p @ (Value::String(_) | Value::Null)) => p.clone(),
+                        _ => {
+                            return Err(Failure::bad_response(format!(
+                                "GET /api/v1/items/{id}: no item.parent_id"
+                            )));
+                        }
+                    }
+                }
             };
             body.insert("parent_id".into(), parent);
             if let Some(c) = &a.collection {
