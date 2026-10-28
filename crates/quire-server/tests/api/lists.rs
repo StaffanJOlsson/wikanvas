@@ -131,6 +131,16 @@ async fn cursor_from_other_query_422() {
     }
     let cursor_of = |v: Value| v["next_cursor"].as_str().unwrap().to_owned();
     let recent = cursor_of(app.server.get("/api/v1/recent?limit=1").await.json());
+    // Tampered: a middle character replaced by a different one. A middle character carries six whole bits of the
+    // decoded form, so the bytes change and the check fails. (The last character carries only two bits plus zero
+    // padding and is one of A/Q/g/w, so replacing it with a fixed 'A' left the cursor unchanged a quarter of the time.)
+    let tampered = {
+        let mut chars: Vec<char> = recent.chars().collect();
+        let mid = chars.len() / 2;
+        chars[mid] = if chars[mid] == 'A' { 'B' } else { 'A' };
+        chars.into_iter().collect::<String>()
+    };
+    assert_ne!(tampered, recent);
     let updated = cursor_of(
         app.server
             .get(&format!("/api/v1/collections/{}/updated?limit=1", c.id))
@@ -153,7 +163,7 @@ async fn cursor_from_other_query_422() {
         format!("/api/v1/search?q=alpha&include_archived=true&cursor={search}"),
         format!("/api/v1/recent?cursor={search}"),
         "/api/v1/recent?cursor=not-a-cursor".to_owned(),
-        format!("/api/v1/recent?cursor={}A", &recent[..recent.len() - 1]),
+        format!("/api/v1/recent?cursor={tampered}"),
     ] {
         let body = assert_error(&app.server.get(&url).await, 422, ErrorCode::Validation);
         assert_eq!(

@@ -630,6 +630,17 @@ async fn move_duplicate_archive_and_restore() {
         ErrorCode::Validation,
     );
     assert_eq!(body.error.details, Some(json!({"field": "position"})));
+    // `parent_id` is required (§7.2): a body without it is refused, never read as a move to the top level.
+    for body in [json!({ "position": {} }), json!({ "collection_id": c.id })] {
+        let err = assert_error(&mv(b.id, body).await, 422, ErrorCode::Validation);
+        assert_eq!(err.error.details, Some(json!({"field": "body"})));
+        assert!(
+            err.error.message.contains("parent_id"),
+            "{}",
+            err.error.message
+        );
+    }
+    assert_eq!(get(&app, b.id).await.item.parent_id, Some(a.id));
     let res = mv(
         z.id,
         json!({ "parent_id": null, "position": { "before_id": a.id } }),

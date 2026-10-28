@@ -4601,6 +4601,9 @@
       "MoveItem": {
         "type": "object",
         "description": "Body of `POST /items/{id}/move`.",
+        "required": [
+          "parent_id"
+        ],
         "properties": {
           "collection_id": {
             "type": [
@@ -4616,7 +4619,7 @@
               "null"
             ],
             "format": "uuid",
-            "description": "The new parent; `null` for the top level."
+            "description": "The new parent; `null` for the top level. Required (§7.2): a body without it is 422 `validation`, so a\nreorder that leaves it out never moves the item to the top level by accident."
           },
           "position": {
             "oneOf": [

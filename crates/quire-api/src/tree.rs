@@ -6,7 +6,9 @@ use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
 use crate::boards::BoardMeta;
-use crate::common::{ChildOrder, ItemKind, Position, Timestamp, double_option, string_enum};
+use crate::common::{
+    ChildOrder, ItemKind, Position, Timestamp, double_option, required_option, string_enum,
+};
 
 // ---------------------------------------------------------------- collections
 
@@ -181,7 +183,11 @@ pub struct MoveItem {
     /// Omitted: the current collection.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub collection_id: Option<Uuid>,
-    /// The new parent; `null` for the top level.
+    /// The new parent; `null` for the top level. Required (§7.2): a body without it is 422 `validation`, so a
+    /// reorder that leaves it out never moves the item to the top level by accident.
+    #[serde(with = "required_option")]
+    #[ts(as = "Option<Uuid>")]
+    #[schema(required = true)]
     pub parent_id: Option<Uuid>,
     /// Omitted: last.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -392,4 +398,28 @@ pub struct TitleHit {
     pub item: ItemSummary,
     /// Ancestors, root first.
     pub path: Vec<Crumb>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn move_item_requires_parent_id() {
+        let err =
+            serde_json::from_str::<MoveItem>(r#"{"position":{"after_id":null}}"#).unwrap_err();
+        assert!(
+            err.to_string().contains("missing field `parent_id`"),
+            "{err}"
+        );
+        let top: MoveItem = serde_json::from_str(r#"{"parent_id":null}"#).unwrap();
+        assert_eq!(top, MoveItem::default());
+        let id = Uuid::from_u128(7);
+        let under: MoveItem = serde_json::from_str(&format!(r#"{{"parent_id":"{id}"}}"#)).unwrap();
+        assert_eq!(under.parent_id, Some(id));
+        assert_eq!(
+            serde_json::to_string(&MoveItem::default()).unwrap(),
+            r#"{"parent_id":null}"#
+        );
+    }
 }
