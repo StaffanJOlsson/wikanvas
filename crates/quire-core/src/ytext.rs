@@ -20,7 +20,9 @@ use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 use yrs::types::text::YChange;
-use yrs::{Any, Doc, Out, ReadTxn, Text, Transact, Xml, XmlElementRef, XmlFragment, XmlOut, XmlTextRef};
+use yrs::{
+    Any, Doc, Out, ReadTxn, Text, Transact, Xml, XmlElementRef, XmlFragment, XmlOut, XmlTextRef,
+};
 
 use crate::api::YFIELD;
 use crate::convert::pm::mark_name;
@@ -204,7 +206,12 @@ impl State {
     /// A table cell's text: the lines of its blocks (non-empty ones), joined by a space.
     fn cell<T: ReadTxn>(&mut self, txn: &T, cell: &XmlElementRef) -> String {
         let mut out: Vec<String> = Vec::new();
-        let mut stack: Vec<XmlOut> = cell.children(txn).collect::<Vec<_>>().into_iter().rev().collect();
+        let mut stack: Vec<XmlOut> = cell
+            .children(txn)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect();
         while let Some(node) = stack.pop() {
             let XmlOut::Element(e) = node else {
                 continue;
@@ -260,7 +267,10 @@ mod tests {
             }
         }
         out.sort();
-        assert!(out.len() >= 9, "the web fixture writer's documents are missing");
+        assert!(
+            out.len() >= 9,
+            "the web fixture writer's documents are missing"
+        );
         out
     }
 
@@ -271,10 +281,15 @@ mod tests {
             let dir = ydoc_dir();
             let text = std::fs::read_to_string(dir.join(format!("{name}.txt"))).unwrap();
             assert_eq!(w.text, text, "{name}.txt");
-            let links: serde_json::Value =
-                serde_json::from_str(&std::fs::read_to_string(dir.join(format!("{name}.links.json"))).unwrap())
-                    .unwrap();
-            assert_eq!(serde_json::to_value(&w).unwrap(), links, "{name}.links.json");
+            let links: serde_json::Value = serde_json::from_str(
+                &std::fs::read_to_string(dir.join(format!("{name}.links.json"))).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(
+                serde_json::to_value(&w).unwrap(),
+                links,
+                "{name}.links.json"
+            );
         }
     }
 

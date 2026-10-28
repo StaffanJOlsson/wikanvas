@@ -1,23 +1,56 @@
 //! Document storage: Yjs state and updates, compaction, Markdown and ProseMirror JSON writes (owner: W4).
 //!
-//! W0b provides the initializers W1 and W2 call (§6.1, PLAN W0b task 5): [`init_empty`] stores
-//! `Y.encodeStateAsUpdate(new Doc)` (`[0, 0]`), [`init_with`] a given Yjs v1 state (the seed), [`copy`] the state of
-//! another document (duplicate), and [`is_empty`] says whether the document holds only empty paragraphs. Each
-//! initializer replaces whatever state the item had: `doc_state` starts over at seq 0 (`next_seq = 1`) with no
-//! stored updates, no `pm_json` cache and no `last_token_id`. The text walk here is a minimal stand-in for W4's
-//! `quire_core::ytext` (block text joined by `\n`; no links or attachment ids).
+//! - **Initializers** (called by W1's item create/duplicate/discard and W2's seed): [`init_empty`] stores
+//!   `Y.encodeStateAsUpdate(new Doc)` (`[0, 0]`), [`init_with`] a given Yjs v1 state, [`init_seed`] a seed state with
+//!   its placeholder item ids replaced, [`copy`] the state of another document; [`is_empty`] says whether a document
+//!   holds only empty paragraphs. Each initializer replaces whatever state the item had (seq 0, no stored updates, no
+//!   `pm_json`, no `last_token_id`) and derives the body text, `item_links` and `item_attachments`
+//!   (`quire_core::ytext`).
+//! - **Yjs sync** (§6.1): [`get`] (`?since`) and [`save_update`], the save path every writer goes through: decode,
+//!   apply on the stored state, 409 `missing_deps`, the no-op rule (state vector **and** delete set), the `pre-api`
+//!   recovery point (D53), the append, the derived text, links, attachments and `doc_clients`, the `pm_json` cache,
+//!   the auto revision, compaction (more than 200 rows or 1 MiB), and the 16 MiB cap.
+//! - **Content** (§6.4): [`prosemirror`] and [`markdown`] read; [`write_content`] is the PUT: parse and diff against
+//!   the `If-Match` base (one read snapshot), then re-check and save through [`save_update`] (one writer
+//!   transaction). The caller holds two `doc_work` permits around it (D25).
 
-use quire_core::api::{ErrorCode, ItemKind, YFIELD};
+use std::collections::BTreeSet;
+
+use base64::Engine as _;
+use quire_core::api::{
+    ConversionWarning, DocJson, DocState, DocWriteResult, ErrorCode, InvalidDocumentDetails,
+    ItemKind, LimitDetails, MissingDepsDetails, RevMismatchDetails, SCHEMA_VERSION, Timestamp,
+    YFIELD,
+};
+use quire_core::convert::{
+    self, BaseError, ItemInfo, ItemRef, Lookup, Target, Warnings, md_in, md_out, pm, ydiff,
+};
+use quire_core::schema::{self, Invalid};
+use quire_core::ytext;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
-use yrs::types::text::YChange;
+use serde_json::Value;
+use sha2::{Digest, Sha256};
 use yrs::updates::decoder::Decode;
-use yrs::{Any, Doc, Out, ReadTxn, StateVector, Text, Transact, Update, XmlFragment, XmlOut};
+use yrs::{Doc, ReadTxn, StateVector, Transact, Update, Xml, XmlFragment, XmlOut};
 
+use crate::db::Db;
 use crate::error::{Error, Result};
-use crate::shared::{item_row, set_body_text};
+use crate::revisions::{self, RevisionDraft};
+use crate::shared::{WriteBy, ensure_writable, item_row, set_body_text, touch_content};
 
 /// `Y.encodeStateAsUpdate(new Y.Doc())`: no structs, an empty delete set.
 pub const EMPTY_YDOC: [u8; 2] = [0, 0];
+/// Compact when more than this many updates are stored (§6.1 step 6)…
+pub const COMPACT_ROWS: i64 = 200;
+/// …or when they hold more than this many bytes.
+pub const COMPACT_BYTES: i64 = 1024 * 1024;
+/// The default cap of a stored document (`QUIRE_MAX_DOC_MB`, D33).
+pub const DEFAULT_MAX_DOC_BYTES: usize = 16 * 1024 * 1024;
+
+/// Placeholder item ids in `fixtures/ydoc/getting-started.bin` ("Welcome to Quire"): the "Writing in Quire" page
+/// it mentions and the example board it embeds. [`init_seed`] replaces them with the seeded items' ids.
+pub const SEED_WRITING_ID: &str = "00000000-0000-7000-8000-000000000001";
+pub const SEED_BOARD_ID: &str = "00000000-0000-7000-8000-000000000002";
 
 /// The encoded state of a new, empty Y document (equal to [`EMPTY_YDOC`]).
 pub fn empty_state() -> Vec<u8> {
@@ -26,22 +59,76 @@ pub fn empty_state() -> Vec<u8> {
         .encode_state_as_update_v1(&StateVector::default())
 }
 
+/// The document ETag `"d{seq}"` (§7.1).
+pub fn etag(seq: i64) -> String {
+    format!("\"d{seq}\"")
+}
+
+/// The seq of a document ETag (`"d{n}"`, `W/` ignored), or `None` when it is not one.
+pub fn parse_etag(tag: &str) -> Option<i64> {
+    let t = tag.trim();
+    let t = t.strip_prefix("W/").unwrap_or(t);
+    t.strip_prefix("\"d")?
+        .strip_suffix('"')?
+        .parse()
+        .ok()
+        .filter(|n: &i64| *n >= 0)
+}
+
+fn b64(bytes: &[u8]) -> String {
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
+
 /// Stores an empty document for `item_id` (a doc item), replacing any earlier state.
 pub fn init_empty(tx: &Transaction<'_>, item_id: &str, now: i64) -> Result<()> {
     ensure_doc(tx, item_id)?;
     replace_state(tx, item_id, &empty_state(), 1, now)?;
-    set_body_text(tx, item_id, "")
+    derive(tx, item_id, &ytext::Walk::default())
 }
 
 /// Stores `ydoc_v1`, a full Yjs v1 state (the seed's `fixtures/ydoc/getting-started.bin`), for `item_id`, replacing
-/// any earlier state, and sets the indexed body text from it. An update that does not decode, or that depends on
-/// structs it does not contain, is 422 `invalid_update`.
+/// any earlier state, and derives the body text, links and attachments from it. An update that does not decode, or
+/// that depends on structs it does not contain, is 422 `invalid_update`.
 pub fn init_with(tx: &Transaction<'_>, item_id: &str, ydoc_v1: &[u8], now: i64) -> Result<()> {
     ensure_doc(tx, item_id)?;
-    let doc = load(&[ydoc_v1]).map_err(|e| Error::new(ErrorCode::InvalidUpdate, e))?;
-    let text = walk(&doc).text;
+    let doc = ydiff::load(&[ydoc_v1], None).map_err(|e| Error::new(ErrorCode::InvalidUpdate, e))?;
+    let walk = ytext::walk(&doc);
     replace_state(tx, item_id, ydoc_v1, 1, now)?;
-    set_body_text(tx, item_id, &text)
+    derive(tx, item_id, &walk)
+}
+
+/// Like [`init_with`], with item ids replaced first: every `mention.itemId`, `boardEmbed.itemId` and `link.itemId`
+/// equal to a `from` becomes its `to` (the seed passes [`SEED_WRITING_ID`] and [`SEED_BOARD_ID`] with the ids of
+/// the items it created). The stored state is one full update.
+pub fn init_seed(
+    tx: &Transaction<'_>,
+    item_id: &str,
+    ydoc_v1: &[u8],
+    ids: &[(&str, &str)],
+    now: i64,
+) -> Result<()> {
+    ensure_doc(tx, item_id)?;
+    let doc = ydiff::load(&[ydoc_v1], None).map_err(|e| Error::new(ErrorCode::InvalidUpdate, e))?;
+    {
+        let frag = pm::fragment(&doc);
+        let mut txn = doc.transact_mut();
+        let mut stack: Vec<XmlOut> = frag.children(&txn).collect();
+        while let Some(node) = stack.pop() {
+            let XmlOut::Element(e) = node else { continue };
+            if let Some(yrs::Out::Any(yrs::Any::String(v))) = e.get_attribute(&txn, "itemId")
+                && let Some((_, to)) = ids.iter().find(|(from, _)| *from == v.as_ref())
+            {
+                e.insert_attribute(&mut txn, "itemId", *to);
+            }
+            stack.extend(e.children(&txn).collect::<Vec<_>>());
+        }
+    }
+    let state = doc
+        .transact()
+        .encode_state_as_update_v1(&StateVector::default());
+    let walk = ytext::walk(&doc);
+    replace_state(tx, item_id, &state, 1, now)?;
+    derive(tx, item_id, &walk)
 }
 
 /// Copies the document of `from_id` to `to_id` (duplicate): the current state (compacted state plus stored updates,
@@ -50,12 +137,12 @@ pub fn init_with(tx: &Transaction<'_>, item_id: &str, ydoc_v1: &[u8], now: i64) 
 pub fn copy(tx: &Transaction<'_>, from_id: &str, to_id: &str, now: i64) -> Result<()> {
     ensure_doc(tx, from_id)?;
     ensure_doc(tx, to_id)?;
-    let (state, schema_version) = current(tx, from_id)?;
-    let doc = load(&[&state]).map_err(|e| Error::new(ErrorCode::Internal, e))?;
+    let stored = Stored::load(tx, from_id)?;
+    let doc = stored.doc()?;
     let encoded = doc
         .transact()
         .encode_state_as_update_v1(&StateVector::default());
-    replace_state(tx, to_id, &encoded, schema_version, now)?;
+    replace_state(tx, to_id, &encoded, stored.schema_version, now)?;
     let body: String = tx.query_row(
         "SELECT body FROM item_text WHERE item_id = ?1",
         [from_id],
@@ -77,36 +164,72 @@ pub fn copy(tx: &Transaction<'_>, from_id: &str, to_id: &str, now: i64) -> Resul
 
 /// §6.1: whether the document holds only empty paragraphs (y-tiptap writes one empty paragraph into an empty
 /// fragment when the editor starts, so empty bytes are not the test). `not_found` when the item has no document.
-pub fn is_empty(tx: &Transaction<'_>, item_id: &str) -> Result<bool> {
-    let (state, _) = current(tx, item_id)?;
-    let doc = load(&[&state]).map_err(|e| Error::new(ErrorCode::Internal, e))?;
-    Ok(walk(&doc).only_empty_paragraphs)
+pub fn is_empty(conn: &Connection, item_id: &str) -> Result<bool> {
+    let stored = Stored::load(conn, item_id)?;
+    Ok(ytext::walk(&stored.doc()?).is_empty)
 }
 
-/// The stored document of `item_id` as one full Yjs v1 update, with its schema version.
-fn current(conn: &Connection, item_id: &str) -> Result<(Vec<u8>, i64)> {
-    let (ydoc, schema_version): (Vec<u8>, i64) = conn
-        .query_row(
-            "SELECT ydoc, schema_version FROM doc_state WHERE item_id = ?1",
-            [item_id],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )
-        .optional()?
-        .ok_or_else(|| Error::not_found("the item has no document"))?;
-    let updates = conn
-        .prepare("SELECT data FROM doc_updates WHERE item_id = ?1 ORDER BY seq")?
-        .query_map([item_id], |r| r.get::<_, Vec<u8>>(0))?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    if updates.is_empty() {
-        return Ok((ydoc, schema_version));
+/// A document as stored: the compacted state and the updates after it.
+struct Stored {
+    ydoc: Vec<u8>,
+    updates: Vec<(i64, Vec<u8>)>,
+    schema_version: i64,
+    compacted_seq: i64,
+    next_seq: i64,
+    updated_at: i64,
+}
+
+impl Stored {
+    fn load(conn: &Connection, item_id: &str) -> Result<Stored> {
+        let (ydoc, schema_version, compacted_seq, next_seq, updated_at) = conn
+            .query_row(
+                "SELECT ydoc, schema_version, compacted_seq, next_seq, updated_at FROM doc_state WHERE item_id = ?1",
+                [item_id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            )
+            .optional()?
+            .ok_or_else(|| Error::not_found("the item has no document"))?;
+        let updates = conn
+            .prepare("SELECT seq, data FROM doc_updates WHERE item_id = ?1 ORDER BY seq")?
+            .query_map([item_id], |r| {
+                Ok((r.get::<_, i64>(0)?, r.get::<_, Vec<u8>>(1)?))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(Stored {
+            ydoc,
+            updates,
+            schema_version,
+            compacted_seq,
+            next_seq,
+            updated_at,
+        })
     }
-    let mut parts: Vec<&[u8]> = vec![&ydoc];
-    parts.extend(updates.iter().map(Vec::as_slice));
-    let doc = load(&parts).map_err(|e| Error::new(ErrorCode::Internal, e))?;
-    let state = doc
-        .transact()
-        .encode_state_as_update_v1(&StateVector::default());
-    Ok((state, schema_version))
+
+    /// The seq of the newest stored update (0 for a new document): the ETag's `n`.
+    fn seq(&self) -> i64 {
+        self.next_seq - 1
+    }
+
+    /// The parts up to seq `n` (all when `None`).
+    fn parts(&self, upto: Option<i64>) -> Vec<&[u8]> {
+        let mut parts: Vec<&[u8]> = vec![&self.ydoc];
+        parts.extend(
+            self.updates
+                .iter()
+                .filter(|(s, _)| upto.is_none_or(|n| *s <= n))
+                .map(|(_, d)| d.as_slice()),
+        );
+        parts
+    }
+
+    fn bytes(&self) -> usize {
+        self.ydoc.len() + self.updates.iter().map(|(_, d)| d.len()).sum::<usize>()
+    }
+
+    fn doc(&self) -> Result<Doc> {
+        ydiff::load(&self.parts(None), None)
+            .map_err(|e| Error::new(ErrorCode::Internal, format!("stored document: {e}")))
+    }
 }
 
 fn ensure_doc(conn: &Connection, item_id: &str) -> Result<()> {
@@ -127,8 +250,6 @@ fn replace_state(
     for sql in [
         "DELETE FROM doc_updates WHERE item_id = ?1",
         "DELETE FROM doc_clients WHERE item_id = ?1",
-        "DELETE FROM item_links WHERE source_id = ?1",
-        "DELETE FROM item_attachments WHERE item_id = ?1",
     ] {
         tx.execute(sql, [item_id])?;
     }
@@ -144,129 +265,627 @@ fn replace_state(
     Ok(())
 }
 
-/// Applies `updates` to a new document; an error names why they are not a complete, valid state.
-fn load(updates: &[&[u8]]) -> std::result::Result<Doc, String> {
-    let doc = Doc::new();
-    {
-        let mut txn = doc.transact_mut();
-        for bytes in updates {
-            let update = Update::decode_v1(bytes)
-                .map_err(|e| format!("the Yjs update does not decode: {e}"))?;
-            txn.apply_update(update)
-                .map_err(|e| format!("the Yjs update does not apply: {e}"))?;
-        }
+/// Sets the body text, `item_links` and `item_attachments` (ids that exist in `attachments` only) from a walk.
+fn derive(tx: &Transaction<'_>, item_id: &str, walk: &ytext::Walk) -> Result<()> {
+    set_body_text(tx, item_id, &walk.text)?;
+    tx.execute("DELETE FROM item_links WHERE source_id = ?1", [item_id])?;
+    for link in &walk.links {
+        tx.execute(
+            "INSERT OR IGNORE INTO item_links (source_id, target_id, kind) VALUES (?1, ?2, ?3)",
+            params![item_id, link.target_id, link.kind.as_str()],
+        )?;
     }
-    if doc.transact().has_missing_updates() {
-        return Err("the Yjs update depends on structs it does not contain".into());
+    tx.execute("DELETE FROM item_attachments WHERE item_id = ?1", [item_id])?;
+    for id in &walk.attachment_ids {
+        tx.execute(
+            "INSERT OR IGNORE INTO item_attachments (item_id, attachment_id)
+             SELECT ?1, id FROM attachments WHERE id = ?2",
+            params![item_id, id],
+        )?;
     }
-    Ok(doc)
+    Ok(())
 }
 
-struct Walk {
-    text: String,
-    only_empty_paragraphs: bool,
-}
-
-/// Inline nodes of schema v1 (§6.1); every other element is a block, separated by `\n` in the text.
-const INLINE: &[&str] = &["hardBreak", "mention", "image"];
-
-fn walk(doc: &Doc) -> Walk {
-    let frag = doc.get_or_insert_xml_fragment(YFIELD);
+/// `GET /items/{id}/doc`: the whole state, or (with `since`, a Yjs state vector) only what it lacks.
+pub fn get(conn: &Connection, item_id: &str, since: Option<&[u8]>) -> Result<DocState> {
+    ensure_doc(conn, item_id)?;
+    let stored = Stored::load(conn, item_id)?;
+    let since = since
+        .map(StateVector::decode_v1)
+        .transpose()
+        .map_err(|_| Error::validation("since", "since is not a Yjs state vector"))?;
+    let doc = stored.doc()?;
     let txn = doc.transact();
-    let mut blocks: Vec<String> = Vec::new();
-    let mut only_empty_paragraphs = true;
-    for child in frag.children(&txn) {
-        match &child {
-            XmlOut::Element(e) => {
-                if e.tag().as_ref() != "paragraph"
-                    || e.children(&txn).any(|c| !is_empty_text(&c, &txn))
-                {
-                    only_empty_paragraphs = false;
-                }
-            }
-            other => {
-                if !is_empty_text(other, &txn) {
-                    only_empty_paragraphs = false;
-                }
-            }
-        }
-        collect(&child, &txn, &mut blocks);
+    let update = txn.encode_state_as_update_v1(&since.unwrap_or_default());
+    Ok(DocState {
+        update: b64(&update),
+        state_vector: b64(&txn.state_vector().encode_v1()),
+        seq: stored.seq(),
+        field: YFIELD.to_owned(),
+        schema_version: stored.schema_version as u32,
+    })
+}
+
+use yrs::updates::encoder::Encode;
+
+/// What happens to the `pm_json` cache on a save.
+#[derive(Clone, Copy, Debug)]
+pub enum PmJson<'a> {
+    /// Left as it is (a Yjs POST without `pm_json`).
+    Keep,
+    /// The editor's JSON after the update.
+    Set(&'a Value),
+    /// Cleared: it no longer matches (an API write).
+    Clear,
+}
+
+/// The result of [`save_update`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Saved {
+    /// The newest seq after the save (the current one for a no-op).
+    pub seq: i64,
+    /// The state vector after the save.
+    pub state_vector: Vec<u8>,
+    pub updated_at: i64,
+    /// False for a no-op (nothing written).
+    pub changed: bool,
+}
+
+/// The §6.1 save path (steps 1–7), inside the writer transaction; the caller holds the `doc_work` permit (a Yjs
+/// POST) or two (a PUT, D25). 409 `read_only` for a trashed or archived item; 422 `invalid_update`; 409
+/// `missing_deps` with the server's state vector; 413 `doc_too_large` over `max_doc_bytes`.
+pub fn save_update(
+    tx: &Transaction<'_>,
+    item_id: &str,
+    update: &[u8],
+    pm_json: PmJson<'_>,
+    by: &WriteBy<'_>,
+    max_doc_bytes: usize,
+    now: i64,
+) -> Result<Saved> {
+    ensure_writable(tx, item_id, ItemKind::Doc)?;
+    // 1. Decode.
+    let decoded = Update::decode_v1(update).map_err(|e| {
+        Error::new(
+            ErrorCode::InvalidUpdate,
+            format!("the Yjs update does not decode: {e}"),
+        )
+    })?;
+    let update_sv = decoded.state_vector();
+    // 2. Load and apply in one transaction.
+    let stored = Stored::load(tx, item_id)?;
+    let doc = stored.doc()?;
+    let (no_op, missing, server_sv) = {
+        let mut txn = doc.transact_mut();
+        let server_sv = txn.state_vector();
+        txn.apply_update(decoded).map_err(|e| {
+            Error::new(
+                ErrorCode::InvalidUpdate,
+                format!("the Yjs update does not apply: {e}"),
+            )
+        })?;
+        let missing = txn.has_missing_updates();
+        let no_op = txn.before_state() == txn.after_state() && txn.delete_set().is_empty();
+        (no_op, missing, server_sv)
+    };
+    // 3. Missing dependencies.
+    if missing {
+        return Err(Error::new(
+            ErrorCode::MissingDeps,
+            "the update depends on changes the server does not have",
+        )
+        .with_details(&MissingDepsDetails {
+            state_vector: b64(&server_sv.encode_v1()),
+        }));
     }
-    let text = blocks
-        .into_iter()
-        .filter(|b| !b.is_empty())
-        .collect::<Vec<_>>()
-        .join("\n");
-    Walk {
-        text,
-        only_empty_paragraphs,
+    let state_vector = doc.transact().state_vector().encode_v1();
+    // 4. No-op: nothing new, nothing deleted.
+    if no_op {
+        return Ok(Saved {
+            seq: stored.seq(),
+            state_vector,
+            updated_at: stored.updated_at,
+            changed: false,
+        });
+    }
+    // 7 (checked first, so nothing is written over the cap).
+    if stored.bytes() + update.len() > max_doc_bytes {
+        let full = doc
+            .transact()
+            .encode_state_as_update_v1(&StateVector::default());
+        if full.len() > max_doc_bytes {
+            return Err(too_large(max_doc_bytes));
+        }
+    }
+    // D53: a recovery point before a token's write.
+    revisions::pre_api(tx, item_id, ItemKind::Doc, by, now)?;
+    // 5. Append and derive.
+    let seq = stored.next_seq;
+    tx.execute(
+        "INSERT INTO doc_updates (item_id, seq, data, user_id, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![item_id, seq, update, by.user_id, now],
+    )?;
+    let walk = ytext::walk(&doc);
+    derive(tx, item_id, &walk)?;
+    for (client, _) in update_sv.iter() {
+        tx.execute(
+            "INSERT OR IGNORE INTO doc_clients (item_id, client_id, user_id, first_seen_at) VALUES (?1, ?2, ?3, ?4)",
+            params![item_id, client.get() as i64, by.user_id, now],
+        )?;
+    }
+    touch_content(tx, item_id, by.user_id, now)?;
+    tx.execute(
+        "UPDATE doc_state SET next_seq = ?2, last_token_id = ?3, updated_at = ?4 WHERE item_id = ?1",
+        params![item_id, seq + 1, by.token_id, now],
+    )?;
+    match pm_json {
+        PmJson::Keep => {}
+        PmJson::Set(v) => {
+            tx.execute(
+                "UPDATE doc_state SET pm_json = ?2, pm_json_seq = ?3 WHERE item_id = ?1",
+                params![item_id, serde_json::to_string(v)?, seq],
+            )?;
+        }
+        PmJson::Clear => {
+            tx.execute(
+                "UPDATE doc_state SET pm_json = NULL, pm_json_seq = NULL WHERE item_id = ?1",
+                [item_id],
+            )?;
+        }
+    }
+    // The auto revision (§5), with the attachment ids as GC roots.
+    let newest: Option<i64> = tx.query_row(
+        "SELECT max(created_at) FROM revisions WHERE item_id = ?1",
+        [item_id],
+        |r| r.get(0),
+    )?;
+    let full = || {
+        doc.transact()
+            .encode_state_as_update_v1(&StateVector::default())
+    };
+    if newest.is_none_or(|t| now - t > revisions::AUTO_INTERVAL_MS) {
+        let attachments = attachment_rows(tx, item_id)?;
+        let mut draft = RevisionDraft::yjs(full(), seq, attachments, Some(by.user_id));
+        if let PmJson::Set(v) = pm_json {
+            draft.preview = Some(serde_json::to_string(v)?);
+        }
+        revisions::maybe_auto(tx, item_id, draft, now)?;
+    }
+    // 6. Compaction.
+    let (rows, bytes): (i64, i64) = tx.query_row(
+        "SELECT count(*), coalesce(sum(length(data)), 0) FROM doc_updates WHERE item_id = ?1",
+        [item_id],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
+    if rows > COMPACT_ROWS || bytes > COMPACT_BYTES {
+        tx.execute(
+            "UPDATE doc_state SET ydoc = ?2, compacted_seq = ?3 WHERE item_id = ?1",
+            params![item_id, full(), seq],
+        )?;
+        tx.execute(
+            "DELETE FROM doc_updates WHERE item_id = ?1 AND seq <= ?2",
+            params![item_id, seq],
+        )?;
+    }
+    Ok(Saved {
+        seq,
+        state_vector,
+        updated_at: now,
+        changed: true,
+    })
+}
+
+fn too_large(limit: usize) -> Error {
+    Error::new(
+        ErrorCode::DocTooLarge,
+        format!("the document would be larger than {limit} bytes"),
+    )
+    .with_details(&LimitDetails {
+        limit_bytes: limit as u64,
+    })
+}
+
+fn attachment_rows(conn: &Connection, item_id: &str) -> Result<Vec<String>> {
+    Ok(conn
+        .prepare(
+            "SELECT attachment_id FROM item_attachments WHERE item_id = ?1 ORDER BY attachment_id",
+        )?
+        .query_map([item_id], |r| r.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+/// The item and attachment lookups of the converters, on a connection (§6.4 "the parser takes a lookup closure from
+/// the store").
+pub struct DbLookup<'c> {
+    pub conn: &'c Connection,
+    /// `QUIRE_PUBLIC_URL`, for absolute same-instance URLs.
+    pub public_origin: Option<String>,
+}
+
+impl Lookup for DbLookup<'_> {
+    fn item(&self, r: &ItemRef) -> Option<ItemInfo> {
+        let (column, value) = match r {
+            ItemRef::Id(id) => ("id", id.as_str()),
+            ItemRef::UrlId(u) => ("url_id", u.as_str()),
+        };
+        self.conn
+            .query_row(
+                &format!("SELECT id, kind, title FROM items WHERE {column} = ?1"),
+                [value],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                },
+            )
+            .optional()
+            .ok()
+            .flatten()
+            .and_then(|(id, kind, title)| {
+                Some(ItemInfo {
+                    id,
+                    kind: kind.parse().ok()?,
+                    title,
+                })
+            })
+    }
+
+    fn attachment(&self, id: &str) -> bool {
+        self.conn
+            .query_row("SELECT 1 FROM attachments WHERE id = ?1", [id], |_| Ok(()))
+            .optional()
+            .ok()
+            .flatten()
+            .is_some()
+    }
+
+    fn public_origin(&self) -> Option<&str> {
+        self.public_origin.as_deref()
     }
 }
 
-fn is_empty_text<T: ReadTxn>(node: &XmlOut, txn: &T) -> bool {
-    match node {
-        XmlOut::Text(t) => Text::len(t, txn) == 0,
-        _ => false,
+/// `GET …/doc/prosemirror`: the normalized document (unknown nodes and marks pass through).
+pub fn prosemirror(conn: &Connection, item_id: &str) -> Result<DocJson> {
+    ensure_doc(conn, item_id)?;
+    let stored = Stored::load(conn, item_id)?;
+    let doc =
+        pm::read(&stored.doc()?).map_err(|e| Error::new(ErrorCode::Internal, e.to_string()))?;
+    Ok(DocJson {
+        schema_version: stored.schema_version as u32,
+        seq: stored.seq(),
+        doc,
+    })
+}
+
+/// A printed document.
+#[derive(Clone, Debug)]
+pub struct MarkdownDoc {
+    pub markdown: String,
+    pub warnings: Vec<ConversionWarning>,
+    pub seq: i64,
+    /// The item's title (for the download file name).
+    pub title: String,
+}
+
+/// `GET …/doc/markdown`: Quire Markdown 1, with `# <title>` first when `include_title`.
+pub fn markdown(
+    conn: &Connection,
+    item_id: &str,
+    include_title: bool,
+    public_origin: Option<String>,
+) -> Result<MarkdownDoc> {
+    let row = item_row(conn, item_id)?;
+    if row.kind != ItemKind::Doc {
+        return Err(Error::validation("kind", "the item is not a document"));
+    }
+    let stored = Stored::load(conn, item_id)?;
+    let doc =
+        pm::read(&stored.doc()?).map_err(|e| Error::new(ErrorCode::Internal, e.to_string()))?;
+    let lookup = DbLookup {
+        conn,
+        public_origin,
+    };
+    let title = include_title.then_some(row.title.as_str());
+    let printed = md_out::print(&doc, &lookup, title);
+    Ok(MarkdownDoc {
+        markdown: printed.markdown,
+        warnings: printed.warnings.into_vec(),
+        seq: stored.seq(),
+        title: row.title,
+    })
+}
+
+/// The input of a document PUT.
+#[derive(Clone, Debug)]
+pub enum ContentInput {
+    /// `text/markdown` (at most 1 MiB, checked by the route).
+    Markdown(String),
+    /// The `doc` field of a ProseMirror PUT (at most 4 MiB).
+    Json(Value),
+}
+
+/// `If-Match` of a content write.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IfMatch {
+    /// `*`: whatever is current.
+    Any,
+    /// `"d{n}"`.
+    Seq(i64),
+}
+
+/// A document PUT (§6.4 "Writing").
+#[derive(Clone, Debug)]
+pub struct ContentWrite {
+    pub item_id: String,
+    pub input: ContentInput,
+    pub if_match: IfMatch,
+    pub merge: bool,
+    pub title_from_h1: bool,
+    /// The credential: the token id, or the session id (for the request hash).
+    pub credential: String,
+    /// The normalized query string (for the request hash).
+    pub query: String,
+    /// sha256 of the body (for the request hash).
+    pub body_sha256: [u8; 32],
+    pub public_origin: Option<String>,
+    pub max_doc_bytes: usize,
+}
+
+/// The author of a content write, owned (for the closures of [`Db`]).
+#[derive(Clone, Debug)]
+pub struct Author {
+    pub user_id: String,
+    pub token_id: Option<String>,
+}
+
+impl Author {
+    pub fn write_by(&self) -> WriteBy<'_> {
+        WriteBy {
+            user_id: &self.user_id,
+            token_id: self.token_id.as_deref(),
+        }
     }
 }
 
-/// Appends the text of `node` to the last block, starting a new block for every block element.
-fn collect<T: ReadTxn>(node: &XmlOut, txn: &T, blocks: &mut Vec<String>) {
-    match node {
-        XmlOut::Text(t) => {
-            if blocks.is_empty() {
-                blocks.push(String::new());
-            }
-            let last = blocks.last_mut().expect("pushed above");
-            for d in t.diff(txn, YChange::identity) {
-                if let Out::Any(Any::String(s)) = d.insert {
-                    last.push_str(&s);
-                }
-            }
-        }
-        XmlOut::Element(e) => {
-            let inline = INLINE.contains(&e.tag().as_ref());
-            if !inline {
-                blocks.push(String::new());
-            }
-            for c in e.children(txn) {
-                collect(&c, txn, blocks);
-            }
-            if !inline {
-                blocks.push(String::new());
-            }
-        }
-        XmlOut::Fragment(f) => {
-            for c in f.children(txn) {
-                collect(&c, txn, blocks);
-            }
-        }
+fn invalid(e: Invalid) -> Error {
+    Error::new(
+        ErrorCode::InvalidDocument,
+        format!("the document is not schema v1: {e}"),
+    )
+    .with_details(&InvalidDocumentDetails {
+        path: e.path,
+        reason: e.reason,
+    })
+}
+
+fn schema_too_new() -> Error {
+    Error::new(
+        ErrorCode::SchemaTooNew,
+        "the document holds content this server's schema does not know; it cannot be overwritten",
+    )
+}
+
+fn stale(current: i64, mergeable: bool) -> Error {
+    Error::new(
+        ErrorCode::RevMismatch,
+        "the document changed since the If-Match version",
+    )
+    .with_details(&RevMismatchDetails {
+        etag: etag(current),
+        rev: None,
+        mergeable: Some(mergeable),
+    })
+}
+
+/// The outcome of the read phase.
+enum Prepared {
+    /// The target already equals the current state.
+    Unchanged { seq: i64, updated_at: i64 },
+    /// An update against the base at `base_seq`.
+    Write { base_seq: i64, update: Vec<u8> },
+}
+
+/// The read phase of a PUT: parse, base, comparison space and diff, on one snapshot.
+fn prepare(conn: &Connection, req: &ContentWrite) -> Result<(Prepared, Warnings, Option<String>)> {
+    let row = item_row(conn, &req.item_id)?;
+    if row.kind != ItemKind::Doc {
+        return Err(Error::validation("kind", "the item is not a document"));
     }
+    if row.deleted_at.is_some() || row.archived_at.is_some() {
+        return Err(Error::new(
+            ErrorCode::ReadOnly,
+            "the item is in the trash or archived",
+        ));
+    }
+    let lookup = DbLookup {
+        conn,
+        public_origin: req.public_origin.clone(),
+    };
+    // 1. Parse.
+    let mut warnings = Warnings::default();
+    let mut target = match &req.input {
+        ContentInput::Markdown(md) => {
+            let (doc, w) = md_in::parse(md, &lookup).map_err(invalid)?;
+            warnings.extend(w);
+            Target::Markdown(doc)
+        }
+        ContentInput::Json(doc) => Target::Json(
+            schema::validate(doc, "/doc", convert::link_allowed, convert::image_allowed)
+                .map_err(invalid)?,
+        ),
+    };
+    let title = if req.title_from_h1 {
+        match &mut target {
+            Target::Markdown(d) | Target::Json(d) => convert::take_h1(d),
+        }
+    } else {
+        None
+    };
+    // 2. Base.
+    let stored = Stored::load(conn, &req.item_id)?;
+    if stored.schema_version > i64::from(SCHEMA_VERSION) {
+        return Err(schema_too_new());
+    }
+    let current = stored.seq();
+    let title_same = title.as_ref().is_none_or(|t| *t == row.title);
+    let base_seq = match req.if_match {
+        IfMatch::Any => current,
+        IfMatch::Seq(n) if n == current => current,
+        IfMatch::Seq(n) if req.merge && n >= stored.compacted_seq && n < current => n,
+        IfMatch::Seq(n) => {
+            // A stale strict write: fine only when the target already is the current state (a retried PUT).
+            let doc = stored.doc()?;
+            let raw = raw_json(&doc)?;
+            if schema::has_unknown(&raw) {
+                return Err(schema_too_new());
+            }
+            let now_in_space = match &target {
+                Target::Json(_) => schema::normalize(&raw),
+                Target::Markdown(_) => convert::comparison_tree(&raw, &lookup),
+            };
+            if ydiff::same(&now_in_space, target.doc()) && title_same {
+                return Ok((
+                    Prepared::Unchanged {
+                        seq: current,
+                        updated_at: stored.updated_at,
+                    },
+                    warnings,
+                    title,
+                ));
+            }
+            return Err(stale(current, n >= stored.compacted_seq && n <= current));
+        }
+    };
+    // 3–4. Comparison space and diff, as one update.
+    let base_etag = etag(base_seq);
+    let mut h = Sha256::new();
+    for part in [
+        req.credential.as_bytes(),
+        req.item_id.as_bytes(),
+        base_etag.as_bytes(),
+        req.query.as_bytes(),
+    ] {
+        h.update((part.len() as u64).to_be_bytes());
+        h.update(part);
+    }
+    h.update(req.body_sha256);
+    let h: [u8; 32] = h.finalize().into();
+    let parts = stored.parts(Some(base_seq));
+    let written = convert::write(&parts, &target, &lookup, &h).map_err(|e| match e {
+        BaseError::SchemaTooNew => schema_too_new(),
+        BaseError::Corrupt(m) => Error::new(ErrorCode::Internal, format!("stored document: {m}")),
+    })?;
+    warnings.extend(written.warnings);
+    if !written.changed {
+        return Ok((
+            Prepared::Unchanged {
+                seq: current,
+                updated_at: stored.updated_at,
+            },
+            warnings,
+            title,
+        ));
+    }
+    Ok((
+        Prepared::Write {
+            base_seq,
+            update: written.update,
+        },
+        warnings,
+        title,
+    ))
+}
+
+fn raw_json(doc: &Doc) -> Result<Value> {
+    let frag = pm::fragment(doc);
+    let txn = doc.transact();
+    pm::raw(&txn, &frag).map_err(|e| Error::new(ErrorCode::Internal, e.to_string()))
+}
+
+/// `PUT …/doc/markdown` and `PUT …/doc/prosemirror` (§6.4 steps 1–5): the diff against the `If-Match` base on a
+/// read snapshot, then, in the writer: the base re-check (412 when it moved and neither `merge` nor `If-Match: *`
+/// was given), the save through [`save_update`] (the `pre-api` revision included), `pm_json = NULL`, and
+/// `?title=from_h1` with `items::rename`. The caller holds two `doc_work` permits.
+pub async fn write_content(
+    db: &Db,
+    req: ContentWrite,
+    author: Author,
+    now: i64,
+) -> Result<DocWriteResult> {
+    let r = req.clone();
+    let (prepared, warnings, title) = db.read(move |conn| prepare(conn, &r)).await?;
+    let warnings = warnings.into_vec();
+    db.write(move |tx| {
+        let by = author.write_by();
+        ensure_writable(tx, &req.item_id, ItemKind::Doc)?;
+        let mut renamed = false;
+        if let Some(title) = &title {
+            let before: String = tx.query_row(
+                "SELECT title FROM items WHERE id = ?1",
+                [&req.item_id],
+                |r| r.get(0),
+            )?;
+            if *title != before {
+                crate::items::rename(tx, &req.item_id, title, by.user_id, now)?;
+                renamed = true;
+            }
+        }
+        match prepared {
+            Prepared::Unchanged { seq, updated_at } => Ok(DocWriteResult {
+                seq,
+                etag: etag(seq),
+                updated_at: Timestamp(if renamed { now } else { updated_at }),
+                changed: renamed,
+                merged: false,
+                warnings,
+            }),
+            Prepared::Write { base_seq, update } => {
+                let (current, compacted): (i64, i64) = tx.query_row(
+                    "SELECT next_seq - 1, compacted_seq FROM doc_state WHERE item_id = ?1",
+                    [&req.item_id],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )?;
+                if current != base_seq && !req.merge && req.if_match != IfMatch::Any {
+                    return Err(stale(current, base_seq >= compacted));
+                }
+                let saved = save_update(
+                    tx,
+                    &req.item_id,
+                    &update,
+                    PmJson::Clear,
+                    &by,
+                    req.max_doc_bytes,
+                    now,
+                )?;
+                Ok(DocWriteResult {
+                    seq: saved.seq,
+                    etag: etag(saved.seq),
+                    updated_at: Timestamp(saved.updated_at),
+                    changed: saved.changed || renamed,
+                    merged: saved.changed && current > base_seq,
+                    warnings,
+                })
+            }
+        }
+    })
+    .await
+}
+
+/// The ids of the items a document links to, by kind (for tests and backlinks later).
+pub fn links(conn: &Connection, item_id: &str) -> Result<BTreeSet<(String, String)>> {
+    Ok(conn
+        .prepare("SELECT target_id, kind FROM item_links WHERE source_id = ?1")?
+        .query_map([item_id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })?
+        .collect::<rusqlite::Result<BTreeSet<_>>>()?)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use yrs::{XmlElementPrelim, XmlTextPrelim};
-
-    fn doc_with(paragraphs: &[&str], extra_heading: bool) -> Vec<u8> {
-        let doc = Doc::new();
-        let frag = doc.get_or_insert_xml_fragment(YFIELD);
-        {
-            let mut txn = doc.transact_mut();
-            for (i, p) in paragraphs.iter().enumerate() {
-                let el = frag.insert(&mut txn, i as u32, XmlElementPrelim::empty("paragraph"));
-                el.insert(&mut txn, 0, XmlTextPrelim::new(*p));
-            }
-            if extra_heading {
-                let n = frag.len(&txn);
-                let el = frag.insert(&mut txn, n, XmlElementPrelim::empty("heading"));
-                el.insert(&mut txn, 0, XmlTextPrelim::new("Title"));
-            }
-        }
-        let txn = doc.transact();
-        txn.encode_state_as_update_v1(&StateVector::default())
-    }
 
     #[test]
     fn empty_state_is_two_zero_bytes() {
@@ -274,41 +893,12 @@ mod tests {
     }
 
     #[test]
-    fn walk_text_and_emptiness() {
-        let w = walk(&load(&[&EMPTY_YDOC]).unwrap());
-        assert!(w.only_empty_paragraphs);
-        assert_eq!(w.text, "");
-        let w = walk(&load(&[&doc_with(&["", ""], false)]).unwrap());
-        assert!(w.only_empty_paragraphs);
-        let w = walk(&load(&[&doc_with(&["one", "two"], true)]).unwrap());
-        assert!(!w.only_empty_paragraphs);
-        assert_eq!(w.text, "one\ntwo\nTitle");
-        let w = walk(&load(&[&doc_with(&[], true)]).unwrap());
-        assert!(!w.only_empty_paragraphs);
-    }
-
-    #[test]
-    fn load_rejects_garbage_and_missing_deps() {
-        assert!(load(&[b"\xff\xff\xff"]).is_err());
-        // The second half of a two-step history alone depends on the first.
-        let doc = Doc::new();
-        let frag = doc.get_or_insert_xml_fragment(YFIELD);
-        let first = {
-            let mut txn = doc.transact_mut();
-            frag.insert(&mut txn, 0, XmlTextPrelim::new("a"));
-            txn.encode_update_v1()
-        };
-        let sv = doc.transact().state_vector();
-        {
-            let mut txn = doc.transact_mut();
-            let t = frag.get(&txn, 0).unwrap();
-            if let XmlOut::Text(t) = t {
-                t.insert(&mut txn, 1, "b");
-            }
-        }
-        let second = doc.transact().encode_diff_v1(&sv);
-        assert!(load(&[&first]).is_ok());
-        assert!(load(&[&second]).is_err());
-        assert!(load(&[&first, &second]).is_ok());
+    fn etags() {
+        assert_eq!(etag(0), "\"d0\"");
+        assert_eq!(parse_etag("\"d12\""), Some(12));
+        assert_eq!(parse_etag("W/\"d3\""), Some(3));
+        assert_eq!(parse_etag("\"r3\""), None);
+        assert_eq!(parse_etag("\"d-1\""), None);
+        assert_eq!(parse_etag("*"), None);
     }
 }

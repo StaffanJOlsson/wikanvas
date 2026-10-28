@@ -19,8 +19,10 @@ fn writing() -> bool {
 }
 
 fn read_json(path: &std::path::Path) -> Value {
-    serde_json::from_str(&std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{}: {e}", path.display())))
-        .unwrap()
+    serde_json::from_str(
+        &std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{}: {e}", path.display())),
+    )
+    .unwrap()
 }
 
 fn web_fixtures() -> Vec<(String, Vec<u8>)> {
@@ -172,35 +174,51 @@ fn leaf_block() -> impl Strategy<Value = Value> {
 fn block() -> impl Strategy<Value = Value> {
     leaf_block().prop_recursive(3, 24, 3, |inner| {
         let items = |name: &'static str| {
-            prop::collection::vec((paragraph(), prop::collection::vec(inner.clone(), 0..2), any::<bool>()), 1..3)
-                .prop_map(move |items| {
-                    items
-                        .into_iter()
-                        .map(|(p, rest, checked)| {
-                            let mut content = vec![p];
-                            content.extend(rest);
-                            if name == "taskItem" {
-                                json!({"type": name, "attrs": {"checked": checked}, "content": content})
-                            } else {
-                                json!({"type": name, "content": content})
-                            }
-                        })
-                        .collect::<Vec<_>>()
-                })
+            prop::collection::vec(
+                (
+                    paragraph(),
+                    prop::collection::vec(inner.clone(), 0..2),
+                    any::<bool>(),
+                ),
+                1..3,
+            )
+            .prop_map(move |items| {
+                items
+                    .into_iter()
+                    .map(|(p, rest, checked)| {
+                        let mut content = vec![p];
+                        content.extend(rest);
+                        if name == "taskItem" {
+                            json!({"type": name, "attrs": {"checked": checked}, "content": content})
+                        } else {
+                            json!({"type": name, "content": content})
+                        }
+                    })
+                    .collect::<Vec<_>>()
+            })
         };
         prop_oneof![
-            prop::collection::vec(inner.clone(), 1..3).prop_map(|c| json!({"type": "blockquote", "content": c})),
-            (prop::sample::select(vec!["info", "tip", "warning", "danger"]), prop::collection::vec(inner.clone(), 1..3))
-                .prop_map(|(v, c)| json!({"type": "callout", "attrs": {"variant": v}, "content": c})),
+            prop::collection::vec(inner.clone(), 1..3)
+                .prop_map(|c| json!({"type": "blockquote", "content": c})),
+            (
+                prop::sample::select(vec!["info", "tip", "warning", "danger"]),
+                prop::collection::vec(inner.clone(), 1..3)
+            )
+                .prop_map(
+                    |(v, c)| json!({"type": "callout", "attrs": {"variant": v}, "content": c})
+                ),
             items("listItem").prop_map(|i| json!({"type": "bulletList", "content": i})),
-            (1i64..5, items("listItem")).prop_map(|(s, i)| json!({"type": "orderedList", "attrs": {"start": s}, "content": i})),
+            (1i64..5, items("listItem")).prop_map(
+                |(s, i)| json!({"type": "orderedList", "attrs": {"start": s}, "content": i})
+            ),
             items("taskItem").prop_map(|i| json!({"type": "taskList", "content": i})),
         ]
     })
 }
 
 fn document() -> impl Strategy<Value = Value> {
-    prop::collection::vec(block(), 1..6).prop_map(|c| schema::normalize(&json!({"type": "doc", "content": c})))
+    prop::collection::vec(block(), 1..6)
+        .prop_map(|c| schema::normalize(&json!({"type": "doc", "content": c})))
 }
 
 /// Documents with block ids on every block (as the editor writes them).
@@ -213,7 +231,10 @@ fn document_with_ids() -> impl Strategy<Value = Value> {
                 && a.contains_key(schema::BLOCK_ID)
             {
                 n += 1;
-                a.insert(schema::BLOCK_ID.into(), Value::from(format!("00000000-0000-4000-8000-{n:012}")));
+                a.insert(
+                    schema::BLOCK_ID.into(),
+                    Value::from(format!("00000000-0000-4000-8000-{n:012}")),
+                );
             }
             if let Some(Value::Array(c)) = x.get_mut("content") {
                 stack.extend(c.iter_mut());
@@ -224,7 +245,11 @@ fn document_with_ids() -> impl Strategy<Value = Value> {
 }
 
 fn config() -> ProptestConfig {
-    ProptestConfig { cases: 128, failure_persistence: None, ..ProptestConfig::default() }
+    ProptestConfig {
+        cases: 128,
+        failure_persistence: None,
+        ..ProptestConfig::default()
+    }
 }
 
 proptest! {
@@ -263,16 +288,35 @@ struct GoldenLookup;
 impl Lookup for GoldenLookup {
     fn item(&self, r: &ItemRef) -> Option<ItemInfo> {
         let items = [
-            ("0192f0a0-1111-7000-8000-00000000000a", "DocA00000a", ItemKind::Doc, "Doc A"),
-            ("0192f0a0-2222-7000-8000-00000000000b", "DocB00000b", ItemKind::Doc, "Doc B"),
-            ("0192f0a0-3333-7000-8000-00000000000c", "Board0000c", ItemKind::Board, "Board C"),
+            (
+                "0192f0a0-1111-7000-8000-00000000000a",
+                "DocA00000a",
+                ItemKind::Doc,
+                "Doc A",
+            ),
+            (
+                "0192f0a0-2222-7000-8000-00000000000b",
+                "DocB00000b",
+                ItemKind::Doc,
+                "Doc B",
+            ),
+            (
+                "0192f0a0-3333-7000-8000-00000000000c",
+                "Board0000c",
+                ItemKind::Board,
+                "Board C",
+            ),
         ];
         items.iter().find_map(|(id, url_id, kind, title)| {
             let hit = match r {
                 ItemRef::Id(x) => x == id,
                 ItemRef::UrlId(x) => x == url_id,
             };
-            hit.then(|| ItemInfo { id: (*id).to_owned(), kind: *kind, title: (*title).to_owned() })
+            hit.then(|| ItemInfo {
+                id: (*id).to_owned(),
+                kind: *kind,
+                title: (*title).to_owned(),
+            })
         })
     }
 
@@ -330,11 +374,23 @@ fn markdown_goldens() {
             std::fs::write(&expected_path, &md).unwrap();
             std::fs::write(&warnings_path, &warnings_json).unwrap();
         }
-        assert_eq!(md, std::fs::read_to_string(&expected_path).unwrap(), "{name}.expected.md");
-        assert_eq!(warnings_json, std::fs::read_to_string(&warnings_path).unwrap(), "{name}.warnings.json");
+        assert_eq!(
+            md,
+            std::fs::read_to_string(&expected_path).unwrap(),
+            "{name}.expected.md"
+        );
+        assert_eq!(
+            warnings_json,
+            std::fs::read_to_string(&warnings_path).unwrap(),
+            "{name}.warnings.json"
+        );
         // The printed form is stable: printing it again changes nothing.
         let (again, _) = md_in::parse(&md, &GoldenLookup).unwrap();
-        assert_eq!(md_out::print(&again, &GoldenLookup, None).markdown, md, "{name}: print is idempotent");
+        assert_eq!(
+            md_out::print(&again, &GoldenLookup, None).markdown,
+            md,
+            "{name}: print is idempotent"
+        );
         for w in warnings {
             seen.insert(w.code.as_str());
         }
@@ -384,13 +440,21 @@ fn write_server_fixtures() {
         let out = write(&[empty], &Target::Markdown(doc), &GoldenLookup, &h).unwrap();
         let full = {
             let d = ydiff::load(&[empty, &out.update], None).unwrap();
-            d.transact().encode_state_as_update_v1(&StateVector::default())
+            d.transact()
+                .encode_state_as_update_v1(&StateVector::default())
         };
-        let pm_json = format!("{}\n", serde_json::to_string_pretty(&pm::read(&doc_of(&full)).unwrap()).unwrap());
-        let (bin_path, pm_path) = (dir.join(format!("{name}.bin")), dir.join(format!("{name}.pm.json")));
+        let pm_json = format!(
+            "{}\n",
+            serde_json::to_string_pretty(&pm::read(&doc_of(&full)).unwrap()).unwrap()
+        );
+        let (bin_path, pm_path) = (
+            dir.join(format!("{name}.bin")),
+            dir.join(format!("{name}.pm.json")),
+        );
         let same_doc = |stored: &[u8]| {
             let (a, b) = (doc_of(stored), doc_of(&full));
-            pm::read(&a).unwrap() == pm::read(&b).unwrap() && a.transact().state_vector() == b.transact().state_vector()
+            pm::read(&a).unwrap() == pm::read(&b).unwrap()
+                && a.transact().state_vector() == b.transact().state_vector()
         };
         if writing() {
             if !std::fs::read(&bin_path).is_ok_and(|old| same_doc(&old)) {
@@ -399,8 +463,15 @@ fn write_server_fixtures() {
             std::fs::write(&pm_path, &pm_json).unwrap();
         }
         let stored = std::fs::read(&bin_path).unwrap();
-        assert!(same_doc(&stored), "{name}.bin is out of date (WRITE_FIXTURES=1)");
-        assert_eq!(std::fs::read_to_string(&pm_path).unwrap(), pm_json, "{name}.pm.json");
+        assert!(
+            same_doc(&stored),
+            "{name}.bin is out of date (WRITE_FIXTURES=1)"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&pm_path).unwrap(),
+            pm_json,
+            "{name}.pm.json"
+        );
     }
 }
 
@@ -424,7 +495,9 @@ fn doc(content: Vec<Value>) -> Value {
 fn put(base: &[u8], target: Target, seed: &str) -> (Vec<u8>, Written, Value) {
     let out = write(&[base], &target, &GoldenLookup, &h(seed)).unwrap();
     let d = ydiff::load(&[base, &out.update], None).unwrap();
-    let full = d.transact().encode_state_as_update_v1(&StateVector::default());
+    let full = d
+        .transact()
+        .encode_state_as_update_v1(&StateVector::default());
     let json = pm::read(&d).unwrap();
     (full, out, json)
 }
@@ -440,7 +513,9 @@ fn identities(state: &[u8]) -> Vec<(yrs::ID, String)> {
     let txn = d.transact();
     frag.children(&txn)
         .map(|c| {
-            let BranchID::Nested(id) = c.id() else { panic!("a nested element") };
+            let BranchID::Nested(id) = c.id() else {
+                panic!("a nested element")
+            };
             let text = match &c {
                 XmlOut::Element(e) => e
                     .children(&txn)
@@ -464,7 +539,11 @@ fn base_doc(content: Vec<Value>) -> Vec<u8> {
 
 #[test]
 fn diff_keeps_unchanged_blocks_identity() {
-    let base = base_doc(vec![p("The first paragraph", "b1"), p("The second paragraph", "b2"), p("The third one", "b3")]);
+    let base = base_doc(vec![
+        p("The first paragraph", "b1"),
+        p("The second paragraph", "b2"),
+        p("The third one", "b3"),
+    ]);
     let before = identities(&base);
     let target = md("The first paragraph\n\nThe second paragraph, edited\n\nThe third one\n");
     let (after, out, json) = put(&base, target, "edit-two");
@@ -475,7 +554,10 @@ fn diff_keeps_unchanged_blocks_identity() {
     assert_eq!(now[2], before[2], "P3 untouched");
     assert_eq!(now[1].0, before[1].0, "P2 is the same Y element");
     assert_eq!(now[1].1, "The second paragraph, edited");
-    let ids: Vec<&str> = content_of(&json).iter().map(|b| b["attrs"]["blockId"].as_str().unwrap()).collect();
+    let ids: Vec<&str> = content_of(&json)
+        .iter()
+        .map(|b| b["attrs"]["blockId"].as_str().unwrap())
+        .collect();
     assert_eq!(ids, ["b1", "b2", "b3"]);
     // Only P2's text changed: the update holds one client's insertion of ", edited" (8 UTF-16 units) and no deletion.
     let update = Update::decode_v1(&out.update).unwrap();
@@ -486,7 +568,9 @@ fn diff_keeps_unchanged_blocks_identity() {
 
 #[test]
 fn diff_insert_top_edit_bottom_keeps_middle_identity() {
-    let paras: Vec<Value> = (1..=12).map(|i| p(&format!("Paragraph {i}"), &format!("b{i}"))).collect();
+    let paras: Vec<Value> = (1..=12)
+        .map(|i| p(&format!("Paragraph {i}"), &format!("b{i}")))
+        .collect();
     let base = base_doc(paras);
     let before = identities(&base);
     let mut md_text = String::from("Paragraph 1\n\nNew paragraph\n\n");
@@ -511,7 +595,10 @@ fn diff_insert_top_edit_bottom_keeps_middle_identity() {
     }
     assert_eq!(now[1].1, "New paragraph");
     let new_id = content_of(&json)[1]["attrs"]["blockId"].as_str().unwrap();
-    assert!(uuid::Uuid::parse_str(new_id).is_ok_and(|u| u.get_version_num() == 4), "{new_id}");
+    assert!(
+        uuid::Uuid::parse_str(new_id).is_ok_and(|u| u.get_version_num() == 4),
+        "{new_id}"
+    );
 }
 
 #[test]
@@ -524,7 +611,10 @@ fn json_reorder_moves_by_block_id() {
     let now = identities(&after);
     assert_eq!(now[1], before[0], "Alpha untouched");
     assert_eq!(now[2], before[1], "Beta untouched");
-    assert_ne!(now[0].0, before[2].0, "Gamma was moved: deleted and re-inserted");
+    assert_ne!(
+        now[0].0, before[2].0,
+        "Gamma was moved: deleted and re-inserted"
+    );
 }
 
 #[test]
@@ -538,7 +628,12 @@ fn markdown_put_leaves_unchanged_blocks_untouched() {
             {"type": "tableHeader", "attrs": {"blockId": "h2"}, "content": [p("B", "hb")]}]},
         {"type": "tableRow", "attrs": {"blockId": "r1"}, "content": [cell("wide", json!({"blockId": "cw", "colspan": 2}))]},
     ]});
-    let base_json = doc(vec![p("Intro", "p1"), image.clone(), table.clone(), p("Outro", "p2")]);
+    let base_json = doc(vec![
+        p("Intro", "p1"),
+        image.clone(),
+        table.clone(),
+        p("Outro", "p2"),
+    ]);
     let base = pm::write_doc(&base_json, 5);
     let printed = md_out::print(&base_json, &GoldenLookup, None).markdown;
     let edited = printed.replace("Outro", "Outro, edited");
@@ -547,7 +642,11 @@ fn markdown_put_leaves_unchanged_blocks_untouched() {
     assert!(out.changed);
     let c = content_of(&json);
     assert_eq!(c[1], schema::normalize(&image), "the image keeps its width");
-    assert_eq!(c[2], schema::normalize(&table), "the table keeps its colspan");
+    assert_eq!(
+        c[2],
+        schema::normalize(&table),
+        "the table keeps its colspan"
+    );
     assert_eq!(content_of(&c[3])[0]["text"], "Outro, edited");
     let (before, now) = (identities(&base), identities(&after));
     assert_eq!(now[..3], before[..3]);
@@ -564,14 +663,20 @@ fn repeated_put_is_byte_identical_update() {
     // Applying it twice adds nothing the second time.
     let d = ydiff::load(&[&base, &a.update], None).unwrap();
     let sv = d.transact().state_vector();
-    d.transact_mut().apply_update(Update::decode_v1(&b.update).unwrap()).unwrap();
+    d.transact_mut()
+        .apply_update(Update::decode_v1(&b.update).unwrap())
+        .unwrap();
     assert_eq!(d.transact().state_vector(), sv);
 }
 
 #[test]
 fn new_blocks_get_uuid_block_ids() {
     let base = base_doc(vec![p("Keep", "k")]);
-    let (_, _, json) = put(&base, md("Keep\n\n- one\n- two\n\n> quoted\n"), "new-blocks");
+    let (_, _, json) = put(
+        &base,
+        md("Keep\n\n- one\n- two\n\n> quoted\n"),
+        "new-blocks",
+    );
     let mut ids = Vec::new();
     let mut stack = vec![&json];
     while let Some(n) = stack.pop() {
@@ -582,9 +687,15 @@ fn new_blocks_get_uuid_block_ids() {
     }
     assert!(ids.len() >= 7, "{ids:?}");
     for (name, id) in &ids {
-        let s = id.as_str().unwrap_or_else(|| panic!("{name} has no blockId"));
+        let s = id
+            .as_str()
+            .unwrap_or_else(|| panic!("{name} has no blockId"));
         if s != "k" {
-            assert_eq!(uuid::Uuid::parse_str(s).unwrap().get_version_num(), 4, "{name}: {s}");
+            assert_eq!(
+                uuid::Uuid::parse_str(s).unwrap().get_version_num(),
+                4,
+                "{name}: {s}"
+            );
         }
     }
     let unique: std::collections::HashSet<_> = ids.iter().map(|(_, i)| i.to_string()).collect();
@@ -600,12 +711,23 @@ fn utf16_offsets_with_emoji_and_combining_marks() {
     let d = doc_of(&after);
     let frag = pm::fragment(&d);
     let txn = d.transact();
-    let Some(XmlOut::Element(e)) = frag.get(&txn, 0) else { panic!() };
-    let Some(XmlOut::Text(t)) = e.get(&txn, 0) else { panic!() };
+    let Some(XmlOut::Element(e)) = frag.get(&txn, 0) else {
+        panic!()
+    };
+    let Some(XmlOut::Text(t)) = e.get(&txn, 0) else {
+        panic!()
+    };
     assert_eq!(t.get_string(&txn), "a😀xé");
     let base2 = base_doc(vec![p("e\u{301}😀", "b1")]);
-    let (_, _, json) = put(&base2, Target::Json(doc(vec![p("e\u{301}\u{301}😀!", "b1")])), "combining");
-    assert_eq!(content_of(&content_of(&json)[0])[0]["text"], "e\u{301}\u{301}😀!");
+    let (_, _, json) = put(
+        &base2,
+        Target::Json(doc(vec![p("e\u{301}\u{301}😀!", "b1")])),
+        "combining",
+    );
+    assert_eq!(
+        content_of(&content_of(&json)[0])[0]["text"],
+        "e\u{301}\u{301}😀!"
+    );
     // Changing only the low surrogate of an emoji replaces the whole pair.
     let base3 = base_doc(vec![p("x😀y", "b1")]);
     let (_, _, json) = put(&base3, Target::Json(doc(vec![p("x😁y", "b1")])), "pair");
@@ -616,14 +738,24 @@ fn utf16_offsets_with_emoji_and_combining_marks() {
 fn invalid_json_422_with_pointer() {
     let check = |d: Value| schema::validate(&d, "/doc", link_allowed, image_allowed).unwrap_err();
     let para = |c: Value| json!({"type": "doc", "content": [{"type": "paragraph", "content": c}]});
-    assert_eq!(check(json!({"type": "doc", "content": [{"type": "marquee"}]})).path, "/doc/content/0/type");
+    assert_eq!(
+        check(json!({"type": "doc", "content": [{"type": "marquee"}]})).path,
+        "/doc/content/0/type"
+    );
     assert_eq!(
         check(json!({"type": "doc", "content": [{"type": "bulletList", "content": [{"type": "paragraph"}]}]})).path,
         "/doc/content/0/content/0"
     );
-    assert_eq!(check(json!({"type": "doc", "content": [{"type": "heading", "attrs": {"level": "one"}}]})).path, "/doc/content/0/attrs/level");
     assert_eq!(
-        check(para(json!([{"type": "text", "text": "x", "marks": [{"type": "bold"}, {"type": "code"}]}]))).path,
+        check(json!({"type": "doc", "content": [{"type": "heading", "attrs": {"level": "one"}}]}))
+            .path,
+        "/doc/content/0/attrs/level"
+    );
+    assert_eq!(
+        check(para(
+            json!([{"type": "text", "text": "x", "marks": [{"type": "bold"}, {"type": "code"}]}])
+        ))
+        .path,
         "/doc/content/0/content/0/marks/1"
     );
     assert_eq!(
@@ -646,7 +778,9 @@ fn markdown_prescan_rejects_depth_101() {
     assert_eq!(e.path, "1:101");
     let ok = format!("{} x\n", "> ".repeat(100));
     assert!(md_in::parse(&ok, &NoLookup).is_ok());
-    let lists: String = (0..101).map(|i| format!("{}- x\n", "  ".repeat(i))).collect();
+    let lists: String = (0..101)
+        .map(|i| format!("{}- x\n", "  ".repeat(i)))
+        .collect();
     assert!(md_in::prescan(&lists).is_err());
     let mixed = format!("{}x\n", "- > ".repeat(51));
     assert!(md_in::prescan(&mixed).is_err());
@@ -680,19 +814,52 @@ fn title_from_h1_and_include() {
 
 #[test]
 fn allow_list() {
-    for ok in ["https://x.y/", "http://x", "mailto:a@b", "quire://item/x", "/doc/a", "#h-1"] {
+    for ok in [
+        "https://x.y/",
+        "http://x",
+        "mailto:a@b",
+        "quire://item/x",
+        "/doc/a",
+        "#h-1",
+    ] {
         assert!(link_allowed(ok), "{ok}");
     }
-    for bad in ["javascript:alert(1)", "JaVaScRiPt:x", "java\tscript:x", "data:text/html,x", "//evil.com", "vbscript:x", "", "x:y"] {
+    for bad in [
+        "javascript:alert(1)",
+        "JaVaScRiPt:x",
+        "java\tscript:x",
+        "data:text/html,x",
+        "//evil.com",
+        "vbscript:x",
+        "",
+        "x:y",
+    ] {
         assert!(!link_allowed(bad), "{bad}");
     }
     assert!(!image_allowed("mailto:a@b"));
     assert!(!image_allowed("data:image/png;base64,AAAA"));
-    assert_eq!(item_ref("/doc/some-title-AbCdEfGh12", None), Some(ItemRef::UrlId("AbCdEfGh12".into())));
-    assert_eq!(item_ref("https://wiki.example.com/board/AbCdEfGh12", Some("https://wiki.example.com")),
-        Some(ItemRef::UrlId("AbCdEfGh12".into())));
-    assert_eq!(item_ref("https://other.example.com/doc/x-AbCdEfGh12", Some("https://wiki.example.com")), None);
-    assert_eq!(attachment_ref("/api/v1/attachments/abc-1", None).as_deref(), Some("abc-1"));
+    assert_eq!(
+        item_ref("/doc/some-title-AbCdEfGh12", None),
+        Some(ItemRef::UrlId("AbCdEfGh12".into()))
+    );
+    assert_eq!(
+        item_ref(
+            "https://wiki.example.com/board/AbCdEfGh12",
+            Some("https://wiki.example.com")
+        ),
+        Some(ItemRef::UrlId("AbCdEfGh12".into()))
+    );
+    assert_eq!(
+        item_ref(
+            "https://other.example.com/doc/x-AbCdEfGh12",
+            Some("https://wiki.example.com")
+        ),
+        None
+    );
+    assert_eq!(
+        attachment_ref("/api/v1/attachments/abc-1", None).as_deref(),
+        Some("abc-1")
+    );
 }
 
 #[test]
@@ -710,5 +877,28 @@ fn yjs_marks_are_read_after_y_tiptap() {
         t.format(&mut txn, 0, 2, a);
     }
     let json = pm::read(&d).unwrap();
-    assert_eq!(json["content"][0]["content"][0]["marks"], json!([{"type": "bold"}]));
+    assert_eq!(
+        json["content"][0]["content"][0]["marks"],
+        json!([{"type": "bold"}])
+    );
+}
+
+#[test]
+fn empty_editor_paragraph_is_reused() {
+    // The editor writes one empty paragraph into a new document; a first write fills it instead of adding another.
+    let base = base_doc(vec![
+        json!({"type": "paragraph", "attrs": {"blockId": "e"}}),
+    ]);
+    for target in [
+        md("Hello there\n"),
+        Target::Json(doc(vec![
+            json!({"type": "paragraph", "content": [{"type": "text", "text": "Hello there"}]}),
+        ])),
+    ] {
+        let (_, _, json) = put(&base, target, "first-write");
+        let c = content_of(&json);
+        assert_eq!(c.len(), 1, "{json}");
+        assert_eq!(c[0]["attrs"]["blockId"], "e");
+        assert_eq!(content_of(&c[0])[0]["text"], "Hello there");
+    }
 }

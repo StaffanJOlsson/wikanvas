@@ -146,8 +146,7 @@ pub struct NodeType {
 impl NodeType {
     /// Whether the node is in `group`.
     pub fn in_group(&self, group: &str) -> bool {
-        self.group
-            .is_some_and(|g| g.split(' ').any(|x| x == group))
+        self.group.is_some_and(|g| g.split(' ').any(|x| x == group))
     }
 
     /// Whether the content is inline (a textblock: paragraph, heading, code block).
@@ -180,9 +179,7 @@ impl MarkType {
     pub fn excludes(&self, other: &MarkType) -> bool {
         match self.excludes {
             None => self.name == other.name,
-            Some(spec) => spec
-                .split(' ')
-                .any(|x| x == "_" || x == other.name),
+            Some(spec) => spec.split(' ').any(|x| x == "_" || x == other.name),
         }
     }
 }
@@ -247,10 +244,38 @@ const fn node(
 
 /// Schema v1's nodes, in ProseMirror's order (the order TipTap resolves the extensions in).
 static NODES: &[NodeType] = &[
-    node("paragraph", Some("block"), Some("inline*"), false, false, &[BID]),
-    node("mention", Some("inline"), None, true, true, &[str_attr("itemId")]),
-    node("blockquote", Some("block"), Some("block+"), false, false, &[BID]),
-    node("bulletList", Some("block list"), Some("listItem+"), false, false, &[BID]),
+    node(
+        "paragraph",
+        Some("block"),
+        Some("inline*"),
+        false,
+        false,
+        &[BID],
+    ),
+    node(
+        "mention",
+        Some("inline"),
+        None,
+        true,
+        true,
+        &[str_attr("itemId")],
+    ),
+    node(
+        "blockquote",
+        Some("block"),
+        Some("block+"),
+        false,
+        false,
+        &[BID],
+    ),
+    node(
+        "bulletList",
+        Some("block list"),
+        Some("listItem+"),
+        false,
+        false,
+        &[BID],
+    ),
     node("doc", None, Some("block+"), false, false, &[]),
     node("hardBreak", Some("inline"), None, true, true, &[]),
     node(
@@ -269,7 +294,14 @@ static NODES: &[NodeType] = &[
         ],
     ),
     node("horizontalRule", Some("block"), None, false, true, &[BID]),
-    node("listItem", None, Some("paragraph block*"), false, false, &[BID]),
+    node(
+        "listItem",
+        None,
+        Some("paragraph block*"),
+        false,
+        false,
+        &[BID],
+    ),
     node(
         "orderedList",
         Some("block list"),
@@ -296,7 +328,14 @@ static NODES: &[NodeType] = &[
         atom: false,
         attrs: &[BID, str_attr("language")],
     },
-    node("taskList", Some("block list"), Some("taskItem+"), false, false, &[BID]),
+    node(
+        "taskList",
+        Some("block list"),
+        Some("taskItem+"),
+        false,
+        false,
+        &[BID],
+    ),
     node(
         "taskItem",
         None,
@@ -312,9 +351,30 @@ static NODES: &[NodeType] = &[
             },
         ],
     ),
-    node("table", Some("block"), Some("tableRow+"), false, false, &[BID]),
-    node("tableRow", None, Some("(tableCell | tableHeader)*"), false, false, &[BID]),
-    node("tableHeader", None, Some("block+"), false, false, CELL_ATTRS),
+    node(
+        "table",
+        Some("block"),
+        Some("tableRow+"),
+        false,
+        false,
+        &[BID],
+    ),
+    node(
+        "tableRow",
+        None,
+        Some("(tableCell | tableHeader)*"),
+        false,
+        false,
+        &[BID],
+    ),
+    node(
+        "tableHeader",
+        None,
+        Some("block+"),
+        false,
+        false,
+        CELL_ATTRS,
+    ),
     node("tableCell", None, Some("block+"), false, false, CELL_ATTRS),
     node(
         "image",
@@ -350,7 +410,14 @@ static NODES: &[NodeType] = &[
             },
         ],
     ),
-    node("boardEmbed", Some("block"), None, false, true, &[BID, str_attr("itemId")]),
+    node(
+        "boardEmbed",
+        Some("block"),
+        None,
+        false,
+        true,
+        &[BID, str_attr("itemId")],
+    ),
 ];
 
 const fn mark(name: &'static str, rank: u32) -> MarkType {
@@ -1012,7 +1079,10 @@ pub fn validate(
     }
     let root = check_element(schema, doc, pointer, true)?;
     if root.name != "doc" {
-        return Err(Invalid::new(format!("{pointer}/type"), "the root node must be doc"));
+        return Err(Invalid::new(
+            format!("{pointer}/type"),
+            "the root node must be doc",
+        ));
     }
     let mut stack = vec![Frame {
         src: doc,
@@ -1087,7 +1157,10 @@ fn children_of<'a>(node: &'a Value, path: &str) -> Result<&'a [Value], Invalid> 
     match node.get("content") {
         None | Some(Value::Null) => Ok(&[]),
         Some(Value::Array(items)) => Ok(items),
-        Some(_) => Err(Invalid::new(format!("{path}/content"), "content is an array")),
+        Some(_) => Err(Invalid::new(
+            format!("{path}/content"),
+            "content is an array",
+        )),
     }
 }
 
@@ -1105,24 +1178,47 @@ fn check_element(
         _ => return Err(Invalid::new(format!("{path}/type"), "a node needs a type")),
     };
     let Some(nt) = schema.node(name) else {
-        return Err(Invalid::new(format!("{path}/type"), format!("unknown node type {name}")));
+        return Err(Invalid::new(
+            format!("{path}/type"),
+            format!("unknown node type {name}"),
+        ));
     };
     if !root && nt.name == "doc" {
         return Err(Invalid::new(format!("{path}/type"), "doc is only the root"));
     }
     for key in obj.keys() {
         if !matches!(key.as_str(), "type" | "attrs" | "content") {
-            return Err(Invalid::new(format!("{path}/{key}"), format!("unexpected field {key}")));
+            return Err(Invalid::new(
+                format!("{path}/{key}"),
+                format!("unexpected field {key}"),
+            ));
         }
     }
-    check_attrs(nt.attrs, obj.get("attrs"), &format!("{path}/attrs"), nt.name)?;
-    if nt.content.is_none() && obj.get("content").is_some_and(|c| c.as_array().is_some_and(|a| !a.is_empty())) {
-        return Err(Invalid::new(format!("{path}/content"), format!("{} has no content", nt.name)));
+    check_attrs(
+        nt.attrs,
+        obj.get("attrs"),
+        &format!("{path}/attrs"),
+        nt.name,
+    )?;
+    if nt.content.is_none()
+        && obj
+            .get("content")
+            .is_some_and(|c| c.as_array().is_some_and(|a| !a.is_empty()))
+    {
+        return Err(Invalid::new(
+            format!("{path}/content"),
+            format!("{} has no content", nt.name),
+        ));
     }
     Ok(nt)
 }
 
-fn check_attrs(attrs: &[Attr], given: Option<&Value>, path: &str, owner: &str) -> Result<(), Invalid> {
+fn check_attrs(
+    attrs: &[Attr],
+    given: Option<&Value>,
+    path: &str,
+    owner: &str,
+) -> Result<(), Invalid> {
     let given = match given {
         None | Some(Value::Null) => return Ok(()),
         Some(Value::Object(o)) => o,
@@ -1130,7 +1226,10 @@ fn check_attrs(attrs: &[Attr], given: Option<&Value>, path: &str, owner: &str) -
     };
     for (key, v) in given {
         let Some(a) = attrs.iter().find(|a| a.name == key) else {
-            return Err(Invalid::new(format!("{path}/{key}"), format!("{owner} has no attribute {key}")));
+            return Err(Invalid::new(
+                format!("{path}/{key}"),
+                format!("{owner} has no attribute {key}"),
+            ));
         };
         if a.ty.check(v).is_none() {
             return Err(Invalid::new(
@@ -1152,13 +1251,26 @@ fn check_text(
     let obj = node.as_object().expect("checked by the caller");
     for key in obj.keys() {
         if !matches!(key.as_str(), "type" | "text" | "marks") {
-            return Err(Invalid::new(format!("{path}/{key}"), format!("unexpected field {key}")));
+            return Err(Invalid::new(
+                format!("{path}/{key}"),
+                format!("unexpected field {key}"),
+            ));
         }
     }
     match obj.get("text") {
         Some(Value::String(s)) if !s.is_empty() => {}
-        Some(Value::String(_)) => return Err(Invalid::new(format!("{path}/text"), "empty text nodes are not allowed")),
-        _ => return Err(Invalid::new(format!("{path}/text"), "a text node needs text")),
+        Some(Value::String(_)) => {
+            return Err(Invalid::new(
+                format!("{path}/text"),
+                "empty text nodes are not allowed",
+            ));
+        }
+        _ => {
+            return Err(Invalid::new(
+                format!("{path}/text"),
+                "a text node needs text",
+            ));
+        }
     }
     let marks = match obj.get("marks") {
         None | Some(Value::Null) => &[][..],
@@ -1173,22 +1285,37 @@ fn check_text(
         };
         for key in mobj.keys() {
             if !matches!(key.as_str(), "type" | "attrs") {
-                return Err(Invalid::new(format!("{mpath}/{key}"), format!("unexpected field {key}")));
+                return Err(Invalid::new(
+                    format!("{mpath}/{key}"),
+                    format!("unexpected field {key}"),
+                ));
             }
         }
         let name = type_of(m);
         let Some(mt) = schema.mark(name) else {
-            return Err(Invalid::new(format!("{mpath}/type"), format!("unknown mark type {name}")));
+            return Err(Invalid::new(
+                format!("{mpath}/type"),
+                format!("unknown mark type {name}"),
+            ));
         };
         if !schema.allows_mark(parent, mt) {
-            return Err(Invalid::new(format!("{mpath}/type"), format!("{} allows no {name} mark", parent.name)));
+            return Err(Invalid::new(
+                format!("{mpath}/type"),
+                format!("{} allows no {name} mark", parent.name),
+            ));
         }
         check_attrs(mt.attrs, m.get("attrs"), &format!("{mpath}/attrs"), mt.name)?;
         if let Some(other) = seen.iter().find(|o| o.excludes(mt) || mt.excludes(o)) {
-            return Err(Invalid::new(mpath, format!("{name} cannot be combined with {}", other.name)));
+            return Err(Invalid::new(
+                mpath,
+                format!("{name} cannot be combined with {}", other.name),
+            ));
         }
         if mt.name == "link" {
-            let href = m.get("attrs").and_then(|a| a.get("href")).and_then(Value::as_str);
+            let href = m
+                .get("attrs")
+                .and_then(|a| a.get("href"))
+                .and_then(Value::as_str);
             if !href.is_some_and(link_ok) {
                 return Err(Invalid::new(
                     format!("{mpath}/attrs/href"),
@@ -1203,7 +1330,9 @@ fn check_text(
 
 fn check_image(node: &Value, path: &str, image_ok: UrlCheck) -> Result<(), Invalid> {
     let attrs = node.get("attrs");
-    let attachment = attrs.and_then(|a| a.get("attachmentId")).and_then(Value::as_str);
+    let attachment = attrs
+        .and_then(|a| a.get("attachmentId"))
+        .and_then(Value::as_str);
     let src = attrs.and_then(|a| a.get("src")).and_then(Value::as_str);
     if attachment.is_none()
         && let Some(src) = src
@@ -1225,19 +1354,28 @@ mod tests {
 
     fn fixture() -> Value {
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/schema/v1.json");
-        serde_json::from_str(&std::fs::read_to_string(path).expect("fixtures/schema/v1.json")).expect("JSON")
+        serde_json::from_str(&std::fs::read_to_string(path).expect("fixtures/schema/v1.json"))
+            .expect("JSON")
     }
 
     #[test]
     fn matches_tiptap_fixture() {
         let ours = serde_json::to_value(v1().doc_schema()).unwrap();
-        assert_eq!(ours, fixture(), "schema v1 differs from the TipTap dump; run scripts/dev.sh pnpm --dir web fixtures");
+        assert_eq!(
+            ours,
+            fixture(),
+            "schema v1 differs from the TipTap dump; run scripts/dev.sh pnpm --dir web fixtures"
+        );
     }
 
     #[test]
     fn every_mark_excludes_itself() {
         for m in v1().marks {
-            assert!(m.excludes(m), "{} allows overlapping copies of itself", m.name);
+            assert!(
+                m.excludes(m),
+                "{} allows overlapping copies of itself",
+                m.name
+            );
         }
         let code = v1().mark("code").unwrap();
         for m in v1().marks {
@@ -1259,7 +1397,10 @@ mod tests {
         assert!(!s.content_valid("codeBlock", &["hardBreak"]));
         assert!(s.content_valid("codeBlock", &[]));
         assert!(!s.content_valid("image", &["text"]));
-        assert_eq!(s.content_error("bulletList", &["listItem", "paragraph"]), Some(1));
+        assert_eq!(
+            s.content_error("bulletList", &["listItem", "paragraph"]),
+            Some(1)
+        );
         assert_eq!(s.content_error("bulletList", &[]), Some(0));
     }
 
@@ -1282,7 +1423,9 @@ mod tests {
         ]});
         assert_eq!(normalize(&raw), want);
         assert!(has_unknown(&raw));
-        assert!(!has_unknown(&json!({"type": "doc", "content": [{"type": "paragraph"}]})));
+        assert!(!has_unknown(
+            &json!({"type": "doc", "content": [{"type": "paragraph"}]})
+        ));
     }
 
     fn ok(_: &str) -> bool {
@@ -1298,13 +1441,17 @@ mod tests {
         let check = |doc: Value| validate(&doc, "/doc", no_js, ok);
         let p = |content: Value| json!({"type": "doc", "content": [{"type": "paragraph", "content": content}]});
         let err = |doc: Value| check(doc).unwrap_err();
-        assert_eq!(err(json!({"type": "doc", "content": [{"type": "nope"}]})).path, "/doc/content/0/type");
+        assert_eq!(
+            err(json!({"type": "doc", "content": [{"type": "nope"}]})).path,
+            "/doc/content/0/type"
+        );
         assert_eq!(
             err(json!({"type": "doc", "content": [{"type": "bulletList", "content": [{"type": "paragraph"}]}]})).path,
             "/doc/content/0/content/0"
         );
         assert_eq!(
-            err(json!({"type": "doc", "content": [{"type": "heading", "attrs": {"level": "2"}}]})).path,
+            err(json!({"type": "doc", "content": [{"type": "heading", "attrs": {"level": "2"}}]}))
+                .path,
             "/doc/content/0/attrs/level"
         );
         assert_eq!(
@@ -1316,13 +1463,23 @@ mod tests {
                 .path,
             "/doc/content/0/content/0/marks/0/attrs/href"
         );
-        assert_eq!(err(json!({"type": "doc", "content": []})).path, "/doc/content");
-        assert_eq!(err(p(json!([{"type": "text", "text": ""}]))).path, "/doc/content/0/content/0/text");
+        assert_eq!(
+            err(json!({"type": "doc", "content": []})).path,
+            "/doc/content"
+        );
+        assert_eq!(
+            err(p(json!([{"type": "text", "text": ""}]))).path,
+            "/doc/content/0/content/0/text"
+        );
         let mut deep = json!({"type": "paragraph"});
         for _ in 0..101 {
             deep = json!({"type": "blockquote", "content": [deep]});
         }
-        assert!(err(json!({"type": "doc", "content": [deep]})).reason.contains("deeper"));
+        assert!(
+            err(json!({"type": "doc", "content": [deep]}))
+                .reason
+                .contains("deeper")
+        );
         let good = check(p(json!([{"type": "text", "text": "x", "marks": [{"type": "bold"}, {"type": "link", "attrs": {"href": "/a"}}]}])))
             .unwrap();
         assert_eq!(

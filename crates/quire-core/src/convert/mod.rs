@@ -37,8 +37,9 @@ fn scheme_of(url: &str) -> Option<String> {
     let scheme = &cleaned[..colon];
     let mut chars = scheme.chars();
     let first = chars.next()?;
-    (first.is_ascii_alphabetic() && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.')))
-        .then(|| scheme.to_ascii_lowercase())
+    (first.is_ascii_alphabetic()
+        && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.')))
+    .then(|| scheme.to_ascii_lowercase())
 }
 
 fn allowed(url: &str, schemes: &[&str]) -> bool {
@@ -99,7 +100,9 @@ fn same_origin_path<'a>(url: &'a str, public_origin: Option<&str>) -> Option<&'a
         return Some(url);
     }
     let origin = public_origin?.trim_end_matches('/');
-    let rest = url.get(..origin.len()).filter(|p| p.eq_ignore_ascii_case(origin))?;
+    let rest = url
+        .get(..origin.len())
+        .filter(|p| p.eq_ignore_ascii_case(origin))?;
     let path = &url[rest.len()..];
     path.starts_with('/').then_some(path)
 }
@@ -110,13 +113,21 @@ pub fn item_ref(url: &str, public_origin: Option<&str>) -> Option<ItemRef> {
         return Some(ItemRef::Id(id));
     }
     let path = same_origin_path(url, public_origin)?;
-    let path = path.split(['?', '#']).next().unwrap_or(path).trim_end_matches('/');
-    let rest = path.strip_prefix("/doc/").or_else(|| path.strip_prefix("/board/"))?;
+    let path = path
+        .split(['?', '#'])
+        .next()
+        .unwrap_or(path)
+        .trim_end_matches('/');
+    let rest = path
+        .strip_prefix("/doc/")
+        .or_else(|| path.strip_prefix("/board/"))?;
     if rest.contains('/') || rest.len() < 10 {
         return None;
     }
     let (head, url_id) = rest.split_at(rest.len() - 10);
-    if !url_id.bytes().all(|b| b.is_ascii_alphanumeric()) || !(head.is_empty() || head.ends_with('-')) {
+    if !url_id.bytes().all(|b| b.is_ascii_alphanumeric())
+        || !(head.is_empty() || head.ends_with('-'))
+    {
         return None;
     }
     Some(ItemRef::UrlId(url_id.to_owned()))
@@ -127,7 +138,8 @@ pub fn attachment_ref(url: &str, public_origin: Option<&str>) -> Option<String> 
     let path = same_origin_path(url, public_origin)?;
     let id = path.strip_prefix(ATTACHMENT_PREFIX)?;
     let id = id.split(['?', '#']).next().unwrap_or(id);
-    (!id.is_empty() && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')).then(|| id.to_owned())
+    (!id.is_empty() && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'))
+        .then(|| id.to_owned())
 }
 
 /// `/api/v1/attachments/<id>`.
@@ -179,7 +191,11 @@ impl Warnings {
             w.count += 1;
             return;
         }
-        self.0.push(ConversionWarning { code, path, count: 1 });
+        self.0.push(ConversionWarning {
+            code,
+            path,
+            count: 1,
+        });
     }
 
     pub fn extend(&mut self, other: Warnings) {
@@ -322,7 +338,12 @@ fn strip_clone(n: &serde_json::Value) -> serde_json::Value {
 /// Applies a target to the base made of `base` (a full state and/or stored updates) as one update (§6.4 steps 3–5):
 /// the client id derives from `h` (re-hashed while it is in the base's state vector), new block ids from
 /// `sha256(h ‖ counter)`.
-pub fn write(base: &[&[u8]], target: &Target, lookup: &dyn Lookup, h: &[u8; 32]) -> Result<Written, BaseError> {
+pub fn write(
+    base: &[&[u8]],
+    target: &Target,
+    lookup: &dyn Lookup,
+    h: &[u8; 32],
+) -> Result<Written, BaseError> {
     let sv = ydiff::state_vector_of(base).map_err(BaseError::Corrupt)?;
     let client_id = ydiff::client_id(h, &sv);
     let doc = ydiff::load(base, Some(client_id)).map_err(BaseError::Corrupt)?;
@@ -352,7 +373,9 @@ pub fn take_h1(doc: &mut serde_json::Value) -> Option<String> {
     use serde_json::Value;
     let content = doc.get_mut("content")?.as_array_mut()?;
     let first = content.first()?;
-    if schema::type_of(first) != "heading" || first.get("attrs").and_then(|a| a.get("level")) != Some(&Value::from(1)) {
+    if schema::type_of(first) != "heading"
+        || first.get("attrs").and_then(|a| a.get("level")) != Some(&Value::from(1))
+    {
         return None;
     }
     let heading = content.remove(0);

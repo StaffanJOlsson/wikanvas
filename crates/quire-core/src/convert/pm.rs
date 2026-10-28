@@ -23,8 +23,8 @@ use yrs::types::Delta;
 use yrs::types::text::YChange;
 use yrs::types::xml::{XmlDeltaPrelim, XmlIn};
 use yrs::{
-    Any, ClientID, Doc, In, OffsetKind, Options, Out, ReadTxn, Text, Transact, TransactionMut, Xml, XmlElementPrelim,
-    XmlElementRef, XmlFragment, XmlFragmentRef, XmlOut, XmlTextRef,
+    Any, ClientID, Doc, In, OffsetKind, Options, Out, ReadTxn, Text, Transact, TransactionMut, Xml,
+    XmlElementPrelim, XmlElementRef, XmlFragment, XmlFragmentRef, XmlOut, XmlTextRef,
 };
 
 use crate::api::YFIELD;
@@ -77,7 +77,9 @@ pub fn json_to_any(v: &Value) -> Any {
         Value::String(s) => Any::from(s.as_str()),
         Value::Array(items) => Any::Array(items.iter().map(json_to_any).collect::<Vec<_>>().into()),
         Value::Object(m) => Any::Map(Arc::new(
-            m.iter().map(|(k, v)| (k.clone(), json_to_any(v))).collect::<HashMap<_, _>>(),
+            m.iter()
+                .map(|(k, v)| (k.clone(), json_to_any(v)))
+                .collect::<HashMap<_, _>>(),
         )),
     }
 }
@@ -88,7 +90,9 @@ pub fn mark_name(key: &str) -> &str {
         let (base, suffix) = key.split_at(key.len() - 10);
         if let Some(hash) = suffix.strip_prefix("--")
             && hash.len() == 8
-            && hash.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'/' || b == b'=')
+            && hash
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'/' || b == b'=')
             && !base.is_empty()
         {
             return base;
@@ -151,7 +155,10 @@ pub struct TooDeep;
 
 impl std::fmt::Display for TooDeep {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "the document is nested deeper than {MAX_WALK_DEPTH} levels")
+        write!(
+            f,
+            "the document is nested deeper than {MAX_WALK_DEPTH} levels"
+        )
     }
 }
 
@@ -270,14 +277,22 @@ fn text_prelim(texts: &[&Value]) -> XmlDeltaPrelim {
             .iter()
             .map(|t| {
                 let s = t.get("text").and_then(Value::as_str).unwrap_or("");
-                Delta::Inserted(In::Any(Any::from(s)), Some(Box::new(mark_attrs(marks_of(t)))))
+                Delta::Inserted(
+                    In::Any(Any::from(s)),
+                    Some(Box::new(mark_attrs(marks_of(t)))),
+                )
             })
             .collect(),
     }
 }
 
 /// Inserts consecutive text nodes as one new `XmlText` at `index` of `parent`.
-pub fn insert_text<P: XmlFragment>(txn: &mut TransactionMut, parent: &P, index: u32, texts: &[&Value]) -> XmlTextRef {
+pub fn insert_text<P: XmlFragment>(
+    txn: &mut TransactionMut,
+    parent: &P,
+    index: u32,
+    texts: &[&Value],
+) -> XmlTextRef {
     parent
         .insert(txn, index, XmlIn::Text(text_prelim(texts)))
         .into_xml_text()
@@ -310,7 +325,12 @@ pub fn child_groups(content: &[Value]) -> Vec<Vec<&Value>> {
 
 /// Inserts `node` (normalized JSON, not a text node) as a new element at `index` of `parent`, with its whole subtree
 /// (`createTypeFromElementNode`). Returns the element.
-pub fn insert_node<P: XmlFragment>(txn: &mut TransactionMut, parent: &P, index: u32, node: &Value) -> XmlElementRef {
+pub fn insert_node<P: XmlFragment>(
+    txn: &mut TransactionMut,
+    parent: &P,
+    index: u32,
+    node: &Value,
+) -> XmlElementRef {
     let root = parent.insert(txn, index, XmlElementPrelim::empty(type_of(node)));
     set_attrs(txn, &root, node);
     let mut stack: Vec<(XmlElementRef, &Value)> = vec![(root.clone(), node)];

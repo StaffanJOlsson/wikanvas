@@ -173,13 +173,24 @@ fn similarity(a: &[char], b: &[char]) -> f64 {
     }
     let prefix = a.iter().zip(b).take_while(|(x, y)| x == y).count();
     let rest = a.len().min(b.len()) - prefix;
-    let suffix = a.iter().rev().zip(b.iter().rev()).take(rest).take_while(|(x, y)| x == y).count();
+    let suffix = a
+        .iter()
+        .rev()
+        .zip(b.iter().rev())
+        .take(rest)
+        .take_while(|(x, y)| x == y)
+        .count();
     (prefix + suffix) as f64 / longer as f64
 }
 
 /// Myers' diff with a match predicate: the matched pairs `(i, j)`, in order. Gives up (keeping only the common
 /// prefix and suffix) beyond `max_d` edits.
-pub(crate) fn myers(n: usize, m: usize, eq: &dyn Fn(usize, usize) -> bool, max_d: usize) -> Vec<(usize, usize)> {
+pub(crate) fn myers(
+    n: usize,
+    m: usize,
+    eq: &dyn Fn(usize, usize) -> bool,
+    max_d: usize,
+) -> Vec<(usize, usize)> {
     let mut pre = 0;
     while pre < n && pre < m && eq(pre, pre) {
         pre += 1;
@@ -203,7 +214,12 @@ pub(crate) fn myers(n: usize, m: usize, eq: &dyn Fn(usize, usize) -> bool, max_d
     pairs
 }
 
-fn myers_core(n: usize, m: usize, eq: &dyn Fn(usize, usize) -> bool, max_d: usize) -> Vec<(usize, usize)> {
+fn myers_core(
+    n: usize,
+    m: usize,
+    eq: &dyn Fn(usize, usize) -> bool,
+    max_d: usize,
+) -> Vec<(usize, usize)> {
     let max = n + m;
     let off = max as isize;
     let mut v = vec![0isize; 2 * max + 2];
@@ -215,7 +231,11 @@ fn myers_core(n: usize, m: usize, eq: &dyn Fn(usize, usize) -> bool, max_d: usiz
         let mut k = -d;
         while k <= d {
             let idx = (k + off) as usize;
-            let mut x = if k == -d || (k != d && v[idx - 1] < v[idx + 1]) { v[idx + 1] } else { v[idx - 1] + 1 };
+            let mut x = if k == -d || (k != d && v[idx - 1] < v[idx + 1]) {
+                v[idx + 1]
+            } else {
+                v[idx - 1] + 1
+            };
             let mut y = x - k;
             while (x as usize) < n && (y as usize) < m && y >= 0 && eq(x as usize, y as usize) {
                 x += 1;
@@ -243,7 +263,11 @@ fn myers_core(n: usize, m: usize, eq: &dyn Fn(usize, usize) -> bool, max_d: usiz
         let v = &trace[d as usize];
         let k = x - y;
         let idx = (k + off) as usize;
-        let prev_k = if k == -d || (k != d && v[idx - 1] < v[idx + 1]) { k + 1 } else { k - 1 };
+        let prev_k = if k == -d || (k != d && v[idx - 1] < v[idx + 1]) {
+            k + 1
+        } else {
+            k - 1
+        };
         let prev_x = v[(prev_k + off) as usize];
         let prev_y = prev_x - prev_k;
         while x > prev_x && y > prev_y {
@@ -328,7 +352,11 @@ pub fn write(doc: &Doc, b: &Value, target: &Value, markdown: bool, seed: [u8; 32
         collect_deleted(&plan, content_of(b), &mut deleted);
         w.taken = base_ids.difference(&deleted).cloned().collect();
         w.apply_level(&mut txn, &frag, plan);
-        update = if w.ops > 0 { txn.encode_update_v1() } else { Vec::new() };
+        update = if w.ops > 0 {
+            txn.encode_update_v1()
+        } else {
+            Vec::new()
+        };
     }
     Output {
         changed: w.ops > 0,
@@ -364,7 +392,9 @@ fn collect_deleted(plan: &LevelPlan, b: &[Value], out: &mut HashSet<String>) {
                     for (r, cells) in rows {
                         if let Some(row) = content_of(n).iter().find(|x| origin(x) == Some(*r)) {
                             for (c, lp) in cells {
-                                if let Some(cell) = content_of(row).iter().find(|x| origin(x) == Some(*c)) {
+                                if let Some(cell) =
+                                    content_of(row).iter().find(|x| origin(x) == Some(*c))
+                                {
                                     collect_deleted(lp, content_of(cell), out);
                                 }
                             }
@@ -384,7 +414,11 @@ fn origin(n: &Value) -> Option<usize> {
 fn consumed(n: &Value) -> Vec<usize> {
     n.get(CONSUMED)
         .and_then(Value::as_array)
-        .map(|a| a.iter().filter_map(|x| x.as_u64().map(|x| x as usize)).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_u64().map(|x| x as usize))
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -417,13 +451,15 @@ fn is_textblock(name: &str) -> bool {
 }
 
 fn table_has_map(b: &Value) -> bool {
-    content_of(b).iter().any(|row| {
-        origin(row).is_none() || content_of(row).iter().any(is_filler)
-    })
+    content_of(b)
+        .iter()
+        .any(|row| origin(row).is_none() || content_of(row).iter().any(is_filler))
 }
 
 fn is_empty_cell(c: &Value) -> bool {
-    content_of(c).iter().all(|p| type_of(p) == "paragraph" && content_of(p).is_empty())
+    content_of(c)
+        .iter()
+        .all(|p| type_of(p) == "paragraph" && content_of(p).is_empty())
 }
 
 /// Whether a target table keeps the shape (rows, cells, empty fillers) of a lowered base table with spans.
@@ -502,7 +538,8 @@ impl Writer {
                     let pairable = type_of(bk) == type_of(tj_node)
                         && !(json && block_id(bk).is_some_and(|id| target_ids.contains(id)))
                         && self.pairable(txn, ys, bk, tj_node)
-                        && similarity(&texts_b[k], &tt) >= 0.5;
+                        // An empty base block (the editor's empty paragraph) takes any content.
+                        && (texts_b[k].is_empty() && is_textblock(type_of(bk)) || similarity(&texts_b[k], &tt) >= 0.5);
                     if pairable {
                         break;
                     }
@@ -539,7 +576,11 @@ impl Writer {
                 let bnode = &b[i];
                 match origin(bnode) {
                     Some(o) if o < ys.len() && ys[o].tag().as_ref() == type_of(tnode) => {
-                        if anchored && hb[i] == ht[j] && !(json && block_id(tnode).is_some_and(|id| Some(id) != block_id(bnode))) {
+                        if anchored
+                            && hb[i] == ht[j]
+                            && !(json
+                                && block_id(tnode).is_some_and(|id| Some(id) != block_id(bnode)))
+                        {
                             entries.push(Entry::Keep(o));
                         } else {
                             let np = self.plan_node(txn, &ys[o], bnode, tnode);
@@ -603,7 +644,13 @@ impl Writer {
         true
     }
 
-    fn plan_node<T: ReadTxn>(&mut self, txn: &T, y: &XmlElementRef, b: &Value, t: &Value) -> NodePlan {
+    fn plan_node<T: ReadTxn>(
+        &mut self,
+        txn: &T,
+        y: &XmlElementRef,
+        b: &Value,
+        t: &Value,
+    ) -> NodePlan {
         let name = type_of(t);
         let base_attrs = y_attrs(txn, y);
         let mut attrs = t
@@ -664,7 +711,13 @@ impl Writer {
                             continue;
                         };
                         let yc = elements(txn, ycell);
-                        let lp = self.plan_level(txn, &yc, content_of(bcell), content_of(tcell), type_of(tcell));
+                        let lp = self.plan_level(
+                            txn,
+                            &yc,
+                            content_of(bcell),
+                            content_of(tcell),
+                            type_of(tcell),
+                        );
                         cells.push((c, lp));
                     }
                     if !cells.is_empty() {
@@ -686,7 +739,12 @@ impl Writer {
 
     // ----------------------------------------------------------------------------------------------- applying
 
-    fn apply_level<P: XmlFragment>(&mut self, txn: &mut TransactionMut, parent: &P, plan: LevelPlan) {
+    fn apply_level<P: XmlFragment>(
+        &mut self,
+        txn: &mut TransactionMut,
+        parent: &P,
+        plan: LevelPlan,
+    ) {
         // Element ordinal → child index, before any change.
         let children: Vec<XmlOut> = parent.children(txn).collect();
         let mut elem_child: Vec<u32> = Vec::new();
@@ -755,8 +813,15 @@ impl Writer {
     fn apply_node(&mut self, txn: &mut TransactionMut, el: &XmlElementRef, mut np: NodePlan) {
         // Attributes, in name order.
         let current = element_attrs(txn, el);
-        let have_id = current.get(BLOCK_ID).and_then(Value::as_str).map(str::to_owned);
-        let want_id = np.attrs.get(BLOCK_ID).and_then(Value::as_str).map(str::to_owned);
+        let have_id = current
+            .get(BLOCK_ID)
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        let want_id = np
+            .attrs
+            .get(BLOCK_ID)
+            .and_then(Value::as_str)
+            .map(str::to_owned);
         if let Some(want) = want_id
             && have_id.as_deref() != Some(want.as_str())
         {
@@ -766,7 +831,10 @@ impl Writer {
                 }
             } else {
                 // Another block has it: keep the current id.
-                np.attrs.insert(BLOCK_ID.into(), have_id.clone().map_or(Value::Null, Value::from));
+                np.attrs.insert(
+                    BLOCK_ID.into(),
+                    have_id.clone().map_or(Value::Null, Value::from),
+                );
             }
         }
         let mut keys: Vec<&String> = np.attrs.keys().chain(current.keys()).collect();
@@ -775,7 +843,8 @@ impl Writer {
         for k in keys {
             let want = np.attrs.get(k).cloned().unwrap_or(Value::Null);
             let have = current.get(k).cloned().unwrap_or(Value::Null);
-            if !np.attrs.contains_key(k) && v1().node(el.tag()).is_some_and(|n| n.attr(k).is_none()) {
+            if !np.attrs.contains_key(k) && v1().node(el.tag()).is_some_and(|n| n.attr(k).is_none())
+            {
                 // An attr the schema does not know: leave it.
                 continue;
             }
@@ -811,14 +880,22 @@ impl Writer {
     }
 
     /// Inserts a new block (with block ids assigned) at child index `at`.
-    fn insert_new<P: XmlFragment>(&mut self, txn: &mut TransactionMut, parent: &P, at: u32, node: &Value) {
+    fn insert_new<P: XmlFragment>(
+        &mut self,
+        txn: &mut TransactionMut,
+        parent: &P,
+        at: u32,
+        node: &Value,
+    ) {
         let mut node = node.clone();
         crate::convert::md_out::strip_map(&mut node);
         // Block ids: keep a sent one unless taken, else a new one.
         {
             let mut stack = vec![&mut node];
             while let Some(n) = stack.pop() {
-                let is_block = v1().node(type_of(n)).is_some_and(|t| t.is_block() && t.attr(BLOCK_ID).is_some());
+                let is_block = v1()
+                    .node(type_of(n))
+                    .is_some_and(|t| t.is_block() && t.attr(BLOCK_ID).is_some());
                 if is_block && let Some(Value::Object(a)) = n.get_mut("attrs") {
                     let sent = a.get(BLOCK_ID).and_then(Value::as_str).map(str::to_owned);
                     let id = match sent {
@@ -862,7 +939,14 @@ impl Writer {
     }
 
     /// Inserts text nodes at `at` of `text` (plain, inheriting `inherited`), then formats each to its marks.
-    fn write_text(&mut self, txn: &mut TransactionMut, text: &XmlTextRef, at: u32, nodes: &[&Value], inherited: &Attrs) {
+    fn write_text(
+        &mut self,
+        txn: &mut TransactionMut,
+        text: &XmlTextRef,
+        at: u32,
+        nodes: &[&Value],
+        inherited: &Attrs,
+    ) {
         let mut s = String::new();
         let mut runs: Vec<(u32, u32, Attrs)> = Vec::new();
         let mut pos = at;
@@ -884,7 +968,15 @@ impl Writer {
     }
 
     /// Formats `[start, start+len)` from attrs `have` to `want`, one key at a time in name order.
-    fn format_to(&mut self, txn: &mut TransactionMut, text: &XmlTextRef, start: u32, len: u32, have: &Attrs, want: &Attrs) {
+    fn format_to(
+        &mut self,
+        txn: &mut TransactionMut,
+        text: &XmlTextRef,
+        start: u32,
+        len: u32,
+        have: &Attrs,
+        want: &Attrs,
+    ) {
         if len == 0 {
             return;
         }
@@ -925,10 +1017,12 @@ impl Writer {
             s += 1;
         }
         // Never split a surrogate pair.
-        if p > 0 && matches!(base.units[p - 1], BUnit::Char(c, _) if (0xD800..0xDC00).contains(&c)) {
+        if p > 0 && matches!(base.units[p - 1], BUnit::Char(c, _) if (0xD800..0xDC00).contains(&c))
+        {
             p -= 1;
         }
-        if s > 0 && matches!(base.units[nb - s], BUnit::Char(c, _) if (0xDC00..0xE000).contains(&c)) {
+        if s > 0 && matches!(base.units[nb - s], BUnit::Char(c, _) if (0xDC00..0xE000).contains(&c))
+        {
             s -= 1;
         }
         let (del_start, del_end) = (p, nb - s);
@@ -962,17 +1056,33 @@ impl Writer {
             let seg = &now.segs[have.seg];
             if let Seg::Text { text, start, .. } = seg {
                 let want_attrs = pm::mark_attrs(want);
-                self.format_to(txn, text, (j - start) as u32, (k - j) as u32, &have.raw, &want_attrs);
+                self.format_to(
+                    txn,
+                    text,
+                    (j - start) as u32,
+                    (k - j) as u32,
+                    &have.raw,
+                    &want_attrs,
+                );
             }
             j = k;
         }
     }
 
-    fn delete_units(&mut self, txn: &mut TransactionMut, el: &XmlElementRef, base: &Layout, from: usize, to: usize) {
+    fn delete_units(
+        &mut self,
+        txn: &mut TransactionMut,
+        el: &XmlElementRef,
+        base: &Layout,
+        from: usize,
+        to: usize,
+    ) {
         // Last segment first, so child indexes stay valid.
         for seg in base.segs.iter().rev() {
             match seg {
-                Seg::Text { text, start, len, .. } => {
+                Seg::Text {
+                    text, start, len, ..
+                } => {
                     let (a, b) = ((*start).max(from), (start + len).min(to));
                     if a < b {
                         text.remove_range(txn, (a - start) as u32, (b - a) as u32);
@@ -989,7 +1099,13 @@ impl Writer {
         }
     }
 
-    fn insert_units(&mut self, txn: &mut TransactionMut, el: &XmlElementRef, at: usize, units: &[TUnit]) {
+    fn insert_units(
+        &mut self,
+        txn: &mut TransactionMut,
+        el: &XmlElementRef,
+        at: usize,
+        units: &[TUnit],
+    ) {
         let now = layout(txn, el);
         // Pieces: text runs (as text nodes) and elements.
         let mut pieces: Vec<Piece> = Vec::new();
@@ -1015,7 +1131,12 @@ impl Writer {
         let mut tail: Vec<Value> = Vec::new();
         for seg in &now.segs {
             match seg {
-                Seg::Text { text, start, len, child: ci } => {
+                Seg::Text {
+                    text,
+                    start,
+                    len,
+                    child: ci,
+                } => {
                     if at >= *start && at <= start + len {
                         let off = (at - start) as u32;
                         let inherited = if off == 0 {
@@ -1066,7 +1187,11 @@ impl Writer {
                         Some((text, off, inherited)) => {
                             self.write_text(txn, &text, off, &refs, &inherited);
                             let len = s.encode_utf16().count() as u32;
-                            current = Some((text, off + len, pm::mark_attrs(pm::marks_of(nodes.last().expect("one")))));
+                            current = Some((
+                                text,
+                                off + len,
+                                pm::mark_attrs(pm::marks_of(nodes.last().expect("one"))),
+                            ));
                         }
                         None => {
                             let text: XmlTextRef = el.insert(txn, child, XmlTextPrelim::new(""));
@@ -1074,7 +1199,11 @@ impl Writer {
                             child += 1;
                             self.write_text(txn, &text, 0, &refs, &Attrs::new());
                             let len = s.encode_utf16().count() as u32;
-                            current = Some((text, len, pm::mark_attrs(pm::marks_of(nodes.last().expect("one")))));
+                            current = Some((
+                                text,
+                                len,
+                                pm::mark_attrs(pm::marks_of(nodes.last().expect("one"))),
+                            ));
                         }
                     }
                 }
@@ -1253,7 +1382,12 @@ fn target_units(content: &[Value]) -> Vec<TUnit<'_>> {
     for n in content {
         if type_of(n) == "text" {
             let marks = pm::marks_of(n).to_vec();
-            for u in n.get("text").and_then(Value::as_str).unwrap_or("").encode_utf16() {
+            for u in n
+                .get("text")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .encode_utf16()
+            {
                 out.push(TUnit::Char(u, marks.clone()));
             }
         } else {
@@ -1270,7 +1404,8 @@ pub fn load(updates: &[&[u8]], client_id: Option<u32>) -> Result<Doc, String> {
     {
         let mut txn = doc.transact_mut();
         for bytes in updates {
-            let update = Update::decode_v1(bytes).map_err(|e| format!("the Yjs update does not decode: {e}"))?;
+            let update = Update::decode_v1(bytes)
+                .map_err(|e| format!("the Yjs update does not decode: {e}"))?;
             txn.apply_update(update)
                 .map_err(|e| format!("the Yjs update does not apply: {e}"))?;
         }

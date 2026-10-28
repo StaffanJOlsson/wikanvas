@@ -15,7 +15,10 @@ use comrak::{Arena, Options};
 use serde_json::{Map, Value, json};
 
 use crate::api::{ConversionWarningCode as W, ItemKind};
-use crate::convert::{ItemRef, Lookup, Warnings, attachment_ref, attachment_url, image_allowed, item_ref, link_allowed};
+use crate::convert::{
+    ItemRef, Lookup, Warnings, attachment_ref, attachment_url, image_allowed, item_ref,
+    link_allowed,
+};
 use crate::schema::{self, Invalid, MAX_DEPTH, type_of};
 
 /// The input limit of a Markdown PUT (D33).
@@ -40,7 +43,10 @@ fn is_list_marker(line: &[u8], at: usize) -> Option<usize> {
         return Some(1);
     }
     let digits = line[at..].iter().take_while(|b| b.is_ascii_digit()).count();
-    if (1..=9).contains(&digits) && matches!(line.get(at + digits), Some(b'.') | Some(b')')) && after(at + digits + 1) {
+    if (1..=9).contains(&digits)
+        && matches!(line.get(at + digits), Some(b'.') | Some(b')'))
+        && after(at + digits + 1)
+    {
         return Some(digits + 1);
     }
     None
@@ -93,7 +99,9 @@ pub fn prescan(md: &str) -> Result<(), Invalid> {
             if depth > MAX_DEPTH {
                 return Err(Invalid::new(
                     format!("{}:{}", n + 1, marker + 1),
-                    format!("containers (quotes and lists) are nested deeper than {MAX_DEPTH} levels"),
+                    format!(
+                        "containers (quotes and lists) are nested deeper than {MAX_DEPTH} levels"
+                    ),
                 ));
             }
         }
@@ -126,7 +134,11 @@ pub fn parse(md: &str, lookup: &dyn Lookup) -> Result<(Value, Warnings), Invalid
 fn unsupported(md: &str, w: &mut Warnings) {
     let mut lines = md.lines();
     let front = lines.next().is_some_and(|l| l.trim_end() == "---")
-        && md.lines().skip(1).take(50).any(|l| l.trim_end() == "---" || l.trim_end() == "...");
+        && md
+            .lines()
+            .skip(1)
+            .take(50)
+            .any(|l| l.trim_end() == "---" || l.trim_end() == "...");
     let footnote = md.lines().any(|l| {
         let t = l.trim_start();
         t.starts_with("[^") && t.contains("]:")
@@ -185,7 +197,9 @@ impl Cx<'_> {
         match value {
             NodeValue::Paragraph => self.paragraph(node, "paragraph", None, out),
             NodeValue::Heading(h) => self.paragraph(node, "heading", Some(h.level), out),
-            NodeValue::BlockQuote => out.push(json!({"type": "blockquote", "content": self.box_blocks(node)})),
+            NodeValue::BlockQuote => {
+                out.push(json!({"type": "blockquote", "content": self.box_blocks(node)}))
+            }
             NodeValue::Alert(alert) => {
                 let variant = match alert.alert_type {
                     AlertType::Note => "info",
@@ -198,13 +212,20 @@ impl Cx<'_> {
                     }
                 };
                 let mut content = self.blocks(node);
-                if let Some(title) = alert.title.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
+                if let Some(title) = alert
+                    .title
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|t| !t.is_empty())
+                {
                     content.insert(0, json!({"type": "paragraph", "content": [text(title)]}));
                 }
                 if content.is_empty() {
                     content.push(json!({"type": "paragraph"}));
                 }
-                out.push(json!({"type": "callout", "attrs": {"variant": variant}, "content": content}));
+                out.push(
+                    json!({"type": "callout", "attrs": {"variant": variant}, "content": content}),
+                );
             }
             NodeValue::List(list) => self.list(node, &list, out),
             NodeValue::Item(_) | NodeValue::TaskItem(_) => {
@@ -241,7 +262,8 @@ impl Cx<'_> {
             }
             NodeValue::Table(table) => self.table(node, &table.alignments, table.num_columns, out),
             NodeValue::FrontMatter(s) => {
-                self.warnings.add(W::UnsupportedMarkdown, Some(line_col(node)));
+                self.warnings
+                    .add(W::UnsupportedMarkdown, Some(line_col(node)));
                 out.push(json!({"type": "paragraph", "content": [text(s.trim())]}));
             }
             _ => {
@@ -256,7 +278,12 @@ impl Cx<'_> {
         }
     }
 
-    fn list<'a>(&mut self, node: &'a AstNode<'a>, list: &comrak::nodes::NodeList, out: &mut Vec<Value>) {
+    fn list<'a>(
+        &mut self,
+        node: &'a AstNode<'a>,
+        list: &comrak::nodes::NodeList,
+        out: &mut Vec<Value>,
+    ) {
         let first_task = node
             .first_child()
             .is_some_and(|c| matches!(c.data().value, NodeValue::TaskItem(_)));
@@ -282,11 +309,18 @@ impl Cx<'_> {
                     };
                     match content.first_mut() {
                         Some(p) if type_of(p) == "paragraph" => {
-                            let mut inline = p.get("content").and_then(Value::as_array).cloned().unwrap_or_default();
+                            let mut inline = p
+                                .get("content")
+                                .and_then(Value::as_array)
+                                .cloned()
+                                .unwrap_or_default();
                             inline.insert(0, text(&mark));
                             p["content"] = Value::Array(inline);
                         }
-                        _ => content.insert(0, json!({"type": "paragraph", "content": [text(mark.trim_end())]})),
+                        _ => content.insert(
+                            0,
+                            json!({"type": "paragraph", "content": [text(mark.trim_end())]}),
+                        ),
                     }
                     items.push(json!({"type": "listItem", "content": content}));
                 }
@@ -306,9 +340,16 @@ impl Cx<'_> {
         out.push(n);
     }
 
-    fn table<'a>(&mut self, node: &'a AstNode<'a>, align: &[TableAlignment], columns: usize, out: &mut Vec<Value>) {
+    fn table<'a>(
+        &mut self,
+        node: &'a AstNode<'a>,
+        align: &[TableAlignment],
+        columns: usize,
+        out: &mut Vec<Value>,
+    ) {
         if align.iter().any(|a| *a != TableAlignment::None) {
-            self.warnings.add(W::TableAlignmentDropped, Some(line_col(node)));
+            self.warnings
+                .add(W::TableAlignmentDropped, Some(line_col(node)));
         }
         let mut rows = Vec::new();
         for (r, row) in node.children().enumerate() {
@@ -332,11 +373,19 @@ impl Cx<'_> {
     }
 
     /// A paragraph or heading: its inline content, with images hoisted into blocks after it (§6.4 table).
-    fn paragraph<'a>(&mut self, node: &'a AstNode<'a>, name: &str, level: Option<u8>, out: &mut Vec<Value>) {
+    fn paragraph<'a>(
+        &mut self,
+        node: &'a AstNode<'a>,
+        name: &str,
+        level: Option<u8>,
+        out: &mut Vec<Value>,
+    ) {
         let mut pieces = Vec::new();
         self.inline_into(node, &mut pieces, false);
         let has_inline_content = pieces.iter().any(|p| match p {
-            Piece::Inline(v) => !(type_of(v) == "text" && v["text"].as_str().is_some_and(|t| t.trim().is_empty())),
+            Piece::Inline(v) => {
+                !(type_of(v) == "text" && v["text"].as_str().is_some_and(|t| t.trim().is_empty()))
+            }
             Piece::Block(_) => false,
         });
         let has_blocks = pieces.iter().any(|p| matches!(p, Piece::Block(_)));
@@ -362,7 +411,12 @@ impl Cx<'_> {
         // Pair up <u> and </u> first (in document order).
         let mut order: Vec<&'a AstNode<'a>> = Vec::new();
         {
-            let mut stack: Vec<&'a AstNode<'a>> = node.children().collect::<Vec<_>>().into_iter().rev().collect();
+            let mut stack: Vec<&'a AstNode<'a>> = node
+                .children()
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect();
             while let Some(n) = stack.pop() {
                 order.push(n);
                 if !matches!(n.data().value, NodeValue::Image(_)) {
@@ -440,7 +494,8 @@ impl Cx<'_> {
                     let had_others = marks.iter().any(|m| type_of(m) != "link");
                     let link = marks.iter().any(|m| type_of(m) == "link");
                     if had_others || link {
-                        self.warnings.add(W::MarksInCodeDropped, Some(line_col(child)));
+                        self.warnings
+                            .add(W::MarksInCodeDropped, Some(line_col(child)));
                     }
                     push_text(out, &c.literal, &[json!({"type": "code"})]);
                 }
@@ -457,33 +512,63 @@ impl Cx<'_> {
                 }
                 NodeValue::Emph => {
                     let m = nested(json!({"type": "italic"}), &marks);
-                    stack.push(Frame { children: child.children().collect(), next: 0, marks: m });
+                    stack.push(Frame {
+                        children: child.children().collect(),
+                        next: 0,
+                        marks: m,
+                    });
                 }
                 NodeValue::Strong => {
                     let m = nested(json!({"type": "bold"}), &marks);
-                    stack.push(Frame { children: child.children().collect(), next: 0, marks: m });
+                    stack.push(Frame {
+                        children: child.children().collect(),
+                        next: 0,
+                        marks: m,
+                    });
                 }
                 NodeValue::Strikethrough => {
                     let m = nested(json!({"type": "strike"}), &marks);
-                    stack.push(Frame { children: child.children().collect(), next: 0, marks: m });
+                    stack.push(Frame {
+                        children: child.children().collect(),
+                        next: 0,
+                        marks: m,
+                    });
                 }
                 NodeValue::Highlight => {
                     let m = nested(json!({"type": "highlight"}), &marks);
-                    stack.push(Frame { children: child.children().collect(), next: 0, marks: m });
+                    stack.push(Frame {
+                        children: child.children().collect(),
+                        next: 0,
+                        marks: m,
+                    });
                 }
                 NodeValue::Link(link) => {
                     let label = plain_text(child);
                     match self.link(&link.url, &label, child) {
                         LinkTarget::Mention(id) => {
-                            out.push(Piece::Inline(json!({"type": "mention", "attrs": {"itemId": id}})));
+                            out.push(Piece::Inline(
+                                json!({"type": "mention", "attrs": {"itemId": id}}),
+                            ));
                         }
                         LinkTarget::Mark(mark) => {
-                            let mut m: Vec<Value> = marks.iter().filter(|x| type_of(x) != "link").cloned().collect();
+                            let mut m: Vec<Value> = marks
+                                .iter()
+                                .filter(|x| type_of(x) != "link")
+                                .cloned()
+                                .collect();
                             m.push(mark);
-                            stack.push(Frame { children: child.children().collect(), next: 0, marks: m });
+                            stack.push(Frame {
+                                children: child.children().collect(),
+                                next: 0,
+                                marks: m,
+                            });
                         }
                         LinkTarget::Text => {
-                            stack.push(Frame { children: child.children().collect(), next: 0, marks: marks.clone() });
+                            stack.push(Frame {
+                                children: child.children().collect(),
+                                next: 0,
+                                marks: marks.clone(),
+                            });
                         }
                     }
                 }
@@ -495,7 +580,11 @@ impl Cx<'_> {
                 }
                 _ => {
                     // Other inlines (none with these options): their children.
-                    stack.push(Frame { children: child.children().collect(), next: 0, marks: marks.clone() });
+                    stack.push(Frame {
+                        children: child.children().collect(),
+                        next: 0,
+                        marks: marks.clone(),
+                    });
                 }
             }
         }
@@ -513,7 +602,9 @@ impl Cx<'_> {
                 }
             }
             return match found {
-                Some(info) => LinkTarget::Mark(json!({"type": "link", "attrs": {"href": url, "itemId": info.id}})),
+                Some(info) => LinkTarget::Mark(
+                    json!({"type": "link", "attrs": {"href": url, "itemId": info.id}}),
+                ),
                 None => {
                     self.warnings.add(W::UnknownItem, Some(line_col(node)));
                     if link_allowed(url) {
@@ -537,15 +628,21 @@ impl Cx<'_> {
         if let Some(r) = item_ref(url, origin) {
             return match (self.lookup.item(&r), &r) {
                 (Some(info), _) if info.kind == ItemKind::Board => {
-                    vec![Piece::Block(json!({"type": "boardEmbed", "attrs": {"itemId": info.id}}))]
+                    vec![Piece::Block(
+                        json!({"type": "boardEmbed", "attrs": {"itemId": info.id}}),
+                    )]
                 }
                 (Some(info), _) => {
                     self.warnings.add(W::EmbedNotBoard, Some(line_col(node)));
-                    vec![Piece::Inline(json!({"type": "mention", "attrs": {"itemId": info.id}}))]
+                    vec![Piece::Inline(
+                        json!({"type": "mention", "attrs": {"itemId": info.id}}),
+                    )]
                 }
                 (None, ItemRef::Id(id)) => {
                     self.warnings.add(W::UnknownItem, Some(line_col(node)));
-                    vec![Piece::Block(json!({"type": "boardEmbed", "attrs": {"itemId": id}}))]
+                    vec![Piece::Block(
+                        json!({"type": "boardEmbed", "attrs": {"itemId": id}}),
+                    )]
                 }
                 (None, ItemRef::UrlId(_)) => {
                     self.warnings.add(W::UnknownItem, Some(line_col(node)));
@@ -555,11 +652,22 @@ impl Cx<'_> {
         }
         if !image_allowed(url) {
             self.warnings.add(W::UnsafeLink, Some(line_col(node)));
-            return if alt.is_empty() { vec![] } else { vec![Piece::Inline(text(alt))] };
+            return if alt.is_empty() {
+                vec![]
+            } else {
+                vec![Piece::Inline(text(alt))]
+            };
         }
         let attachment = attachment_ref(url, origin).filter(|id| self.lookup.attachment(id));
-        let src = attachment.as_deref().map_or_else(|| url.to_owned(), attachment_url);
-        vec![Piece::Block(image_block(&src, attachment.as_deref(), alt, title))]
+        let src = attachment
+            .as_deref()
+            .map_or_else(|| url.to_owned(), attachment_url);
+        vec![Piece::Block(image_block(
+            &src,
+            attachment.as_deref(),
+            alt,
+            title,
+        ))]
     }
 }
 
@@ -573,7 +681,11 @@ fn image_block(src: &str, attachment: Option<&str>, alt: &str, title: &str) -> V
     let clean = |s: &str| {
         let s = s.replace(['\n', '\r'], " ");
         let s = s.trim();
-        if s.is_empty() { Value::Null } else { Value::from(s) }
+        if s.is_empty() {
+            Value::Null
+        } else {
+            Value::from(s)
+        }
     };
     json!({"type": "image", "attrs": {
         "src": src,
@@ -584,14 +696,23 @@ fn image_block(src: &str, attachment: Option<&str>, alt: &str, title: &str) -> V
 }
 
 fn is_br(h: &str) -> bool {
-    let t: String = h.chars().filter(|c| !c.is_whitespace()).collect::<String>().to_ascii_lowercase();
+    let t: String = h
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect::<String>()
+        .to_ascii_lowercase();
     t == "<br>" || t == "<br/>"
 }
 
 /// The plain text of a node's inline children (an image's alt, a link's label).
 fn plain_text<'a>(node: &'a AstNode<'a>) -> String {
     let mut s = String::new();
-    let mut stack: Vec<&'a AstNode<'a>> = node.children().collect::<Vec<_>>().into_iter().rev().collect();
+    let mut stack: Vec<&'a AstNode<'a>> = node
+        .children()
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
     while let Some(n) = stack.pop() {
         match &n.data().value {
             NodeValue::Text(t) => s.push_str(t),

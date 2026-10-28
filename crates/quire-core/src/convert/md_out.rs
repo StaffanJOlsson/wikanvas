@@ -19,7 +19,8 @@ use serde_json::{Map, Value, json};
 
 use crate::api::{ConversionWarningCode as W, ItemKind};
 use crate::convert::{
-    ItemRef, Lookup, Warnings, attachment_url, image_allowed, item_ref, link_allowed, quire_item_id, quire_item_url,
+    ItemRef, Lookup, Warnings, attachment_url, image_allowed, item_ref, link_allowed,
+    quire_item_id, quire_item_url,
 };
 use crate::schema::{self, BLOCK_ID, content_of, push_inline, type_of, v1};
 
@@ -37,7 +38,12 @@ pub const MAX_PRINT_DEPTH: usize = 200;
 const DELIMITED: &[&str] = &["bold", "italic", "strike", "underline", "highlight"];
 
 /// The callout variants and their GitHub alert names.
-pub const ALERTS: &[(&str, &str)] = &[("info", "NOTE"), ("tip", "TIP"), ("warning", "WARNING"), ("danger", "CAUTION")];
+pub const ALERTS: &[(&str, &str)] = &[
+    ("info", "NOTE"),
+    ("tip", "TIP"),
+    ("warning", "WARNING"),
+    ("danger", "CAUTION"),
+];
 
 /// The printed Markdown and the warnings of the lossy steps.
 #[derive(Clone, Debug)]
@@ -136,7 +142,15 @@ fn is_empty_paragraph(n: &Value) -> bool {
 
 /// Lowers a normalized document (module docs).
 pub fn lower(doc: &Value, lookup: &dyn Lookup, warnings: &mut Warnings) -> Value {
-    let mut content = lower_blocks(content_of(doc), lookup, warnings, Container::Doc, 0);
+    // A document of empty paragraphs (a new one the editor opened) prints as nothing and reads back as one empty
+    // paragraph: the first stands for it.
+    let children = content_of(doc);
+    let container = if !children.is_empty() && children.iter().all(is_empty_paragraph) {
+        Container::Box
+    } else {
+        Container::Doc
+    };
+    let mut content = lower_blocks(children, lookup, warnings, container, 0);
     if content.is_empty() {
         content.push(empty_paragraph());
     }
@@ -164,7 +178,9 @@ fn lower_blocks(
 ) -> Vec<Value> {
     let mut out = Vec::new();
     // A box holding only empty paragraphs prints as an empty box, which reads back as one empty paragraph.
-    let empty_box = container == Container::Box && !children.is_empty() && children.iter().all(is_empty_paragraph);
+    let empty_box = container == Container::Box
+        && !children.is_empty()
+        && children.iter().all(is_empty_paragraph);
     for (i, child) in children.iter().enumerate() {
         let first_item_paragraph =
             (container == Container::Item || empty_box) && i == 0 && type_of(child) == "paragraph";
@@ -178,8 +194,9 @@ fn lower_blocks(
         } else if produced.is_empty() {
             produced.push(empty_paragraph());
         }
-        let one_to_one =
-            produced.len() == 1 && type_of(&produced[0]) == type_of(child) && produced[0].get(CONSUMED).is_none();
+        let one_to_one = produced.len() == 1
+            && type_of(&produced[0]) == type_of(child)
+            && produced[0].get(CONSUMED).is_none();
         for n in produced {
             if one_to_one {
                 out.push(with_origin(n, i, child));
@@ -239,7 +256,11 @@ fn lower_block(node: &Value, lookup: &dyn Lookup, w: &mut Warnings, depth: usize
             match lookup.item(&ItemRef::Id(id.to_owned())) {
                 Some(info) if info.kind == ItemKind::Doc => {
                     w.add(W::EmbedNotBoard, None);
-                    vec![make("paragraph", &[], vec![json!({"type": "mention", "attrs": {"itemId": info.id}})])]
+                    vec![make(
+                        "paragraph",
+                        &[],
+                        vec![json!({"type": "mention", "attrs": {"itemId": info.id}})],
+                    )]
                 }
                 _ => vec![make("boardEmbed", &[("itemId", Value::from(id))], vec![])],
             }
@@ -253,10 +274,18 @@ fn lower_block(node: &Value, lookup: &dyn Lookup, w: &mut Warnings, depth: usize
                 .filter(|v| ALERTS.iter().any(|(n, _)| n == v))
                 .unwrap_or("info");
             let content = lower_children(node, lookup, w, Container::Box, depth);
-            vec![make("callout", &[("variant", Value::from(variant))], content)]
+            vec![make(
+                "callout",
+                &[("variant", Value::from(variant))],
+                content,
+            )]
         }
         "bulletList" | "orderedList" | "taskList" => {
-            let item_name = if name == "taskList" { "taskItem" } else { "listItem" };
+            let item_name = if name == "taskList" {
+                "taskItem"
+            } else {
+                "listItem"
+            };
             let mut items = Vec::new();
             for (i, item) in content_of(node).iter().enumerate() {
                 let mut content = lower_children(item, lookup, w, Container::Item, depth + 1);
@@ -295,7 +324,13 @@ fn lower_block(node: &Value, lookup: &dyn Lookup, w: &mut Warnings, depth: usize
     }
 }
 
-fn lower_children(node: &Value, lookup: &dyn Lookup, w: &mut Warnings, container: Container, depth: usize) -> Vec<Value> {
+fn lower_children(
+    node: &Value,
+    lookup: &dyn Lookup,
+    w: &mut Warnings,
+    container: Container,
+    depth: usize,
+) -> Vec<Value> {
     lower_blocks(content_of(node), lookup, w, container, depth + 1)
 }
 
@@ -318,7 +353,10 @@ fn flat_paragraphs(node: &Value, lookup: &dyn Lookup, w: &mut Warnings) -> Vec<V
 }
 
 fn lower_image(node: &Value, lookup: &dyn Lookup, w: &mut Warnings) -> Vec<Value> {
-    if attrs_of(node).and_then(|a| a.get("width")).is_some_and(|v| !v.is_null()) {
+    if attrs_of(node)
+        .and_then(|a| a.get("width"))
+        .is_some_and(|v| !v.is_null())
+    {
         w.add(W::ImageWidthDropped, None);
     }
     let clean = |s: Option<&str>| {
@@ -340,14 +378,19 @@ fn lower_image(node: &Value, lookup: &dyn Lookup, w: &mut Warnings) -> Vec<Value
                 if let Some(r) = item_ref(src, lookup.public_origin()) {
                     return lower_image_item(src, &r, &alt, lookup, w);
                 }
-                let att = crate::convert::attachment_ref(src, lookup.public_origin()).filter(|a| lookup.attachment(a));
+                let att = crate::convert::attachment_ref(src, lookup.public_origin())
+                    .filter(|a| lookup.attachment(a));
                 (src.to_owned(), att)
             }
             Some(_) => {
                 w.add(W::UnsafeLink, None);
                 return match alt.as_str() {
                     Some(text) => {
-                        let p = make("paragraph", &[], vec![json!({"type": "text", "text": text})]);
+                        let p = make(
+                            "paragraph",
+                            &[],
+                            vec![json!({"type": "text", "text": text})],
+                        );
                         vec![lower_inline_node(&p, lookup, w)]
                     }
                     None => vec![],
@@ -373,16 +416,34 @@ fn lower_image(node: &Value, lookup: &dyn Lookup, w: &mut Warnings) -> Vec<Value
 }
 
 /// An external image whose URL names an item: a board embed, or a mention of a document.
-fn lower_image_item(src: &str, r: &ItemRef, alt: &Value, lookup: &dyn Lookup, w: &mut Warnings) -> Vec<Value> {
+fn lower_image_item(
+    src: &str,
+    r: &ItemRef,
+    alt: &Value,
+    lookup: &dyn Lookup,
+    w: &mut Warnings,
+) -> Vec<Value> {
     match (lookup.item(r), r) {
         (Some(info), _) if info.kind == ItemKind::Board => {
-            vec![make("boardEmbed", &[("itemId", Value::from(info.id))], vec![])]
+            vec![make(
+                "boardEmbed",
+                &[("itemId", Value::from(info.id))],
+                vec![],
+            )]
         }
         (Some(info), _) => {
             w.add(W::EmbedNotBoard, None);
-            vec![make("paragraph", &[], vec![json!({"type": "mention", "attrs": {"itemId": info.id}})])]
+            vec![make(
+                "paragraph",
+                &[],
+                vec![json!({"type": "mention", "attrs": {"itemId": info.id}})],
+            )]
         }
-        (None, ItemRef::Id(id)) => vec![make("boardEmbed", &[("itemId", Value::from(id.clone()))], vec![])],
+        (None, ItemRef::Id(id)) => vec![make(
+            "boardEmbed",
+            &[("itemId", Value::from(id.clone()))],
+            vec![],
+        )],
         (None, ItemRef::UrlId(_)) => vec![make(
             "image",
             &[("src", Value::from(src)), ("alt", alt.clone())],
@@ -437,14 +498,16 @@ fn lower_table(node: &Value, lookup: &dyn Lookup, w: &mut Warnings) -> Vec<Value
         w.add(W::TableSpanDropped, None);
     }
     let width = grid.iter().map(Vec::len).max().unwrap_or(0).max(1);
-    let first_has_header = content_of(&rows[0]).iter().any(|c| type_of(c) == "tableHeader");
+    let first_has_header = content_of(&rows[0])
+        .iter()
+        .any(|c| type_of(c) == "tableHeader");
     let mut out_rows = Vec::new();
     if !first_has_header {
-        let cells = (0..width)
-            .map(|_| filler_cell("tableHeader"))
-            .collect();
+        let cells = (0..width).map(|_| filler_cell("tableHeader")).collect();
         let mut row = make("tableRow", &[], cells);
-        row.as_object_mut().expect("object").insert(CONSUMED.into(), json!([]));
+        row.as_object_mut()
+            .expect("object")
+            .insert(CONSUMED.into(), json!([]));
         out_rows.push(row);
     }
     for (r, line) in grid.iter().enumerate() {
@@ -470,7 +533,9 @@ fn lower_table(node: &Value, lookup: &dyn Lookup, w: &mut Warnings) -> Vec<Value
 
 fn filler_cell(name: &str) -> Value {
     let mut cell = make(name, &[], vec![empty_paragraph()]);
-    cell.as_object_mut().expect("object").insert(FILLER.into(), Value::Bool(true));
+    cell.as_object_mut()
+        .expect("object")
+        .insert(FILLER.into(), Value::Bool(true));
     cell
 }
 
@@ -518,9 +583,10 @@ fn lower_cell_content(cell: &Value, lookup: &dyn Lookup, w: &mut Warnings) -> Va
     }
     let p = make("paragraph", &[], inline);
     let mut p = lower_inline_cell(&p, lookup, w);
-    p.as_object_mut()
-        .expect("object")
-        .insert(CONSUMED.into(), Value::Array((0..blocks.len()).map(Value::from).collect()));
+    p.as_object_mut().expect("object").insert(
+        CONSUMED.into(),
+        Value::Array((0..blocks.len()).map(Value::from).collect()),
+    );
     p
 }
 
@@ -532,7 +598,11 @@ fn lower_inline_cell(p: &Value, lookup: &dyn Lookup, w: &mut Warnings) -> Value 
 /// A paragraph or heading with its inline content lowered.
 fn lower_inline_node(node: &Value, lookup: &dyn Lookup, w: &mut Warnings) -> Value {
     let name = type_of(node);
-    let ctx = if name == "heading" { InlineCtx::Heading } else { InlineCtx::Block };
+    let ctx = if name == "heading" {
+        InlineCtx::Heading
+    } else {
+        InlineCtx::Block
+    };
     let content = lower_inline(content_of(node), lookup, w, ctx);
     let attrs: Vec<(&str, Value)> = if name == "heading" {
         let level = attrs_of(node)
@@ -559,7 +629,9 @@ fn is_ws(c: char) -> bool {
 }
 
 fn has_mark(node: &Value, name: &str) -> bool {
-    crate::convert::pm::marks_of(node).iter().any(|m| type_of(m) == name)
+    crate::convert::pm::marks_of(node)
+        .iter()
+        .any(|m| type_of(m) == name)
 }
 
 fn without_mark(node: &Value, name: &str) -> Value {
@@ -578,14 +650,21 @@ fn text_of(node: &Value) -> &str {
 }
 
 fn set_text(node: &mut Value, text: String) {
-    node.as_object_mut().expect("object").insert("text".into(), Value::from(text));
+    node.as_object_mut()
+        .expect("object")
+        .insert("text".into(), Value::from(text));
 }
 
 /// The lossy rules for inline content (§6.4): unknown nodes and marks dropped; links outside the allow-list become
 /// text; item links canonical; hard breaks at the edges dropped (inside a heading: a space); whitespace at the edges
 /// of a delimited mark moved outside it; leading whitespace of each line and trailing whitespace of the content
 /// dropped.
-fn lower_inline(content: &[Value], lookup: &dyn Lookup, w: &mut Warnings, ctx: InlineCtx) -> Vec<Value> {
+fn lower_inline(
+    content: &[Value],
+    lookup: &dyn Lookup,
+    w: &mut Warnings,
+    ctx: InlineCtx,
+) -> Vec<Value> {
     let schema = v1();
     // 1. Nodes and marks.
     let mut nodes: Vec<Value> = Vec::new();
@@ -656,7 +735,10 @@ fn lower_inline(content: &[Value], lookup: &dyn Lookup, w: &mut Warnings, ctx: I
             let end = i; // exclusive
             let mut inserted = 0;
             // Leading whitespace.
-            let lead: String = text_of(&nodes[start]).chars().take_while(|c| is_ws(*c)).collect();
+            let lead: String = text_of(&nodes[start])
+                .chars()
+                .take_while(|c| is_ws(*c))
+                .collect();
             if !lead.is_empty() {
                 let rest = text_of(&nodes[start])[lead.len()..].to_owned();
                 let mut outside = without_mark(&nodes[start], mark);
@@ -666,7 +748,11 @@ fn lower_inline(content: &[Value], lookup: &dyn Lookup, w: &mut Warnings, ctx: I
                 inserted += 1;
             }
             let last = end - 1 + inserted;
-            let trail_len = text_of(&nodes[last]).chars().rev().take_while(|c| is_ws(*c)).count();
+            let trail_len = text_of(&nodes[last])
+                .chars()
+                .rev()
+                .take_while(|c| is_ws(*c))
+                .count();
             if trail_len > 0 {
                 let text = text_of(&nodes[last]).to_owned();
                 let cut = text.len() - trail_len;
@@ -683,7 +769,9 @@ fn lower_inline(content: &[Value], lookup: &dyn Lookup, w: &mut Warnings, ctx: I
             if inserted > 0 {
                 i = start;
                 // Skip past the (now whitespace-free) run.
-                while i < nodes.len() && !(type_of(&nodes[i]) == "text" && has_mark(&nodes[i], mark)) {
+                while i < nodes.len()
+                    && !(type_of(&nodes[i]) == "text" && has_mark(&nodes[i], mark))
+                {
                     i += 1;
                 }
                 while i < nodes.len() && type_of(&nodes[i]) == "text" && has_mark(&nodes[i], mark) {
@@ -776,7 +864,9 @@ fn lower_link(mark: &Value, lookup: &dyn Lookup, w: &mut Warnings) -> Option<Val
         w.add(W::UnsafeLink, None);
         return None;
     }
-    let known = item_ref(href, lookup.public_origin()).and_then(|r| lookup.item(&r)).map(|i| i.id);
+    let known = item_ref(href, lookup.public_origin())
+        .and_then(|r| lookup.item(&r))
+        .map(|i| i.id);
     let href = match (&known, quire_item_id(href)) {
         (Some(id), Some(_)) => quire_item_url(id),
         _ => href.to_owned(),
@@ -848,7 +938,11 @@ fn prefixed(lines: Vec<String>, first: &str, rest: &str, blank: &str) -> Vec<Str
         .map(|(i, l)| {
             let p = if i == 0 { first } else { rest };
             if l.is_empty() {
-                if i == 0 { first.trim_end().to_owned() } else { blank.to_owned() }
+                if i == 0 {
+                    first.trim_end().to_owned()
+                } else {
+                    blank.to_owned()
+                }
             } else {
                 format!("{p}{l}")
             }
@@ -856,17 +950,29 @@ fn prefixed(lines: Vec<String>, first: &str, rest: &str, blank: &str) -> Vec<Str
         .collect()
 }
 
-fn render_block(b: &Value, lookup: &dyn Lookup, depth: usize, marker: Option<ListMarker>) -> Vec<String> {
+fn render_block(
+    b: &Value,
+    lookup: &dyn Lookup,
+    depth: usize,
+    marker: Option<ListMarker>,
+) -> Vec<String> {
     match type_of(b) {
         "paragraph" => {
             let text = render_inline(content_of(b), lookup, InlineCtx::Block);
             text.split('\n').map(str::to_owned).collect()
         }
         "heading" => {
-            let level = attrs_of(b).and_then(|a| a.get("level")).and_then(Value::as_u64).unwrap_or(1);
+            let level = attrs_of(b)
+                .and_then(|a| a.get("level"))
+                .and_then(Value::as_u64)
+                .unwrap_or(1);
             let hashes = "#".repeat(level.clamp(1, 6) as usize);
             let text = render_inline(content_of(b), lookup, InlineCtx::Heading);
-            if text.is_empty() { vec![hashes] } else { vec![format!("{hashes} {text}")] }
+            if text.is_empty() {
+                vec![hashes]
+            } else {
+                vec![format!("{hashes} {text}")]
+            }
         }
         "codeBlock" => {
             let text = content_of(b).first().map(text_of).unwrap_or("");
@@ -890,7 +996,11 @@ fn render_block(b: &Value, lookup: &dyn Lookup, depth: usize, marker: Option<Lis
                 .map(|i| i.title)
                 .filter(|t| !t.trim().is_empty())
                 .unwrap_or_else(|| "Board".into());
-            vec![format!("![{}]({})", escape_label(&title), quire_item_url(id))]
+            vec![format!(
+                "![{}]({})",
+                escape_label(&title),
+                quire_item_url(id)
+            )]
         }
         "blockquote" => {
             let inner = render_blocks(content_of(b), lookup, depth + 1);
@@ -901,7 +1011,10 @@ fn render_block(b: &Value, lookup: &dyn Lookup, depth: usize, marker: Option<Lis
         }
         "callout" => {
             let variant = str_attr(b, "variant").unwrap_or("info");
-            let alert = ALERTS.iter().find(|(v, _)| *v == variant).map_or("NOTE", |(_, a)| a);
+            let alert = ALERTS
+                .iter()
+                .find(|(v, _)| *v == variant)
+                .map_or("NOTE", |(_, a)| a);
             let mut lines = vec![format!("> [!{alert}]")];
             let inner = render_blocks(content_of(b), lookup, depth + 1);
             lines.extend(prefixed(inner, "> ", "> ", ">"));
@@ -909,7 +1022,10 @@ fn render_block(b: &Value, lookup: &dyn Lookup, depth: usize, marker: Option<Lis
         }
         "bulletList" | "orderedList" | "taskList" => {
             let marker = marker.unwrap_or(ListMarker::Dash);
-            let start = attrs_of(b).and_then(|a| a.get("start")).and_then(Value::as_i64).unwrap_or(1);
+            let start = attrs_of(b)
+                .and_then(|a| a.get("start"))
+                .and_then(Value::as_i64)
+                .unwrap_or(1);
             let mut lines = Vec::new();
             for (i, item) in content_of(b).iter().enumerate() {
                 let m = match marker {
@@ -920,7 +1036,10 @@ fn render_block(b: &Value, lookup: &dyn Lookup, depth: usize, marker: Option<Lis
                 };
                 let indent = " ".repeat(m.len() + 1);
                 let task = (type_of(item) == "taskItem").then(|| {
-                    let checked = attrs_of(item).and_then(|a| a.get("checked")).and_then(Value::as_bool) == Some(true);
+                    let checked = attrs_of(item)
+                        .and_then(|a| a.get("checked"))
+                        .and_then(Value::as_bool)
+                        == Some(true);
                     if checked { "[x]" } else { "[ ]" }
                 });
                 let head = match task {
@@ -932,7 +1051,11 @@ fn render_block(b: &Value, lookup: &dyn Lookup, depth: usize, marker: Option<Lis
                     .first()
                     .filter(|c| type_of(c) == "paragraph" && !content_of(c).is_empty());
                 let mut item_lines: Vec<String> = Vec::new();
-                let rest: &[Value] = if children.is_empty() { &[] } else { &children[1..] };
+                let rest: &[Value] = if children.is_empty() {
+                    &[]
+                } else {
+                    &children[1..]
+                };
                 match first_text {
                     Some(p) => {
                         let plines = render_block(p, lookup, depth + 1, None);
@@ -976,7 +1099,11 @@ fn render_image(b: &Value) -> String {
     let alt = str_attr(b, "alt").unwrap_or("");
     let url = escape_url(src);
     match str_attr(b, "caption") {
-        Some(c) => format!("![{}]({url} \"{}\")", escape_label(alt), c.replace('\\', "\\\\").replace('"', "\\\"")),
+        Some(c) => format!(
+            "![{}]({url} \"{}\")",
+            escape_label(alt),
+            c.replace('\\', "\\\\").replace('"', "\\\"")
+        ),
         None => format!("![{}]({url})", escape_label(alt)),
     }
 }
@@ -989,8 +1116,14 @@ fn render_table(b: &Value, lookup: &dyn Lookup) -> Vec<String> {
             .iter()
             .map(|cell| {
                 let para = content_of(cell).first();
-                let text = para.map_or(String::new(), |p| render_inline(content_of(p), lookup, InlineCtx::Cell));
-                if text.is_empty() { " ".to_owned() } else { format!(" {text} ") }
+                let text = para.map_or(String::new(), |p| {
+                    render_inline(content_of(p), lookup, InlineCtx::Cell)
+                });
+                if text.is_empty() {
+                    " ".to_owned()
+                } else {
+                    format!(" {text} ")
+                }
             })
             .collect();
         lines.push(format!("|{}|", cells.join("|")));
@@ -1027,7 +1160,11 @@ fn escape_entities(s: &str) -> String {
     let bytes = s.as_bytes();
     let mut out = String::with_capacity(s.len());
     for (i, c) in s.char_indices() {
-        if c == '&' && bytes.get(i + 1).is_some_and(|b| b.is_ascii_alphanumeric() || *b == b'#') {
+        if c == '&'
+            && bytes
+                .get(i + 1)
+                .is_some_and(|b| b.is_ascii_alphanumeric() || *b == b'#')
+        {
             out.push('\\');
         }
         out.push(c);
@@ -1053,7 +1190,10 @@ fn escape_autolinks(s: &str) -> String {
     let mut i = 0;
     while let Some(pos) = out[i..].find("www.") {
         let at = i + pos;
-        let boundary = out[..at].chars().next_back().is_none_or(|c| !c.is_alphanumeric());
+        let boundary = out[..at]
+            .chars()
+            .next_back()
+            .is_none_or(|c| !c.is_alphanumeric());
         if boundary {
             out.replace_range(at..at + 1, "&#119;");
             i = at + 6;
@@ -1064,10 +1204,19 @@ fn escape_autolinks(s: &str) -> String {
     out
 }
 
-fn push_escaped(out: &mut String, c: char, prev: Option<char>, next: Option<char>, line_start: bool, heading: bool) {
+fn push_escaped(
+    out: &mut String,
+    c: char,
+    prev: Option<char>,
+    next: Option<char>,
+    line_start: bool,
+    heading: bool,
+) {
     let escape = match c {
         '\\' | '`' | '*' | '[' | ']' | '<' | '|' | '~' => true,
-        '_' => !(prev.is_some_and(char::is_alphanumeric) && next.is_some_and(char::is_alphanumeric)),
+        '_' => {
+            !(prev.is_some_and(char::is_alphanumeric) && next.is_some_and(char::is_alphanumeric))
+        }
         '=' => line_start || prev == Some('=') || next == Some('='),
         '&' => next.is_some_and(|n| n.is_ascii_alphanumeric() || n == '#'),
         '#' => line_start || heading,
@@ -1125,7 +1274,11 @@ fn render_inline(nodes: &[Value], lookup: &dyn Lookup, ctx: InlineCtx) -> String
         match type_of(n) {
             "hardBreak" => {
                 close_all(&mut out, &mut open);
-                out.push_str(if ctx == InlineCtx::Cell { "<br>" } else { "\\\n" });
+                out.push_str(if ctx == InlineCtx::Cell {
+                    "<br>"
+                } else {
+                    "\\\n"
+                });
                 line_start = true;
             }
             "mention" => {
@@ -1136,7 +1289,11 @@ fn render_inline(nodes: &[Value], lookup: &dyn Lookup, ctx: InlineCtx) -> String
                     .map(|i| i.title)
                     .filter(|t| !t.trim().is_empty())
                     .unwrap_or_else(|| "Deleted item".into());
-                out.push_str(&format!("[@{}]({})", escape_label(&title), quire_item_url(id)));
+                out.push_str(&format!(
+                    "[@{}]({})",
+                    escape_label(&title),
+                    quire_item_url(id)
+                ));
                 line_start = false;
             }
             "text" => {
@@ -1146,11 +1303,17 @@ fn render_inline(nodes: &[Value], lookup: &dyn Lookup, ctx: InlineCtx) -> String
                     let ticks: String = "`".repeat(longest_run(text, '`') + 1);
                     let pad = text.starts_with('`')
                         || text.ends_with('`')
-                        || (text.starts_with(' ') && text.ends_with(' ') && text.chars().any(|c| c != ' '));
+                        || (text.starts_with(' ')
+                            && text.ends_with(' ')
+                            && text.chars().any(|c| c != ' '));
                     let pad = if pad { " " } else { "" };
                     out.push_str(&format!("{ticks}{pad}{text}{pad}{ticks}"));
                 } else {
-                    let want: Vec<&'static str> = DELIMITED.iter().copied().filter(|m| has_mark(n, m)).collect();
+                    let want: Vec<&'static str> = DELIMITED
+                        .iter()
+                        .copied()
+                        .filter(|m| has_mark(n, m))
+                        .collect();
                     let keep = open.iter().take_while(|m| want.contains(m)).count();
                     while open.len() > keep {
                         out.push_str(closer(open.pop().expect("open")));
@@ -1164,13 +1327,18 @@ fn render_inline(nodes: &[Value], lookup: &dyn Lookup, ctx: InlineCtx) -> String
                     let chars: Vec<char> = text.chars().collect();
                     let mut buf = String::new();
                     for (j, &c) in chars.iter().enumerate() {
-                        let prev = if j == 0 { out.chars().next_back() } else { Some(chars[j - 1]) };
+                        let prev = if j == 0 {
+                            out.chars().next_back()
+                        } else {
+                            Some(chars[j - 1])
+                        };
                         let next = chars.get(j + 1).copied().or_else(|| next_char(nodes, i));
                         let at_start = line_start && j == 0 && open.is_empty() && link.is_none();
                         push_escaped(&mut buf, c, prev, next, at_start, ctx == InlineCtx::Heading);
                         if at_start && c.is_ascii_digit() {
                             // "1." / "1)" at a line start: escape the delimiter after the digits.
-                            let digits = chars[j..].iter().take_while(|d| d.is_ascii_digit()).count();
+                            let digits =
+                                chars[j..].iter().take_while(|d| d.is_ascii_digit()).count();
                             if matches!(chars.get(j + digits), Some('.') | Some(')')) {
                                 for d in &chars[j + 1..j + digits] {
                                     buf.push(*d);
@@ -1178,7 +1346,12 @@ fn render_inline(nodes: &[Value], lookup: &dyn Lookup, ctx: InlineCtx) -> String
                                 buf.push('\\');
                                 buf.push(chars[j + digits]);
                                 let rest: String = chars[j + digits + 1..].iter().collect();
-                                buf.push_str(&escape_rest(&rest, chars.get(j + digits).copied(), next_char(nodes, i), ctx));
+                                buf.push_str(&escape_rest(
+                                    &rest,
+                                    chars.get(j + digits).copied(),
+                                    next_char(nodes, i),
+                                    ctx,
+                                ));
                                 break;
                             }
                         }
