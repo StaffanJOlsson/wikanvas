@@ -1051,7 +1051,10 @@ unsent edits, which are CRDT updates as well. Live push arrives with the WebSock
 - Scheme allow-list for `link.href` and external `image.src` on every write path, and in TipTap's Link `protocols` /
   `isAllowedUri`: `http`, `https`, `mailto` (links only), `quire`, same-origin paths `/…` and fragments `#…`. Markdown
   input with another scheme (`javascript:`, `data:`, …) stays literal text, and Markdown output prints such a stored
-  link as its text; both with the warning `unsafe_link`.
+  link as its text; both with the warning `unsafe_link`. Both lists (`quire_core::convert::link_allowed` /
+  `image_allowed` and `web/src/editor/links.ts`) check the URL after dropping every control character and space
+  (U+0000–U+0020, U+007F–U+009F), since a browser drops tab and newline anywhere in a URL: `/\t/host` is the
+  protocol-relative `//host` and stays text, like `/\host`. The two tests share their list of rejected URLs.
 - Item links use the scheme `quire://item/<item uuid>`. On input, a same-instance URL (`/doc/<slug>-<url_id>`,
   `/board/<slug>-<url_id>`, or either under `QUIRE_PUBLIC_URL`) is resolved to the item id as well; attachment URLs
   `/api/v1/attachments/<id>` likewise. Resolution needs the database, so the parser takes a lookup closure from the
@@ -1526,7 +1529,9 @@ references the file as `![alt](/api/v1/attachments/<id>)` in Markdown or as `ima
   written). An HTTP error whose body is not an envelope (a proxy's page) gets `code: "http_error"` and its status's exit
   code; a 3xx is `cli_config` with `details.location`. Network and timeout errors carry `details.sent`: `false` when
   DNS, connect or TLS failed before the request left, `true` when it may have reached the server. When an argv entry
-  is exactly `--json`, clap usage errors use this form too. Conversion warnings of a PUT are in the result
+  is exactly `--json`, clap usage errors use this form too: the message is clap's first paragraph on one line, so it
+  names the missing or unexpected arguments (`the following required arguments were not provided: <--if-match
+  <ETAG>|--force>`). Conversion warnings of a PUT are in the result
   (`warnings`), and `doc get --format md --json` adds the codes of `Quire-Conversion-Warnings` as `warnings`. API bodies
   are printed byte for byte (plus a newline); objects the CLI builds are pretty-printed.
 - **Exit codes** (`quire_api::cli::ExitCode`, shared with `quire-server admin`; `quire exit-codes --json` prints them
@@ -1725,6 +1730,7 @@ From the host: `docker compose exec quire quire admin create-token --name ci --s
 | `/home`, `/search`, `/starred`, `/archive`, `/trash` | `pages/*` (W3). No `/drafts` page in M1 (D23): the path falls through to `NotFound` |
 | `/settings/:section` (`account`, `appearance`, `workspace`, `tokens`, `data` or `about`) | `pages/Settings` (W3) |
 | `/collection/:slugId` | `pages/Collection` (W3) |
+| `/item/:id` (a UUID) | `pages/ItemRedirect`: loads the item and replaces the URL with its `/doc/…` or `/board/…` page (Back skips it); unknown is `NotFound`. The DOM `href` of a document's item links (§9.6.5) |
 | `/doc/:slugId` | `pages/DocPage` (W4), lazily imported |
 | `/board/:slugId` | `pages/BoardPage` (W6), lazily imported |
 | `*` | `pages/NotFound` (W3) |
@@ -1826,7 +1832,11 @@ Interfaces that cross workstreams (all from W0b, typed):
   1. GET doc, then `Y.applyUpdate(ydoc, u, 'server')`.
   2. Read the IndexedDB outbox `quire.outbox/<itemId>`. If present, apply it locally and queue it.
 - **Queue and send.**
-  - Queue: `ydoc.on('update', (u, origin) => origin !== 'server' && queue(u))`.
+  - Queue: `ydoc.on('update', (u, origin) => origin !== 'server' && queue(u))`. Except: while the document is blank
+    (`isBlankDoc`: nothing but the fragment, empty or one empty paragraph with any attributes) and was blank when it
+    loaded, the editor's own updates (its empty paragraph and block id) are held, not queued, so opening a document
+    never writes to it (`content_at` stays NULL, the meta line keeps "You created", and leaving never prompts). The
+    first update that leaves the document non-blank, local or from the server, queues the held ones ahead of itself.
   - On every queued update, write the merged pending update to the outbox (throttled to one write per 250 ms, and
     always right before a POST).
   - Debounce 1 s, at most 5 s apart. Then POST `Y.mergeUpdates(queue)`; on success, drop those updates and the outbox.
@@ -1950,7 +1960,9 @@ Outline's source or theme.
   `aria-current="page"`) and its ancestors are expanded. Rows show expand/collapse carets. On hover a collection row
   shows a sort menu (⇅: Manual, A–Z, Last updated, Created), "+" (Document D, Board B) and "⋯" (Edit, New document,
   New board, Sort, Delete); item rows show "+" and "⋯" (Rename, New child document, New child board, Duplicate, Move…,
-  Star, Archive, Delete). "+ New collection…" ends the list.
+  Star, Archive, Delete). "+ New collection…" ends the list. Every menu (`components/ui/Menu.tsx`, `placeMenu`) opens
+  below its button when it fits, above it when it fits there (a row near the bottom of the window), and otherwise on the
+  roomier side with its height capped to that side, so every item stays reachable with the mouse.
 - **Sibling order.** The client sorts every sibling group itself (`buildTree`): Manual by `sort_key` (code-unit
   order), then `id`; A–Z by the title key; Last updated and Created newest first; ties by `sort_key`, then `id`. The
   server sorts the same way (§5), so an optimistic reorder agrees with the next tree fetch. The **title key** is
@@ -2044,19 +2056,30 @@ shortcuts dialog. (Mod+Shift+P, publish or unpublish, comes back with the draft 
   cache, a trashed target shows strikethrough with "In Trash", a missing target shows "Deleted item" and is not
   clickable. A pasted Quire URL becomes `link{itemId}`.
 - Links: TipTap Link's `protocols` and `isAllowedUri` use the §6.4 scheme allow-list, so a pasted `javascript:` or
-  `data:` URL stays text.
+  `data:` URL stays text. An item link (`link{itemId}`, or an href `quire://item/<uuid>`) renders with the DOM
+  `href="/item/<uuid>"` (§9.1) while the stored mark keeps its href, so "open in new tab" and "copy link address" give a
+  working URL; HTML read back (a paste) maps `data-item-id` to `quire://item/<uuid>` again. Following a link
+  (`LinkOpener`, `linkTarget`): a click when the document is read-only, Ctrl/Cmd+click while it is editable (a plain
+  click places the caret, so link text stays editable). Item links and same-origin URLs go through the router, a
+  fragment scrolls to its anchor, other allowed URLs open in a new tab (`noopener,noreferrer`); read-only, a click with
+  Ctrl, Cmd or Shift is the browser's own new tab or window. Mentions and board cards keep their own links.
 - Images: paste, drop or slash → upload to `/api/v1/attachments` with progress; a failure shows Retry; width handles
   (25/50/75/100%), alt text and caption. External images: §6.1.
 - Code blocks: language select; lowlight loads lazily. Tables: header row, add/remove row and column from a cell menu,
   Tab moves between cells.
 - Block handle on hover: drag to reorder; menu: Turn into, Duplicate, Copy link (headings: `#h-<blockId>`), Delete.
 - Board embed card: the page-0 SVG preview `<img>` and the title, linking to the board; it never loads the engine.
+  The preview is requested whenever the board has a page, also while `preview_rev` is null (a seeded or duplicated
+  board has no stored preview until the page route renders it on demand, §12); an empty page (204) or an error shows
+  the placeholder icon.
 - Empty-body placeholder: "Type / for commands". Read-only (trashed, archived): a banner with Restore / Unarchive.
 - Nested list below the body: the item's children (title, kind icon, updated time), "+ Add a page".
 
 #### 9.6.6 Pages
 
-- Home: Recently viewed and Recently updated (tabs). Search: query box, filters (collection, kind, updated after,
+- Home: Recently viewed and Recently updated (tabs). The document and board pages call `POST /items/{id}/view` once
+  per opened item (`useRecordView`, fire and forget), the only source of `/recent`; the quick switcher's empty state
+  shows the same list. Search: query box, filters (collection, kind, updated after,
   include archived; no drafts filter, the API default `include_drafts=true` applies, D23), sort, results with path and
   marked snippets. Starred, Archive: lists with path. Trash: roots with "+N nested", purge date, Restore and Delete forever (confirmation shows the count).
   Settings: Account (name, email, password, sessions; `?force=1` puts the password form first), Appearance (theme),
@@ -2080,7 +2103,8 @@ shortcuts dialog. (Mod+Shift+P, publish or unpublish, comes back with the draft 
 
 Collection "Getting started" (colour `#3E63DD`, icon `rocket`), all items published (on create, like every item, D23):
 - "Welcome to Quire": what collections and nesting are, the sidebar, Mod+K, search, stars, Trash and Archive, and
-  where backups live. It does not mention drafts or publishing. It embeds the board below and mentions "Writing in Quire".
+  where backups live (an archived page leaves the sidebar and the search results; Search's "Include archived" finds
+  it). It does not mention drafts or publishing. It embeds the board below and mentions "Writing in Quire".
   Its fixture, `fixtures/ydoc/getting-started.bin`, names the placeholder ids `docs::SEED_WRITING_ID` and
   `docs::SEED_BOARD_ID`; `seed::getting_started` stores it with `docs::init_seed`, which maps them to the two seeded
   items' ids, so the mention and the embed open the real items.
@@ -3237,7 +3261,13 @@ asynchronous (board previews).
     smoke, and agent scenario 04 by `scripts/agent-test.sh`. The gate found three more, fixed with tests: a finished
     setup sent the new owner to the sign-in page (§9.1), TipTap's inline base CSS was refused by the SPA CSP (§11),
     and agent scenario 03 compared the Markdown goldens with a server that had none of their items (PLAN W8, scenario
-    table).
+    table). The security and product reviews after the gate found ten more, each fixed with a test
+    (`docs/handoff/W7.md`, "Review findings"): the Markdown GET lacked its sandbox CSP and `no-store` (§11), the scheme
+    allow-list let `/\t/host` through (§6.4), document links could not be followed (§9.6.5), Recently viewed never
+    filled (§9.6.6), menus near the bottom of the window hung out of it (§9.6.2), the seeded board's embed card had
+    no preview (§9.6.5), new empty boards were never discarded (§9.6.4), opening an empty document wrote to it (§9.4),
+    a `--json` usage error dropped the argument names (§7.7), and the Welcome text said archived pages stay
+    searchable (§9.6.7). The smoke's step 16 checks four of them in the real browser.
     Still open: the 545 kB main web chunk (W3; Vite warns, a `manualChunks` split is optional).
 28. **Smaller follow-ups from the notes.** The per-IP limiters key IPv6 clients by the full address, so one client with a
     /64 can rotate addresses (§8 says "per IP"; keying IPv6 by /64 would close it). Two readers of large boards can hold
@@ -3384,3 +3414,7 @@ asked, and the owner's open decisions (§16 items 24 and 25) were left open.
 | Agent scenario 03 and the Markdown goldens' fixed ids (`fixtures/markdown/*`, made against `GoldenLookup`) | The scenario creates "Doc A", "Doc B", "Board C" and an attachment, and maps every golden id, url_id and the origin to the live ones in the input and the expected Markdown before comparing exactly (PLAN W8, scenario table) | Comparing only lookup-free goldens (it would skip links, mentions, embeds and images); regenerating the goldens per server (they are W4's fixed contract) |
 | `quire item move` without `--parent` or `--top` (merge item 9; W1 D23) | Decided at the W7 merge (W7 fixes): the item keeps its parent, so a position alone reorders; the CLI reads the item and sends its current `parent_id`, and `--collection` needs `--parent` or `--top` (§7.6) | Sending `parent_id: null` (a reorder moved the item to the top level, or got 422 when the position named a sibling); making one of the flags required (no way to reorder without restating the parent) |
 | Token hashes left in an export's free page space (found by `integration::export_after_api_writes_has_no_tokens_or_sessions`) | Decided at the W7 merge (W7 integration tests): a second `VACUUM INTO` from the scrubbed copy writes the exported file, so every byte comes from the remaining rows; `/data/tmp` briefly holds two copies (D34, §12) | Deleting the stat rows only (older copies of them stayed in the unused space of the first copy's pages) |
+| How a document's links are followed (W7 product review: links could not be followed, item links had the DOM `href` `quire://item/…`) | Decided at the W7 review: item links render `href="/item/<uuid>"`, a new redirect route (§9.1), while the stored mark keeps its href; a click follows a link when the document is read-only, Ctrl/Cmd+click while it is editable; item and same-origin links go through the router, others open in a new tab (§9.6.5) | A plain click that follows while editing (link text could no longer be clicked into and edited); a mark view that resolves each item's `/doc/<slug>-<url_id>` (a query per link and a React mark view inside ProseMirror, for a path that changes on every rename); `/doc/<uuid>` (the doc page would remount once the canonical replace changes the query key) |
+| Opening an empty document wrote to it (W7 product review: `content_at` set, "You updated", a "Leave site?" prompt) | Decided at the W7 review: the doc session holds the editor's own updates while the document is blank and was blank when it loaded, and queues them ahead of the first update that gives it content (§9.4) | Seeding an empty paragraph when the server creates a document (every API-created document and the Markdown and PM JSON writers would gain a paragraph to account for; the server's `docs::is_empty` and the discard rule would change) |
+| Board embed card of a board without a stored preview (W7 product review: the Welcome document's example board showed an empty card) | Decided at the W7 review: the card requests page 0 whenever the board has a page, and the page route renders a missing preview on demand (§9.6.5, §12) | Enqueueing previews for seeded and duplicated boards (still leaves the card empty until the job runs, and adds a write path to the seed) |
+| Discarding a new empty board (W7 product review: only documents were discarded) | The board page follows §9.6.4 like the document page: a board this page session created and left untitled and empty is deleted with `?discard_empty=true` after the save loop and the title flush; the server decides. The title input's pending entry now stays registered until its last PATCH ends, so the discard never overtakes it | A client-side emptiness check of the canvas (the engine is in the frame; the server's `boards::is_empty` is the rule) |

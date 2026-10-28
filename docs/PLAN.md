@@ -1481,6 +1481,10 @@ The HTTPS path through Caddy is covered by `QUIRE_SMOKE_LEVEL=full scripts/image
     `Authorization: Bearer <token>` (Playwright `request`, no cookie) returns `auth.method == "token"`; a POST with it
     gets 403 `insufficient_scope`. Revoke it in the UI; the next request gets 401.
 15. Document ⋯ → Export → Markdown downloads a `.md` file whose first heading is "Plan" (from C, step 3).
+16. (Added at the W7 review, `docs/handoff/W7.md`.) Home's Recently viewed lists C. A document holding an item link to
+    C (written as an agent would, `quire://item/<uuid>`) renders it with `href="/item/<uuid>"`; a plain click keeps the
+    page, Ctrl+click opens C, and Back returns. The Welcome document's board embed card loads its preview. A row menu
+    opened near the bottom of the window opens above the row, with Delete inside the window.
 
 ### Acceptance (the M1 release gate)
 

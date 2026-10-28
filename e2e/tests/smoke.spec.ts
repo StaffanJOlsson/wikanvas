@@ -208,7 +208,7 @@ async function expectAboveCanvas(page: Page, overlay: Locator, what: string): Pr
   expect(inside, `${what} is the topmost element at (${point.x}, ${point.y}), over the board iframe`).toBe(true);
 }
 
-test('smoke: setup to export (PLAN W7 steps 1-15)', async ({ page, context, request }, testInfo) => {
+test('smoke: setup to export (PLAN W7 steps 1-15, and the review fixes)', async ({ page, context, request }, testInfo) => {
   test.setTimeout(15 * 60_000);
   const pageErrors: string[] = [];
   page.on('pageerror', (e) => pageErrors.push(e.message));
@@ -672,6 +672,76 @@ test('smoke: setup to export (PLAN W7 steps 1-15)', async ({ page, context, requ
     const heading = md.split('\n').find((l) => /^#{1,6} /.test(l));
     expect(heading).toBe('# Plan');
     expect(md).toContain('quokka');
+  });
+
+  await test.step('16. Review fixes: Recently viewed, item links that open, the Welcome board preview, a low row menu', async () => {
+    // Recently viewed fills from the pages' POST …/view: C was opened above.
+    await page.goto('/home');
+    const viewed = page.getByRole('tabpanel', { name: 'Recently viewed' });
+    await expect(viewed.locator('.item-list-title', { hasText: /^C$/ })).toBeVisible();
+    // A document with an item link to C, written as an agent would (quire://item/<uuid>), from the page (cookie + Origin).
+    const aRef = /\/doc\/(?:[^/]*-)?([0-9A-Za-z]{10})\/?$/.exec(new URL(aUrl).pathname)?.[1] ?? '';
+    const a = await detail(page, aRef);
+    const written = await page.evaluate(async ({ collection, target }) => {
+      const created = await fetch('/api/v1/items', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ collection_id: collection, kind: 'doc', title: 'Links' }),
+      });
+      const item = await created.json();
+      const put = await fetch(`/api/v1/items/${item.id}/doc/markdown`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'text/markdown', 'If-Match': '*' },
+        body: `Go to [the plan](quire://item/${target}).\n`,
+      });
+      return { url_id: item.url_id as string, created: created.status, put: put.status };
+    }, { collection: a.item.collection_id, target: cId });
+    expect(written).toMatchObject({ created: 201, put: 200 });
+    await page.goto(`/doc/${written.url_id}`);
+    const link = editor(page).getByRole('link', { name: 'the plan' });
+    await expect(link).toHaveAttribute('href', `/item/${cId}`);
+    // Editable: a plain click places the caret; Ctrl+click follows the link.
+    await link.click();
+    await page.waitForTimeout(300);
+    expect(currentRef(page)).toBe(written.url_id);
+    await link.click({ modifiers: ['Control'] });
+    await page.waitForURL((u) => u.pathname === new URL(cUrl).pathname);
+    await expect(page.locator('#item-title')).toHaveValue('C');
+    // The /item/<uuid> step was replaced: Back returns to the Links document.
+    await page.goBack();
+    await page.waitForURL(`**/doc/*${written.url_id}`);
+    // The Welcome document embeds the seeded board, whose preview is rendered on demand (no stored preview yet).
+    const hits = await (await page.request.get('/api/v1/search/titles?q=Welcome')).json();
+    const welcome = (hits as Json[]).find((h) => h.item.title === 'Welcome to Quire');
+    expect(welcome, 'the Welcome document').toBeTruthy();
+    await page.goto(`/doc/${welcome.item.url_id}`);
+    const preview = page.locator('.board-embed img.board-embed-preview');
+    await preview.scrollIntoViewIfNeeded();
+    await expect.poll(() => preview.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0), {
+      timeout: SAVE_TIMEOUT,
+    }).toBe(true);
+    // A row menu near the bottom of the window opens upward: every item, Delete included, stays inside the window.
+    // The window is cut 24 px below the lowest sidebar row that has room for the menu above it.
+    const viewport = page.viewportSize();
+    if (!viewport) throw new Error('no viewport');
+    const rows = sidebar(page).getByRole('treeitem');
+    const boxes = await rows.evaluateAll((els) => els.map((el) => el.getBoundingClientRect()).map((r) => ({ top: r.top, bottom: r.bottom })));
+    const low = boxes.map((b, i) => ({ ...b, i })).filter((b) => b.top >= 300 && b.bottom <= viewport.height).pop();
+    expect(low, `a sidebar row with its top at 300 px or lower (rows: ${JSON.stringify(boxes)})`).toBeTruthy();
+    const height = Math.ceil((low?.bottom ?? 0) + 24);
+    await page.setViewportSize({ width: viewport.width, height });
+    const row = rows.nth(low?.i ?? 0);
+    await row.hover();
+    await row.getByRole('button', { name: / menu$/ }).first().click();
+    const menu = page.getByRole('menu');
+    const del = menu.getByRole('menuitem', { name: /^Delete/ }).first();
+    const [menuBox, delBox] = [await menu.boundingBox(), await del.boundingBox()];
+    if (!menuBox || !delBox) throw new Error('the row menu has no box');
+    expect(menuBox.y + menuBox.height, 'the menu opened above its row').toBeLessThanOrEqual((low?.top ?? 0) + 1);
+    expect(delBox.y).toBeGreaterThanOrEqual(0);
+    expect(delBox.y + delBox.height).toBeLessThanOrEqual(height);
+    await page.keyboard.press('Escape');
+    await page.setViewportSize(viewport);
   });
 
   if (pageErrors.length > 0) testInfo.annotations.push({ type: 'page errors', description: pageErrors.join('\n') });
