@@ -9,7 +9,7 @@ import {
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router';
 import type { ItemSummary } from '../../api/gen/ItemSummary';
-import { useStar } from '../../api/queries/items';
+import { useStar, type StarVars } from '../../api/queries/items';
 import { itemPath } from '../../lib/urls';
 import { errorToast } from '../../state/toasts';
 import { KindIcon } from '../item/KindIcon';
@@ -18,6 +18,17 @@ import { listDropPosition } from '../tree/positions';
 import { currentTarget } from './CollectionsTree';
 
 export const DRAG_STAR = 'star';
+
+/** The `useStar` variables of dropping star `itemId` before/after star `targetId`; null when nothing would change. */
+export function starReorderVars(
+  stars: readonly ItemSummary[],
+  itemId: string,
+  targetId: string,
+  edge: 'before' | 'after',
+): StarVars | null {
+  const position = listDropPosition(stars.map((s) => s.id), itemId, targetId, edge);
+  return position ? { itemId, starred: true, position } : null;
+}
 
 interface StarIndicator {
   id: string;
@@ -85,8 +96,8 @@ export function StarredSection({ stars }: { stars: readonly ItemSummary[] }) {
         pending = null;
         if (!p) return;
         const { stars: list, star: mutate } = live.current;
-        const position = listDropPosition(list.map((s) => s.id), p.itemId, p.targetId, p.edge);
-        if (position) void mutate({ itemId: p.itemId, starred: true, position }).catch((e: unknown) => errorToast(e));
+        const vars = starReorderVars(list, p.itemId, p.targetId, p.edge);
+        if (vars) void mutate(vars).catch((e: unknown) => errorToast(e));
       },
     });
   }, []);

@@ -28,11 +28,11 @@ import { resolveItemDrop, type DropIndicator, type DropInstruction } from '../tr
 import { edgeZone } from '../tree/hitZones';
 import { keyboardInstruction } from '../tree/positions';
 import { VIRTUALIZE_ABOVE, visibleRows, type Row } from '../tree/visibleRows';
+import { AutoExpandTimer, autoExpandKey } from './autoExpand';
 import { DRAG_COLLECTION, DRAG_ITEM, TreeRow } from './TreeRow';
 import { TypeAhead, treeKeyAction } from './treeKeyboard';
 
-/** Hovering "inside" a collapsed row for this long expands it (§9.6.3). */
-export const AUTO_EXPAND_MS = 700;
+export { AUTO_EXPAND_MS } from './autoExpand';
 export const ROW_HEIGHT = 30;
 
 const forestCache = new WeakMap<TreeData, { order: string; forest: Forest }>();
@@ -240,16 +240,7 @@ export function CollectionsTree({ collections, starredIds, scrollRef, labelledBy
 
   useEffect(() => {
     let pending: PendingDrop | null = null;
-    let expandTimer: { key: string; timer: ReturnType<typeof setTimeout> } | null = null;
-    const clearExpand = () => {
-      if (expandTimer) clearTimeout(expandTimer.timer);
-      expandTimer = null;
-    };
-    const scheduleExpand = (key: string) => {
-      if (expandTimer?.key === key) return;
-      clearExpand();
-      expandTimer = { key, timer: setTimeout(() => setExpanded(key, true), AUTO_EXPAND_MS) };
-    };
+    const autoExpand = new AutoExpandTimer((key) => setExpanded(key, true));
 
     type Args = Parameters<NonNullable<Parameters<typeof monitorForElements>[0]['onDrag']>>[0];
     const update = ({ source, location: loc }: Args) => {
@@ -258,7 +249,7 @@ export function CollectionsTree({ collections, starredIds, scrollRef, labelledBy
       const index = target ? rs.findIndex((r) => r.key === target.data.quireRow) : -1;
       if (!target || index < 0) {
         pending = null;
-        clearExpand();
+        autoExpand.cancel();
         setIndicator(null);
         return;
       }
@@ -278,10 +269,7 @@ export function CollectionsTree({ collections, starredIds, scrollRef, labelledBy
         });
         pending = resolved ? { kind: 'item', instruction: resolved.instruction, itemId, collectionId } : null;
         setIndicator(resolved?.indicator ?? null);
-        const row = rs[index]!;
-        const into = resolved && (resolved.instruction.type === 'child' || resolved.instruction.type === 'collection');
-        if (into && row.hasChildren && !row.expanded && resolved.indicator.rowKey === row.key) scheduleExpand(row.key);
-        else clearExpand();
+        autoExpand.hover(autoExpandKey(rs[index]!, resolved));
         return;
       }
       if (source.data.quireDrag === DRAG_COLLECTION) {
@@ -304,7 +292,7 @@ export function CollectionsTree({ collections, starredIds, scrollRef, labelledBy
       }
     };
 
-    return monitorForElements({
+    const stop = monitorForElements({
       canMonitor: ({ source }) => source.data.quireDrag === DRAG_ITEM || source.data.quireDrag === DRAG_COLLECTION,
       onDragStart: ({ source }) => {
         if (source.data.quireDrag === DRAG_COLLECTION) setDragCollection(String(source.data.collectionId));
@@ -312,7 +300,7 @@ export function CollectionsTree({ collections, starredIds, scrollRef, labelledBy
       onDrag: update,
       onDropTargetChange: update,
       onDrop: () => {
-        clearExpand();
+        autoExpand.cancel();
         setIndicator(null);
         setDragCollection(null);
         const p = pending;
@@ -328,6 +316,10 @@ export function CollectionsTree({ collections, starredIds, scrollRef, labelledBy
         }
       },
     });
+    return () => {
+      autoExpand.cancel();
+      stop();
+    };
   }, [setIndicator]);
 
   // ---- rendering ----

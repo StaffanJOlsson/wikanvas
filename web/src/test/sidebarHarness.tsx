@@ -4,6 +4,7 @@ import { screen, waitFor } from '@testing-library/react';
 import type { Collection } from '../api/gen/Collection';
 import type { ItemDetail } from '../api/gen/ItemDetail';
 import type { ItemSummary } from '../api/gen/ItemSummary';
+import { useStar } from '../api/queries/items';
 import { MAIN_ID } from '../app/hotkeys';
 import { useCollectionActions } from '../components/collection/useCollectionActions';
 import { useItemActions, type ItemActions } from '../components/item/useItemActions';
@@ -16,11 +17,14 @@ import { render } from './render';
 export interface Probe {
   actions: ItemActions;
   collections: ReturnType<typeof useCollectionActions>;
+  /** `useStar().mutateAsync`, as the STARRED section's drop calls it. */
+  star: ReturnType<typeof useStar>['mutateAsync'];
 }
 
 function ProbeActions({ probe }: { probe: Partial<Probe> }) {
   probe.actions = useItemActions();
   probe.collections = useCollectionActions();
+  probe.star = useStar().mutateAsync;
   return null;
 }
 
