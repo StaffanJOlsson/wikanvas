@@ -2323,7 +2323,9 @@ does not parse, or its `build` is empty or not alphanumeric, it **refuses to sta
 
 Dynamic responses are gzipped at the fastest level by tower-http when the body is over 1 KiB and carries no
 `Content-Encoding` yet: every `application/json` and `text/markdown` body (the `/api` JSON, `openapi.json`, the Markdown
-GET), and `image/svg+xml` on the board-page route only (the route marks its response). Static files (the fallback marks
+GET), and `image/svg+xml` on the board-page route only (the route marks its response). A streamed body (a large
+board, a preview rendered on demand, the export) is a fused stream, since the gzip encoder polls it once more after its
+end. Static files (the fallback marks
 each response, so a JSON one such as the Inkboard `manifest.json` keeps its bytes too) and attachments, SVG attachments
 included, are never re-encoded, and a response that is already encoded is skipped.
 
@@ -3267,7 +3269,10 @@ asynchronous (board previews).
     filled (§9.6.6), menus near the bottom of the window hung out of it (§9.6.2), the seeded board's embed card had
     no preview (§9.6.5), new empty boards were never discarded (§9.6.4), opening an empty document wrote to it (§9.4),
     a `--json` usage error dropped the argument names (§7.7), and the Welcome text said archived pages stay
-    searchable (§9.6.7). The smoke's step 16 checks four of them in the real browser.
+    searchable (§9.6.7). The smoke's step 16 checks four of them in the real browser, and found one more on its first
+    run: a streamed board body (a preview rendered on demand, any board body over 1 MiB) panicked the connection task
+    when the compression layer gzipped it, because `futures::stream::unfold` was polled after its end; the streams of
+    the board route and the export are fused now (§11).
     Still open: the 545 kB main web chunk (W3; Vite warns, a `manualChunks` split is optional).
 28. **Smaller follow-ups from the notes.** The per-IP limiters key IPv6 clients by the full address, so one client with a
     /64 can rotate addresses (§8 says "per IP"; keying IPv6 by /64 would close it). Two readers of large boards can hold
