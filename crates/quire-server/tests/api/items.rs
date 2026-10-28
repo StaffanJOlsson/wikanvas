@@ -371,6 +371,7 @@ async fn get_sets_meta_etag_and_patch_stale_if_match_412() {
     assert_eq!(body.error.details, Some(json!({"etag": "\"m2\""})));
     assert_eq!(get(&app, doc.id).await.item.title, "New");
     // W/ is ignored, * and no If-Match win.
+    assert!(!get(&app, doc.id).await.full_width);
     let res = app
         .server
         .patch(&path)
@@ -378,6 +379,10 @@ async fn get_sets_meta_etag_and_patch_stale_if_match_412() {
         .json(&json!({"full_width": true}))
         .await;
     assert_eq!(res.header("etag"), "\"m3\"");
+    assert!(
+        get(&app, doc.id).await.full_width,
+        "ItemDetail carries the setting"
+    );
     app.server
         .patch(&path)
         .add_header("if-match", "*")

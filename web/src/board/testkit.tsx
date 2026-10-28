@@ -99,6 +99,7 @@ export function boardItem(n = 1, over: Partial<ItemDetail['item']> = {}): ItemDe
     trashed_at: null,
     purge_at: null,
     archived_at: null,
+    full_width: false,
     board: meta(1),
     meta_version: 1,
   };

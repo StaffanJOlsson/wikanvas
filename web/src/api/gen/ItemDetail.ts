@@ -22,6 +22,10 @@ effectively_published: boolean, trashed_at: Timestamp | null,
  */
 purge_at: Timestamp | null, archived_at: Timestamp | null, 
 /**
+ * The "Full width" setting (`PATCH /items/{id} {full_width}`); the web client applies it to documents.
+ */
+full_width: boolean, 
+/**
  * Boards only.
  */
 board: BoardMeta | null, meta_version: number, };

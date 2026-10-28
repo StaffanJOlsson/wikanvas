@@ -20,7 +20,7 @@ function detail(over: Partial<ItemDetail> = {}, title = 'Live title'): ItemDetai
       child_order: 'manual', item_count: 1, updated_at: '2026-10-28T09:00:00.000Z',
     },
     breadcrumbs: [], starred: false, effectively_published: true, trashed_at: null, purge_at: null, archived_at: null,
-    board: null, meta_version: 1,
+    full_width: false, board: null, meta_version: 1,
     ...over,
   } as ItemDetail;
 }

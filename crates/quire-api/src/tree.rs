@@ -145,6 +145,8 @@ pub struct ItemDetail {
     /// When a trashed item is purged.
     pub purge_at: Option<Timestamp>,
     pub archived_at: Option<Timestamp>,
+    /// The "Full width" setting (`PATCH /items/{id} {full_width}`); the web client applies it to documents.
+    pub full_width: bool,
     /// Boards only.
     pub board: Option<BoardMeta>,
     pub meta_version: i64,

@@ -241,8 +241,12 @@ export function usePatchItem(): UseMutationResult<ItemSummary, ApiError, PatchIt
   return useMutation<ItemSummary, ApiError, PatchItemVars, { snap: Snapshot }>({
     mutationFn: ({ item, patch }) => api<ItemSummary>('PATCH', `/items/${enc(item.id)}`, { json: patch }),
     onMutate: async ({ item, patch }) => {
+      const fullWidth = patch.full_width;
+      // A detail fetch already running would overwrite the optimistic `full_width` with the old value.
+      if (fullWidth != null) await qc.cancelQueries({ queryKey: ['item'] });
       const snap = snapshotAll(qc, [['tree'], sidebarKey, ['item']]);
       if (patch.title != null) replaceCachedSummary(qc, { ...item, title: patch.title });
+      if (fullWidth != null) updateCachedItem(qc, item.id, (d) => ({ ...d, full_width: fullWidth }));
       return { snap };
     },
     onError: (_e, _v, ctx) => restore(qc, ctx?.snap),

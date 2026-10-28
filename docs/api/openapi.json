@@ -3012,7 +3012,7 @@
           "boards"
         ],
         "summary": "One page of the board as SVG (`svg::export_approx`, D10), for thumbnails, the loading placeholder and the\nread-only view.",
-        "description": "Without `rev`: the current page, `Cache-Control: no-cache` with `ETag: \"r{rev}\"`. With the current `rev`:\n`Cache-Control: private, max-age=31536000, immutable`. With another `rev`: 307 to the current one. An empty page\nanswers 204. Images that would make the SVG too large are drawn as grey boxes, and a page (or a page after the\nboard's preview budget) that is too large to preview is a small card that says so. Sent gzip-encoded when the\nclient accepts it.",
+        "description": "Without `rev`: the current page, `Cache-Control: no-cache` with `ETag: \"r{rev}\"`. With the current `rev`:\n`Cache-Control: private, max-age=31536000, immutable`. With another `rev`: 307 to the current one. An empty page\nanswers 204. Images that would make the SVG too large are drawn as grey boxes, and a page (or a page after the\nboard's preview budget) that is too large to preview is a small card that says so. Over 1 KiB it is sent\ngzip-encoded when the client accepts it.",
         "operationId": "get_board_page",
         "parameters": [
           {
@@ -7337,6 +7337,7 @@
           "breadcrumbs",
           "starred",
           "effectively_published",
+          "full_width",
           "meta_version"
         ],
         "properties": {
@@ -7374,6 +7375,10 @@
           "effectively_published": {
             "type": "boolean",
             "description": "The item and every ancestor are published (D23)."
+          },
+          "full_width": {
+            "type": "boolean",
+            "description": "The \"Full width\" setting (`PATCH /items/{id} {full_width}`); the web client applies it to documents."
           },
           "item": {
             "$ref": "#/components/schemas/ItemSummary"

@@ -590,6 +590,7 @@ pub fn detail(conn: &Connection, viewer: &Viewer, row: &ItemRow) -> Result<ItemD
         trashed_at: row.deleted_at.map(Timestamp),
         purge_at: row.deleted_at.map(|d| Timestamp(purge_at(d))),
         archived_at: row.archived_at.map(Timestamp),
+        full_width: row.full_width,
         board: match row.kind {
             ItemKind::Board => board_meta(conn, &row.id)?,
             ItemKind::Doc => None,
