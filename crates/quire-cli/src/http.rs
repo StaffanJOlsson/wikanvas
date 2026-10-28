@@ -205,6 +205,8 @@ impl Resolver for Lookup {
     ) -> Result<ResolvedSocketAddrs, ureq::Error> {
         self.0.resolve(uri, config, timeout).map_err(|e| match e {
             ureq::Error::Io(_) => ureq::Error::HostNotFound,
+            // A lookup that ran out of time never sent anything, whichever timeout was in force.
+            ureq::Error::Timeout(_) => ureq::Error::Timeout(ureq::Timeout::Resolve),
             other => other,
         })
     }

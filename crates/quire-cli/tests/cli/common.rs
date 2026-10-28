@@ -42,6 +42,14 @@ const SCRUBBED: &[&str] = &[
 /// A UUID used as a reference where any id will do.
 pub const ID: &str = "0192f3a4-5b6c-7d8e-9f01-23456789abcd";
 
+/// This machine's address on its outbound interface (no packet is sent), when it has one that is not loopback.
+pub fn non_loopback_ip() -> Option<std::net::IpAddr> {
+    let socket = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
+    socket.connect("192.0.2.1:9").ok()?;
+    let ip = socket.local_addr().ok()?.ip();
+    (!ip.is_loopback() && !ip.is_unspecified()).then_some(ip)
+}
+
 /// A well-formed token that no server knows.
 pub fn fake_token(seed: u8) -> String {
     quire_api::token::encode(&[seed; 32])
@@ -293,6 +301,7 @@ pub struct Mock {
     /// `http://127.0.0.1:<port>`.
     pub url: String,
     pub port: u16,
+    host: std::net::IpAddr,
     state: Arc<MockState>,
 }
 
@@ -301,6 +310,18 @@ impl Mock {
     pub fn start(handler: impl Fn(&Recorded, usize) -> Reply + Send + Sync + 'static) -> Mock {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind the mock");
         Mock::serve(listener, handler)
+    }
+
+    /// Binds `ip`:0 and serves; `url` then names that address.
+    pub fn start_on(
+        ip: std::net::IpAddr,
+        handler: impl Fn(&Recorded, usize) -> Reply + Send + Sync + 'static,
+    ) -> Mock {
+        let listener = TcpListener::bind((ip, 0)).expect("bind the mock");
+        let mut mock = Mock::serve(listener, handler);
+        mock.url = format!("http://{ip}:{}", mock.port);
+        mock.host = ip;
+        mock
     }
 
     /// Serves on an already bound listener.
@@ -330,6 +351,7 @@ impl Mock {
         Mock {
             url: format!("http://127.0.0.1:{port}"),
             port,
+            host: std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
             state,
         }
     }
@@ -353,7 +375,7 @@ impl Mock {
 impl Drop for Mock {
     fn drop(&mut self) {
         self.state.stop.store(true, Ordering::SeqCst);
-        let _ = TcpStream::connect(("127.0.0.1", self.port));
+        let _ = TcpStream::connect((self.host, self.port));
     }
 }
 

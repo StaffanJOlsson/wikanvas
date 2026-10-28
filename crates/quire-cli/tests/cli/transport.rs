@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
-use crate::common::{ID, Mock, Reply, Sandbox, fake_token, last_error, run_json};
+use crate::common::{ID, Mock, Reply, Sandbox, fake_token, last_error, non_loopback_ip, run_json};
 
 fn collection() -> Value {
     json!({"id": ID, "url_id": "AbCdEfGhIj", "name": "C", "description": "", "icon": null, "color": "#8D8D8D",
@@ -210,10 +210,21 @@ fn timeout_exit_4() {
 #[test]
 fn plain_http_refused_for_non_loopback() {
     let s = Sandbox::new();
-    let remote = "http://quire-host.invalid:8080";
-    // Refused before any lookup: exit 3.
-    let (code, _, err) = q(&s, remote, 0, &["auth", "whoami"]);
-    assert_eq!(code, 3, "{err}");
+    let me = json!({"user": {}, "auth": {}});
+    // A plain-HTTP URL for a host that is not this machine's loopback: this machine's own LAN address when it has
+    // one (a mock listens there), else a name that does not resolve.
+    let lan = non_loopback_ip().map(|ip| {
+        let me = me.clone();
+        Mock::start_on(ip, move |_, _| Reply::json(200, &me))
+    });
+    let remote = lan.as_ref().map_or_else(
+        || "http://quire-host.invalid.:8080".to_owned(),
+        |m| m.url.clone(),
+    );
+    let reached = if lan.is_some() { 0 } else { 4 };
+    // Refused before any lookup or connection: exit 3.
+    let (code, _, err) = q(&s, &remote, 0, &["auth", "whoami"]);
+    assert_eq!(code, 3, "{remote}: {err}");
     let e = last_error(&err);
     assert_eq!(e["error"]["code"], "cli_config");
     assert!(
@@ -223,9 +234,12 @@ fn plain_http_refused_for_non_loopback() {
             .contains("plain HTTP"),
         "{e}"
     );
-    // QUIRE_ALLOW_HTTP=1 lifts it: the request is tried (and fails in DNS, exit 4, not sent).
+    if let Some(m) = &lan {
+        assert_eq!(m.connections(), 0, "refused before connecting");
+    }
+    // QUIRE_ALLOW_HTTP=1 lifts it: the request is sent (to the LAN mock, or into a failing DNS lookup).
     let (code, _, err) = run_json(
-        s.quire_at(remote, &fake_token(1))
+        s.quire_at(&remote, &fake_token(1))
             .env("QUIRE_ALLOW_HTTP", "1")
             .args([
                 "--json",
@@ -237,8 +251,7 @@ fn plain_http_refused_for_non_loopback() {
                 "whoami",
             ]),
     );
-    assert_eq!(code, 4, "{err}");
-    assert_eq!(last_error(&err)["error"]["details"]["sent"], false);
+    assert_eq!(code, reached, "{remote}: {err}");
     // So does the profile's allow_http = true.
     s.write_config(
         &format!(
@@ -256,9 +269,12 @@ fn plain_http_refused_for_non_loopback() {
         "auth",
         "whoami",
     ]));
-    assert_eq!(code, 4, "{err}");
+    assert_eq!(code, reached, "{remote}: {err}");
+    if let Some(m) = &lan {
+        assert_eq!(m.requests().len(), 2);
+    }
     // Loopback is always allowed.
-    let mock = Mock::always(Reply::json(200, &json!({"user": {}, "auth": {}})));
+    let mock = Mock::always(Reply::json(200, &me));
     for url in [mock.url.clone(), format!("http://localhost:{}", mock.port)] {
         let (code, _, err) = q(&Sandbox::new(), &url, 0, &["auth", "whoami"]);
         assert_eq!(code, 0, "{url}: {err}");
