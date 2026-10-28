@@ -13,7 +13,7 @@ patch series, applied to a self-contained copy in `.cache/inkboard-src` by `scri
 | Commit | `41e0295d50433faa5d05b2ff48f85eac079a981d` (tag `v0.2.0-beta.3`, merge of PR #31, 2026-10-27) |
 | Workspace version | `0.2.0-beta.3` (`vendor/inkboard/Cargo.toml`; `scripts/inkboard.sh src` refuses any other) |
 | Board format | `inkboard_core::serial::VERSION = 2` (`crates/inkboard-core/src/serial.rs`) |
-| Patchset | `2` (bump it with every change to the series: the dist's `engine_version` is `0.2.0-beta.3+embed.quire.<patchset>`) |
+| Patchset | `3` (bump it with every change to the series: the dist's `engine_version` is `0.2.0-beta.3+embed.quire.<patchset>`) |
 
 `scripts/check-pins.sh` (on the host) checks that the submodule is at this commit and clean, and that the crates Quire
 shares with `inkboard-core` (serde, serde_json, base64, thiserror) have the same versions in both lockfiles.
@@ -21,8 +21,11 @@ shares with `inkboard-core` (serde, serde_json, base64, thiserror) have the same
 ## Patch series
 
 `git format-patch` output against the base copy (`base` commit in `.cache/inkboard-src`), applied in order with
-`git am --no-3way`. Nothing under `inkboard-core` or `inkboard-session` changes, so the server compiles those crates
-unpatched from the same commit as the wasm.
+`git am --no-3way`. Nothing under `inkboard-session` changes. `inkboard-core` changes in one place only: 0005 adds the
+optional `BoxObj.embed` field (with `embed: None` at its construction sites in `inkboard-core`'s tests and in
+`inkboard-formats`), read leniently, so the server still compiles `inkboard-core` unpatched from the same commit as the
+wasm and reads every board the engine writes (the unpatched model ignores the unknown field; docs/ARCHITECTURE.md §18.2,
+D59).
 
 | Patch | Change | Upstream PR |
 |---|---|---|
@@ -30,6 +33,8 @@ unpatched from the same commit as the wasm.
 | `0002-embed-js-api.patch` | feature `embed`: the JS API on `globalThis.inkboardEmbed` (§10.3, `src/embed.rs`), host mode (`App::host`), `host_load` resets, pause, single mount, Present and the host-owned menu entries hidden when hosted, `platform::init` split | not opened yet |
 | `0003-optional-net.patch` | feature `net` (default): `inkboard-net` optional for the wasm build, `session_net_off.rs`; the public page keeps `net` (`web/Trunk.toml`, and the WebGPU build of `scripts/build_web.sh` / `build_web.ps1`, whose `--features` list replaces Trunk.toml's); droppable | not opened yet |
 | `0004-docs-embedding.patch` | "Embedding (feature `embed`)" in `docs/WEB.md`, `docs/fr/WEB.md`, and the `CHANGELOG.md` entries | not opened yet |
+| `0005-embed-documents.patch` | embedded documents (§18.3): `inkboard-core`'s optional `BoxObj.embed` (`Embed {item}`, lenient, `is_embed`); in `inkboard-app` the cards of a hosted board (`src/embed_cards.rs`): the per-frame layout report, `onEmbedOpen` instead of a card's label editing (none when read-only), the host's editing state (no keys, no handles, ended by a press or focus, the press swallowed), `insertEmbed`, titles in place, no rotation handle for a single card; the JS side in `src/embed.rs`; native tests (`src/tests_embed.rs`, `cargo test -p inkboard-app embed`) | not opened yet |
+| `0006-docs-embedded-documents.patch` | "Embedded documents (cards)" in `docs/WEB.md` and `docs/fr/WEB.md`, and the `CHANGELOG.md` entry | not opened yet |
 
 The engine Quire ships is built with `--no-default-features --features web-glow,embed` (no `net`). 0003 stays
 droppable: without it the same build compiles `inkboard-net` in (a slightly larger `.wasm`, see Sizes), and host mode
@@ -101,9 +106,9 @@ A flat directory that `quire-assets` embeds and the server serves under `/inkboa
 ```json
 {
   "build": "0123456789ab",
-  "engine_version": "0.2.0-beta.3+embed.quire.2",
+  "engine_version": "0.2.0-beta.3+embed.quire.3",
   "format_version": 2,
-  "patchset": "2",
+  "patchset": "3",
   "files": {
     "inkboard_bg.wasm": { "raw": 0, "br": 0, "gz": 0 },
     "icons.bin": { "raw": 0, "br": null, "gz": null }
@@ -127,8 +132,12 @@ on 2026-10-28 with rustc 1.99.1, wasm-bindgen 0.2.129 and binaryen 131 (bytes):
 
 | `.wasm` | raw | br | gz |
 |---|---|---|---|
-| with patch 0003 (no `net`) | 15,603,998 | 4,017,817 | 6,665,795 |
-| without patch 0003 (`net` compiled in) | 15,849,407 | 4,093,719 | 6,767,612 |
+| patchset 3 (0001-0006), as shipped | 15,680,620 | 4,034,465 | 6,690,587 |
+| patchset 2, with patch 0003 (no `net`) | 15,603,998 | 4,017,817 | 6,665,795 |
+| patchset 2, without patch 0003 (`net` compiled in) | 15,849,407 | 4,093,719 | 6,767,612 |
+
+The patchset-3 row is the `manifest.json` of `scripts/inkboard.sh build` (the same brotli 11 and gzip 9 as `size`):
+0005 adds 76,622 bytes raw (0.5 %) and 16,648 br. The two patchset-2 rows are `size`'s (not rerun for patchset 3).
 
 0003 saves only about 1.6 %: the `embed` build's `main` never installs the guest factory, so the linker already drops
 most of the session network. Its gains are elsewhere: iroh and `ring` are not compiled at all (no C compiler for the

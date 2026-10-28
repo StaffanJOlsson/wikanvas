@@ -1,0 +1,133 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: quire <quire@localhost>
+Date: Wed, 28 Oct 2026 23:08:11 +0100
+Subject: [PATCH 6/6] docs: embedded documents
+
+"Embedded documents (cards)" in docs/WEB.md and docs/fr/WEB.md: the
+`embed` field of a rectangle and how it is read, the three callbacks and
+the four handle methods, and the changelog entry. Kept apart so that the
+code patch reviews on its own.
+---
+ CHANGELOG.md   |  4 ++++
+ docs/WEB.md    | 39 +++++++++++++++++++++++++++++++++++++++
+ docs/fr/WEB.md | 42 ++++++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 85 insertions(+)
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 30b35ce..3b8644e 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -14,6 +14,10 @@ follows [Semantic Versioning](https://semver.org/) (pre-releases carry a hyphen,
+   presentation, the tab title…) is hidden. One board per page.
+ - **Feature `net`** (on by default): a web build can leave out the network of shared sessions (`--no-default-features`); such a page
+   cannot join a session. The desktop application always has it.
++- **Embedded documents (feature `embed`):** a host page can embed its own documents in a board as cards, rectangles with an optional
++  `embed` field (`{"item": "…"}`; the native format stays version 2, and a malformed value loads as a plain box). The host is told where
++  the cards are after every frame that moved them, opens a card's document instead of its label's editing, and can insert cards and
++  show its documents' titles as their labels without an undo step (see [Embedded documents](docs/WEB.md#embedded-documents-cards)).
+ 
+ ### Fixed
+ 
+diff --git a/docs/WEB.md b/docs/WEB.md
+index 52498be..cf84359 100644
+--- a/docs/WEB.md
++++ b/docs/WEB.md
+@@ -161,6 +161,45 @@ the engine reads and writes. `mount` rejects with `{kind, message}`: `webgl` (no
+   The board reads neither the page's address (invitation links) nor the network events, and it takes pastes only while it has the focus.
+ - Callbacks are called after the frame that caused them, never from inside it, so they may call the handle.
+ 
++### Embedded documents (cards)
++
++A host page can embed its own documents in a board: a **card** is a rectangle whose box carries an `embed` field naming one of the
++host's documents. The host draws the document's content over the card (an overlay above the canvas) and edits it there; the board
++keeps the card a box like any other (select, move, resize, copy, delete, undo), draws its frame, its shadow and its label, and tells
++the host where the cards are. The native format gains one optional field, so its version stays 2:
++
++```json
++{ "id": "k3j2h1g0f9", "kind": { "type": "box", "geom": "rect", "frame": { "x": -240.0, "y": -180.0, "w": 480.0, "h": 360.0 },
++    "label": { "text": [ { "text": "Meeting notes", "bold": true, "color": "#1d2430" } ], "family": "sans", "size": 24.0, "align": "center" },
++    "embed": { "item": "0192f0e0-0000-7000-8000-000000000001" } },
++  "style": { "stroke": "#c4cad4", "fill": "#ffffff", "width": 1.0, "dash": "solid", "opacity": 1.0, "roundness": 0.04, "shadow": true },
++  "layer": "main" }
++```
++
++- Only a `rect` box whose `embed` is an object with a string `item` is a card; `item` is the host's business (the engine never reads
++  it). The label is the document's title as last saved: what exports, previews and other readers show. Fields of `embed` other than
++  `item` are not kept, and a value that is not such an object loads as a plain box (it is dropped on the next save), so a board written
++  by another program always opens. A box kind with the key `embed` twice cannot be read (as any other repeated field).
++- Without a host page (the page of its own, the desktop application) a card is a plain rectangle: its label is edited as any other.
++
++`mount` takes three more callbacks, called after the frame like the others; points and rectangles are in CSS pixels of the canvas
++(top left 0, 0), frames in world units:
++
++| Callback | When |
++|---|---|
++| `onEmbedLayout({page, zoom, originX, originY, canvas, occluders, embeds, items, editing})` | after a frame in which any of it changed, at most once per frame: the current page, the camera (`screen = origin + world × zoom`), the drawing area, the engine's own interface over it (`occluders`: floating cards, menus, popups, tooltips, toasts, windows), the cards of the current page on visible layers in drawing order (`{id, item, x, y, w, h, angle, label, selected, locked}`, as drawn, gestures included), every distinct `item` of the board, sorted, and the card being edited by the host. A page without cards reports no pan or zoom. |
++| `onEmbedOpen({id, item, point})` | instead of editing a card's label (double-click, Enter, the menu's "Edit text"); `point` is the double-click, `null` otherwise. Never on a read-only board |
++| `onEmbedEditEnd({id, reason})` | the editing set by `setEmbedEditing` ended in the board: `'press'` (a primary press anywhere in the board), `'focus'` (the board took the keyboard focus), `'gone'` (the card left the current page, or `setBoard`) |
++
++| Call | What it does |
++|---|---|
++| `insertEmbed({item, title, at, w?, h?})` → id or `null` | adds a card centred on `at` (`'center'`: the centre of the view, or a canvas point), `w` × `h` world units (480 × 360 by default), labelled `title` in bold, on the first visible and unlocked layer: one undo step, selected; `null` on a read-only board. A label being typed is validated first |
++| `setEmbedEditing(id \| null)` | the host edits that card: it stays selected without handles, the board handles no key, and the first press in the board or the board taking the focus ends it (`onEmbedEditEnd`); the press that ends it does nothing else on the canvas. An id that is not a card of the current page is ignored; `null` ends it without an event |
++| `setEmbedTitles({item: title, …})` | the documents' live titles: shown as the cards' labels at once, with no undo step and no revision (a title change alone never makes the board dirty); the next save keeps them. `setBoard` forgets them |
++| `requestEmbedLayout()` | `onEmbedLayout` after the next frame even when nothing changed |
++
++A single card has no rotation handle while hosted (the host draws the document upright).
++
+ ## Test the page
+ 
+ Two scripts, both by hand (never `cargo test`): `page.mjs` (the local page) and `e2e.mjs` (**a real native host and browser guests through the public relay;
+diff --git a/docs/fr/WEB.md b/docs/fr/WEB.md
+index 86fcba3..153141e 100644
+--- a/docs/fr/WEB.md
++++ b/docs/fr/WEB.md
+@@ -165,6 +165,48 @@ moteur n'a pas pu démarrer, ou un autre tableau est monté). La poignée :
+   d'invitation) ni les événements réseau, et il ne prend les collages que lorsqu'il a le focus.
+ - Les rappels sont appelés après l'image qui les a provoqués, jamais pendant : ils peuvent appeler la poignée.
+ 
++### Documents intégrés (cartes)
++
++Une page hôte peut intégrer ses propres documents dans un tableau : une **carte** est un rectangle dont la boîte porte un champ `embed`
++qui désigne l'un des documents de l'hôte. L'hôte dessine le contenu du document par-dessus la carte (une couche au-dessus du canevas) et
++l'y modifie ; le tableau garde la carte comme une boîte parmi les autres (sélection, déplacement, redimensionnement, copie, suppression,
++annulation), dessine son cadre, son ombre et son libellé, et indique à l'hôte où se trouvent les cartes. Le format natif gagne un champ
++facultatif ; sa version reste 2 :
++
++```json
++{ "id": "k3j2h1g0f9", "kind": { "type": "box", "geom": "rect", "frame": { "x": -240.0, "y": -180.0, "w": 480.0, "h": 360.0 },
++    "label": { "text": [ { "text": "Compte rendu", "bold": true, "color": "#1d2430" } ], "family": "sans", "size": 24.0, "align": "center" },
++    "embed": { "item": "0192f0e0-0000-7000-8000-000000000001" } },
++  "style": { "stroke": "#c4cad4", "fill": "#ffffff", "width": 1.0, "dash": "solid", "opacity": 1.0, "roundness": 0.04, "shadow": true },
++  "layer": "main" }
++```
++
++- Seule une boîte `rect` dont `embed` est un objet avec une chaîne `item` est une carte ; `item` regarde l'hôte (le moteur ne le lit
++  jamais). Le libellé est le titre du document au dernier enregistrement : ce que montrent les exports, les aperçus et les autres
++  lecteurs. Les champs d'`embed` autres qu'`item` ne sont pas conservés, et une valeur qui n'est pas un tel objet se charge comme une
++  boîte ordinaire (elle disparaît au prochain enregistrement) : un tableau écrit par un autre programme s'ouvre toujours. Une boîte dont
++  la clé `embed` apparaît deux fois est illisible (comme pour tout autre champ répété).
++- Sans page hôte (la page autonome, l'application de bureau), une carte est un rectangle ordinaire : son libellé se modifie comme les
++  autres.
++
++`mount` accepte trois rappels de plus, appelés après l'image comme les autres ; points et rectangles sont en pixels CSS du canevas (coin
++supérieur gauche en 0, 0), les cadres en unités du monde :
++
++| Rappel | Quand |
++|---|---|
++| `onEmbedLayout({page, zoom, originX, originY, canvas, occluders, embeds, items, editing})` | après une image où l'un de ces éléments a changé, au plus une fois par image : la page courante, la caméra (`écran = origine + monde × zoom`), la zone de dessin, l'interface du moteur par-dessus (`occluders` : cartes flottantes, menus, fenêtres contextuelles, infobulles, notifications, fenêtres), les cartes de la page courante sur les calques visibles dans l'ordre de dessin (`{id, item, x, y, w, h, angle, label, selected, locked}`, telles que dessinées, gestes compris), chaque `item` distinct du tableau, trié, et la carte que l'hôte est en train de modifier. Une page sans carte ne signale ni défilement ni zoom. |
++| `onEmbedOpen({id, item, point})` | au lieu de modifier le libellé d'une carte (double-clic, Entrée, « Edit text » du menu) ; `point` est le double-clic, `null` sinon. Jamais sur un tableau en lecture seule |
++| `onEmbedEditEnd({id, reason})` | la modification posée par `setEmbedEditing` a pris fin dans le tableau : `'press'` (un appui principal n'importe où dans le tableau), `'focus'` (le tableau a pris le focus clavier), `'gone'` (la carte a quitté la page courante, ou `setBoard`) |
++
++| Appel | Effet |
++|---|---|
++| `insertEmbed({item, title, at, w?, h?})` → identifiant ou `null` | ajoute une carte centrée sur `at` (`'center'` : le centre de la vue, ou un point du canevas), de `w` × `h` unités du monde (480 × 360 par défaut), au libellé `title` en gras, sur le premier calque visible et non verrouillé : une étape d'annulation, sélectionnée ; `null` sur un tableau en lecture seule. Un libellé en cours de saisie est d'abord validé |
++| `setEmbedEditing(id \| null)` | l'hôte modifie cette carte : elle reste sélectionnée sans poignées, le tableau ne traite aucune touche, et le premier appui dans le tableau ou la prise du focus par le tableau y mettent fin (`onEmbedEditEnd`) ; l'appui qui y met fin ne fait rien d'autre sur le canevas. Un identifiant qui n'est pas une carte de la page courante est ignoré ; `null` y met fin sans événement |
++| `setEmbedTitles({item: titre, …})` | les titres à jour des documents : affichés aussitôt comme libellés des cartes, sans étape d'annulation ni révision (un changement de titre seul ne rend jamais le tableau modifié) ; le prochain enregistrement les garde. `setBoard` les oublie |
++| `requestEmbedLayout()` | `onEmbedLayout` après la prochaine image même si rien n'a changé |
++
++Une carte seule n'a pas de poignée de rotation dans une page hôte (l'hôte dessine le document droit).
++
+ ## Tester la page
+ 
+ Deux scripts, lancés à la main (jamais par `cargo test`) : `page.mjs` (la page locale) et `e2e.mjs` (**un vrai hôte natif et des invités navigateur à travers le relais
