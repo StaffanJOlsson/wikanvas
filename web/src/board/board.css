@@ -253,7 +253,8 @@
   transform-origin: 0 0;
 }
 
-/* Cards are paper (D67): Quire's light palette whatever the theme and the board background. */
+/* Cards are paper (D67): Quire's light palette whatever the theme and the board background. `--shadow-pop` and
+   `--focus` are computed from the palette at :root, so they are re-declared here too (a selected image's ring). */
 .board-embed-card {
   color-scheme: light;
   --bg: #ffffff;
@@ -270,6 +271,8 @@
   --warning: #b86e00;
   --success: #1f8f50;
   --mark: #fff0a0;
+  --shadow-pop: 0 6px 20px rgb(0 0 0 / .10), 0 0 0 1px var(--border);
+  --focus: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
   position: absolute;
   box-sizing: border-box;
   display: flex;
