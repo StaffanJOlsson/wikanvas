@@ -1,7 +1,8 @@
 // The board iframe sits in a fixed layer at z-index 1 inside `.app-shell` (W6-D30), over the board canvas. Every
 // overlay that can open over the canvas (menus and popovers, dialogs, toasts, the update banner, the drawer, the
-// editor's floating menus, the board's Nested popover) needs a z-index above it, and `.app-main` must not start a
-// stacking context of its own: the overlays inside it would then be painted at its level, under the iframe.
+// editor's floating menus, the board's Nested popover, the popup root of an editing board card) needs a z-index
+// above it, and `.app-main` must not start a stacking context of its own: the overlays inside it would then be painted
+// at its level, under the iframe.
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
@@ -42,6 +43,8 @@ const OVERLAYS = [
   '.block-menu',
   '.board-picker',
   '.board-nested [role="dialog"]',
+  // M1.1 (ARCHITECTURE §18.5): the popups of an editing board card, portaled above the frame layer and the top bar.
+  '.board-embed-popups',
 ];
 
 describe('overlays over the board frame', () => {
