@@ -26,6 +26,6 @@ bytes: number,
  */
 preview_rev: number | null, 
 /**
- * The first characters of the board's text (page names, labels, cells).
+ * The first 4 KB of the board's search text (page names, labels, table cells, LaTeX), one entry per line.
  */
 text_excerpt: string, };

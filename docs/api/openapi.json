@@ -172,6 +172,549 @@
         ]
       }
     },
+    "/api/v1/items/{id}/board": {
+      "get": {
+        "tags": [
+          "boards"
+        ],
+        "summary": "The board's native Inkboard envelope `{\"format\":\"inkboard\",\"version\":2,\"document\":…}` (D8, D51): its images\ninline as base64 and `document.name` set to the item's title (D31). Unknown fields a newer engine wrote are kept.",
+        "operationId": "get_board",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The board's id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "If-None-Match",
+            "in": "header",
+            "description": "A previous ETag (`\"r{rev}\"`): 304 when unchanged",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The envelope",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "`\"r{rev}\"`, for a later `If-Match`"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Unchanged since the ETag in `If-None-Match`"
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found`: no such item, or it is not a board",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "boards"
+        ],
+        "summary": "Replaces the board with a native envelope (§6.2, D51).",
+        "description": "The body is validated with Inkboard's own reader; its inline images move to the blob store, everything else is\nstored as sent, so fields this server does not know survive. `document.name` is ignored: the title is the item's.\nA body equal to the stored one changes nothing and answers the current revision. A token's write first keeps a\n`pre-api` revision of the current state, unless the last write came from the same token (D53).",
+        "operationId": "put_board",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The board's id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "`\"r{rev}\"` of the revision the body is based on (a `W/` prefix is ignored), or `*` to overwrite whatever is current",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Quire-Engine",
+            "in": "header",
+            "description": "The writing engine's version (the web client sends its `engineVersion`); stored as `api` when absent. At most 128 printable ASCII characters",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The native Inkboard envelope `{\"format\": \"inkboard\", \"version\": 2, \"document\": {…}}`, up to `limits.max_board_mb` (`GET /config`)",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Saved (or unchanged)",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "`\"r{rev}\"`, for the next `If-Match`"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BoardPutResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`, `csrf_rejected`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`setup_required`, `read_only` (trashed or archived)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "`rev_mismatch`: the board changed; `details {rev, etag}` name the current revision",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "`payload_too_large` (`details.limit_bytes`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "`unsupported_media_type`: not `application/json`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`invalid_board`, `board_too_new`, `validation` (`field`: `kind` for a document, `X-Quire-Engine`, `body`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "`precondition_required`: no `If-Match`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "507": {
+            "description": "`insufficient_storage`: below the free-space floor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "write"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      }
+    },
+    "/api/v1/items/{id}/board.inkboard": {
+      "get": {
+        "tags": [
+          "boards"
+        ],
+        "summary": "The board as a `.inkboard` file: the bytes of `GET …/board`, as an attachment named after the title.",
+        "operationId": "download_board",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The board's id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The envelope, with `Content-Disposition: attachment; filename=\"<title>.inkboard\"; filename*=UTF-8''<title>.inkboard`",
+            "headers": {
+              "Content-Disposition": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "The download's file name (RFC 6266)"
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "`\"r{rev}\"`"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found`: no such item, or it is not a board",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      }
+    },
+    "/api/v1/items/{id}/board/pages/{n}": {
+      "get": {
+        "tags": [
+          "boards"
+        ],
+        "summary": "One page of the board as SVG (`svg::export_approx`, D10), for thumbnails, the loading placeholder and the\nread-only view.",
+        "description": "Without `rev`: the current page, `Cache-Control: no-cache` with `ETag: \"r{rev}\"`. With the current `rev`:\n`Cache-Control: private, max-age=31536000, immutable`. With another `rev`: 307 to the current one. An empty page\nanswers 204. Sent gzip-encoded when the client accepts it.",
+        "operationId": "get_board_page",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The board's id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "n",
+            "in": "path",
+            "description": "The page, 0-based",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "rev",
+            "in": "query",
+            "description": "The board revision the page is wanted at (`BoardMeta.rev`).",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "If-None-Match",
+            "in": "header",
+            "description": "A previous ETag: 304 when unchanged",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The page's SVG (`nosniff`, a sandboxing CSP)",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "`no-cache` without `rev`, immutable with the current one"
+              },
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "`\"r{rev}\"`"
+              }
+            },
+            "content": {
+              "image/svg+xml": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "204": {
+            "description": "The page is empty"
+          },
+          "304": {
+            "description": "Unchanged since the ETag in `If-None-Match`"
+          },
+          "307": {
+            "description": "`rev` is not the current revision: the URL of the current one",
+            "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "`…/board/pages/{n}?rev={current}`"
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found`: no such item, not a board, or no such page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`validation` (`field`: `query`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      }
+    },
     "/api/v1/openapi.json": {
       "get": {
         "tags": [
@@ -587,6 +1130,111 @@
           "session",
           "token"
         ]
+      },
+      "BoardMeta": {
+        "type": "object",
+        "description": "What the server knows about a board without loading it: `board_state.meta` plus the revision and preview state.",
+        "required": [
+          "rev",
+          "pages",
+          "objects",
+          "background",
+          "bytes",
+          "text_excerpt"
+        ],
+        "properties": {
+          "background": {
+            "type": "string",
+            "description": "Background colour, `#rrggbb`."
+          },
+          "bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Size of the full envelope in bytes.",
+            "minimum": 0
+          },
+          "objects": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Number of objects on all pages.",
+            "minimum": 0
+          },
+          "pages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BoardPageMeta"
+            }
+          },
+          "preview_rev": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "The revision the stored SVG previews were made from, `null` before the first preview."
+          },
+          "rev": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The board revision; its ETag is `\"r{rev}\"`."
+          },
+          "text_excerpt": {
+            "type": "string",
+            "description": "The first 4 KB of the board's search text (page names, labels, table cells, LaTeX), one entry per line."
+          }
+        }
+      },
+      "BoardPageMeta": {
+        "type": "object",
+        "description": "One page of a board.",
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Inkboard's page id."
+          },
+          "name": {
+            "type": "string"
+          },
+          "svg_len": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Size of the page's SVG preview in bytes; `null` while there is none (list views show a placeholder when it is\nover 2 MB).",
+            "minimum": 0
+          }
+        }
+      },
+      "BoardPutResult": {
+        "type": "object",
+        "description": "Response of `PUT /items/{id}/board`.",
+        "required": [
+          "rev",
+          "etag",
+          "updated_at",
+          "meta"
+        ],
+        "properties": {
+          "etag": {
+            "type": "string",
+            "description": "`\"r{rev}\"`, the value for the next `If-Match`."
+          },
+          "meta": {
+            "$ref": "#/components/schemas/BoardMeta"
+          },
+          "rev": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "updated_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          }
+        }
       },
       "ChildOrder": {
         "type": "string",

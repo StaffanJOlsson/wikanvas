@@ -4,4 +4,8 @@
  * `?rev=` of `GET /items/{id}/board/pages/{n}`: without it, the current page (`no-cache`); with the current rev,
  * immutable; with another rev, a 307 to the current one.
  */
-export type BoardPreviewQuery = { rev?: number | null, };
+export type BoardPreviewQuery = { 
+/**
+ * The board revision the page is wanted at (`BoardMeta.rev`).
+ */
+rev?: number | null, };

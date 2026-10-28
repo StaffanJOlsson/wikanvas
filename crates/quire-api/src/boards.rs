@@ -22,7 +22,7 @@ pub struct BoardMeta {
     pub bytes: u64,
     /// The revision the stored SVG previews were made from, `null` before the first preview.
     pub preview_rev: Option<i64>,
-    /// The first characters of the board's text (page names, labels, cells).
+    /// The first 4 KB of the board's search text (page names, labels, table cells, LaTeX), one entry per line.
     pub text_excerpt: String,
 }
 
@@ -55,6 +55,7 @@ pub struct BoardPutResult {
 #[into_params(parameter_in = Query)]
 #[ts(export)]
 pub struct BoardPreviewQuery {
+    /// The board revision the page is wanted at (`BoardMeta.rev`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rev: Option<i64>,
 }
