@@ -7,10 +7,21 @@
 // Coordinates are CSS pixels of the 1280x720 page. The fixture's single 240x120 rectangle is fitted at zoom 2 around
 // the canvas centre (640, 360), so it covers x 400-880, y 240-480; EMPTY is a free area right of it, clear of Inkboard's
 // floating cards (menu and tools at the top, the style panel on the left, zoom and pages at the bottom, help bottom right).
+//
+// The "embeds:" tests (PLAN M1.1 E1, ARCHITECTURE §18.3-§18.4) open fixtures/boards/embed.inkboard: two 480x360 cards side by side
+// and a plain box under them, fitted at zoom ~1.07, so card 1 covers about x 82-597, y 70-457 and card 2 x 683-1199; EMBED_EMPTY is
+// a free area under card 1, left of the plain box (x 511-769, y 521-650). Points on a board are computed from the reported layout
+// (screen = origin + world * zoom), and each test checks that its points are on the canvas, clear of Inkboard's floating cards.
 import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
 
 const FIXTURE = readFileSync(new URL('../../fixtures/boards/frame-test.inkboard', import.meta.url), 'utf8');
+const EMBED = readFileSync(new URL('../../fixtures/boards/embed.inkboard', import.meta.url), 'utf8');
+const ITEM1 = '0192f0e0-0000-7000-8000-000000000001';
+const ITEM2 = '0192f0e0-0000-7000-8000-000000000002';
+const ITEM3 = '0192f0e0-0000-7000-8000-000000000003';
+const EMBED_EMPTY = { from: { x: 300, y: 520 }, to: { x: 450, y: 620 } };
+const DRAG_TYPE = 'application/x-quire-item';
 const FIXTURE_NAME = 'Frame test';
 const CENTRE = { x: 640, y: 360 };
 const EMPTY = { from: { x: 960, y: 300 }, to: { x: 1140, y: 430 } };
@@ -40,6 +51,16 @@ function objectCount(json: string): number {
   return JSON.parse(json).document.pages.reduce((n: number, p: { objects: unknown[] }) => n + p.objects.length, 0);
 }
 
+type Rect = { x: number; y: number; width: number; height: number };
+type Point = { x: number; y: number };
+type EmbedBox = {
+  objectId: string; item: string; x: number; y: number; w: number; h: number; angle: number; label: string; selected: boolean; locked: boolean;
+};
+type Layout = {
+  itemId: string; page: string; zoom: number; originX: number; originY: number; canvas: Rect; occluders: Rect[]; embeds: EmbedBox[];
+  items: string[]; editing: string | null;
+};
+
 type Log = {
   progress: { loaded: number; total: number }[];
   ready: string[];
@@ -47,6 +68,10 @@ type Log = {
   save: string[];
   error: { itemId: string | null; kind: string; message: string }[];
   hostKey: { key: string; mod: boolean; shift: boolean; alt: boolean }[];
+  layout: Layout[];
+  open: { itemId: string; objectId: string; item: string; point: Point | null }[];
+  end: { itemId: string; objectId: string; reason: string }[];
+  drop: { itemId: string; item: unknown; point: Point }[];
 };
 
 /**
@@ -64,7 +89,7 @@ async function connect(page: Page): Promise<void> {
   expect(response?.status()).toBe(200);
   await page.evaluate(async () => {
     const w = window as any;
-    const log = { progress: [], ready: [], change: [], save: [], error: [], hostKey: [] } as any;
+    const log = { progress: [], ready: [], change: [], save: [], error: [], hostKey: [], layout: [], open: [], end: [], drop: [] } as any;
     w.__log = log;
     w.__api = await w.quireBoardFrame.connect({
       onProgress: (p: unknown) => log.progress.push(p),
@@ -73,6 +98,10 @@ async function connect(page: Page): Promise<void> {
       onSave: (id: string) => log.save.push(id),
       onError: (e: unknown) => log.error.push(e),
       onHostKey: (k: unknown) => log.hostKey.push(k),
+      onEmbedLayout: (e: unknown) => log.layout.push(e),
+      onEmbedOpen: (e: unknown) => log.open.push(e),
+      onEmbedEditEnd: (e: unknown) => log.end.push(e),
+      onDropItem: (e: unknown) => log.drop.push(e),
     });
   });
 }
@@ -142,6 +171,97 @@ async function connectOnce(page: Page): Promise<{ result: unknown; errors: unkno
       .then((api: { engineVersion: string }) => ({ engineVersion: api.engineVersion }), (e: unknown) => ({ rejected: e }));
     return { result, errors };
   });
+}
+
+/* ---------------------------------------------------------------------------------------------- board document embeds */
+
+/** The last layout reported, once no new one came for 400 ms (the floating cards settle over the first frames). */
+async function settledLayout(page: Page): Promise<Layout> {
+  let count = -1;
+  await expect
+    .poll(
+      async () => {
+        const n = (await log(page)).layout.length;
+        const settled = n > 0 && n === count;
+        count = n;
+        return settled;
+      },
+      { intervals: [400], timeout: 15_000 },
+    )
+    .toBe(true);
+  const layouts = (await log(page)).layout;
+  return layouts[layouts.length - 1];
+}
+
+async function lastLayout(page: Page): Promise<Layout | undefined> {
+  const layouts = (await log(page)).layout;
+  return layouts[layouts.length - 1];
+}
+
+/** A world point in frame pixels. */
+function screen(l: Layout, x: number, y: number): Point {
+  return { x: l.originX + x * l.zoom, y: l.originY + y * l.zoom };
+}
+
+function inside(r: Rect, p: Point): boolean {
+  return p.x >= r.x && p.x <= r.x + r.width && p.y >= r.y && p.y <= r.y + r.height;
+}
+
+/** The point is on the canvas and clear of Inkboard's own interface (the test's choice of points is still right). */
+function expectClear(l: Layout, p: Point, what: string) {
+  expect(inside(l.canvas, p), `${what} is on the canvas`).toBe(true);
+  const over = l.occluders.filter((r) => inside(r, p));
+  expect(over, `${what} at ${p.x},${p.y} is under the engine's interface`).toEqual([]);
+}
+
+/** The board without the per-page views, as text (the engine refits each page's view on open). */
+function withoutViewText(json: string): string {
+  return json.replace(/"view":\{[^}]*\}/g, '"view":null');
+}
+
+/** How many pixels of the frame-pixel rectangle are darker than #808080 (every channel below 0x80). */
+async function darkPixels(page: Page, r: Rect): Promise<number> {
+  const png = (await page.screenshot({ clip: r })).toString('base64');
+  return page.evaluate(async (data) => {
+    const img = new Image();
+    img.src = `data:image/png;base64,${data}`;
+    await img.decode();
+    const c = document.createElement('canvas');
+    c.width = img.width;
+    c.height = img.height;
+    const ctx = c.getContext('2d')!;
+    ctx.drawImage(img, 0, 0);
+    const px = ctx.getImageData(0, 0, c.width, c.height).data;
+    let dark = 0;
+    for (let i = 0; i < px.length; i += 4) if (px[i] < 0x80 && px[i + 1] < 0x80 && px[i + 2] < 0x80) dark++;
+    return dark;
+  }, png);
+}
+
+/** A variant of the embed fixture: `f` edits its parsed board. */
+function embedVariant(f: (board: any) => void): string {
+  const board = JSON.parse(EMBED);
+  f(board);
+  return JSON.stringify(board);
+}
+
+/** Synthetic drag events at a frame point, as a sidebar row's drag would bring them; whether each was accepted. */
+async function dispatchDrag(page: Page, data: Record<string, string>, point: Point, types: string[] = ['dragenter', 'dragover', 'drop']) {
+  return page.evaluate(
+    ({ data, point, types }) => {
+      const target = document.getElementById('board')!;
+      const dt = new DataTransfer();
+      for (const [type, value] of Object.entries(data)) dt.setData(type, value);
+      const accepted: Record<string, boolean> = {};
+      for (const type of types) {
+        const e = new DragEvent(type, { dataTransfer: dt, clientX: point.x, clientY: point.y, bubbles: true, cancelable: true });
+        target.dispatchEvent(e);
+        accepted[type] = e.defaultPrevented;
+      }
+      return accepted;
+    },
+    { data, point, types },
+  );
 }
 
 test.describe('Inkboard frame', () => {
@@ -549,5 +669,424 @@ test.describe('Inkboard frame', () => {
     await late.bringToFront();
     await expect.poll(() => late.evaluate(() => (window as any).__opened)).toBe(true);
     expect(await late.evaluate(() => (window as any).__api.current())).toBe('item-c');
+  });
+
+
+  test('embeds: the layout of the fixture', async ({ page }) => {
+    await connect(page);
+    await open(page, 'item-a', EMBED);
+    const l = await settledLayout(page);
+    expect((await log(page)).layout.length).toBeGreaterThanOrEqual(1);
+    expect(l.itemId).toBe('item-a');
+    expect(l.page).toBe('embedtest1');
+    expect(l.embeds).toEqual([
+      { objectId: 'embedcard1', item: ITEM1, x: -520, y: -200, w: 480, h: 360, angle: 0, label: 'First page', selected: false, locked: false },
+      { objectId: 'embedcard2', item: ITEM2, x: 40, y: -200, w: 480, h: 360, angle: 0, label: 'Second page', selected: false, locked: false },
+    ]);
+    expect(l.items).toEqual([ITEM1, ITEM2]);
+    expect(l.editing).toBeNull();
+    expect(l.canvas).toEqual({ x: 0, y: 0, width: 1280, height: 720 });
+    expect(l.occluders.length).toBeGreaterThan(0);
+    for (const r of l.occluders) {
+      expect(r.width > 0 && r.height > 0).toBe(true);
+      expect(r.x >= l.canvas.x && r.y >= l.canvas.y && r.x + r.width <= l.canvas.x + l.canvas.width + 0.01).toBe(true);
+      expect(r.y + r.height <= l.canvas.y + l.canvas.height + 0.01).toBe(true);
+    }
+    // the camera formula: the engine's centred title snapshot is where origin + centre * zoom says, inside the white card
+    for (const card of l.embeds) {
+      const c = screen(l, card.x + card.w / 2, card.y + card.h / 2);
+      const above = screen(l, card.x + card.w / 2, card.y + card.h / 2 - 120);
+      expectClear(l, c, `the centre of ${card.objectId}`);
+      expect(await darkPixels(page, { x: c.x - 40, y: c.y - 12, width: 80, height: 24 })).toBeGreaterThan(20);
+      expect(await darkPixels(page, { x: above.x - 40, y: above.y - 12, width: 80, height: 24 })).toBe(0);
+    }
+    await expectClean(page);
+  });
+
+  test('embeds: pan and zoom report at most once per frame', async ({ page }) => {
+    await page.addInitScript(() => {
+      const w = window as any;
+      w.__frames = 0;
+      const raf = window.requestAnimationFrame.bind(window);
+      window.requestAnimationFrame = (cb) =>
+        raf((t) => {
+          w.__frames++;
+          cb(t);
+        });
+    });
+    await connect(page);
+    await open(page, 'item-a', EMBED);
+    const start = await settledLayout(page);
+    const counts = async () => ({ layouts: (await log(page)).layout.length, frames: await page.evaluate(() => (window as any).__frames) });
+    const before = await counts();
+    // a wheel zoom over the empty area, then a pan with the Hand tool
+    const empty = EMBED_EMPTY.from;
+    expectClear(start, empty, 'the empty area');
+    await page.mouse.move(empty.x, empty.y);
+    for (let i = 0; i < 4; i++) {
+      await page.mouse.wheel(0, -120);
+      await page.waitForTimeout(60);
+    }
+    await page.locator('#board').focus();
+    await press(page, 'h');
+    await drag(page, EMBED_EMPTY.from, EMBED_EMPTY.to);
+    const after = await counts();
+    const moved = (await lastLayout(page))!;
+    test.info().annotations.push({ type: 'layouts / animation frames during the gesture', description: `${after.layouts - before.layouts} / ${after.frames - before.frames}` });
+    expect(moved.zoom).toBeGreaterThan(start.zoom * 1.05);
+    expect(Math.abs(moved.originX - start.originX) + Math.abs(moved.originY - start.originY)).toBeGreaterThan(50);
+    expect(after.layouts - before.layouts).toBeGreaterThan(1);
+    expect(after.layouts - before.layouts).toBeLessThanOrEqual(after.frames - before.frames + 2);
+    // idle: no report
+    await page.waitForTimeout(1000);
+    expect((await counts()).layouts).toBe(after.layouts);
+
+    // a board without cards reports no pan at all
+    await open(page, 'item-b', FIXTURE);
+    await settledLayout(page);
+    const plain = (await log(page)).layout.length;
+    await page.locator('#board').focus();
+    await press(page, 'h');
+    await drag(page, EMPTY.from, EMPTY.to);
+    await page.waitForTimeout(500);
+    expect((await log(page)).layout.length).toBe(plain);
+    await expectClean(page);
+  });
+
+  test('embeds: open instead of label editing', async ({ page }) => {
+    await connect(page);
+    await open(page, 'item-a', EMBED);
+    const l = await settledLayout(page);
+    const before = await snapshot(page);
+    const p = screen(l, -280, 60);
+    expectClear(l, p, 'card 1');
+    await page.mouse.dblclick(p.x, p.y);
+    await expect.poll(async () => (await log(page)).open.length).toBe(1);
+    const [opened] = (await log(page)).open;
+    expect(opened).toMatchObject({ itemId: 'item-a', objectId: 'embedcard1', item: ITEM1 });
+    expect(Math.hypot(opened.point!.x - p.x, opened.point!.y - p.y)).toBeLessThanOrEqual(2);
+    await expect.poll(async () => (await lastLayout(page))!.embeds[0].selected).toBe(true);
+    await page.waitForTimeout(300);
+    expect((await log(page)).change).toEqual([]);
+    const after = await snapshot(page);
+    expect(after.revision).toBe(before.revision);
+    expect(after.board).toBe(before.board);
+    // Enter on the selected card: no point
+    await press(page, 'Enter');
+    await expect.poll(async () => (await log(page)).open.length).toBe(2);
+    expect((await log(page)).open[1]).toEqual({ itemId: 'item-a', objectId: 'embedcard1', item: ITEM1, point: null });
+    // the control: the plain box still edits its label
+    const box = screen(l, 0, 280);
+    expectClear(l, box, 'the plain box');
+    await page.mouse.dblclick(box.x, box.y);
+    await page.waitForTimeout(300);
+    await page.keyboard.type(' edited', { delay: 30 });
+    await page.waitForTimeout(300);
+    expect((await snapshot(page)).board).toContain('Plain box edited');
+    expect((await log(page)).open).toHaveLength(2);
+    await expectClean(page);
+  });
+
+  test('embeds: the editing state', async ({ page }) => {
+    await connect(page);
+    await open(page, 'item-a', EMBED);
+    const l = await settledLayout(page);
+    const card = screen(l, -280, 60);
+    expectClear(l, card, 'card 1');
+    expectClear(l, EMBED_EMPTY.from, 'the empty area');
+    // selected and copied first, so that Delete and Ctrl+V would have something to act on
+    await page.mouse.click(card.x, card.y);
+    await press(page, 'Control+c');
+    const editing = async () => (await lastLayout(page))!.editing;
+    await call(page, 'setEmbedEditing', 'embedcard1');
+    await expect.poll(editing).toBe('embedcard1');
+    const before = await snapshot(page);
+    // the canvas still has the focus: the keys reach the engine, which handles none of them
+    await page.locator('#board').focus();
+    await press(page, 'r');
+    await press(page, 'Delete');
+    await press(page, 'Control+v');
+    await page.waitForTimeout(300);
+    expect((await log(page)).change).toEqual([]);
+    expect((await snapshot(page)).board).toBe(before.board);
+    expect((await log(page)).end).toEqual([]);
+
+    // a click on empty canvas ends it, and does nothing else: no marquee, the card stays selected
+    await page.mouse.click(EMBED_EMPTY.from.x, EMBED_EMPTY.from.y);
+    await expect.poll(async () => (await log(page)).end).toEqual([{ itemId: 'item-a', objectId: 'embedcard1', reason: 'press' }]);
+    await expect.poll(editing).toBeNull();
+    expect((await lastLayout(page))!.embeds[0].selected).toBe(true);
+    // 'r' did not pick the rectangle tool: a drag selects instead of drawing
+    await drag(page, EMBED_EMPTY.from, EMBED_EMPTY.to);
+    await page.waitForTimeout(300);
+    expect((await log(page)).change).toEqual([]);
+
+    // a click on a toolbar button ends it, and the button still works (Hand: the next drag pans)
+    await call(page, 'setEmbedEditing', 'embedcard1');
+    await expect.poll(editing).toBe('embedcard1');
+    const now = (await lastLayout(page))!;
+    const tools = now.occluders.find((r) => r.y < 30 && r.x < 640 && r.x + r.width > 640);
+    expect(tools, 'the tools card').toBeDefined();
+    // the card's border (1) and margin (4), the Select button (34), the spacing (1), half the Hand button (17)
+    const hand = { x: tools!.x + 57, y: tools!.y + tools!.height / 2 };
+    await page.mouse.click(hand.x, hand.y);
+    await expect.poll(async () => (await log(page)).end.length).toBe(2);
+    expect((await log(page)).end[1]).toEqual({ itemId: 'item-a', objectId: 'embedcard1', reason: 'press' });
+    const unpanned = (await lastLayout(page))!;
+    await drag(page, EMBED_EMPTY.from, EMBED_EMPTY.to);
+    await expect.poll(async () => (await lastLayout(page))!.originX).not.toBe(unpanned.originX);
+
+    // the frame taking the focus ends it
+    await press(page, 'v');
+    await call(page, 'setEmbedEditing', 'embedcard1');
+    await expect.poll(editing).toBe('embedcard1');
+    await page.evaluate(() => {
+      const input = document.createElement('input');
+      input.id = 'elsewhere';
+      document.body.append(input);
+      input.focus();
+    });
+    await page.waitForTimeout(300);
+    expect((await log(page)).end).toHaveLength(2);
+    await page.locator('#board').focus();
+    await expect.poll(async () => (await log(page)).end.length).toBe(3);
+    expect((await log(page)).end[2]).toEqual({ itemId: 'item-a', objectId: 'embedcard1', reason: 'focus' });
+    await page.evaluate(() => document.getElementById('elsewhere')!.remove());
+
+    // another board: the editing is gone, reported for the board it was on
+    await call(page, 'setEmbedEditing', 'embedcard2');
+    await expect.poll(editing).toBe('embedcard2');
+    await open(page, 'item-b', otherBoard(), { name: 'Other board' });
+    await expect.poll(async () => (await log(page)).end.length).toBe(4);
+    expect((await log(page)).end[3]).toEqual({ itemId: 'item-a', objectId: 'embedcard2', reason: 'gone' });
+    await expect.poll(async () => (await lastLayout(page))!.itemId).toBe('item-b');
+    expect((await lastLayout(page))!.editing).toBeNull();
+    await expectClean(page);
+  });
+
+  test('embeds: insertEmbed', async ({ page }) => {
+    await connect(page);
+    const early = await page.evaluate(() => {
+      try {
+        (window as any).__api.insertEmbed({ item: 'x', title: 'x', at: 'center' });
+        return null;
+      } catch (e) {
+        return String((e as Error).message);
+      }
+    });
+    expect(early).toBe('no board is open');
+    await open(page, 'item-a', EMBED);
+    const l = await settledLayout(page);
+    const id = await call<string | null>(page, 'insertEmbed', { item: ITEM3, title: 'Meeting notes', at: 'center' });
+    expect(typeof id).toBe('string');
+    await expect.poll(async () => (await log(page)).change.length).toBeGreaterThan(0);
+    const snap = await snapshot(page);
+    const objects = JSON.parse(snap.board).document.pages[0].objects;
+    const card = objects.find((o: { id: string }) => o.id === id);
+    const frame = card.kind.frame;
+    expect(card).toEqual({
+      id,
+      kind: {
+        type: 'box',
+        geom: 'rect',
+        frame: { x: frame.x, y: frame.y, w: 480, h: 360 },
+        label: { text: [{ text: 'Meeting notes', bold: true, color: '#1d2430' }], family: 'sans', size: 24, align: 'center' },
+        embed: { item: ITEM3 },
+      },
+      style: { stroke: '#c4cad4', fill: '#ffffff', width: 1, dash: 'solid', opacity: 1, roundness: 0.04, shadow: true },
+      layer: 'main',
+    });
+    // the field order of §18.2, as the engine writes it
+    expect(snap.board).toContain(
+      `"label":{"text":[{"text":"Meeting notes","bold":true,"color":"#1d2430"}],"family":"sans","size":24.0,"align":"center"},` +
+        `"embed":{"item":"${ITEM3}"}},"style":{"stroke":"#c4cad4","fill":"#ffffff","width":1.0,"dash":"solid","opacity":1.0,` +
+        `"roundness":0.04,"shadow":true},"layer":"main"}`,
+    );
+    // centred on the view's centre (the canvas's centre in world units)
+    const centre = { x: (640 - l.originX) / l.zoom, y: (360 - l.originY) / l.zoom };
+    expect(Math.abs(frame.x + 240 - centre.x)).toBeLessThan(1);
+    expect(Math.abs(frame.y + 180 - centre.y)).toBeLessThan(1);
+    await expect.poll(async () => (await lastLayout(page))!.embeds.map((e) => e.objectId)).toEqual(['embedcard1', 'embedcard2', id]);
+    expect((await lastLayout(page))!.embeds[2].selected).toBe(true);
+    expect((await lastLayout(page))!.items).toEqual([ITEM1, ITEM2, ITEM3]);
+
+    // at a frame point
+    const at = { x: 900, y: 600 };
+    const second = await call<string>(page, 'insertEmbed', { item: ITEM1, title: 'Here', at });
+    const placed = JSON.parse((await snapshot(page)).board).document.pages[0].objects.find((o: { id: string }) => o.id === second);
+    const want = { x: (at.x - l.originX) / l.zoom, y: (at.y - l.originY) / l.zoom };
+    expect(Math.abs(placed.kind.frame.x + 240 - want.x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(placed.kind.frame.y + 180 - want.y)).toBeLessThanOrEqual(1);
+    // one undo step each
+    await page.locator('#board').focus();
+    await press(page, 'Control+z');
+    await expect.poll(async () => (await snapshot(page)).board.includes(`"id":"${second}"`)).toBe(false);
+    expect((await snapshot(page)).board).toContain(`"id":"${id}"`);
+
+    // read-only: null, and nothing added
+    await open(page, 'item-c', EMBED, { readOnly: true });
+    await settledLayout(page);
+    const readOnly = await snapshot(page);
+    expect(await call(page, 'insertEmbed', { item: ITEM3, title: 'No', at: 'center' })).toBeNull();
+    await page.waitForTimeout(200);
+    const unchanged = await snapshot(page);
+    expect(unchanged.revision).toBe(readOnly.revision);
+    expect(withoutViewText(unchanged.board)).toBe(withoutViewText(readOnly.board));
+
+    // the first layer hidden: the card goes on the second, visible one
+    const layered = embedVariant((board) => {
+      board.document.pages[0].layers = [
+        { id: 'hidden', name: 'Hidden', visible: false, locked: false },
+        { id: 'main', name: 'Layer 1', visible: true, locked: false },
+      ];
+    });
+    await open(page, 'item-d', layered);
+    const third = await call<string>(page, 'insertEmbed', { item: ITEM3, title: 'Layered', at: 'center' });
+    const onLayer = JSON.parse((await snapshot(page)).board).document.pages[0].objects.find((o: { id: string }) => o.id === third);
+    expect(onLayer.layer).toBe('main');
+    await expect.poll(async () => (await lastLayout(page))!.embeds.some((e) => e.objectId === third)).toBe(true);
+    await expectClean(page);
+  });
+
+  test('embeds: titles in place', async ({ page }) => {
+    await connect(page);
+    await open(page, 'item-a', EMBED);
+    await settledLayout(page);
+    const before = await snapshot(page);
+    await call(page, 'setEmbedTitles', { [ITEM1]: 'Renamed page' });
+    await expect.poll(async () => (await lastLayout(page))!.embeds[0].label).toBe('Renamed page');
+    expect((await lastLayout(page))!.embeds[1].label).toBe('Second page');
+    await page.waitForTimeout(300);
+    expect((await log(page)).change).toEqual([]);
+    expect((await snapshot(page)).revision).toBe(before.revision);
+    expect(await call(page, 'isDirty')).toBe(false);
+    // the next save keeps it
+    await drawRectangle(page);
+    await expect.poll(() => lastRevision(page)).toBeGreaterThan(before.revision);
+    expect((await snapshot(page)).board).toContain('"text":"Renamed page"');
+    // a new open() of the board: the map is cleared
+    await open(page, 'item-a', EMBED);
+    await expect.poll(async () => (await lastLayout(page))!.embeds[0].label).toBe('First page');
+    await expectClean(page);
+  });
+
+  test('embeds: round trip and lenient model', async ({ page }) => {
+    await connect(page);
+    await open(page, 'item-a', EMBED, { name: 'Embed test' });
+    expect(withoutViewText((await snapshot(page)).board)).toBe(withoutViewText(EMBED.trim()));
+    const lenient = embedVariant((board) => {
+      const objects = board.document.pages[0].objects;
+      objects[2].kind.embed = 5;
+      objects.push({ ...objects[0], id: 'embedellipse', kind: { ...objects[0].kind, geom: 'ellipse', embed: { item: ITEM3 } } });
+    });
+    await open(page, 'item-b', lenient);
+    expect((await log(page)).error).toEqual([]);
+    const objects = JSON.parse((await snapshot(page)).board).document.pages[0].objects;
+    expect(objects[2].kind).not.toHaveProperty('embed');
+    expect(objects[3].kind.embed).toEqual({ item: ITEM3 });
+    await expect.poll(async () => (await lastLayout(page))!.itemId).toBe('item-b');
+    const l = (await lastLayout(page))!;
+    expect(l.embeds.map((e) => e.objectId)).toEqual(['embedcard1', 'embedcard2']);
+    expect(l.items).toEqual([ITEM1, ITEM2]);
+    await expectClean(page);
+  });
+
+  test('embeds: drop of a sidebar document', async ({ page }) => {
+    await connect(page);
+    await open(page, 'item-a', EMBED);
+    const l = await settledLayout(page);
+    const before = await snapshot(page);
+    const at = EMBED_EMPTY.from;
+    expectClear(l, at, 'the drop point');
+    const item = { v: 1, id: ITEM3, kind: 'doc', title: 'Dropped page' };
+    expect(await dispatchDrag(page, { [DRAG_TYPE]: JSON.stringify(item) }, at)).toEqual({ dragenter: true, dragover: true, drop: true });
+    await expect.poll(async () => (await log(page)).drop).toEqual([{ itemId: 'item-a', item, point: at }]);
+    // ignored: another type, JSON that does not parse, another version, a board, missing fields
+    await dispatchDrag(page, { 'text/plain': 'just text' }, at);
+    for (const value of ['{"v": 1, "id"', JSON.stringify({ ...item, v: 2 }), JSON.stringify({ ...item, kind: 'board' }), JSON.stringify({ v: 1, id: ITEM3, kind: 'doc' })]) {
+      await dispatchDrag(page, { [DRAG_TYPE]: value }, at);
+    }
+    await page.waitForTimeout(300);
+    expect((await log(page)).drop).toHaveLength(1);
+    // read-only: not accepted, and no event
+    await call(page, 'setReadOnly', true);
+    expect(await dispatchDrag(page, { [DRAG_TYPE]: JSON.stringify(item) }, at, ['dragenter', 'dragover'])).toEqual({ dragenter: false, dragover: false });
+    await dispatchDrag(page, { [DRAG_TYPE]: JSON.stringify(item) }, at, ['drop']);
+    await page.waitForTimeout(300);
+    expect((await log(page)).drop).toHaveLength(1);
+    // the engine never saw any of it
+    expect((await snapshot(page)).board).toBe(before.board);
+    await expectClean(page);
+  });
+
+  test('embeds: no rotation handle for a single card', async ({ page }) => {
+    // a card left and a plain box right, fitted with room above both for a rotation handle
+    const board = embedVariant((b) => {
+      const [card, , plain] = b.document.pages[0].objects;
+      card.kind.frame = { x: -600, y: -180, w: 480, h: 360 };
+      plain.kind.frame = { x: 120, y: -60, w: 480, h: 120 };
+      b.document.pages[0].objects = [card, plain];
+    });
+    await connect(page);
+    await open(page, 'item-a', board);
+    let l = await settledLayout(page);
+    const angle = async (id: string) => JSON.parse((await snapshot(page)).board).document.pages[0].objects.find((o: { id: string }) => o.id === id).kind.frame.angle ?? 0;
+    // a selected card: where its rotation handle would be, 28 px above the middle of its top edge, nothing rotates
+    const card = screen(l, -360, 0);
+    await page.mouse.click(card.x, card.y);
+    l = await settledLayout(page);
+    const top = screen(l, -360, -180);
+    const handle = { x: top.x, y: top.y - 28 };
+    expectClear(l, handle, "the card's rotation handle");
+    await drag(page, handle, { x: handle.x + 200, y: handle.y + 150 });
+    await page.waitForTimeout(300);
+    expect(await angle('embedcard1')).toBe(0);
+    // the control: the plain box rotates from the same place relative to it
+    const box = screen(l, 360, 0);
+    await page.mouse.click(box.x, box.y);
+    l = await settledLayout(page);
+    const boxTop = screen(l, 360, -60);
+    const boxHandle = { x: boxTop.x, y: boxTop.y - 28 };
+    expectClear(l, boxHandle, "the plain box's rotation handle");
+    await drag(page, boxHandle, { x: boxHandle.x + 200, y: boxHandle.y + 150 });
+    await expect.poll(async () => Math.abs(await angle('embedplain'))).toBeGreaterThan(0.3);
+    await expectClean(page);
+  });
+
+  test('embeds: read-only', async ({ page }) => {
+    /** A right click on card 1 (it selects under any tool, even the read-only Hand), then the menu's "Edit text". */
+    const editTextFromTheMenu = async (card: Point) => {
+      const known = new Set(((await lastLayout(page))?.occluders ?? []).map((r) => JSON.stringify(r)));
+      await page.mouse.click(card.x, card.y, { button: 'right' });
+      await expect.poll(async () => (await lastLayout(page))!.embeds[0].selected).toBe(true);
+      const l = await settledLayout(page);
+      // opened at the pointer, moved up as far as it needs to fit the window
+      const menu = l.occluders.find((r) => !known.has(JSON.stringify(r)) && Math.abs(r.x - card.x) < 40 && inside(r, card));
+      expect(menu, `the context menu, among ${JSON.stringify(l.occluders)}, near ${JSON.stringify(card)}`).toBeDefined();
+      // the sixth row (Cut, Copy, Copy as image, Paste, Duplicate, Edit text): border 1, margin 6, rows of 32 px
+      await page.mouse.click(menu!.x + 60, menu!.y + 1 + 6 + 5 * 32 + 16);
+      await page.waitForTimeout(400);
+    };
+    await connect(page);
+    // the control, on a writable board: that row is "Edit text", which opens the card
+    await open(page, 'item-a', EMBED);
+    let l = await settledLayout(page);
+    const card = screen(l, -280, 60);
+    expectClear(l, card, 'card 1');
+    await editTextFromTheMenu(card);
+    await expect.poll(async () => (await log(page)).open).toEqual([{ itemId: 'item-a', objectId: 'embedcard1', item: ITEM1, point: null }]);
+
+    await open(page, 'item-b', EMBED, { readOnly: true });
+    l = await settledLayout(page);
+    expect(screen(l, -280, 60)).toEqual(card);
+    await page.mouse.dblclick(card.x, card.y);
+    await page.waitForTimeout(400);
+    await editTextFromTheMenu(card);
+    await page.locator('#board').focus();
+    await press(page, 'Enter');
+    await page.waitForTimeout(400);
+    expect((await log(page)).open).toHaveLength(1);
+    expect((await log(page)).change).toEqual([]);
+    await expectClean(page);
   });
 });

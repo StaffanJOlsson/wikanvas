@@ -15,9 +15,13 @@
 // - A WebAssembly.RuntimeError reaching window `error` or `unhandledrejection` reports onError{kind:'panic'} (once,
 //   shared with the engine's own panic report).
 // - pagehide (not into the back/forward cache) releases the WebGL context.
+// - Board document embeds (§18.4): the engine's card events are forwarded with the board's itemId, in frame-viewport pixels
+//   (the canvas's offset added); insertEmbed, setEmbedEditing, setEmbedTitles and requestEmbedLayout reach the engine; a sidebar
+//   document dragged onto the canvas (DragItemType) is accepted in the capture phase, never reaches the engine's own file drop,
+//   and becomes onDropItem. Refused while the board is read-only.
 
-/** @import { BoardFrameApi, ConnectError, FrameErrorKind, FrameEvents, OpenArgs, QuireBoardFrame } from '../src/board/bridge.ts' */
-/** @import { InkboardEmbed, InkboardHandle } from './inkboard.js' */
+/** @import { BoardFrameApi, ConnectError, DragItemType, DraggedItem, FrameErrorKind, FrameEvents, FrameRect, OpenArgs, QuireBoardFrame } from '../src/board/bridge.ts' */
+/** @import { CanvasRect, EngineEmbedEditEnd, EngineEmbedLayout, EngineEmbedOpen, EngineInsertEmbed, InkboardEmbed, InkboardHandle } from './inkboard.js' */
 import init from './inkboard.js';
 
 /**
@@ -27,6 +31,8 @@ import init from './inkboard.js';
 
 const WASM = 'inkboard_bg.wasm';
 const DOUBLE_ESCAPE_MS = 500;
+/** The native drag type of a sidebar document row (bridge.ts). @type {DragItemType} */
+const DRAG_ITEM_TYPE = 'application/x-quire-item';
 
 const canvas = /** @type {HTMLCanvasElement} */ (document.getElementById('board'));
 
@@ -42,6 +48,14 @@ let current = null;
 let queue = Promise.resolve();
 let active = true;
 let panicked = false;
+/** The last readOnly of open() or setReadOnly(). */
+let readOnly = false;
+/**
+ * The board that a setBoard() is leaving, while the engine's report of the editing that setBoard ended ('gone') may still be on
+ * its way: engine events arrive after the call that caused them, by which time `current` is already the new board.
+ * @type {string | null}
+ */
+let leaving = null;
 
 /**
  * Reports a failure through onError (a panic only once) and returns what to throw or reject with.
@@ -223,6 +237,9 @@ function mountBoard(engine, a) {
         onError(e) {
           fail('panic', e.message, current);
         },
+        onEmbedLayout,
+        onEmbedOpen,
+        onEmbedEditEnd,
       })
       .then((h) => {
         mounted = h;
@@ -240,6 +257,7 @@ async function openNow(engine, a) {
   await whenVisible();
   if (handle === null) {
     current = a.itemId;
+    readOnly = a.readOnly;
     try {
       handle = await mountBoard(engine, a);
     } catch (error) {
@@ -249,14 +267,17 @@ async function openNow(engine, a) {
     }
     if (!active) handle.setActive(false);
   } else {
+    leaving = current;
     try {
       handle.setBoard(a.board, a.name);
     } catch (error) {
       // the previous board stays in the engine, and so does its itemId
+      leaving = null;
       const { kind, message } = engineError(error, 'load');
       throw fail(kind, message, a.itemId);
     }
     current = a.itemId;
+    readOnly = a.readOnly;
     handle.setReadOnly(a.readOnly);
     handle.setName(a.name);
     handle.setTheme(a.theme);
@@ -291,7 +312,10 @@ async function start() {
     isDirty: () => handle?.isDirty() ?? false,
     markSaved: (revision) => handle?.markSaved(revision),
     setTheme: (theme) => handle?.setTheme(theme),
-    setReadOnly: (readOnly) => handle?.setReadOnly(readOnly),
+    setReadOnly(on) {
+      readOnly = on;
+      handle?.setReadOnly(on);
+    },
     setName: (name) => handle?.setName(name),
     setActive(on) {
       active = on;
@@ -302,9 +326,139 @@ async function start() {
       else canvas.focus();
     },
     fitView: () => handle?.fitView(),
+    insertEmbed(a) {
+      if (handle === null || current === null) throw new Error('no board is open');
+      if (!handle.insertEmbed) throw new Error('this engine cannot embed documents');
+      const { left, top } = canvas.getBoundingClientRect();
+      const at = a.at === 'center' ? 'center' : { x: a.at.x - left, y: a.at.y - top };
+      /** @type {EngineInsertEmbed} */
+      const args = { item: a.item, title: a.title, at };
+      if (a.w !== undefined) args.w = a.w;
+      if (a.h !== undefined) args.h = a.h;
+      return handle.insertEmbed(args);
+    },
+    setEmbedEditing: (objectId) => handle?.setEmbedEditing?.(objectId),
+    setEmbedTitles: (titles) => handle?.setEmbedTitles?.({ ...titles }),
+    requestEmbedLayout: () => handle?.requestEmbedLayout?.(),
   };
   return Object.freeze(api);
 }
+
+/* ---------------------------------------------------------------------------------------------- board document embeds */
+
+/**
+ * A canvas rectangle in frame-viewport pixels.
+ * @param {CanvasRect} r
+ * @param {number} left
+ * @param {number} top
+ * @returns {FrameRect}
+ */
+function frameRect(r, left, top) {
+  return { x: r.x + left, y: r.y + top, width: r.width, height: r.height };
+}
+
+/** @param {EngineEmbedLayout} e */
+function onEmbedLayout(e) {
+  // a layout is drawn after the setBoard that preceded it: any 'gone' of the previous board came before
+  leaving = null;
+  if (current === null) return;
+  const { left, top } = canvas.getBoundingClientRect();
+  events.onEmbedLayout?.({
+    itemId: current,
+    page: e.page,
+    zoom: e.zoom,
+    originX: e.originX + left,
+    originY: e.originY + top,
+    canvas: frameRect(e.canvas, left, top),
+    occluders: e.occluders.map((r) => frameRect(r, left, top)),
+    embeds: e.embeds.map((b) => ({
+      objectId: b.id,
+      item: b.item,
+      x: b.x,
+      y: b.y,
+      w: b.w,
+      h: b.h,
+      angle: b.angle,
+      label: b.label,
+      selected: b.selected,
+      locked: b.locked,
+    })),
+    items: e.items,
+    editing: e.editing,
+  });
+}
+
+/** @param {EngineEmbedOpen} e */
+function onEmbedOpen(e) {
+  if (current === null) return;
+  const { left, top } = canvas.getBoundingClientRect();
+  const point = e.point === null ? null : { x: e.point.x + left, y: e.point.y + top };
+  events.onEmbedOpen?.({ itemId: current, objectId: e.id, item: e.item, point });
+}
+
+/** @param {EngineEmbedEditEnd} e */
+function onEmbedEditEnd(e) {
+  const itemId = e.reason === 'gone' && leaving !== null ? leaving : current;
+  leaving = null;
+  if (itemId === null) return;
+  events.onEmbedEditEnd?.({ itemId, objectId: e.id, reason: e.reason });
+}
+
+/**
+ * The sidebar document a drag carries, or null for anything else (a value that does not parse, another version, another kind).
+ * @param {string} json
+ * @returns {DraggedItem | null}
+ */
+function draggedItem(json) {
+  /** @type {unknown} */
+  let value;
+  try {
+    value = JSON.parse(json);
+  } catch {
+    return null;
+  }
+  if (!value || typeof value !== 'object') return null;
+  const v = /** @type {Record<string, unknown>} */ (value);
+  if (v.v !== 1 || v.kind !== 'doc' || typeof v.id !== 'string' || typeof v.title !== 'string') return null;
+  return { v: 1, id: v.id, kind: 'doc', title: v.title };
+}
+
+/** @param {DragEvent} e */
+function carriesItem(e) {
+  return !!e.dataTransfer && Array.from(e.dataTransfer.types).includes(DRAG_ITEM_TYPE);
+}
+
+/** Does the open board take a sidebar document? */
+function takesDrops() {
+  return handle !== null && current !== null && !readOnly && !panicked;
+}
+
+// Capture phase on window: a sidebar document never reaches the engine's own drag and drop (which takes image files). Accepted
+// (preventDefault) only while a writable board is open; otherwise the browser shows that it cannot be dropped here.
+for (const type of /** @type {const} */ (['dragenter', 'dragover'])) {
+  window.addEventListener(
+    type,
+    (e) => {
+      if (!carriesItem(e)) return;
+      e.stopPropagation();
+      if (takesDrops()) e.preventDefault();
+    },
+    { capture: true },
+  );
+}
+window.addEventListener(
+  'drop',
+  (e) => {
+    if (!carriesItem(e) || !e.dataTransfer) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (!takesDrops() || current === null) return;
+    const item = draggedItem(e.dataTransfer.getData(DRAG_ITEM_TYPE));
+    if (item === null) return;
+    events.onDropItem?.({ itemId: current, item, point: { x: e.clientX, y: e.clientY } });
+  },
+  { capture: true },
+);
 
 /** @type {QuireBoardFrame} */
 const quireBoardFrame = {
