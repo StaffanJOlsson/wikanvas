@@ -29,7 +29,7 @@ use inkboard_core::model::{Asset, AssetId, Document, ImageObj, Kind, Page, Table
 use inkboard_core::serial::{self, LoadError};
 use inkboard_core::svg::SvgOptions;
 use inkboard_core::text::{ApproxMeasurer, TextLayout, layout_rich};
-use serde::de::{Deserializer, IgnoredAny, MapAccess, Visitor};
+use serde::de::{Deserializer, IgnoredAny, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 
@@ -363,7 +363,6 @@ pub fn splice(
 pub fn inspect(full: &str) -> Result<Inspect, BoardError> {
     let doc = serial::from_json(full)?;
     check_shapes(&doc)?;
-    let embeds = embeds(full)?;
     let text = text_of(&doc);
     let meta = Meta {
         pages: doc
@@ -379,6 +378,9 @@ pub fn inspect(full: &str) -> Result<Inspect, BoardError> {
         bytes: full.len() as u64,
         text_excerpt: excerpt(&text).to_owned(),
     };
+    // The scan's lists are never held beside the typed document (a 50 MB board's peak, D25).
+    drop(doc);
+    let embeds = embeds(full)?;
     Ok(Inspect { text, meta, embeds })
 }
 
@@ -394,8 +396,13 @@ pub fn inspect(full: &str) -> Result<Inspect, BoardError> {
 /// everything else; no `Value` tree is built (D9). No value of `embed` is refused (D60). The one refusal (422
 /// `invalid_board`) is a box kind with the key `embed` twice: the M1.1 engine's model knows `embed` and refuses the
 /// repeated field (serde's `duplicate_field`), while this server's unpatched model ignores both, so such a board
-/// could be stored but never opened in the web client (§18.3 "Lenient model"). A body the pass cannot read gives no
-/// targets, never an error.
+/// could be stored but never opened in the web client (§18.3 "Lenient model").
+///
+/// The pass reads every shape `from_json` accepts: its envelope, document, page and object structs have the engine's
+/// fields in the engine's order, so serde reads each from a JSON object or, by position, from a JSON array, as the
+/// engine does; a kind by position is never a card (`from_json` refuses one long enough to hold `embed`). A body the
+/// pass cannot read (one that
+/// `from_json` refuses) gives no targets, never an error.
 pub fn embeds(full: &str) -> Result<Vec<String>, BoardError> {
     let Ok(env) = serde_json::from_str::<ScanEnvelope<'_>>(serial::strip_bom(full)) else {
         return Ok(Vec::new());
@@ -436,23 +443,45 @@ pub fn is_canonical_uuid(s: &str) -> bool {
         })
 }
 
-/// What the embed scan reads of an envelope.
+/// What the embed scan reads of an envelope. This struct and the three below have exactly the fields of `serial`'s
+/// envelope and of `model::{Document, Page, Object}`, in the same order and with the same defaults, the unread ones as
+/// [`IgnoredAny`]: serde reads a struct from a JSON object (by name) or from a JSON array (by position), and the
+/// engine accepts both at every level, so with fewer or reordered fields the scan would read an array differently or
+/// not at all, and lose every link of a board the engine opens (or let a repeated `embed` key through).
 #[derive(Deserialize)]
 struct ScanEnvelope<'a> {
+    #[serde(rename = "format")]
+    _format: IgnoredAny,
+    #[serde(rename = "version")]
+    _version: IgnoredAny,
     #[serde(borrow)]
     document: ScanDocument<'a>,
 }
 
 #[derive(Deserialize)]
 struct ScanDocument<'a> {
+    #[serde(rename = "name")]
+    _name: IgnoredAny,
+    #[serde(rename = "background", default)]
+    _background: IgnoredAny,
     #[serde(borrow)]
     pages: Vec<ScanPage<'a>>,
+    #[serde(rename = "assets", default)]
+    _assets: IgnoredAny,
 }
 
 #[derive(Deserialize)]
 struct ScanPage<'a> {
+    #[serde(rename = "id")]
+    _id: IgnoredAny,
+    #[serde(rename = "name")]
+    _name: IgnoredAny,
+    #[serde(rename = "layers")]
+    _layers: IgnoredAny,
     #[serde(borrow)]
     objects: Vec<ScanObject<'a>>,
+    #[serde(rename = "view", default)]
+    _view: IgnoredAny,
 }
 
 #[derive(Deserialize)]
@@ -461,10 +490,23 @@ struct ScanObject<'a> {
     id: Cow<'a, str>,
     #[serde(borrow)]
     kind: ScanKind<'a>,
+    #[serde(rename = "style", default)]
+    _style: IgnoredAny,
+    #[serde(rename = "group", default)]
+    _group: IgnoredAny,
+    #[serde(rename = "locked", default)]
+    _locked: IgnoredAny,
+    #[serde(rename = "layer", default)]
+    _layer: IgnoredAny,
 }
 
 /// What the embed scan reads of an object's `kind`. Read by hand rather than derived, so that a key repeated in a
 /// kind that both engines accept (a `geom` in a pen, say) neither fails the scan nor counts as a card.
+///
+/// A kind may also be a JSON array: serde reads an internally tagged enum from `[tag, field…]`, the variant's fields
+/// by position. Such a kind holds no `embed` key and is no card: the unpatched model refuses a `box` array with more
+/// elements than `BoxObj`'s four fields (`geom`, `frame`, `label`, `lang`), so `from_json` never accepts one that
+/// would hold a fifth, the M1.1 engine's `embed`.
 struct ScanKind<'a> {
     /// `type` is `"box"`.
     is_box: bool,
@@ -512,8 +554,17 @@ impl<'de: 'a, 'a> Deserialize<'de> for ScanKind<'a> {
                     embed_keys,
                 })
             }
+
+            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<ScanKind<'a>, A::Error> {
+                while seq.next_element::<IgnoredAny>()?.is_some() {}
+                Ok(ScanKind {
+                    is_box: false,
+                    card: None,
+                    embed_keys: 0,
+                })
+            }
         }
-        d.deserialize_map(V(PhantomData))
+        d.deserialize_any(V(PhantomData))
     }
 }
 
@@ -1646,6 +1697,71 @@ mod tests {
         // An escaped character that leaves a non-canonical id is still not linked.
         let upper = EMBED_FIXTURE.replacen(P1, r"0192f0e0-0000-7000-8000-00000000000\u0041", 1);
         assert_eq!(inspect(&upper).unwrap().embeds, [P2]);
+    }
+
+    /// `body` with its envelope and its page 0 written as JSON arrays (by position), as serde also reads them.
+    fn positional(body: &str) -> String {
+        let mut v: Value = serde_json::from_str(body).unwrap();
+        let mut page = v["document"]["pages"][0].take();
+        v["document"]["pages"][0] = Value::Array(
+            ["id", "name", "layers", "objects", "view"]
+                .map(|k| page[k].take())
+                .into(),
+        );
+        let envelope: Vec<Value> = ["format", "version", "document"]
+            .map(|k| v[k].take())
+            .into();
+        serde_json::to_string(&envelope).unwrap()
+    }
+
+    #[test]
+    fn embeds_read_positional_forms() {
+        // serde reads a struct, and an internally tagged enum, from a JSON array too (fields by position), and
+        // `from_json` accepts that at every level: the scan finds the same cards there, and refuses the same key.
+        let frame = r#"{"x":0.0,"y":0.0,"w":10.0,"h":10.0}"#;
+        let style = r#"{"stroke":"ink","fill":null,"width":3.0,"dash":"solid","opacity":1.0,"roundness":0.0}"#;
+        let plain_kind = format!(r#"{{"id":"bypos","kind":["box","rect",{frame}]}}"#);
+        let card_object = format!(
+            r#"["objbypos",{{"type":"box","geom":"rect","frame":{frame},"embed":{{"item":"{}"}}}},{style},null,false,"main"]"#,
+            uuid(4)
+        );
+        let body = with_first_object(&format!("{plain_kind},{card_object}"));
+        assert_eq!(serial::from_json(&body).unwrap().pages[0].objects.len(), 5);
+        let want = [uuid(4), P1.to_owned(), P2.to_owned()];
+        assert_eq!(inspect(&body).unwrap().embeds, want);
+        let all = positional(&body);
+        assert!(all.starts_with(r#"["inkboard",2,{"#), "{all}");
+        assert_eq!(serial::from_json(&all).unwrap().pages[0].objects.len(), 5);
+        assert_eq!(inspect(&all).unwrap().embeds, want);
+        // A repeated `embed` key is refused beside a kind by position, however the rest is written.
+        // (Repeated after `positional`, whose `Value` would keep only one of the two keys.)
+        let card1 = format!(r#""embed":{{"item":"{P1}"}}"#);
+        let repeat = |b: &str| {
+            assert_eq!(b.matches(&card1).count(), 1, "{b}");
+            b.replacen(&card1, &format!(r#"{card1},"embed":5"#), 1)
+        };
+        for b in [repeat(&body), repeat(&all)] {
+            assert!(serial::from_json(&b).is_ok(), "{b}");
+            assert_eq!(
+                inspect(&b).unwrap_err().code(),
+                ErrorCode::InvalidBoard,
+                "{b}"
+            );
+        }
+        // A box kind by position is never a card: the unpatched model takes at most its four fields, so a fifth
+        // element (where the M1.1 engine would read `embed`) is refused; four or fewer is a plain box.
+        let label = r#"{"size":24.0}"#;
+        let with_lang = format!(r#"{{"id":"lang","kind":["box","rect",{frame},{label},null]}}"#);
+        assert_eq!(
+            inspect(&with_first_object(&with_lang)).unwrap().embeds,
+            [P1, P2]
+        );
+        let fifth = format!(
+            r#"{{"id":"fifth","kind":["box","rect",{frame},{label},null,{{"item":"{}"}}]}}"#,
+            uuid(5)
+        );
+        let e = inspect(&with_first_object(&fifth)).unwrap_err();
+        assert_eq!(e.code(), ErrorCode::InvalidBoard);
     }
 
     #[test]

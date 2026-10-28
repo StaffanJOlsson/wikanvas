@@ -1192,18 +1192,41 @@ async fn save_records_embed_links() {
         .await
         .unwrap();
     assert_eq!(links_from(&t, &board).await, embeds_to(&[&x]));
-    // A no-op save keeps them (the body did not change, so neither do they).
+    // A no-op save leaves the links untouched (the body did not change): it does not write them again, so a row
+    // added by hand (no card holds P2 now) is still there after it.
+    let b = board.clone();
+    t.w(move |tx| {
+        tx.execute(
+            "INSERT INTO item_links (source_id, target_id, kind) VALUES (?1, ?2, 'embed')",
+            params![b, P2],
+        )?;
+        Ok(())
+    })
+    .await
+    .unwrap();
     let noop = put(&t, &board, &owner, None, &one, IfMatch::Revs(vec![1]))
         .await
         .unwrap();
     assert!(!noop.changed);
-    assert_eq!(links_from(&t, &board).await, embeds_to(&[&x]));
+    assert_eq!(links_from(&t, &board).await, embeds_to(&[&x, P2]));
     // A refused save changes nothing either.
     let stale = put(&t, &board, &owner, None, &both, IfMatch::Revs(vec![1]))
         .await
         .unwrap_err();
     assert!(stale.is(ErrorCode::RevMismatch));
-    assert_eq!(links_from(&t, &board).await, embeds_to(&[&x]));
+    assert_eq!(links_from(&t, &board).await, embeds_to(&[&x, P2]));
+    // A save replaces them, whatever else the body holds: here a plain box whose kind is written as a JSON array
+    // (serde reads `["box", "rect", frame]` by position, as the engine does) keeps both cards linked.
+    let by_position = both.replacen(
+        r#""objects":["#,
+        r#""objects":[{"id":"bypos","kind":["box","rect",{"x":0.0,"y":0.0,"w":10.0,"h":10.0}]},"#,
+        1,
+    );
+    assert_ne!(by_position, both);
+    put(&t, &board, &owner, None, &by_position, IfMatch::Any)
+        .await
+        .unwrap();
+    assert_eq!(links_from(&t, &board).await, embeds_to(&[&x, &y]));
     // The board's own id is never linked; a target that does not exist is (nothing checks existence).
     put(
         &t,
