@@ -1,11 +1,12 @@
 //! Route /api/v1/export (owner: W2)
 //!
 //! D34, §12: `GET /export` (admin) streams a tar of `manifest.json`, a credential-free copy of the database and every
-//! blob file. Single-flight (429 `busy`) until the stream ends or the client goes away, after the free-space check
-//! (507). With the session cookie the request must come from Quire itself: `Sec-Fetch-Site` `same-origin` or `none`,
-//! or, without fetch metadata, a same-origin `Referer` (403 `csrf_rejected`), because SameSite=Lax sends the cookie
-//! on cross-site navigations. The tar is produced on the blocking pool into 256 KiB chunks through a 4-chunk channel
-//! (D25), so at most about 1 MiB is in flight.
+//! blob file. Single-flight (429 `busy`) until the stream ends or the client goes away, and while a copy runs even
+//! when its request is gone; after the free-space check (507). The 30 s request deadline does not apply, because the
+//! copy is made before the response starts (`app::deadline`). With the session cookie the request must come from
+//! Quire itself: `Sec-Fetch-Site` `same-origin` or `none`, or, without fetch metadata, a same-origin `Referer` (403
+//! `csrf_rejected`), because SameSite=Lax sends the cookie on cross-site navigations. The tar is produced on the
+//! blocking pool into 256 KiB chunks through a 4-chunk channel (D25), so at most about 1 MiB is in flight.
 
 use std::io::Write;
 
@@ -105,11 +106,17 @@ async fn export(
         .single_flight
         .try_start(Flight::Export)
         .ok_or_else(ApiError::busy)?;
-    state.check_free_space()?;
-    let (db, tmp) = (state.db.clone(), state.config.tmp_dir());
-    let copy = tokio::task::spawn_blocking(move || quire_store::export::prepare_copy(&db, &tmp))
-        .await
-        .map_err(ApiError::internal)??;
+    // The free-space check and the copy run on the blocking pool, which also owns the guard. When this request goes
+    // away first (the client left), the pool still finishes the copy and then drops it (deleting the file) and the
+    // guard, so no second export starts while a copy is being written.
+    let worker = state.clone();
+    let (copy, guard) = tokio::task::spawn_blocking(move || {
+        worker.check_free_space()?;
+        let copy = quire_store::export::prepare_copy(&worker.db, &worker.config.tmp_dir())?;
+        Ok::<_, ApiError>((copy, guard))
+    })
+    .await
+    .map_err(ApiError::internal)??;
     let now = state.now();
     let manifest = Manifest::new(crate::cli::version(), copy.schema_version(), now);
     let files_dir = state.config.files_dir();

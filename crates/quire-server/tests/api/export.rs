@@ -1,10 +1,15 @@
 //! Export tests (owner: W2)
 //!
 //! `GET /api/v1/export`: the tar layout, a database copy without credentials (checked on the extracted file and its
-//! raw bytes), single-flight, and the cookie rule for cross-site navigations.
+//! raw bytes), single-flight (also while a copy whose client left still runs, for the on-demand backup too), no
+//! request deadline for the copy, and the cookie rule for cross-site navigations.
+
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Condvar, Mutex};
+use std::time::Duration;
 
 use axum::body::Body;
-use axum::http::Request;
+use axum::http::{Method, Request};
 use quire_api::{Attachment, ErrorBody, ErrorCode, Scope};
 use tower::ServiceExt as _;
 
@@ -267,4 +272,174 @@ async fn cookie_cross_site_navigation_403() {
         .add_header("sec-fetch-site", "cross-site")
         .await
         .assert_status_ok();
+}
+
+/// A free-space probe that blocks while the gate is closed, standing in for a slow copy (the export and the backup
+/// call it on the blocking pool, holding their single-flight flag); it counts its calls.
+#[derive(Default)]
+struct Gate {
+    closed: Mutex<bool>,
+    opened: Condvar,
+    calls: AtomicUsize,
+}
+
+impl Gate {
+    fn closed() -> Arc<Gate> {
+        let gate = Gate::default();
+        *gate.closed.lock().unwrap() = true;
+        Arc::new(gate)
+    }
+
+    fn probe(self: &Arc<Self>) -> quire_server::state::FreeSpaceProbe {
+        let gate = Arc::clone(self);
+        Arc::new(move |_, _| {
+            gate.calls.fetch_add(1, Ordering::SeqCst);
+            let mut closed = gate.closed.lock().unwrap();
+            while *closed {
+                closed = gate.opened.wait(closed).unwrap();
+            }
+            Ok(())
+        })
+    }
+
+    fn open(&self) {
+        *self.closed.lock().unwrap() = false;
+        self.opened.notify_all();
+    }
+
+    fn calls(&self) -> usize {
+        self.calls.load(Ordering::SeqCst)
+    }
+
+    async fn wait_for_calls(&self, n: usize) {
+        for _ in 0..500 {
+            if self.calls() >= n {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        panic!("the probe was called {} times, not {n}", self.calls());
+    }
+}
+
+/// Opens the gate when the test ends, even when it fails, so no blocking task stays stuck.
+struct OpenOnDrop(Arc<Gate>);
+
+impl Drop for OpenOnDrop {
+    fn drop(&mut self) {
+        self.0.open();
+    }
+}
+
+const COPIES: [(Method, &str); 2] = [
+    (Method::GET, "/api/v1/export"),
+    (Method::POST, "/api/v1/admin/backup"),
+];
+
+fn bearer(method: Method, path: &str, token: &str) -> Request<Body> {
+    Request::builder()
+        .method(method)
+        .uri(path)
+        .header("host", "localhost")
+        .header("authorization", format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap()
+}
+
+fn files_named(dir: &std::path::Path, prefix: &str) -> Vec<String> {
+    std::fs::read_dir(dir)
+        .map(|d| {
+            d.flatten()
+                .map(|e| e.file_name().into_string().unwrap())
+                .filter(|n| n.starts_with(prefix))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+#[tokio::test]
+async fn single_flight_held_while_an_abandoned_copy_runs() {
+    let (mut app, token, _) = populated().await;
+    let gate = Gate::closed();
+    let _open = OpenOnDrop(Arc::clone(&gate));
+    app.state.free_space = gate.probe();
+    // Each copy starts, then its client goes away: the request future is dropped while the copy runs.
+    for (n, (method, path)) in COPIES.into_iter().enumerate() {
+        let task = tokio::spawn(router(&app.state).oneshot(bearer(method, path, &token)));
+        gate.wait_for_calls(n + 1).await;
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+    }
+    // The abandoned copies still hold their flags: a retry is busy and starts no second copy.
+    for (method, path) in COPIES {
+        let res = router(&app.state)
+            .oneshot(bearer(method, path, &token))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), 429, "{path}");
+        let body = axum::body::to_bytes(res.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        let err: ErrorBody = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            err.error.details,
+            Some(serde_json::json!({"reason": "busy"}))
+        );
+    }
+    assert_eq!(gate.calls(), 2, "no second copy started");
+    // Once they are done, the flags are free; the abandoned export deleted its copy.
+    gate.open();
+    for (method, path) in COPIES {
+        let mut res = None;
+        for _ in 0..500 {
+            let r = router(&app.state)
+                .oneshot(bearer(method.clone(), path, &token))
+                .await
+                .unwrap();
+            if r.status() != 429 {
+                res = Some(r);
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let res = res.expect("the flag is released");
+        assert_eq!(res.status(), 200, "{path}");
+        let body = axum::body::to_bytes(res.into_body(), 64 << 20)
+            .await
+            .unwrap();
+        if method == Method::GET {
+            assert!(untar(&body).len() >= 2);
+        }
+    }
+    assert_eq!(
+        files_named(&app.state.config.tmp_dir(), "export-"),
+        Vec::<String>::new()
+    );
+    assert_eq!(
+        files_named(&app.state.config.backups_dir(), "quire-").len(),
+        2,
+        "the abandoned backup finished, then the retried one"
+    );
+}
+
+#[tokio::test]
+async fn slow_copy_is_not_cut_by_the_request_deadline() {
+    let mut app = TestApp::with_config(|c| c.request_timeout = Duration::from_millis(100)).await;
+    app.sign_in_owner().await;
+    let token = app.mint_token(app.owner(), Scope::Admin).await;
+    // Each copy takes longer than the 100 ms deadline of other requests.
+    app.state.free_space = Arc::new(|_, _| {
+        std::thread::sleep(Duration::from_millis(400));
+        Ok(())
+    });
+    for (method, path) in COPIES {
+        let res = router(&app.state)
+            .oneshot(bearer(method, path, &token))
+            .await
+            .unwrap();
+        assert_eq!(res.status(), 200, "{path}");
+        axum::body::to_bytes(res.into_body(), 64 << 20)
+            .await
+            .unwrap();
+    }
 }

@@ -4,9 +4,11 @@
 //! - it computes the client address and scheme once ([`ClientInfo`], §8), records the IP in the access log's span,
 //!   and gives the request a [`RequestContext`];
 //! - for a Quire bearer request it meters the body as it is read: bytes beyond what `Auth<S>` counted from
-//!   `Content-Length` are counted against the token's hourly budget as they arrive, and a body that goes over it is
-//!   cut off and answered with 429 `rate_limited` (`reason: bytes`) (D47);
-//! - on the way out it adds a renewed session cookie, `X-Content-Type-Options: nosniff` on every response,
+//!   `Content-Length` are counted against the token's hourly budget as they arrive, one KiB each time the total
+//!   crosses a KiB boundary (so a body costs whole KiB of its size however it is chunked), and a body that goes over
+//!   the budget is cut off and answered with 429 `rate_limited` (`reason: bytes`) (D47);
+//! - on the way out it adds a renewed session cookie (unless the handler set the session cookie itself, as logout
+//!   and login do), `X-Content-Type-Options: nosniff` on every response,
 //!   `Cache-Control: no-store` on `/api/` responses that set no cache policy of their own, and
 //!   `Strict-Transport-Security: max-age=31536000` on every response to an HTTPS request when `QUIRE_TLS=acme`
 //!   (D57: never in `internal` mode, never on plain HTTP).
@@ -29,7 +31,7 @@ use quire_api::RateLimitReason;
 use crate::config::TlsMode;
 use crate::csrf::is_quire_bearer;
 use crate::error::ApiError;
-use crate::extract::{ClientInfo, RequestContext};
+use crate::extract::{ClientInfo, RequestContext, SESSION_COOKIE, SESSION_COOKIE_SECURE};
 use crate::state::AppState;
 
 /// HSTS (D57): one year, no `includeSubDomains`, no `preload`.
@@ -87,7 +89,9 @@ pub async fn layer(State(state): State<AppState>, mut req: Request, next: Next) 
                     && read > charged
                 {
                     meter.body_charged.store(read, Ordering::Relaxed);
-                    if let Err(retry) = limiter.check(token, read - charged) {
+                    // The KiB boundaries this chunk crossed: the charges add up to ceil(total / 1024) KiB.
+                    let kib = read.div_ceil(1024) - charged.div_ceil(1024);
+                    if let Err(retry) = limiter.check(token, kib * 1024) {
                         *meter.over_budget.lock().unwrap_or_else(|p| p.into_inner()) = Some(retry);
                         return Err(axum::Error::new(std::io::Error::other(
                             "the token's request bytes per hour are used up",
@@ -112,7 +116,9 @@ pub async fn layer(State(state): State<AppState>, mut req: Request, next: Next) 
         .unwrap_or_else(|p| p.into_inner())
         .take();
     let headers = res.headers_mut();
-    if let Some(cookie) = cookie {
+    if let Some(cookie) = cookie
+        && !sets_session_cookie(headers)
+    {
         headers.append(header::SET_COOKIE, cookie);
     }
     headers
@@ -128,4 +134,48 @@ pub async fn layer(State(state): State<AppState>, mut req: Request, next: Next) 
         );
     }
     res
+}
+
+/// Whether the response already sets (or clears) the session cookie of either scheme: then a renewal must not follow
+/// it, because the browser applies `Set-Cookie` headers in order and the last one would win.
+fn sets_session_cookie(headers: &HeaderMap) -> bool {
+    headers.get_all(header::SET_COOKIE).iter().any(|v| {
+        let name = v
+            .as_bytes()
+            .split(|b| *b == b'=')
+            .next()
+            .unwrap_or_default();
+        name == SESSION_COOKIE.as_bytes() || name == SESSION_COOKIE_SECURE.as_bytes()
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn session_cookie_in_response() {
+        let mut h = HeaderMap::new();
+        assert!(!sets_session_cookie(&h));
+        h.append(
+            header::SET_COOKIE,
+            HeaderValue::from_static("other=1; Path=/"),
+        );
+        h.append(
+            header::SET_COOKIE,
+            HeaderValue::from_static("quire_session_x=1; Path=/"),
+        );
+        assert!(!sets_session_cookie(&h));
+        h.append(
+            header::SET_COOKIE,
+            HeaderValue::from_static("quire_session=; Max-Age=0"),
+        );
+        assert!(sets_session_cookie(&h));
+        let mut h = HeaderMap::new();
+        h.append(
+            header::SET_COOKIE,
+            HeaderValue::from_static("__Host-quire_session=abc; Secure"),
+        );
+        assert!(sets_session_cookie(&h));
+    }
 }

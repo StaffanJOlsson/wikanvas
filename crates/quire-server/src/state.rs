@@ -104,6 +104,11 @@ impl LastUsed {
         let mut map = self.written.lock().unwrap_or_else(|p| p.into_inner());
         map.retain(|_, last| now - *last < 3_600_000);
     }
+
+    /// The number of tokens it remembers.
+    pub fn keys(&self) -> usize {
+        self.written.lock().unwrap_or_else(|p| p.into_inner()).len()
+    }
 }
 
 /// What is single-flight (D47).

@@ -1,11 +1,17 @@
 //! Admin command tests (owner: W2)
 //!
 //! `quire-server admin …` runs as the real binary on a temporary data directory, also while an in-process server
-//! has the same database open (WAL, a second process).
+//! has the same database open (WAL, a second process). The background jobs of §12 are called directly: the hourly
+//! run, purge and GC in their order, the backup schedule, and backups that never overlap across processes.
 
-use quire_api::{ErrorCode, Me, Scope};
+use std::time::{Duration, UNIX_EPOCH};
+
+use axum::http::StatusCode;
+use quire_api::{Attachment, ErrorCode, Me, Scope};
+use quire_core::api::{ItemKind, NewCollection, NewItem};
 use quire_server::AppState;
 use quire_server::config::Config;
+use quire_server::jobs::{self, BACKUP_STARTUP_DELAY};
 use serde_json::json;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
@@ -447,4 +453,242 @@ async fn reset_password_revoke_tokens() {
     );
     ok(&text);
     assert!(String::from_utf8_lossy(&text.stdout).contains("Temporary password"));
+}
+
+const DAY: i64 = 86_400_000;
+
+#[tokio::test]
+async fn backup_busy_while_another_process_holds_the_lock() {
+    let app = TestApp::with_owner().await;
+    let dir = app.state.config.backups_dir();
+    std::fs::create_dir_all(&dir).unwrap();
+    // This process plays the server whose scheduled backup is running.
+    let held = quire_store::backup::lock(&dir).unwrap();
+    let out = admin(app.dir.path(), &["--json", "backup"], None);
+    assert_eq!(out.status.code(), Some(11), "{out:?}");
+    let err = error_line(&out);
+    assert_eq!(err["error"]["code"], "rate_limited");
+    assert_eq!(err["error"]["details"], json!({"reason": "busy"}));
+    // And the other way round: the server's on-demand backup while the command runs.
+    let res = app.server.post("/api/v1/admin/backup").await;
+    let body = assert_error(&res, 429, ErrorCode::RateLimited);
+    assert_eq!(body.error.details, Some(json!({"reason": "busy"})));
+    assert!(res.headers().contains_key("retry-after"));
+    assert!(quire_store::backup::list(&dir).unwrap().is_empty());
+    drop(held);
+    ok(&admin(app.dir.path(), &["--json", "backup"], None));
+    app.server
+        .post("/api/v1/admin/backup")
+        .await
+        .assert_status_ok();
+    assert_eq!(quire_store::backup::list(&dir).unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn hourly_job_expires_sessions_purges_tokens_and_prunes_limiters() {
+    let mut app = TestApp::with_fake_clock().await;
+    app.sign_in_owner().await;
+    let owner = app.owner().to_owned();
+    let now = app.state.now();
+    let token = app.mint_token(&owner, Scope::Admin).await;
+    let mut dead = Vec::new();
+    for _ in 0..3 {
+        dead.push(quire_store::tokens::hash(
+            &app.mint_token(&owner, Scope::Read).await,
+        ));
+    }
+    let user = owner.clone();
+    app.state
+        .db
+        .write(move |tx| {
+            tx.execute(
+                "INSERT INTO sessions (id, token_hash, user_id, persistent, created_at, last_seen_at, expires_at)
+                 VALUES ('stale', randomblob(32), ?1, 0, ?2, ?2, ?3)",
+                rusqlite::params![user, now - 2 * DAY, now - 1],
+            )?;
+            // Revoked 31 days ago and expired 31 days ago go; revoked 29 days ago stays.
+            let sql = [
+                "UPDATE api_tokens SET revoked_at = ?2 WHERE token_hash = ?1",
+                "UPDATE api_tokens SET expires_at = ?2 WHERE token_hash = ?1",
+                "UPDATE api_tokens SET revoked_at = ?2 WHERE token_hash = ?1",
+            ];
+            let at = [now - 31 * DAY, now - 31 * DAY, now - 29 * DAY];
+            for ((sql, hash), at) in sql.iter().zip(&dead).zip(at) {
+                tx.execute(sql, rusqlite::params![hash.as_slice(), at])?;
+            }
+            Ok(())
+        })
+        .await
+        .unwrap();
+    // A key in every limiter and the last-use map.
+    let client = app.token_client(&token);
+    client.get("/api/v1/auth/me").await.assert_status_ok();
+    let res = client
+        .post("/api/v1/tokens")
+        .json(&json!({"name": "child", "scopes": ["read"], "expires_in_days": 1}))
+        .await;
+    assert!(res.status_code().is_success(), "{}", res.text());
+    let res = app
+        .token_client("qpat_unknown")
+        .get("/api/v1/auth/me")
+        .await;
+    assert_error(&res, 401, ErrorCode::InvalidToken);
+    let res = app.login("a wrong password", false, None).await;
+    assert_error(&res, 401, ErrorCode::InvalidCredentials);
+    let keys = |app: &TestApp| {
+        let s = &app.state;
+        [
+            s.token_limiter.keys(),
+            s.token_bytes_limiter.keys(),
+            s.auth_fail_limiter.keys(),
+            s.login_limiter.ip_keys(),
+            s.login_limiter.per_email.keys(),
+            s.last_used.keys(),
+        ]
+    };
+    assert_eq!(keys(&app), [1; 6]);
+    let report = jobs::hourly(&app.state).await.unwrap();
+    assert_eq!((report.sessions_deleted, report.tokens_deleted), (1, 2));
+    let sessions: i64 = app
+        .state
+        .db
+        .read(|c| Ok(c.query_row("SELECT count(*) FROM sessions", [], |r| r.get(0))?))
+        .await
+        .unwrap();
+    assert_eq!(sessions, 1, "the live session stays");
+    let tokens: i64 = app
+        .state
+        .db
+        .read(|c| Ok(c.query_row("SELECT count(*) FROM api_tokens", [], |r| r.get(0))?))
+        .await
+        .unwrap();
+    assert_eq!(
+        tokens, 3,
+        "the admin token, its child and the one revoked 29 days ago"
+    );
+    assert_eq!(
+        keys(&app)[4..],
+        [1, 1],
+        "recent failures and last uses stay"
+    );
+    // Two hours later every key is idle and goes.
+    app.state.clock.advance(Duration::from_secs(2 * 3600));
+    jobs::hourly(&app.state).await.unwrap();
+    assert_eq!(keys(&app), [0; 6]);
+}
+
+#[tokio::test]
+async fn purge_and_gc_runs_purge_then_attachment_gc_then_blob_gc() {
+    let mut app = TestApp::with_fake_clock().await;
+    app.sign_in_owner().await;
+    let res = app
+        .server
+        .post("/api/v1/attachments?filename=a.txt")
+        .bytes("only in a trashed doc\n".into())
+        .content_type("application/octet-stream")
+        .await;
+    res.assert_status(StatusCode::CREATED);
+    let attachment: Attachment = res.json();
+    let (owner, now) = (app.owner().to_owned(), app.state.now());
+    let attachment_id = attachment.id.to_string();
+    // A doc in the Trash that is the attachment's only reference.
+    app.state
+        .db
+        .write(move |tx| {
+            let new = NewCollection {
+                name: "Notes".into(),
+                ..Default::default()
+            };
+            let c = quire_store::collections::create(tx, &owner, &new, now)?;
+            let new = NewItem {
+                collection_id: c.id,
+                parent_id: None,
+                kind: ItemKind::Doc,
+                title: Some("d".into()),
+                position: None,
+            };
+            let id = quire_store::items::create(tx, &owner, &new, false, now)?
+                .id
+                .to_string();
+            tx.execute(
+                "INSERT INTO item_attachments (item_id, attachment_id) VALUES (?1, ?2)",
+                rusqlite::params![id, attachment_id],
+            )?;
+            tx.execute(
+                "UPDATE items SET deleted_at = ?2, trash_root_id = id WHERE id = ?1",
+                rusqlite::params![id, now],
+            )?;
+            Ok(())
+        })
+        .await
+        .unwrap();
+    let sha = &attachment.sha256;
+    let file = app
+        .state
+        .config
+        .files_dir()
+        .join(&sha[0..2])
+        .join(&sha[2..4])
+        .join(sha);
+    assert!(file.exists());
+    // Nothing is due yet.
+    assert_eq!(
+        jobs::purge_and_gc(&app.state).await.unwrap(),
+        jobs::PurgeReport::default()
+    );
+    // 31 days later one run frees all three, which only works in the order purge, attachments, blobs.
+    app.state.clock.advance(Duration::from_secs(31 * 86_400));
+    let report = jobs::purge_and_gc(&app.state).await.unwrap();
+    assert_eq!(report.items_purged, 1);
+    assert_eq!(report.attachments_deleted, 1);
+    assert_eq!(report.blobs.blobs, 1);
+    assert!(!file.exists(), "the blob file is unlinked");
+}
+
+#[test]
+fn backup_schedule_follows_the_newest_backup() {
+    const NOW: i64 = 1_793_179_800_000;
+    let dir = tempfile::tempdir().unwrap();
+    let mut config = Config::for_tests(dir.path());
+    config.backup_interval = Duration::from_secs(24 * 3600);
+    config.backup_keep = 7;
+    // None yet: soon after startup.
+    assert_eq!(
+        jobs::first_backup_delay(&config, NOW),
+        Some(BACKUP_STARTUP_DELAY)
+    );
+    // QUIRE_BACKUP_KEEP=0 schedules nothing (D21).
+    config.backup_keep = 0;
+    assert_eq!(jobs::first_backup_delay(&config, NOW), None);
+    config.backup_keep = 7;
+    let backups = config.backups_dir();
+    std::fs::create_dir_all(&backups).unwrap();
+    let backup_at = |name: &str, at: i64| {
+        let file = std::fs::File::create(backups.join(name)).unwrap();
+        file.set_modified(UNIX_EPOCH + Duration::from_millis(at as u64))
+            .unwrap();
+    };
+    // Pre-migration backups do not count.
+    backup_at("pre-migrate-v1-20261028T0930Z.db", NOW);
+    assert_eq!(
+        jobs::first_backup_delay(&config, NOW),
+        Some(BACKUP_STARTUP_DELAY)
+    );
+    // An overdue one: soon after startup.
+    backup_at("quire-20261027T0830Z.db", NOW - 25 * 3_600_000);
+    assert_eq!(
+        jobs::first_backup_delay(&config, NOW),
+        Some(BACKUP_STARTUP_DELAY)
+    );
+    // The newest is an hour old: the rest of the interval, however recently the server started.
+    backup_at("quire-20261028T0830Z.db", NOW - 3_600_000);
+    assert_eq!(
+        jobs::first_backup_delay(&config, NOW),
+        Some(Duration::from_secs(23 * 3600))
+    );
+    // Due in 30 s: still the startup delay first.
+    assert_eq!(
+        jobs::first_backup_delay(&config, NOW + 23 * 3_600_000 - 30_000),
+        Some(BACKUP_STARTUP_DELAY)
+    );
 }

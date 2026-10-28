@@ -6,11 +6,13 @@
 //! outermost first:
 //! 1. sensitive headers (`Authorization`, `Cookie` and `Set-Cookie` never reach a log);
 //! 2. the access log (one span per request with method, path, client IP and, for a token, `token_id`);
-//! 3. gzip at the fast level for JSON and Markdown bodies over 1 KiB (§11; static files bring their own variants);
+//! 3. gzip at the fast level for JSON and Markdown bodies over 1 KiB, and for board-page SVG (§11; static files bring
+//!    their own variants, and attachments stay identity);
 //! 4. the error envelope with `X-Request-Id` / `Quire-Api-Version`;
 //! 5. [`crate::headers::layer`]: client address, security headers, HSTS, the renewed session cookie;
 //! 6. the panic catcher;
-//! 7. the timeout: 30 s, 120 s for uploads and board PUTs (408 `request_timeout`);
+//! 7. the deadline: 30 s, 120 s for uploads and board PUTs, none for the export and the on-demand backup (408
+//!    `request_timeout`, [`deadline`]);
 //! 8. the 1 MiB default body limit;
 //! 9. the Host allowlist with the CSRF check.
 
@@ -61,6 +63,7 @@ pub fn app(state: AppState) -> Router {
             state.clone(),
             error::envelope,
         ))
+        .layer(middleware::from_fn(mark_board_page))
         .layer(
             CompressionLayer::new()
                 .gzip(true)
@@ -100,12 +103,36 @@ pub fn app(state: AppState) -> Router {
         .with_state(state)
 }
 
-/// gzip only JSON and Markdown bodies that are not encoded yet (§11; [`SizeAbove`] adds "over 1 KiB").
+/// Marks a response to a board-page request, which [`compressible`] may gzip as SVG.
+#[derive(Clone, Copy, Debug)]
+struct BoardPage;
+
+/// Whether `path` is `/api/v1/items/{id}/board/pages/{n}` (§11: its SVG is gzipped).
+fn is_board_page(path: &str) -> bool {
+    path.strip_prefix("/api/v1/items/")
+        .map(|rest| rest.split('/').collect::<Vec<_>>())
+        .is_some_and(|parts| {
+            matches!(parts.as_slice(), [id, "board", "pages", n] if !id.is_empty() && !n.is_empty())
+        })
+}
+
+/// Puts [`BoardPage`] on the responses of board-page requests (the compression predicate sees only the response).
+async fn mark_board_page(req: Request, next: Next) -> Response {
+    let board_page = is_board_page(req.uri().path());
+    let mut res = next.run(req).await;
+    if board_page {
+        res.extensions_mut().insert(BoardPage);
+    }
+    res
+}
+
+/// gzip only bodies that are not encoded yet (§11; [`SizeAbove`] adds "over 1 KiB"): JSON and Markdown, and SVG on a
+/// board-page response. Other SVG (an attachment download, a static file) is never re-encoded.
 fn compressible(
     _status: StatusCode,
     _version: axum::http::Version,
     headers: &HeaderMap,
-    _extensions: &axum::http::Extensions,
+    extensions: &axum::http::Extensions,
 ) -> bool {
     if headers.contains_key(header::CONTENT_ENCODING) {
         return false;
@@ -113,21 +140,37 @@ fn compressible(
     headers
         .get(header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
-        .is_some_and(|v| v.starts_with("application/json") || v.starts_with("text/markdown"))
+        .is_some_and(|v| {
+            v.starts_with("application/json")
+                || v.starts_with("text/markdown")
+                || (v.starts_with("image/svg+xml") && extensions.get::<BoardPage>().is_some())
+        })
 }
 
-/// Whether the request is an upload or a board PUT, which get the longer body deadline (§8).
-fn long_body(method: &Method, path: &str) -> bool {
-    (method == Method::POST && path == "/api/v1/attachments")
-        || (method == Method::PUT && path.starts_with("/api/v1/items/") && path.ends_with("/board"))
+/// The request deadline of `method` and `path` (§8): 30 s; 120 s for uploads and board PUTs (their bodies); none for
+/// `GET /api/v1/export` and `POST /api/v1/admin/backup`, whose database copy runs before the response starts and may
+/// take longer on a large database. Those two are single-flight, and the copy holds the flag even when the client
+/// leaves, so they cannot pile up.
+fn deadline(config: &Config, method: &Method, path: &str) -> Option<Duration> {
+    let copy = (method == Method::GET && path == "/api/v1/export")
+        || (method == Method::POST && path == "/api/v1/admin/backup");
+    let long_body = (method == Method::POST && path == "/api/v1/attachments")
+        || (method == Method::PUT
+            && path.starts_with("/api/v1/items/")
+            && path.ends_with("/board"));
+    if copy {
+        None
+    } else if long_body {
+        Some(config.upload_timeout)
+    } else {
+        Some(config.request_timeout)
+    }
 }
 
 /// The request deadline (§8): 408 `request_timeout` when the response is not ready in time.
 async fn timeout(State(state): State<AppState>, req: Request, next: Next) -> Response {
-    let limit = if long_body(req.method(), req.uri().path()) {
-        state.config.upload_timeout
-    } else {
-        state.config.request_timeout
+    let Some(limit) = deadline(&state.config, req.method(), req.uri().path()) else {
+        return next.run(req).await;
     };
     match tokio::time::timeout(limit, next.run(req)).await {
         Ok(res) => res,
@@ -224,10 +267,53 @@ mod tests {
     use super::*;
 
     #[test]
-    fn long_body_routes() {
-        assert!(long_body(&Method::POST, "/api/v1/attachments"));
-        assert!(long_body(&Method::PUT, "/api/v1/items/x/board"));
-        assert!(!long_body(&Method::GET, "/api/v1/items/x/board"));
-        assert!(!long_body(&Method::POST, "/api/v1/tokens"));
+    fn deadlines() {
+        let config = Config::for_tests("/nonexistent");
+        let at = |method: Method, path: &str| deadline(&config, &method, path);
+        let (short, long) = (Some(config.request_timeout), Some(config.upload_timeout));
+        assert_eq!(at(Method::POST, "/api/v1/attachments"), long);
+        assert_eq!(at(Method::PUT, "/api/v1/items/x/board"), long);
+        assert_eq!(at(Method::GET, "/api/v1/items/x/board"), short);
+        assert_eq!(at(Method::POST, "/api/v1/tokens"), short);
+        assert_eq!(at(Method::GET, "/api/v1/export"), None);
+        assert_eq!(at(Method::POST, "/api/v1/admin/backup"), None);
+        assert_eq!(at(Method::POST, "/api/v1/export"), short);
+        assert_eq!(at(Method::GET, "/api/v1/admin/backup"), short);
+    }
+
+    #[test]
+    fn board_page_svg_is_gzipped_other_svg_is_not() {
+        assert!(is_board_page("/api/v1/items/abc/board/pages/0"));
+        assert!(!is_board_page("/api/v1/items/abc/board/pages/"));
+        assert!(!is_board_page("/api/v1/items/abc/board"));
+        assert!(!is_board_page("/api/v1/attachments/abc"));
+        assert!(!is_board_page("/api/v1/items/abc/board/pages/0/x"));
+        let headers = |pairs: &[(header::HeaderName, &'static str)]| {
+            let mut h = HeaderMap::new();
+            for (k, v) in pairs {
+                h.insert(k.clone(), axum::http::HeaderValue::from_static(v));
+            }
+            h
+        };
+        let svg = headers(&[(header::CONTENT_TYPE, "image/svg+xml")]);
+        let mut page = axum::http::Extensions::new();
+        page.insert(BoardPage);
+        let none = axum::http::Extensions::new();
+        let ok = StatusCode::OK;
+        let v = axum::http::Version::HTTP_11;
+        assert!(compressible(ok, v, &svg, &page));
+        assert!(
+            !compressible(ok, v, &svg, &none),
+            "attachments and static SVG"
+        );
+        let encoded = headers(&[
+            (header::CONTENT_TYPE, "image/svg+xml"),
+            (header::CONTENT_ENCODING, "gzip"),
+        ]);
+        assert!(!compressible(ok, v, &encoded, &page));
+        let json = headers(&[(header::CONTENT_TYPE, "application/json")]);
+        assert!(compressible(ok, v, &json, &none));
+        let png = headers(&[(header::CONTENT_TYPE, "image/png")]);
+        assert!(!compressible(ok, v, &png, &page));
     }
 }

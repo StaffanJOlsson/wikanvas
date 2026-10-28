@@ -124,6 +124,20 @@ async fn login(
         .login_limiter
         .attempt(client.limiter_ip())
         .map_err(|retry| ApiError::rate_limited(RateLimitReason::Requests, retry))?;
+    let invalid_credentials = || {
+        ApiError::new(
+            ErrorCode::InvalidCredentials,
+            "the email or password is wrong",
+        )
+    };
+    // An address no account can have (over 254 bytes, no `@`, …) gets the same answer after the same work, and is
+    // never recorded: the per-email map holds only addresses that could be real (§8).
+    if quire_store::users::check_email(req.email.trim()).is_err() {
+        state
+            .verify_password(state.dummy_hash().await?, req.password)
+            .await?;
+        return Err(invalid_credentials());
+    }
     state
         .login_limiter
         .per_email
@@ -145,10 +159,7 @@ async fn login(
     let verified = state.verify_password(hash, req.password).await?;
     let Some(user) = candidate.filter(|_| verified) else {
         state.login_limiter.per_email.record_failure(&req.email);
-        return Err(ApiError::new(
-            ErrorCode::InvalidCredentials,
-            "the email or password is wrong",
-        ));
+        return Err(invalid_credentials());
     };
     let cookie = sign_in(&state, user.id.clone(), req.remember, client, &headers).await?;
     let body = UserEnvelope {

@@ -145,3 +145,26 @@ async fn on_demand_counts_against_keep() {
         ]
     );
 }
+
+#[tokio::test]
+async fn create_is_busy_while_another_process_holds_the_lock() {
+    let t = TestDb::new();
+    t.owner().await;
+    let dir = t.data_dir().join("backups");
+    std::fs::create_dir_all(&dir).unwrap();
+    // Another process's backup: a second open of the lock file conflicts like another process would.
+    let held = backup::lock(&dir).unwrap();
+    let e = backup::create(&t.db, t.data_dir(), 7, NOW).unwrap_err();
+    assert!(e.is(ErrorCode::RateLimited), "{e:?}");
+    assert_eq!(e.details, Some(serde_json::json!({"reason": "busy"})));
+    assert!(backup::list(&dir).unwrap().is_empty(), "nothing was copied");
+    assert_eq!(
+        std::fs::read_dir(&dir).unwrap().count(),
+        1,
+        "only the lock file"
+    );
+    drop(held);
+    backup::create(&t.db, t.data_dir(), 7, NOW).unwrap();
+    // The lock is released when create returns.
+    drop(backup::lock(&dir).unwrap());
+}

@@ -1021,6 +1021,42 @@ async fn token_byte_budget_429_reason_bytes() {
 }
 
 #[tokio::test]
+async fn token_bytes_in_small_chunks_cost_their_size() {
+    let app = TestApp::with_config(|c| {
+        c.fake_clock = true;
+        c.token_bytes_per_hour = 4 * 1024;
+    })
+    .await;
+    let owner = app.insert_owner().await;
+    let token = app.mint_token(&owner, Scope::Write).await;
+    // About 1.5 KiB without Content-Length, in 1-byte and in 100-byte chunks: 2 KiB each, as one chunk would cost.
+    let post = |chunk_size: usize| {
+        let json = serde_json::to_vec(&json!({ "name": "z".repeat(1500) })).unwrap();
+        let chunks: Vec<Result<bytes::Bytes, std::io::Error>> = json
+            .chunks(chunk_size)
+            .map(|c| Ok(bytes::Bytes::copy_from_slice(c)))
+            .collect();
+        Request::post("/api/v1/collections")
+            .header("host", "localhost")
+            .header("authorization", format!("Bearer {token}"))
+            .header("content-type", "application/json")
+            .body(Body::from_stream(futures_util::stream::iter(chunks)))
+            .unwrap()
+    };
+    let first = router(&app.state).oneshot(post(1)).await.unwrap();
+    assert_eq!(
+        first.status(),
+        422,
+        "the name is too long, but the body was read"
+    );
+    let second = router(&app.state).oneshot(post(100)).await.unwrap();
+    assert_eq!(second.status(), 422);
+    // The 4 KiB are used up now.
+    let third = router(&app.state).oneshot(post(1)).await.unwrap();
+    assert_eq!(third.status(), 429);
+}
+
+#[tokio::test]
 async fn token_bytes_counted_as_read_without_content_length() {
     let app = TestApp::with_config(|c| {
         c.fake_clock = true;

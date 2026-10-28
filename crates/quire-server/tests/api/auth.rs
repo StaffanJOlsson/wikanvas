@@ -665,6 +665,60 @@ async fn logout_clears_cookie_and_session() {
 }
 
 #[tokio::test]
+async fn logout_of_renewal_due_session_only_clears_the_cookie() {
+    let app = TestApp::with_fake_clock().await;
+    app.insert_owner().await;
+    let res = app.login(OWNER_PASSWORD, true, None).await;
+    let cookie = cookie_from(&res, "quire_session").unwrap();
+    // Past half of the 30-day window: this request's authentication renews the session.
+    app.state.clock.advance(Duration::from_secs(16 * 86_400));
+    let client = app.cookie_client(&cookie);
+    let res = client.post("/api/v1/auth/logout").await;
+    res.assert_status(StatusCode::NO_CONTENT);
+    let cookies = set_cookies(&res);
+    assert_eq!(
+        cookies.len(),
+        1,
+        "no renewal after the clearing cookie: {cookies:?}"
+    );
+    assert!(
+        cookies[0].starts_with("quire_session=;") && cookies[0].contains("Max-Age=0"),
+        "{cookies:?}"
+    );
+    assert_error(
+        &client.get("/api/v1/auth/me").await,
+        401,
+        ErrorCode::Unauthenticated,
+    );
+}
+
+#[tokio::test]
+async fn malformed_email_login_is_401_and_never_recorded() {
+    let app = TestApp::new().await;
+    app.insert_owner().await;
+    let per_email = &app.state.login_limiter.per_email;
+    // Almost the whole 1 MiB body: an address no account can have.
+    let huge = format!("{}@quire.invalid", "a".repeat(1_000_000));
+    for email in [huge.as_str(), "no-at-sign", "two words@quire.invalid"] {
+        let res = app
+            .anon_client()
+            .post("/api/v1/auth/login")
+            .json(&json!({"email": email, "password": "wrong password"}))
+            .await;
+        assert_error(&res, 401, ErrorCode::InvalidCredentials);
+    }
+    assert_eq!(per_email.keys(), 0, "malformed addresses are not kept");
+    // A well-formed address is recorded, as a fixed-size key.
+    let res = app
+        .anon_client()
+        .post("/api/v1/auth/login")
+        .json(&json!({"email": "nobody@quire.invalid", "password": "wrong password"}))
+        .await;
+    assert_error(&res, 401, ErrorCode::InvalidCredentials);
+    assert_eq!(per_email.keys(), 1);
+}
+
+#[tokio::test]
 async fn login_rotates_the_presented_session() {
     let app = TestApp::new().await;
     app.insert_owner().await;

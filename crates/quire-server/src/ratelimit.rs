@@ -2,7 +2,8 @@
 //!
 //! - Login and setup (§8, D19): 5 attempts per minute per client IP (burst 5, governor), and 10 **failed** logins per
 //!   15 minutes per email ([`EmailFailures`], a sliding window, because governor cannot test a key without consuming
-//!   it and only failures may count).
+//!   it and only failures may count). Its keys are the sha256 of the normalized address, so an entry has a fixed
+//!   size whatever the request sent; the login route records only well-formed addresses (at most 254 bytes).
 //! - Per token (D47): `QUIRE_TOKEN_RATE` requests per minute with a burst of 120, and `QUIRE_TOKEN_BYTES_PER_HOUR` of
 //!   request body counted in KiB.
 //! - Per client IP: 30 failed bearer authentications per minute; over that a token that fails gets 429 instead of 401
@@ -23,6 +24,7 @@ use governor::middleware::NoOpMiddleware;
 use governor::nanos::Nanos;
 use governor::state::keyed::DefaultKeyedStateStore;
 use governor::{Quota, RateLimiter};
+use sha2::{Digest, Sha256};
 
 use crate::config::{Config, TOKEN_BURST};
 
@@ -152,6 +154,11 @@ impl TokenLimiter {
             .check_key(&token_id.to_owned())
             .map_err(|n| wait(&n, &self.clock))
     }
+
+    /// The number of tokens it tracks (until [`prune`] drops the idle ones).
+    pub fn keys(&self) -> usize {
+        self.limiter.len()
+    }
 }
 
 impl TokenBytesLimiter {
@@ -180,6 +187,11 @@ impl TokenBytesLimiter {
             Err(_) => Err(Duration::from_secs(3600)),
         }
     }
+
+    /// The number of tokens it tracks (until [`prune`] drops the idle ones).
+    pub fn keys(&self) -> usize {
+        self.limiter.len()
+    }
 }
 
 impl AuthFailLimiter {
@@ -199,14 +211,20 @@ impl AuthFailLimiter {
             .check_key(&ip)
             .map_err(|n| wait(&n, &self.clock))
     }
+
+    /// The number of client IPs it tracks (until [`prune`] drops the idle ones).
+    pub fn keys(&self) -> usize {
+        self.limiter.len()
+    }
 }
 
-/// The failure window per email: at most `max` failures within `window`.
+/// The failure window per email: at most `max` failures within `window`. Keyed by the sha256 of the trimmed,
+/// lowercased address, so an entry is at most 32 bytes of key and `max` instants.
 pub struct EmailFailures {
     clock: Clock,
     max: usize,
     window: Duration,
-    failures: Mutex<HashMap<String, VecDeque<Nanos>>>,
+    failures: Mutex<HashMap<[u8; 32], VecDeque<Nanos>>>,
 }
 
 impl EmailFailures {
@@ -219,8 +237,16 @@ impl EmailFailures {
         }
     }
 
-    fn key(email: &str) -> String {
-        email.trim().to_lowercase()
+    fn key(email: &str) -> [u8; 32] {
+        Sha256::digest(email.trim().to_lowercase().as_bytes()).into()
+    }
+
+    /// The number of addresses it tracks (until [`prune`](Self::prune) drops those without a failure in the window).
+    pub fn keys(&self) -> usize {
+        self.failures
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .len()
     }
 
     /// `Err(retry_after)` while `email` has `max` failures within the window. Counts nothing.
@@ -296,6 +322,11 @@ impl LoginLimiter {
         self.per_ip
             .check_key(&ip)
             .map_err(|n| wait(&n, &self.clock))
+    }
+
+    /// The number of client IPs the per-IP limit tracks (until [`prune`] drops the idle ones).
+    pub fn ip_keys(&self) -> usize {
+        self.per_ip.len()
     }
 }
 

@@ -4,10 +4,12 @@
 //! SQLITE_READONLY), then a `quick_check` of the copy.
 //! - [`pre_migration`]: `<data_dir>/backups/pre-migrate-v{N}-{ts}.db`, kept separately.
 //! - [`create`]: scheduled and on-demand backups. The copy is written as `backups/.tmp-…`, checked, then renamed to
-//!   `quire-YYYYMMDDTHHMMZ.db`; afterwards only the newest `keep` `quire-*.db` files remain ([`prune`]).
+//!   `quire-YYYYMMDDTHHMMZ.db`; afterwards only the newest `keep` `quire-*.db` files remain ([`prune`]). It holds an
+//!   exclusive lock on `backups/.lock` throughout, so the admin command and a running server never back up at the
+//!   same time (429 `rate_limited` with `reason: busy` for the second).
 //! - [`to_path`]: `quire-server admin backup --out PATH`, not counted against `keep`.
 //!
-//! The callers make sure backups never overlap (single-flight) and check the free space first (D33).
+//! In one process the callers also keep backups single-flight, and they check the free space first (D33).
 
 use std::path::{Path, PathBuf};
 
@@ -20,6 +22,28 @@ use crate::error::{Error, Result};
 /// The backup directory under the data directory.
 pub fn backups_dir(data_dir: &Path) -> PathBuf {
     data_dir.join("backups")
+}
+
+/// The lock file of [`create`] in the backup directory.
+pub const LOCK_FILE: &str = ".lock";
+
+/// Takes the exclusive lock on `dir/.lock` without waiting; 429 `rate_limited` (`reason: busy`) while another
+/// process (or another open of the file) holds it. The lock is released when the returned file is dropped.
+pub fn lock(dir: &Path) -> Result<std::fs::File> {
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(dir.join(LOCK_FILE))?;
+    match file.try_lock() {
+        Ok(()) => Ok(file),
+        Err(std::fs::TryLockError::WouldBlock) => Err(Error::new(
+            ErrorCode::RateLimited,
+            "another backup is running",
+        )
+        .with_details(&serde_json::json!({"reason": "busy"}))),
+        Err(std::fs::TryLockError::Error(e)) => Err(e.into()),
+    }
 }
 
 /// `YYYYMMDDTHHMMZ` (UTC) for backup file names.
@@ -58,10 +82,12 @@ pub fn pre_migration(db: &Db, data_dir: &Path, version: u32, now: i64) -> Result
 
 /// A scheduled or on-demand backup: `VACUUM INTO backups/.tmp-<random>.db`, `quick_check`, rename to
 /// `backups/quire-YYYYMMDDTHHMMZ.db` (`-2`, `-3`, … when the name is taken), then [`prune`] to the newest
-/// `keep.max(1)` copies. Returns the new file. A failed check deletes the copy.
+/// `keep.max(1)` copies, all under [`lock`] (429 `busy` when another process is backing up). Returns the new file. A
+/// failed check deletes the copy.
 pub fn create(db: &Db, data_dir: &Path, keep: u32, now: i64) -> Result<PathBuf> {
     let dir = backups_dir(data_dir);
     std::fs::create_dir_all(&dir)?;
+    let _lock = lock(&dir)?;
     let tmp = dir.join(format!(".tmp-{}.db", crate::shared::random_base62(12)?));
     let result: Result<PathBuf> = (|| {
         let conn = db.maintenance()?;
@@ -138,13 +164,17 @@ fn backup_key(path: &Path) -> (String, u32) {
 }
 
 /// Deletes the oldest `quire-*.db` files in `dir` until at most `keep` remain (pre-migration backups are never
-/// touched); returns the deleted paths.
+/// touched); returns the deleted paths. A file that is already gone counts as deleted.
 pub fn prune(dir: &Path, keep: u32) -> Result<Vec<PathBuf>> {
     let all = list(dir)?;
     let excess = all.len().saturating_sub(keep as usize);
     let mut removed = Vec::new();
     for path in all.into_iter().take(excess) {
-        std::fs::remove_file(&path)?;
+        match std::fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e.into()),
+        }
         removed.push(path);
     }
     Ok(removed)

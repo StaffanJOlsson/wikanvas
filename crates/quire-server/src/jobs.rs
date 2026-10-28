@@ -6,7 +6,8 @@
 //!   leaves first), then attachment GC, then blob GC with the orphan sweep ([`purge_and_gc`]);
 //! - **revision prune**, daily ([`quire_store::revisions::prune`]);
 //! - **backup**, every `QUIRE_BACKUP_INTERVAL` while `QUIRE_BACKUP_KEEP` is not 0, single-flight with on-demand
-//!   backups and after the free-space check ([`backup_now`]);
+//!   backups and after the free-space check ([`backup_now`]). The first run is due one interval after the newest
+//!   `backups/quire-*.db`, so restarts never postpone it ([`first_backup_delay`]);
 //! - **hourly**: `PRAGMA optimize`, expired sessions, tokens 30 days after revocation or expiry, and the idle keys of
 //!   the rate limiters and the token last-use map ([`hourly`]).
 //!
@@ -14,11 +15,13 @@
 
 use std::future::Future;
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, UNIX_EPOCH};
 
+use quire_api::ErrorCode;
 use quire_store::gc::BlobGc;
 use tokio::task::JoinHandle;
 
+use crate::config::Config;
 use crate::error::ApiError;
 use crate::ratelimit::{self, Limiters};
 use crate::state::{AppState, Flight};
@@ -31,6 +34,8 @@ pub const PURGE_EVERY: Duration = Duration::from_secs(6 * 3600);
 pub const PRUNE_EVERY: Duration = Duration::from_secs(24 * 3600);
 /// The optimize / expiry period.
 pub const HOURLY: Duration = Duration::from_secs(3600);
+/// The scheduled backup never runs sooner than this after startup (the startup purge and GC go first).
+pub const BACKUP_STARTUP_DELAY: Duration = Duration::from_secs(60);
 
 /// The running jobs; [`Jobs::stop`] aborts them (at shutdown, before the WAL checkpoint).
 #[derive(Debug, Default)]
@@ -119,24 +124,59 @@ pub async fn hourly(state: &AppState) -> Result<HourlyReport, ApiError> {
 
 /// A backup now (scheduled or on demand): single-flight (429 `busy`), after the free-space check (507), counted
 /// against `QUIRE_BACKUP_KEEP`. Returns the file and its size.
+///
+/// The check and the copy run on the blocking pool, which owns the single-flight guard: a caller that goes away (an
+/// HTTP client that left) never frees the flag while the copy is still being written. Another process's backup (the
+/// admin command while the server runs) holds the lock of [`quire_store::backup::create`] and also gives `busy`.
 pub async fn backup_now(state: &AppState) -> Result<(PathBuf, u64), ApiError> {
-    let _guard = state
+    let guard = state
         .single_flight
         .try_start(Flight::Backup)
         .ok_or_else(ApiError::busy)?;
-    state.check_free_space()?;
-    let (db, dir, keep, now) = (
-        state.db.clone(),
-        state.config.data_dir.clone(),
-        state.config.backup_keep,
-        state.now(),
-    );
-    let path =
-        tokio::task::spawn_blocking(move || quire_store::backup::create(&db, &dir, keep, now))
-            .await
-            .map_err(ApiError::internal)??;
-    let size = std::fs::metadata(&path).map_err(ApiError::internal)?.len();
-    Ok((path, size))
+    let (worker, now) = (state.clone(), state.now());
+    tokio::task::spawn_blocking(move || {
+        let _guard = guard;
+        worker.check_free_space()?;
+        let config = &worker.config;
+        let path =
+            quire_store::backup::create(&worker.db, &config.data_dir, config.backup_keep, now)
+                .map_err(|e| {
+                    if e.is(ErrorCode::RateLimited) {
+                        ApiError::busy()
+                    } else {
+                        ApiError::from(e)
+                    }
+                })?;
+        let size = std::fs::metadata(&path).map_err(ApiError::internal)?.len();
+        Ok((path, size))
+    })
+    .await
+    .map_err(ApiError::internal)?
+}
+
+/// When the scheduled backup first runs after startup (§12): `None` while `QUIRE_BACKUP_KEEP=0` turns it off (D21).
+/// Otherwise what is left of `QUIRE_BACKUP_INTERVAL` since the newest `backups/quire-*.db` (by modification time), and
+/// at least [`BACKUP_STARTUP_DELAY`], so a backup that is due, or missing, runs soon after startup. A server that
+/// restarts more often than the interval still gets its backups.
+pub fn first_backup_delay(config: &Config, now_ms: i64) -> Option<Duration> {
+    if config.backup_keep == 0 {
+        return None;
+    }
+    let newest_ms = quire_store::backup::list(&config.backups_dir())
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok())
+        .filter_map(|t| t.duration_since(UNIX_EPOCH).ok())
+        .filter_map(|d| i64::try_from(d.as_millis()).ok())
+        .max();
+    let remaining = match newest_ms {
+        Some(at) => {
+            let age = Duration::from_millis(u64::try_from(now_ms - at).unwrap_or(0));
+            config.backup_interval.saturating_sub(age)
+        }
+        None => Duration::ZERO,
+    };
+    Some(remaining.max(BACKUP_STARTUP_DELAY))
 }
 
 fn every<F, Fut>(
@@ -194,12 +234,12 @@ pub fn spawn(state: AppState) -> Jobs {
             |s| async move { hourly(&s).await.map(|r| format!("{r:?}")) },
         ),
     ];
-    if state.config.backup_keep > 0 {
-        let interval = state.config.backup_interval;
+    if let Some(first) = first_backup_delay(&state.config, state.now()) {
+        tracing::info!(in_secs = first.as_secs(), "the next scheduled backup");
         handles.push(every(
             &state,
-            interval,
-            interval,
+            state.config.backup_interval,
+            first,
             "backup",
             |s| async move {
                 backup_now(&s)
