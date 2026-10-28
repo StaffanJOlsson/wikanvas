@@ -444,13 +444,24 @@ async fn rename_bumps_tree_version() {
     res.assert_status_ok();
     assert_ne!(res.header("etag"), etag);
     assert_eq!(tree_titles(&app, c.id).await, ["After"]);
-    // full_width is not in the tree: the tag stays.
+    // A change of full_width alone sets updated_at, which the tree shows (and sorts by under the `updated` order):
+    // a new tag. The same value again changes nothing: the tag stays.
     let etag = res.header("etag");
-    app.server
-        .patch(&format!("/api/v1/items/{}", doc.id))
-        .json(&json!({"full_width": true}))
-        .await
-        .assert_status_ok();
+    let full_width = || {
+        app.server
+            .patch(&format!("/api/v1/items/{}", doc.id))
+            .json(&json!({"full_width": true}))
+    };
+    full_width().await.assert_status_ok();
+    let res = app
+        .server
+        .get(&tree)
+        .add_header("if-none-match", etag.clone())
+        .await;
+    res.assert_status_ok();
+    assert_ne!(res.header("etag"), etag);
+    let etag = res.header("etag");
+    full_width().await.assert_status_ok();
     app.server
         .get(&tree)
         .add_header("if-none-match", etag)

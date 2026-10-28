@@ -14,11 +14,15 @@
 //!   clears exactly the rows of that root.
 //! - **Placement on restore and unarchive.** The root keeps its parent unless the parent is gone: purged, trashed, or
 //!   archived while the root comes back unarchived ([`keeps_parent`]). Then the root goes to the end of the top level
-//!   (`moved_to_top`).
+//!   (`moved_to_top`). A restored root that stays archived in an ancestor's archive unit (trashing an archived item
+//!   keeps its archive state) leaves that ancestor's subtree, so the rows of its subtree in that unit become a unit of
+//!   their own, with the root as their archive root.
 //!
-//! These rules keep two invariants that the tree endpoint relies on: the parent of a live item is live, and the parent
-//! of a live, unarchived item is unarchived. [`Model`] is an in-memory implementation of the same rules: the proptest
-//! below checks that random operations never make a cycle, keep both invariants, and match a brute-force model.
+//! These rules keep the invariants that the tree endpoint and the Trash and Archive lists rely on: the parent of a live
+//! item is live; the parent of a live, unarchived item is unarchived; and an item's trash or archive root is the item
+//! itself or an ancestor, with every item between them in the same unit (so a unit is always reachable from its root,
+//! and purging a root takes the whole unit). [`Model`] is an in-memory implementation of the same rules: the proptest
+//! below checks that random operations never make a cycle, keep the invariants, and match a brute-force model.
 
 use std::collections::BTreeSet;
 
@@ -279,7 +283,8 @@ impl Model {
         Ok((root, self.place(root)))
     }
 
-    /// The placement rule after a restore or unarchive of `root`.
+    /// The placement rule after a restore or unarchive of `root`: to the top level when its parent is gone. A root
+    /// that stays archived in an ancestor's unit takes its part of that unit with it, as a unit of its own.
     fn place(&mut self, root: usize) -> bool {
         let Some(parent) = self.nodes[root].parent else {
             return false;
@@ -289,6 +294,13 @@ impl Model {
             return false;
         }
         self.nodes[root].parent = None;
+        if let Some(unit) = self.nodes[root].archive_root.filter(|&u| u != root) {
+            for d in self.subtree(root) {
+                if self.nodes[d].archive_root == Some(unit) {
+                    self.nodes[d].archive_root = Some(root);
+                }
+            }
+        }
         true
     }
 
@@ -353,6 +365,31 @@ impl Model {
             .collect()
     }
 
+    /// The archive roots that are not in the trash (what `/archive` lists).
+    pub fn archive_roots(&self) -> BTreeSet<usize> {
+        self.nodes
+            .iter()
+            .enumerate()
+            .filter(|(i, n)| !n.purged && n.trash_root.is_none() && n.archive_root == Some(*i))
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    /// Whether `root` is `id` or an ancestor of it, and `in_unit` holds for every item from `id` up to `root`.
+    fn unit_reaches(&self, id: usize, root: usize, in_unit: impl Fn(&Node) -> bool) -> bool {
+        let mut cur = Some(id);
+        while let Some(c) = cur {
+            if !in_unit(&self.nodes[c]) {
+                return false;
+            }
+            if c == root {
+                return true;
+            }
+            cur = self.nodes[c].parent;
+        }
+        false
+    }
+
     /// Checks the invariants of the module docs; returns the first violation.
     pub fn check_invariants(&self) -> Result<(), String> {
         for (i, n) in self.nodes.iter().enumerate().filter(|(_, n)| !n.purged) {
@@ -363,6 +400,16 @@ impl Model {
                     return Err(format!("{i}: cycle through {p}"));
                 }
                 cur = self.nodes[p].parent;
+            }
+            if let Some(r) = n.archive_root
+                && !self.unit_reaches(i, r, |m| m.archive_root == Some(r))
+            {
+                return Err(format!("{i}: archive root {r} is not above it in one unit"));
+            }
+            if let Some(TrashRoot::Item(r)) = n.trash_root
+                && !self.unit_reaches(i, r, |m| m.trash_root == Some(TrashRoot::Item(r)))
+            {
+                return Err(format!("{i}: trash root {r} is not above it in one unit"));
             }
             let Some(p) = n.parent else { continue };
             let parent = &self.nodes[p];
@@ -437,6 +484,32 @@ mod tests {
         m.check_invariants().unwrap();
     }
 
+    #[test]
+    fn restored_archived_child_becomes_its_own_archive_root() {
+        // Archive a, trash its child r (it stays archived), trash a, restore r: r goes to the top with its subtree
+        // as an archive unit of its own, which outlives the purge of a and unarchives by itself.
+        let mut m = Model::new(1);
+        let a = m.create(0, None).unwrap();
+        let r = m.create(0, Some(a)).unwrap();
+        let d = m.create(0, Some(r)).unwrap();
+        let s = m.create(0, Some(a)).unwrap();
+        assert_eq!(m.archive(a), Ok(4));
+        assert_eq!(m.trash(r), Ok(2));
+        assert_eq!(m.trash(a), Ok(2));
+        assert_eq!(m.restore(d), Ok((r, true)));
+        assert_eq!(
+            (m.nodes[r].archive_root, m.nodes[d].archive_root),
+            (Some(r), Some(r))
+        );
+        assert_eq!(m.nodes[s].archive_root, Some(a));
+        assert_eq!(m.archive_roots(), BTreeSet::from([r]));
+        m.check_invariants().unwrap();
+        assert_eq!(m.purge(a), Ok(2));
+        assert_eq!(m.unarchive(d), Ok((r, false)));
+        assert_eq!(m.visible(), BTreeSet::from([(r, 0, None), (d, 0, Some(r))]));
+        m.check_invariants().unwrap();
+    }
+
     /// A brute-force restatement of the rules, written independently of [`Model`]: flat maps, every query a scan.
     #[derive(Clone, Debug, Default)]
     struct Naive {
@@ -486,6 +559,26 @@ mod tests {
                         && !self.trashed_by.contains_key(&p)
                         && !self.archived_by.contains_key(&p)
                 })
+        }
+
+        /// After `root` went to the top level: every row below it whose archive root is no longer above it is
+        /// archived by `root` instead.
+        fn split_archive_unit(&mut self, root: usize) {
+            for d in self.below(root) {
+                if let Some(&r) = self.archived_by.get(&d)
+                    && !self.is_under(d, r)
+                {
+                    self.archived_by.insert(d, root);
+                }
+            }
+        }
+
+        fn archive_roots(&self) -> BTreeSet<usize> {
+            self.archived_by
+                .iter()
+                .filter(|&(id, root)| id == root && !self.trashed_by.contains_key(id))
+                .map(|(&id, _)| id)
+                .collect()
         }
 
         fn gone_parent(&self, root: usize) -> bool {
@@ -574,6 +667,7 @@ mod tests {
                     let moved = self.gone_parent(root);
                     if moved {
                         self.parent.insert(root, None);
+                        self.split_archive_unit(root);
                     }
                     Ok(root as u64 * 2 + u64::from(moved))
                 }
@@ -612,6 +706,7 @@ mod tests {
                     let moved = self.gone_parent(root);
                     if moved {
                         self.parent.insert(root, None);
+                        self.split_archive_unit(root);
                     }
                     Ok(root as u64 * 2 + u64::from(moved))
                 }
@@ -768,6 +863,7 @@ mod tests {
                     return Err(TestCaseError::fail(format!("after {op:?}: {e}")));
                 }
                 prop_assert_eq!(model.visible(), naive.visible(), "after {:?}", op);
+                prop_assert_eq!(model.archive_roots(), naive.archive_roots(), "after {:?}", op);
             }
         }
     }

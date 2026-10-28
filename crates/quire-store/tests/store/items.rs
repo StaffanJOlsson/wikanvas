@@ -920,6 +920,62 @@ async fn restore_with_trashed_parent_goes_top() {
 }
 
 #[tokio::test]
+async fn restored_archived_child_becomes_its_own_archive_root() {
+    // Archive a, trash its child r (it stays archived, D5), trash a, restore r: r leaves a's subtree for the top
+    // level, so its part of a's archive unit becomes a unit of its own, listed in /archive and unarchived by itself,
+    // also after a is purged.
+    let t = TestDb::new();
+    let owner = t.owner().await;
+    let c = t.collection(&owner, "Notes").await;
+    let a = t.item(&owner, c.id, None, ItemKind::Doc, "a").await;
+    let r = t.item(&owner, c.id, Some(a.id), ItemKind::Doc, "r").await;
+    let d = t.item(&owner, c.id, Some(r.id), ItemKind::Doc, "d").await;
+    let s = t.item(&owner, c.id, Some(a.id), ItemKind::Doc, "s").await;
+    let aid = a.id.to_string();
+    assert_eq!(
+        t.w(move |tx| items::archive(tx, &aid, NOW)).await.unwrap(),
+        4
+    );
+    assert_eq!(trash(&t, &owner, r.id).await.unwrap(), 2);
+    assert_eq!(trash(&t, &owner, a.id).await.unwrap(), 2);
+    let back = restore(&t, d.id).await.unwrap();
+    assert_eq!(
+        (
+            back.item.id,
+            back.item.parent_id,
+            back.moved_to_top,
+            back.item.archived
+        ),
+        (r.id, None, true, true)
+    );
+    for x in [r.id, d.id] {
+        assert_eq!(t.row(x).await.archive_root_id, Some(r.id.to_string()));
+    }
+    assert_eq!(t.row(s.id).await.archive_root_id, Some(a.id.to_string()));
+    assert_eq!(archive_list(&t, &owner).await, [r.id]);
+    assert!(t.tree_titles(&owner, c.id).await.is_empty());
+    let aid = a.id.to_string();
+    assert_eq!(t.w(move |tx| items::purge(tx, &aid)).await.unwrap(), 2);
+    let did = d.id.to_string();
+    let back = t.w(move |tx| items::unarchive(tx, &did)).await.unwrap();
+    assert_eq!((back.item.id, back.moved_to_top), (r.id, false));
+    assert_eq!(t.tree_titles(&owner, c.id).await, ["r", "d"]);
+    assert!(archive_list(&t, &owner).await.is_empty());
+}
+
+/// The ids `/archive` lists.
+async fn archive_list(t: &TestDb, owner: &str) -> Vec<Uuid> {
+    let v = viewer(owner);
+    t.r(move |conn| lists::archive(conn, &v, &lists::PageRequest::new("archive", None, None)))
+        .await
+        .unwrap()
+        .items
+        .into_iter()
+        .map(|i| i.item.id)
+        .collect()
+}
+
+#[tokio::test]
 async fn collection_delete_restore_roundtrip() {
     let t = TestDb::new();
     let owner = t.owner().await;
@@ -1406,6 +1462,7 @@ async fn rebalance_when_key_over_64() {
     })
     .await
     .unwrap();
+    let (tv_first, tv_notes) = (t.tree_version(first.id).await, t.tree_version(c.id).await);
     let o = owner.clone();
     let between = t
         .w(move |tx| {
@@ -1431,6 +1488,16 @@ async fn rebalance_when_key_over_64() {
     assert_eq!(names, ["first", "between", "Notes"]);
     assert!(all.iter().all(|c| c.sort_key.len() <= 4), "{all:?}");
     assert!(between.sort_key.len() <= 4);
+    // Each tree response holds its collection's sort_key, so a collection whose key the rebalance rewrote gets a new
+    // tree ETag (and one whose key stayed does not).
+    assert_eq!(
+        t.tree_version(first.id).await > tv_first,
+        all[0].sort_key != "a0"
+    );
+    assert!(
+        t.tree_version(c.id).await > tv_notes,
+        "Notes got a short key"
+    );
 }
 
 #[tokio::test]
@@ -1457,8 +1524,8 @@ async fn patch_with_if_match() {
     assert_eq!(t.row(a.id).await.meta_version, 2);
     assert_eq!(
         t.tree_version(c.id).await,
-        tv,
-        "full_width is not in the tree"
+        tv + 1,
+        "full_width alone changes updated_at, which the tree shows and the `updated` order sorts by"
     );
     let e = patch(
         ItemPatch {
@@ -1485,9 +1552,20 @@ async fn patch_with_if_match() {
         3,
         "one bump for both fields"
     );
-    // An empty patch changes nothing.
+    // An empty patch, or one that sets the current values, changes nothing.
+    let tv = t.tree_version(c.id).await;
     patch(ItemPatch::default(), None).await.unwrap();
+    patch(
+        ItemPatch {
+            title: Some("b".into()),
+            full_width: Some(false),
+        },
+        None,
+    )
+    .await
+    .unwrap();
     assert_eq!(t.row(a.id).await.meta_version, 3);
+    assert_eq!(t.tree_version(c.id).await, tv);
 }
 
 #[tokio::test]

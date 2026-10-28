@@ -140,8 +140,9 @@ pub fn rename(
 
 /// `PATCH /items/{id}`: the title and/or `full_width`. With `if_match` (the `n` of `If-Match: "m{n}"`), a stale
 /// `meta_version` is 412 `rev_mismatch` with `details.etag` the current tag. A change sets `updated_at`/`updated_by`
-/// and bumps `meta_version` once; a title change also bumps `tree_version`. A patch that changes nothing writes
-/// nothing. `not_found`; 409 `read_only` when trashed or archived (and the patch sets a field); 422 `title`.
+/// and bumps `meta_version` and `tree_version` once (the tree shows `updated_at` and may sort by it, so a
+/// `full_width` change alone bumps it too). A patch that changes nothing writes nothing. `not_found`; 409
+/// `read_only` when trashed or archived (and the patch sets a field); 422 `title`.
 pub fn update(
     tx: &Transaction<'_>,
     item_id: &str,
@@ -174,9 +175,8 @@ pub fn update(
          WHERE id = ?1",
         params![item_id, title, full_width, now, actor_id],
     )?;
-    if title != row.title {
-        bump_tree_version(tx, &row.collection_id)?;
-    }
+    // The tree shows the title and `updated_at`, and sorts by `updated_at` under the `updated` order.
+    bump_tree_version(tx, &row.collection_id)?;
     summary(tx, item_id)
 }
 
@@ -419,7 +419,8 @@ pub fn trash(tx: &Transaction<'_>, item_id: &str, actor_id: &str, now: i64) -> R
 
 /// Restores the trash unit of an item (its trash root, which may be an ancestor): clears exactly the rows of that
 /// root. The root keeps its parent unless the parent is gone (purged, trashed, or archived while the root is not);
-/// then it goes to the end of the top level (`moved_to_top`). Returns the root. 409 `conflict` when the item is not
+/// then it goes to the end of the top level (`moved_to_top`), and if it is still archived it becomes its own archive
+/// root ([`place_root`]). Returns the root. 409 `conflict` when the item is not
 /// in the trash; `parent_invalid` while its collection is deleted ("restore the collection first").
 pub fn restore(tx: &Transaction<'_>, item_id: &str) -> Result<RestoredItem> {
     let row = item_row(tx, item_id)?;
@@ -453,6 +454,11 @@ pub fn restore(tx: &Transaction<'_>, item_id: &str) -> Result<RestoredItem> {
 
 /// The placement rule after a restore or unarchive (`quire_core::tree::keeps_parent`): moves `root` to the end of its
 /// collection's top level when its parent is gone. Returns whether it moved.
+///
+/// A restored root that stays archived as part of an ancestor's archive unit (D5: trashing an archived item keeps
+/// its archive state) leaves that ancestor's subtree when it moves, so the rows of its subtree in that unit become a
+/// unit of their own, with the root as their archive root: it then shows in `/archive` and unarchives by itself, and
+/// a purge of the old root cannot leave it pointing at a missing row (`quire_core::tree::Model::place`).
 fn place_root(tx: &Transaction<'_>, root: &str) -> Result<bool> {
     let row = item_row(tx, root)?;
     let Some(parent) = &row.parent_id else {
@@ -469,6 +475,13 @@ fn place_root(tx: &Transaction<'_>, root: &str) -> Result<bool> {
         "UPDATE items SET parent_id = NULL, sort_key = ?2 WHERE id = ?1",
         params![root, key],
     )?;
+    if let Some(unit) = row.archive_root_id.as_deref().filter(|&u| u != root) {
+        tx.execute(
+            "UPDATE items SET archive_root_id = ?1, meta_version = meta_version + 1
+             WHERE archive_root_id = ?2 AND id IN (SELECT value FROM json_each(?3))",
+            params![root, unit, json_ids(&tree::subtree(tx, root)?)?],
+        )?;
+    }
     Ok(true)
 }
 

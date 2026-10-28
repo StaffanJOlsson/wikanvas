@@ -75,6 +75,22 @@ async fn etag_304_until_structure_changes() {
             format!("/api/v1/collections/{}", c.id),
             json!({ "color": "#112233" }),
         ),
+        // Under the `updated` order the tree sorts by `updated_at`, which a change of `full_width` alone sets.
+        (
+            "patch",
+            format!("/api/v1/collections/{}", c.id),
+            json!({ "child_order": "updated" }),
+        ),
+        (
+            "patch",
+            format!("/api/v1/items/{}", a.id),
+            json!({ "full_width": true }),
+        ),
+        (
+            "patch",
+            format!("/api/v1/collections/{}", c.id),
+            json!({ "child_order": "manual" }),
+        ),
     ];
     for (what, url, body) in steps {
         let res = if what == "patch" {

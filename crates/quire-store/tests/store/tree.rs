@@ -2,9 +2,9 @@
 //! reference model of `quire_core::tree` (owner: W1).
 
 use quire_core::api::{ChildOrder, CollectionPatch, ErrorCode, ItemKind, MoveItem, Position};
-use quire_core::tree::{Model, TreeError};
+use quire_core::tree::{Model, TrashRoot, TreeError};
 use quire_store::{collections, items, tree};
-use rusqlite::params;
+use rusqlite::{OptionalExtension, params};
 use uuid::Uuid;
 
 use crate::common::{DAY, MINUTE, NOW, TestDb, count, viewer};
@@ -537,6 +537,51 @@ fn apply_model(m: &mut Model, op: &Op) -> Result<u64, ErrorCode> {
     r.map_err(code)
 }
 
+/// One item's soft state: `(collection, parent, trash root, archive root)` as indexes, `None` once purged.
+type RowState = Option<(usize, Option<usize>, Option<TrashRoot>, Option<usize>)>;
+
+/// Every item's [`RowState`] in the store, read with plain SQL.
+async fn rows_store(t: &TestDb, ids: &[Uuid], cols: &[Uuid]) -> Vec<RowState> {
+    let (ids, cols) = (ids.to_vec(), cols.to_vec());
+    t.query(move |c| {
+        let item = |s: String| ids.iter().position(|x| x.to_string() == s).expect("a known item");
+        let col = |s: &str| cols.iter().position(|x| x.to_string() == s);
+        let mut stmt = c.prepare(
+            "SELECT collection_id, parent_id, trash_root_id, archive_root_id FROM items WHERE id = ?1",
+        )?;
+        let mut out = Vec::new();
+        for id in &ids {
+            let row = stmt
+                .query_row([id.to_string()], |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, Option<String>>(1)?,
+                        r.get::<_, Option<String>>(2)?,
+                        r.get::<_, Option<String>>(3)?,
+                    ))
+                })
+                .optional()?;
+            out.push(row.map(|(c, p, trash, archive)| {
+                let trash = trash.map(|root| match col(&root) {
+                    Some(ci) => TrashRoot::Collection(ci),
+                    None => TrashRoot::Item(item(root)),
+                });
+                (col(&c).expect("a known collection"), p.map(item), trash, archive.map(item))
+            }));
+        }
+        Ok(out)
+    })
+    .await
+}
+
+/// Every item's [`RowState`] in the model.
+fn rows_model(m: &Model) -> Vec<RowState> {
+    m.nodes
+        .iter()
+        .map(|n| (!n.purged).then_some((n.collection, n.parent, n.trash_root, n.archive_root)))
+        .collect()
+}
+
 /// The visible tree of the store as `(index, collection index, parent index)`, like `Model::visible`.
 async fn visible_store(
     t: &TestDb,
@@ -586,6 +631,7 @@ fn store_matches_the_core_model() {
                 let got = apply_store(&t, &owner, &mut ids, &cols, op).await;
                 prop_assert_eq!(got, want, "{:?}", op);
                 prop_assert_eq!(visible_store(&t, &owner, &ids, &cols).await, model.visible(), "after {:?}", op);
+                prop_assert_eq!(rows_store(&t, &ids, &cols).await, rows_model(&model), "after {:?}", op);
             }
             let fk: i64 = t.query(|c| c.query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |r| r.get(0))).await;
             prop_assert_eq!(fk, 0);

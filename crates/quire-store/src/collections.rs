@@ -295,7 +295,8 @@ pub(crate) fn purge_rows(tx: &Transaction<'_>, id: &str) -> Result<u64> {
     Ok(purged)
 }
 
-/// The sort key for a collection at `position` (all collections, `exclude` left out), rebalancing when needed.
+/// The sort key for a collection at `position` (all collections, `exclude` left out), rebalancing when needed (which
+/// bumps the `tree_version` of every collection whose key it rewrites).
 fn place(
     tx: &Transaction<'_>,
     exclude: Option<&str>,
@@ -311,8 +312,12 @@ fn place(
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?)
     };
+    // Each collection's tree response holds its `sort_key`, so a rewritten key bumps that collection's tree ETag.
     let rewrite = |fresh: &[(String, String)]| -> Result<()> {
-        let mut stmt = tx.prepare_cached("UPDATE collections SET sort_key = ?2 WHERE id = ?1")?;
+        let mut stmt = tx.prepare_cached(
+            "UPDATE collections SET sort_key = ?2, tree_version = tree_version + 1
+             WHERE id = ?1 AND sort_key IS NOT ?2",
+        )?;
         for (id, key) in fresh {
             stmt.execute(params![id, key])?;
         }
