@@ -247,3 +247,79 @@ None was needed for green (see above). They are listed by target, with the sourc
   - PLAN line 1300: run `bash -n` once per file (W7-6);
   - §7.6: `logout --revoke` (D-W8-25), retrying a GET after a failed body read (D-W8-24), and control-character
     escaping (D-W8-26).
+
+## W7 merge
+
+Main started clean at `aa644c0`. The three W7 branches were merged with `git merge --no-ff`, in the order fixes,
+integration tests, docs, and every check of "Checks after each merge" above ran after each one. Nothing was pushed.
+`vendor/inkboard` and the worktrees `../Quire-W7-*` were not touched.
+
+### Merges
+
+| # | Branch (tip) | Merge commit | Conflicts and how they were resolved |
+|---|---|---|---|
+| 1 | `ws/W7-fixes` (`6c58d41`) | `718998a` Merge W7 fixes | None. Its `Cargo.lock` change (oas3 without default features: serde_json loses its `indexmap`/`foldhash` edges, no version changes, still 366 + 6 packages) came in cleanly; `scripts/check-pins.sh` passes. Its `openapi.json` and `ItemDetail.ts` changes match a regeneration. |
+| 2 | `ws/W7-integration-tests` (`da477f6`) | `00889fd` Merge W7 integration tests | `crates/quire-store/src/seed.rs`: both branches fixed "Writing in Quire" (W7 fixes `487096f`, W7 tests `b6b08ec`, which says so and asks to take the other side). Kept the fixes branch's version, the better fix: it stores "Writing in Quire" from its fixture too, and also maps the welcome document's placeholder ids with `docs::init_seed` (merge item 6). Both branches' seed tests pass on it: the store seed test and `integration::seeded_getting_started_is_published_and_searchable`. |
+| 3 | `ws/W7-docs` (`1664e0e`) | `8979f64` Merge W7 docs | None. `docs/AGENTS.md` merged on its own: the fixes changed the `item` row and added an example, the docs the `admin` row. |
+
+No lockfile conflicted, no `docs/api/openapi.json` or `web/src/api/gen/*` file conflicted, and only W7 fixes changed
+them. The integration-tests branch's other fix, the export's second `VACUUM INTO` (`9a614d6`), touches nothing the
+fixes branch changed, and its test (`integration::export_after_api_writes_has_no_tokens_or_sessions`) passes.
+
+### Fix commits
+
+| Commit | After | What and why |
+|---|---|---|
+| `8c49b8d` | W7 docs | **Fix after merging W7 docs: ARCHITECTURE follows the merged code.** The docs branch was written next to the other two, from the handoff notes, and four of its §17.4 decisions contradicted the code on main: it made `/inkboard/{build}/manifest.json` immutable with the frame CSP (the code sends `no-cache` + ETag, identity, `application/json`, `nosniff`, because the build id does not hash the manifest's `patchset`); kept the board-page route's own gzip (the code gzips once, in the compression layer, over 1 KiB); kept two title orders (the code has one key on both sides); and read Full width through `useFullWidthOf` (removed by the fixes). The text now states what main does, the four §17.4 rows say "Revised at the W7 merge" and keep the first wording as a rejected alternative, and the fixes agent's other doc requests are applied: §3 `fixtures/tree/`, §4.1 and §6.4 oas3, §5 sibling order and ties, §6.2 step 3 `boards::prepare_with`, §7.2 `ItemDetail`, §7.6 `item move`, §8 and §9.6.7 the seed, §9.5 the warm-up and the one update banner, §9.6.4 `data-full-width`, §14 the image smoke's manifest check. From the integration-tests agent: D34 and §12 describe the second `VACUUM INTO` and that `/data/tmp` briefly holds two copies of the database (the D33 floor does not scale with it). Two §17.4 rows were added (`item move` without `--parent`, and the export scrub), §16 item 27 now says the eleven merge items are fixed, and item 28 records the docs agent's point against the layer gzip (up to 16 MiB of SVG on an async worker) as a follow-up. Documentation only; no test reads `ARCHITECTURE.md`. |
+
+The remaining doc requests of the fixes report were already in the docs branch: §9.1 (both update paths call
+`checkForUpdate()`), §5 "Previews" (`preview_rev` is the newest rev, `svg_len` that rev's), and `ItemDetail.full_width`
+in §7.2. W1 D19 (`dark_theme` through `users::get`) has no text in ARCHITECTURE to change.
+
+### Checks after each merge
+
+The same commands as above, all with `QUIRE_SHARED_CARGO_HOME=/home/staffan/.cache/quire-cargo`, `cargo test` with
+`--no-fail-fast`. Nothing was skipped or ignored.
+
+| After | Result | Rust tests (api · cli unit + `tests/cli` · core · server lib + `tests/api` · store lib + `tests/store`) | Web (files / tests) |
+|---|---|---|---|
+| W7 fixes | all pass | 123 · 43 + 69 · 69 · 58 + 182 · 21 + 113 | 63 / 300 |
+| W7 integration tests | all pass | 123 · 43 + 69 · 69 · 58 + 190 · 21 + 113 | 63 / 300 |
+| W7 docs | all pass | same as above | 64 / 304 |
+| `8c49b8d` | all pass (the final run, on the merge notes commit) | same as above | 64 / 304 |
+
+`tests/api` grew by 8: the integration tests (`integration::` now has 9, W0b's one included). The store's lib count of
+21 (22 before) is the removed `previews::gzip` test. The web suite grew by W7 fixes' 4 files / 20 tests and the
+docs branch's `about.test.tsx` (4 tests). The stderr noise noted above (happy-dom's `about:blank` iframe, React
+Router's "No route matches") is unchanged.
+
+### Not run here (the rest of the W7 gate)
+
+Each needs an image or a browser, and none was part of this merge step:
+- `scripts/image.sh` with the real `inkboard-web` stage (the first full build, now also with the docs branch's
+  `licenses` stage), then `QUIRE_SMOKE_LEVEL=full scripts/image-smoke.sh`: the only check of the manifest fix
+  (merge item 1) in the real image. Note: `quire:latest` is currently the docs agent's stub image
+  (`quire:aa644c0-dirty`, built with `INKBOARD_BUILD=stub` from the docs worktree), so rebuild before any image test;
+- `scripts/agent-test.sh` with all eleven scenarios, including the fixed scenario 04 (merge item 2);
+- `scripts/e2e.sh smoke` and, after `scripts/dev.sh scripts/inkboard.sh build`, `scripts/e2e.sh frame`;
+- `scripts/cli-dist.sh`;
+- the real-browser checks of ARCHITECTURE §16 item 26: the board host with the real dist, menus and popovers over the
+  canvas (held only by `styles/layers.test.ts`), the editor's menus, one real sidebar drag, and the About page.
+
+### Still open
+
+- Owner decisions, current pins kept, not decided here (ARCHITECTURE §16 items 24 and 25): lightningcss (MPL-2.0,
+  build-only, through Vite 8.3.5: allow MPL-2.0 for build-only tools, or re-pin Vite 7); image digests younger than two
+  weeks and Node 24.22.1 about 7 days old; host port 443 held by the owner's Caddy (the README explains
+  `QUIRE_HTTPS_PORT`/`QUIRE_HTTP_PORT` and running behind an existing proxy). The docs agent added to the same list:
+  the Inkboard wasm's fonts (SIL OFL 1.1, Ubuntu Font Licence 1.0), the runtime base image's OS layer (LGPL, GPL with
+  the runtime exception, MPL-2.0 CA data), and Inkboard's own list naming Unlicense, BSL-1.0 and CDLA-Permissive-2.0
+  crates that should be compiled out of the embed build (not verified with a crate list).
+- Optional W6 refactors W2-4 (`content_disposition` into `headers.rs`) and W2-8 (the board body budget into
+  `AppState`): not done, no behaviour change.
+- Follow-ups (ARCHITECTURE §16 items 27–29): the 545 kB main web chunk; the layer's board-page gzip on an async worker;
+  a CLI-only `licenses.txt`; `compose.yaml` sets `QUIRE_TRUSTED_PROXIES` from `QUIRE_PROXY_IP`, so the variable has no
+  effect in `.env` (the README says to set it in `compose.override.yaml`).
+- W8 should review the fixes branch's changes to its files (`crates/quire-cli/src/{args.rs,cmd/item.rs}`,
+  `tests/cli/{flows,mocked}.rs`, `e2e/agent/scenarios/04-boards.sh`), as for `fba0612`, which the fixes agent reviewed
+  and found correct (D50, §6.2 step 4).
