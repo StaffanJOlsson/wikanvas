@@ -240,10 +240,30 @@ COPY --from=web /src/web/dist web/dist
 COPY --from=licenses /out/licenses.txt web/dist/licenses.txt
 COPY --from=inkboard-web /out/inkboard web/dist-inkboard
 ARG QUIRE_COMMIT=unknown
+# quire-assets embeds web/dist and web/dist-inkboard with rust-embed, and cargo decides by mtime whether to compile it
+# again. The target directory is a cache mount shared by every image build, while the two dists come from other
+# stages, whose cached outputs keep the mtimes of the build that made them: those can be older than the last compile
+# of quire-assets (a stub image and then a full one at one commit, a reverted web change, an older commit), and cargo
+# then kept the expansion of another build's files (found by the M1.1 gate: a full image with the stub engine).
+# Touching them makes every run of this step embed them again (about 2 s; quire-server recompiles anyway, as
+# QUIRE_COMMIT changes with every commit). The binary is then checked to embed these two dists: every file name of
+# both, and this engine's build id (a hash of its files). A binary that embeds another build's files fails the image
+# build instead of shipping.
 RUN --mount=type=cache,id=quire-cargo-registry,target=/usr/local/cargo/registry \
     --mount=type=cache,id=quire-server-target,target=/cache/target \
-    QUIRE_COMMIT="$QUIRE_COMMIT" CARGO_TARGET_DIR=/cache/target cargo build --release --locked -p quire-server \
- && install -D /cache/target/release/quire-server /out/quire-server && mkdir -p /out/data
+    find web/dist web/dist-inkboard -type f -exec touch {} + \
+ && QUIRE_COMMIT="$QUIRE_COMMIT" CARGO_TARGET_DIR=/cache/target cargo build --release --locked -p quire-server \
+ && bin=/cache/target/release/quire-server \
+ && for d in web/dist web/dist-inkboard; do \
+      for f in $(cd "$d" && find . -type f -printf '%P\n'); do \
+        if ! LC_ALL=C grep -qaF "$f" "$bin"; then echo "quire-server does not embed $d/$f" >&2; exit 1; fi; \
+      done; \
+    done \
+ && build="$(sed -n 's/^  "build": "\([^"]*\)",$/\1/p' web/dist-inkboard/manifest.json)" \
+ && if ! LC_ALL=C grep -qaF "\"build\": \"$build\"," "$bin"; then \
+      echo "quire-server does not embed the manifest of engine build '$build'" >&2; exit 1; \
+    fi \
+ && install -D "$bin" /out/quire-server && mkdir -p /out/data
 
 # The CLI (D54): a static musl binary, in the image and as a standalone download (scripts/cli-dist.sh). Cargo needs
 # every workspace manifest, including inkboard-core's, to resolve the lockfile, but compiles only quire-cli's graph.
