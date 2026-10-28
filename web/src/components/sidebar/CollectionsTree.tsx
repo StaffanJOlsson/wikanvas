@@ -139,12 +139,14 @@ export function CollectionsTree({ collections, starredIds, scrollRef, labelledBy
   // ---- virtualization ----
   const virtual = rows.length > VIRTUALIZE_ABOVE;
   const [scrollMargin, setScrollMargin] = useState(0);
+  // The tree's offset in the scroll area (below STARRED, which can grow): checked after every render.
   useLayoutEffect(() => {
     if (!virtual || !treeEl.current || !scrollRef.current) return;
     const t = treeEl.current.getBoundingClientRect().top;
     const s = scrollRef.current.getBoundingClientRect().top;
-    setScrollMargin(t - s + scrollRef.current.scrollTop);
-  }, [virtual, scrollRef]);
+    const margin = Math.round(t - s + scrollRef.current.scrollTop);
+    if (margin !== scrollMargin) setScrollMargin(margin);
+  });
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
