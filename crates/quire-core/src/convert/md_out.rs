@@ -9,7 +9,9 @@
 //! 2. [`render`] writes a lowered tree as Markdown: ATX headings; `-` bullets (`*` after another bullet list); `1.`
 //!    ordered lists from `start` (`1)` after another ordered list); fences longer than any backtick run inside;
 //!    `---` rules; backslash hard breaks; one blank line between blocks; LF endings; one trailing newline;
-//!    backslash escapes for punctuation that would start a construct.
+//!    backslash escapes for punctuation that would start a construct (an `@` of an e-mail address included); and a
+//!    character reference for a letter (or whitespace) next to a mark delimiter that would otherwise not open or
+//!    close, so marked runs that touch words or start and end with punctuation parse back as the same marks.
 //!
 //! `convert::tests::markdown_roundtrip` checks `parse(print(d)) == md_normalize(d)` (ignoring `blockId`).
 //! The printer recurses over containers (at most [`MAX_PRINT_DEPTH`] levels; deeper content is printed as the text of
@@ -720,65 +722,50 @@ fn lower_inline(
             _ => w.add(W::UnknownNode, None),
         }
     }
-    // 2. Whitespace at the edges of delimited marks moves outside them.
+    // 2. Whitespace at the edges of delimited marks moves outside them (one pass per mark: each maximal run of
+    //    text with the mark loses the leading whitespace of its first node and the trailing whitespace of its last).
     for mark in DELIMITED {
-        let mut i = 0;
-        while i < nodes.len() {
-            if !(type_of(&nodes[i]) == "text" && has_mark(&nodes[i], mark)) {
-                i += 1;
-                continue;
+        let old = std::mem::take(&mut nodes);
+        let mut run: Vec<Value> = Vec::new();
+        let flush = |run: &mut Vec<Value>, nodes: &mut Vec<Value>| {
+            if run.is_empty() {
+                return;
             }
-            let start = i;
-            while i < nodes.len() && type_of(&nodes[i]) == "text" && has_mark(&nodes[i], mark) {
-                i += 1;
+            let lead = text_of(&run[0]).chars().take_while(|c| is_ws(*c)).count();
+            if lead > 0 {
+                let text = text_of(&run[0]).to_owned();
+                let mut outside = without_mark(&run[0], mark);
+                set_text(&mut outside, text[..lead].to_owned());
+                set_text(&mut run[0], text[lead..].to_owned());
+                nodes.push(outside);
             }
-            let end = i; // exclusive
-            let mut inserted = 0;
-            // Leading whitespace.
-            let lead: String = text_of(&nodes[start])
-                .chars()
-                .take_while(|c| is_ws(*c))
-                .collect();
-            if !lead.is_empty() {
-                let rest = text_of(&nodes[start])[lead.len()..].to_owned();
-                let mut outside = without_mark(&nodes[start], mark);
-                set_text(&mut outside, lead);
-                set_text(&mut nodes[start], rest);
-                nodes.insert(start, outside);
-                inserted += 1;
-            }
-            let last = end - 1 + inserted;
-            let trail_len = text_of(&nodes[last])
+            let last = run.len() - 1;
+            let trail = text_of(&run[last])
                 .chars()
                 .rev()
                 .take_while(|c| is_ws(*c))
                 .count();
-            if trail_len > 0 {
-                let text = text_of(&nodes[last]).to_owned();
-                let cut = text.len() - trail_len;
-                let mut outside = without_mark(&nodes[last], mark);
+            let mut after = None;
+            if trail > 0 {
+                let text = text_of(&run[last]).to_owned();
+                let cut = text.len() - trail;
+                let mut outside = without_mark(&run[last], mark);
                 set_text(&mut outside, text[cut..].to_owned());
-                set_text(&mut nodes[last], text[..cut].to_owned());
-                nodes.insert(last + 1, outside);
-                inserted += 1;
+                set_text(&mut run[last], text[..cut].to_owned());
+                after = Some(outside);
             }
-            nodes.retain(|n| type_of(n) != "text" || !text_of(n).is_empty());
-            i = end + inserted;
-            // `retain` may have shifted the run; restart the scan from its start to be safe.
-            i = i.min(nodes.len());
-            if inserted > 0 {
-                i = start;
-                // Skip past the (now whitespace-free) run.
-                while i < nodes.len()
-                    && !(type_of(&nodes[i]) == "text" && has_mark(&nodes[i], mark))
-                {
-                    i += 1;
-                }
-                while i < nodes.len() && type_of(&nodes[i]) == "text" && has_mark(&nodes[i], mark) {
-                    i += 1;
-                }
+            nodes.extend(run.drain(..).filter(|n| !text_of(n).is_empty()));
+            nodes.extend(after);
+        };
+        for n in old {
+            if type_of(&n) == "text" && has_mark(&n, mark) {
+                run.push(n);
+            } else {
+                flush(&mut run, &mut nodes);
+                nodes.push(n);
             }
         }
+        flush(&mut run, &mut nodes);
     }
     // 3. Hard breaks at the edges, and edge whitespace of lines.
     loop {
@@ -1204,15 +1191,15 @@ fn escape_autolinks(s: &str) -> String {
     out
 }
 
-fn push_escaped(
-    out: &mut String,
+/// Whether text character `c` needs a backslash escape, from its neighbours in the text.
+fn needs_escape(
     c: char,
     prev: Option<char>,
     next: Option<char>,
     line_start: bool,
     heading: bool,
-) {
-    let escape = match c {
+) -> bool {
+    match c {
         '\\' | '`' | '*' | '[' | ']' | '<' | '|' | '~' => true,
         '_' => {
             !(prev.is_some_and(char::is_alphanumeric) && next.is_some_and(char::is_alphanumeric))
@@ -1222,32 +1209,163 @@ fn push_escaped(
         '#' => line_start || heading,
         '>' | '+' | '-' => line_start,
         '!' => next == Some('['),
-        '.' | ')' => {
-            // "1." or "1)" at the start of a line would start an ordered list.
-            line_start && false
-        }
         _ => false,
-    };
-    if escape {
+    }
+}
+
+fn push_escaped(
+    out: &mut String,
+    c: char,
+    prev: Option<char>,
+    next: Option<char>,
+    line_start: bool,
+    heading: bool,
+) {
+    if needs_escape(c, prev, next, line_start, heading) {
         out.push('\\');
     }
     out.push(c);
 }
 
-/// Renders lowered inline content (marks opened in rank order, closed in reverse).
+/// One character of printed inline content. [`render_inline`] writes cells first, so that it can still escape a
+/// character, or write it as a character reference, once the delimiters around it are known.
+#[derive(Clone, Copy)]
+struct Cell {
+    c: char,
+    kind: CellKind,
+    enc: Enc,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CellKind {
+    /// Document text: it may be escaped, or written as a character reference.
+    Text,
+    /// What the printer writes around text: link brackets and destinations, code spans, mentions, `<u>` tags and
+    /// hard breaks.
+    Syntax,
+    /// A delimiter of a mark (`*`, `**`, `_`, `__`, `~~`, `==`); `true` opens.
+    Delim(bool),
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Enc {
+    Plain,
+    /// `\c`.
+    Escaped,
+    /// `&#n;`.
+    Entity,
+}
+
+fn push_syntax(cells: &mut Vec<Cell>, s: &str) {
+    cells.extend(s.chars().map(|c| Cell {
+        c,
+        kind: CellKind::Syntax,
+        enc: Enc::Plain,
+    }));
+}
+
+fn push_delim(cells: &mut Vec<Cell>, s: &str, open: bool) {
+    // `<u>` and `</u>` are HTML, not delimiter runs.
+    let kind = if s.starts_with('<') {
+        CellKind::Syntax
+    } else {
+        CellKind::Delim(open)
+    };
+    cells.extend(s.chars().map(|c| Cell {
+        c,
+        kind,
+        enc: Enc::Plain,
+    }));
+}
+
+fn push_text(cells: &mut Vec<Cell>, c: char, escaped: bool) {
+    cells.push(Cell {
+        c,
+        kind: CellKind::Text,
+        enc: if escaped { Enc::Escaped } else { Enc::Plain },
+    });
+}
+
+/// The last character written for `cell`.
+fn last_out(cell: &Cell) -> char {
+    if cell.enc == Enc::Entity { ';' } else { cell.c }
+}
+
+/// A `!` right before `[` would make the link (or mention) an image.
+fn escape_bang(cells: &mut [Cell]) {
+    if let Some(last) = cells.last_mut()
+        && last.kind == CellKind::Text
+        && last.c == '!'
+        && last.enc == Enc::Plain
+    {
+        last.enc = Enc::Escaped;
+    }
+}
+
+fn is_plain(cells: &[Cell], i: usize, c: char) -> bool {
+    cells
+        .get(i)
+        .is_some_and(|x| x.c == c && x.kind == CellKind::Text && x.enc == Enc::Plain)
+}
+
+/// Breaks what comrak's autolink extension would turn into a link in the text of one node: `scheme://` (the colon
+/// escaped) and `www.` at a word start (its first `w` a character reference).
+fn escape_autolink_cells(cells: &mut [Cell]) {
+    for k in 0..cells.len().saturating_sub(2) {
+        if is_plain(cells, k, ':') && is_plain(cells, k + 1, '/') && is_plain(cells, k + 2, '/') {
+            cells[k].enc = Enc::Escaped;
+        }
+    }
+    let mut k = 0;
+    while k + 3 < cells.len() {
+        if is_plain(cells, k, 'w')
+            && is_plain(cells, k + 1, 'w')
+            && is_plain(cells, k + 2, 'w')
+            && is_plain(cells, k + 3, '.')
+        {
+            if k == 0 || !last_out(&cells[k - 1]).is_alphanumeric() {
+                cells[k].enc = Enc::Entity;
+                k += 1;
+            } else {
+                k += 4;
+            }
+        } else {
+            k += 1;
+        }
+    }
+}
+
+/// An `@` that comrak's autolink extension could read as part of an e-mail address (a local-part character before
+/// it, a domain character after it) is escaped: an escaped character is a node of its own while comrak looks for
+/// addresses, so the text around it never joins into one.
+fn escape_email_cells(cells: &mut [Cell], from: usize, after: Option<char>) {
+    let local = |c: char| c.is_ascii_alphanumeric() || matches!(c, '.' | '+' | '-' | '_');
+    let domain = |c: char| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_');
+    for k in from..cells.len() {
+        if !is_plain(cells, k, '@') || k == 0 {
+            continue;
+        }
+        let next = cells.get(k + 1).map(|x| x.c).or(after);
+        if local(cells[k - 1].c) && next.is_some_and(domain) {
+            cells[k].enc = Enc::Escaped;
+        }
+    }
+}
+
+/// Renders lowered inline content (marks opened in rank order, closed in reverse), then makes every delimiter run
+/// parse as the mark it stands for ([`fix_runs`]).
 fn render_inline(nodes: &[Value], lookup: &dyn Lookup, ctx: InlineCtx) -> String {
-    let mut out = String::new();
-    let mut open: Vec<&'static str> = Vec::new();
+    let heading = ctx == InlineCtx::Heading;
+    let mut cells: Vec<Cell> = Vec::new();
+    let mut open: Vec<OpenMark> = Vec::new();
     let mut link: Option<String> = None;
     let mut line_start = true;
-    let mut i = 0;
-    let close_all = |out: &mut String, open: &mut Vec<&'static str>| {
+    let close_all = |cells: &mut Vec<Cell>, open: &mut Vec<OpenMark>| {
         while let Some(m) = open.pop() {
-            out.push_str(closer(m));
+            push_delim(cells, m.closer, false);
         }
     };
-    while i < nodes.len() {
-        let n = &nodes[i];
+    for (i, n) in nodes.iter().enumerate() {
         let node_link = if type_of(n) == "text" {
             crate::convert::pm::marks_of(n)
                 .iter()
@@ -1257,49 +1375,48 @@ fn render_inline(nodes: &[Value], lookup: &dyn Lookup, ctx: InlineCtx) -> String
             None
         };
         if node_link != link {
-            close_all(&mut out, &mut open);
+            close_all(&mut cells, &mut open);
             if let Some(href) = link.take() {
-                out.push_str(&format!("]({})", escape_url(&href)));
+                push_syntax(&mut cells, &format!("]({})", escape_url(&href)));
             }
             if let Some(href) = &node_link {
-                // A "!" right before the link would make it an image.
-                if out.ends_with('!') && !out.ends_with("\\!") {
-                    out.pop();
-                    out.push_str("\\!");
-                }
-                out.push('[');
+                escape_bang(&mut cells);
+                push_syntax(&mut cells, "[");
                 link = Some(href.clone());
             }
         }
         match type_of(n) {
             "hardBreak" => {
-                close_all(&mut out, &mut open);
-                out.push_str(if ctx == InlineCtx::Cell {
-                    "<br>"
-                } else {
-                    "\\\n"
-                });
+                close_all(&mut cells, &mut open);
+                push_syntax(
+                    &mut cells,
+                    if ctx == InlineCtx::Cell {
+                        "<br>"
+                    } else {
+                        "\\\n"
+                    },
+                );
                 line_start = true;
             }
             "mention" => {
-                close_all(&mut out, &mut open);
+                close_all(&mut cells, &mut open);
                 let id = str_attr(n, "itemId").unwrap_or("");
                 let title = lookup
                     .item(&ItemRef::Id(id.to_owned()))
                     .map(|i| i.title)
                     .filter(|t| !t.trim().is_empty())
                     .unwrap_or_else(|| "Deleted item".into());
-                out.push_str(&format!(
-                    "[@{}]({})",
-                    escape_label(&title),
-                    quire_item_url(id)
-                ));
+                escape_bang(&mut cells);
+                push_syntax(
+                    &mut cells,
+                    &format!("[@{}]({})", escape_label(&title), quire_item_url(id)),
+                );
                 line_start = false;
             }
             "text" => {
                 let text = text_of(n);
                 if has_mark(n, "code") {
-                    close_all(&mut out, &mut open);
+                    close_all(&mut cells, &mut open);
                     let ticks: String = "`".repeat(longest_run(text, '`') + 1);
                     let pad = text.starts_with('`')
                         || text.ends_with('`')
@@ -1307,84 +1424,356 @@ fn render_inline(nodes: &[Value], lookup: &dyn Lookup, ctx: InlineCtx) -> String
                             && text.ends_with(' ')
                             && text.chars().any(|c| c != ' '));
                     let pad = if pad { " " } else { "" };
-                    out.push_str(&format!("{ticks}{pad}{text}{pad}{ticks}"));
+                    push_syntax(&mut cells, &format!("{ticks}{pad}{text}{pad}{ticks}"));
                 } else {
                     let want: Vec<&'static str> = DELIMITED
                         .iter()
                         .copied()
                         .filter(|m| has_mark(n, m))
                         .collect();
-                    let keep = open.iter().take_while(|m| want.contains(m)).count();
+                    let keep = open.iter().take_while(|o| want.contains(&o.mark)).count();
                     while open.len() > keep {
-                        out.push_str(closer(open.pop().expect("open")));
+                        push_delim(&mut cells, open.pop().expect("open").closer, false);
                     }
                     for m in &want {
-                        if !open.contains(m) {
-                            out.push_str(opener(m));
-                            open.push(m);
+                        if !open.iter().any(|o| o.mark == *m) {
+                            let next = open_mark(m, &cells, &mut open);
+                            push_delim(&mut cells, next.0, true);
+                            open.push(next.1);
                         }
                     }
+                    let start = cells.len();
+                    let after = next_char(nodes, i);
                     let chars: Vec<char> = text.chars().collect();
-                    let mut buf = String::new();
-                    for (j, &c) in chars.iter().enumerate() {
+                    let mut j = 0;
+                    while j < chars.len() {
+                        let c = chars[j];
                         let prev = if j == 0 {
-                            out.chars().next_back()
+                            cells.last().map(last_out)
                         } else {
                             Some(chars[j - 1])
                         };
-                        let next = chars.get(j + 1).copied().or_else(|| next_char(nodes, i));
+                        let next = chars.get(j + 1).copied().or(after);
                         let at_start = line_start && j == 0 && open.is_empty() && link.is_none();
-                        push_escaped(&mut buf, c, prev, next, at_start, ctx == InlineCtx::Heading);
+                        push_text(
+                            &mut cells,
+                            c,
+                            needs_escape(c, prev, next, at_start, heading),
+                        );
                         if at_start && c.is_ascii_digit() {
                             // "1." / "1)" at a line start: escape the delimiter after the digits.
                             let digits =
                                 chars[j..].iter().take_while(|d| d.is_ascii_digit()).count();
                             if matches!(chars.get(j + digits), Some('.') | Some(')')) {
                                 for d in &chars[j + 1..j + digits] {
-                                    buf.push(*d);
+                                    push_text(&mut cells, *d, false);
                                 }
-                                buf.push('\\');
-                                buf.push(chars[j + digits]);
-                                let rest: String = chars[j + digits + 1..].iter().collect();
-                                buf.push_str(&escape_rest(
-                                    &rest,
-                                    chars.get(j + digits).copied(),
-                                    next_char(nodes, i),
-                                    ctx,
-                                ));
+                                push_text(&mut cells, chars[j + digits], true);
+                                for k in j + digits + 1..chars.len() {
+                                    let next = chars.get(k + 1).copied().or(after);
+                                    let c = chars[k];
+                                    let e =
+                                        needs_escape(c, Some(chars[k - 1]), next, false, heading);
+                                    push_text(&mut cells, c, e);
+                                }
                                 break;
                             }
                         }
+                        j += 1;
                     }
                     // Inside a link label comrak finds no autolinks.
-                    if link.is_some() {
-                        out.push_str(&buf);
-                    } else {
-                        out.push_str(&escape_autolinks(&buf));
+                    if link.is_none() {
+                        escape_autolink_cells(&mut cells[start..]);
+                        escape_email_cells(&mut cells, start, after);
                     }
                 }
                 line_start = false;
             }
             _ => {}
         }
-        i += 1;
     }
-    close_all(&mut out, &mut open);
+    close_all(&mut cells, &mut open);
     if let Some(href) = link.take() {
-        out.push_str(&format!("]({})", escape_url(&href)));
+        push_syntax(&mut cells, &format!("]({})", escape_url(&href)));
+    }
+    fix_runs(&mut cells);
+    let mut out = String::with_capacity(cells.len());
+    for x in &cells {
+        match x.enc {
+            Enc::Plain => out.push(x.c),
+            Enc::Escaped => {
+                out.push('\\');
+                out.push(x.c);
+            }
+            Enc::Entity => out.push_str(&format!("&#{};", x.c as u32)),
+        }
     }
     out
 }
 
-fn escape_rest(rest: &str, prev: Option<char>, after: Option<char>, ctx: InlineCtx) -> String {
-    let chars: Vec<char> = rest.chars().collect();
-    let mut buf = String::new();
-    for (j, &c) in chars.iter().enumerate() {
-        let p = if j == 0 { prev } else { Some(chars[j - 1]) };
-        let n = chars.get(j + 1).copied().or(after);
-        push_escaped(&mut buf, c, p, n, false, ctx == InlineCtx::Heading);
+/// comrak skips these when it looks at the characters around a delimiter run (strikethrough and highlight on).
+fn is_skip(c: char) -> bool {
+    matches!(c, '~' | '=')
+}
+
+/// Whether a cell can be part of a delimiter run as comrak scans one: a delimiter, or unescaped text of a delimiter
+/// character.
+fn in_run(x: &Cell) -> bool {
+    matches!(x.c, '*' | '_' | '~' | '=') && x.enc == Enc::Plain && x.kind != CellKind::Syntax
+}
+
+/// comrak's classes for its flanking rules: Unicode whitespace (and the start or end), Unicode punctuation and
+/// symbols, anything else. Non-ASCII characters that are neither alphanumeric nor whitespace are `Unknown` (Rust
+/// has no general categories), and every decision below holds for both readings.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Flank {
+    Space,
+    Punct,
+    Other,
+    Unknown,
+}
+
+fn flank(c: char) -> Flank {
+    if c.is_whitespace() {
+        Flank::Space
+    } else if c.is_ascii() {
+        if c.is_ascii_punctuation() {
+            Flank::Punct
+        } else {
+            Flank::Other
+        }
+    } else if c.is_alphanumeric() {
+        Flank::Other
+    } else {
+        Flank::Unknown
     }
-    buf
+}
+
+/// The character comrak sees before cell `i` (skipping `~` and `=`), and its cell.
+fn before(cells: &[Cell], i: usize) -> (char, Option<usize>) {
+    let mut k = i;
+    while k > 0 {
+        k -= 1;
+        let x = cells[k];
+        match x.enc {
+            Enc::Entity => return (';', Some(k)),
+            Enc::Escaped => return (if is_skip(x.c) { '\\' } else { x.c }, Some(k)),
+            Enc::Plain if !is_skip(x.c) => return (x.c, Some(k)),
+            Enc::Plain => {}
+        }
+    }
+    ('\n', None)
+}
+
+/// The character comrak sees from cell `i` on (skipping `~` and `=`), and its cell.
+fn after(cells: &[Cell], i: usize) -> (char, Option<usize>) {
+    for (k, x) in cells.iter().enumerate().skip(i) {
+        match x.enc {
+            Enc::Entity => return ('&', Some(k)),
+            Enc::Escaped => return ('\\', Some(k)),
+            Enc::Plain if !is_skip(x.c) => return (x.c, Some(k)),
+            Enc::Plain => {}
+        }
+    }
+    ('\n', None)
+}
+
+/// A delimiter run as comrak scans it: cells `start..end` of one character.
+struct Run {
+    start: usize,
+    end: usize,
+    c: char,
+    /// It holds an opening (closing) delimiter of a mark.
+    open: bool,
+    close: bool,
+    /// A text run after a delimiter of its character that may still be open (a highlight's `==`, or any `_`).
+    after_open: bool,
+    /// A text run that is escaped now.
+    dead: bool,
+}
+
+impl Run {
+    fn ours(&self) -> bool {
+        self.open || self.close
+    }
+}
+
+fn runs_of(cells: &[Cell]) -> Vec<Run> {
+    let mut runs = Vec::new();
+    let mut i = 0;
+    while i < cells.len() {
+        if !in_run(&cells[i]) {
+            i += 1;
+            continue;
+        }
+        let c = cells[i].c;
+        let start = i;
+        let (mut open, mut close) = (false, false);
+        while i < cells.len() && cells[i].c == c && in_run(&cells[i]) {
+            match cells[i].kind {
+                CellKind::Delim(true) => open = true,
+                CellKind::Delim(false) => close = true,
+                _ => {}
+            }
+            i += 1;
+        }
+        runs.push(Run {
+            start,
+            end: i,
+            c,
+            open,
+            close,
+            after_open: false,
+            dead: false,
+        });
+    }
+    runs
+}
+
+/// Makes every delimiter run of `cells` parse as the delimiter it is, under comrak's flanking rules (CommonMark's,
+/// with `~` and `=` skipped when looking at a run's neighbours):
+/// - text of a delimiter character inside a delimiter's run is escaped (`a=` before `==` would make `===`);
+/// - an opener followed by punctuation needs whitespace or punctuation before it, and a closer preceded by
+///   punctuation needs it after: a letter there is written as a character reference (`&#120;*\_y\_*` for "x" and
+///   an italic "_y_"), which reads as punctuation and parses back to the letter; whitespace inside a delimiter (a
+///   no-break space a mark starts with) becomes a character reference as well;
+/// - a text `_` or `=` that could open emphasis or a highlight is escaped, and so is one that could close a
+///   delimiter of its character that may be open (a highlight, or bold or italic written with `_`).
+///
+/// Each change only turns a character into punctuation, so a run that was fine stays fine, except a run whose
+/// neighbour changed, which is checked again (a work list, linear in the cells).
+fn fix_runs(cells: &mut [Cell]) {
+    // Text inside a delimiter's run.
+    for r in runs_of(cells) {
+        if r.ours() {
+            for x in &mut cells[r.start..r.end] {
+                if x.kind == CellKind::Text {
+                    x.enc = Enc::Escaped;
+                }
+            }
+        }
+    }
+    let mut runs = runs_of(cells);
+    if runs.is_empty() {
+        return;
+    }
+    let (mut highlight, mut underscore) = (false, false);
+    for r in &mut runs {
+        match (r.c, r.ours()) {
+            ('=', true) => {
+                if r.close {
+                    highlight = false;
+                }
+                if r.open {
+                    highlight = true;
+                }
+            }
+            ('=', false) => r.after_open = highlight,
+            ('_', true) => underscore = true,
+            ('_', false) => r.after_open = underscore,
+            _ => {}
+        }
+    }
+    let mut run_of: Vec<Option<usize>> = vec![None; cells.len()];
+    for (n, r) in runs.iter().enumerate() {
+        for slot in &mut run_of[r.start..r.end] {
+            *slot = Some(n);
+        }
+    }
+    let mut queued = vec![true; runs.len()];
+    let mut queue: Vec<usize> = (0..runs.len()).rev().collect();
+    while let Some(n) = queue.pop() {
+        queued[n] = false;
+        let r = &runs[n];
+        if r.dead {
+            continue;
+        }
+        let (b, bk) = before(cells, r.start);
+        let (a, ak) = after(cells, r.end);
+        let (fb, fa) = (flank(b), flank(a));
+        let changed = if r.ours() {
+            let (can_open, can_close) = if r.c == '_' {
+                // `_` also refuses to open after, or close before, a letter.
+                (
+                    fa != Flank::Space && matches!(fb, Flank::Space | Flank::Punct),
+                    fb != Flank::Space && matches!(fa, Flank::Space | Flank::Punct),
+                )
+            } else {
+                (
+                    fa != Flank::Space
+                        && (fa == Flank::Other || matches!(fb, Flank::Space | Flank::Punct)),
+                    fb != Flank::Space
+                        && (fb == Flank::Other || matches!(fa, Flank::Space | Flank::Punct)),
+                )
+            };
+            let target = if r.open && !can_open {
+                if fa == Flank::Space { ak } else { bk }
+            } else if r.close && !can_close {
+                if fb == Flank::Space { bk } else { ak }
+            } else {
+                None
+            };
+            match target {
+                Some(k) if cells[k].kind == CellKind::Text && cells[k].enc == Enc::Plain => {
+                    cells[k].enc = Enc::Entity;
+                    Some((k, k + 1))
+                }
+                _ => None,
+            }
+        } else {
+            // Could this text run open a delimiter, or close one that may be open?
+            let may_open = if r.c == '_' {
+                fb != Flank::Other && fa != Flank::Space
+            } else {
+                fa != Flank::Space && (fa != Flank::Punct || fb != Flank::Other)
+            };
+            let may_close = fb != Flank::Space && (fb != Flank::Punct || fa != Flank::Other);
+            let escape = may_open || (may_close && r.after_open);
+            if escape {
+                let (start, end) = (r.start, r.end);
+                for x in &mut cells[start..end] {
+                    x.enc = Enc::Escaped;
+                }
+                runs[n].dead = true;
+                Some((start, end))
+            } else {
+                None
+            }
+        };
+        let Some((start, end)) = changed else {
+            continue;
+        };
+        let mut push = |m: usize, queue: &mut Vec<usize>| {
+            if !queued[m] {
+                queued[m] = true;
+                queue.push(m);
+            }
+        };
+        push(n, &mut queue);
+        // The runs whose neighbour this was: the next run on each side, and the runs beyond `~` and `=` runs.
+        let mut j = end;
+        while let Some(m) = run_of.get(j).copied().flatten() {
+            if runs[m].dead {
+                break;
+            }
+            push(m, &mut queue);
+            if !is_skip(runs[m].c) {
+                break;
+            }
+            j = runs[m].end;
+        }
+        let mut j = start;
+        while let Some(m) = j.checked_sub(1).and_then(|k| run_of[k]) {
+            if runs[m].dead {
+                break;
+            }
+            push(m, &mut queue);
+            if !is_skip(runs[m].c) {
+                break;
+            }
+            j = runs[m].start;
+        }
+    }
 }
 
 /// The first character after node `i` (for escaping decisions).
@@ -1393,6 +1782,69 @@ fn next_char(nodes: &[Value], i: usize) -> Option<char> {
         "text" => text_of(n).chars().next(),
         _ => None,
     })
+}
+
+/// An open mark: the closer it was opened for, and (bold or italic) whether it opened in one run with the other
+/// (`***`).
+struct OpenMark {
+    mark: &'static str,
+    closer: &'static str,
+    together: bool,
+}
+
+/// The opener of a mark, and its [`OpenMark`]. Bold and italic choose between `*` and `_` so that no delimiter run
+/// can be matched with the wrong one (CommonMark pairs a closer with the nearest opener of its character, and its
+/// "multiple of 3" rule can leave runs that mix closers and openers unmatched):
+/// - in the same group of openers as the other one, the same character (`***both***`);
+/// - opened while the other is open from a `***` run, the other character (`***a*b_c_***`): an opener that can also
+///   close would otherwise close the outer run (the "multiple of 3" rule only keeps a lone `*` from closing a lone
+///   `**`, and the reverse, so `**a *b* c**` stays as it is);
+/// - right after a `*` closer, `_` (`**a**__b__`, not `**a****b**`).
+fn open_mark(
+    mark: &'static str,
+    cells: &[Cell],
+    open: &mut [OpenMark],
+) -> (&'static str, OpenMark) {
+    let family = |m: &str| matches!(m, "bold" | "italic");
+    if !family(mark) {
+        let o = OpenMark {
+            mark,
+            closer: closer(mark),
+            together: false,
+        };
+        return (opener(mark), o);
+    }
+    let last = cells.last().filter(|x| matches!(x.c, '*' | '_'));
+    let other = open.iter_mut().find(|o| family(o.mark));
+    let (ch, together) = match (last, other) {
+        (Some(x), Some(other)) if x.kind == CellKind::Delim(true) => {
+            other.together = true;
+            (x.c, true)
+        }
+        (_, Some(other)) if other.together => (
+            if other.closer.starts_with('*') {
+                '_'
+            } else {
+                '*'
+            },
+            false,
+        ),
+        (Some(x), _) if x.kind == CellKind::Delim(false) && x.c == '*' => ('_', false),
+        _ => ('*', false),
+    };
+    let (o, c) = match (mark, ch) {
+        ("bold", '_') => ("__", "__"),
+        ("italic", '_') => ("_", "_"),
+        _ => (opener(mark), closer(mark)),
+    };
+    (
+        o,
+        OpenMark {
+            mark,
+            closer: c,
+            together,
+        },
+    )
 }
 
 fn opener(mark: &str) -> &'static str {

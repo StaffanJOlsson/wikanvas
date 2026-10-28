@@ -80,6 +80,13 @@ fn word() -> impl Strategy<Value = String> {
         1 => "[*_#`<>+|~=&-]{1,2}[a-z]{1,4}",
         1 => "[a-z]{1,4}[\\\\]",
         1 => Just("é😀ñ".to_owned()),
+        // Punctuation (and symbols) at the start or end of a word, so of a marked run.
+        1 => "[(\"'.,!?:;@)_=😀][a-z]{1,4}",
+        1 => "[a-z]{1,4}[)\"'.,!?:;@(_=😀]",
+        // Text comrak's autolink extension would read as a link, and highlight delimiters in text.
+        1 => "[a-z]{1,4}[.+_-]?[a-z]?@[a-z]{1,4}\\.[a-z]{2,3}",
+        1 => prop::sample::select(vec!["https://x.co", "www.x.co", "mailto:a@b.co", "a=b=c", "x\u{a0}y", "\u{a0}z"])
+            .prop_map(str::to_owned),
     ]
 }
 
@@ -88,19 +95,31 @@ fn words() -> impl Strategy<Value = String> {
 }
 
 fn mark_set() -> impl Strategy<Value = Vec<Value>> {
+    let delimited = || vec!["bold", "italic", "strike", "underline", "highlight"];
+    let hrefs = vec!["https://example.com/a", "/doc/x", "#frag", "mailto:a@b.c"];
     prop_oneof![
         4 => Just(vec![]),
-        2 => prop::sample::subsequence(vec!["bold", "italic", "strike", "underline", "highlight"], 1..3)
+        2 => prop::sample::subsequence(delimited(), 1..4)
             .prop_map(|m| m.into_iter().map(|n| json!({"type": n})).collect()),
         1 => Just(vec![json!({"type": "code"})]),
-        1 => prop::sample::select(vec!["https://example.com/a", "/doc/x", "#frag", "mailto:a@b.c"])
-            .prop_map(|h| vec![json!({"type": "link", "attrs": {"href": h, "itemId": null}})]),
+        1 => (prop::sample::select(hrefs), prop::sample::subsequence(delimited(), 0..2))
+            .prop_map(|(h, m)| {
+                let mut marks: Vec<Value> = m.into_iter().map(|n| json!({"type": n})).collect();
+                marks.push(json!({"type": "link", "attrs": {"href": h, "itemId": null}}));
+                marks
+            }),
     ]
 }
 
-/// Inline content: marked segments separated by single plain spaces, hard breaks and mentions between them.
+/// Inline content: marked segments, hard breaks and mentions, next to each other or separated by a plain space;
+/// a segment may start or end with a space inside its marks.
 fn inline(allow_breaks: bool) -> impl Strategy<Value = Vec<Value>> {
-    let seg = (words(), mark_set()).prop_map(|(t, m)| {
+    let seg = (words(), mark_set(), 0u8..5).prop_map(|(t, m, edge)| {
+        let t = match edge {
+            1 => format!(" {t}"),
+            2 => format!("{t} "),
+            _ => t,
+        };
         let mut n = json!({"type": "text", "text": t});
         if !m.is_empty() {
             n["marks"] = Value::Array(m);
@@ -112,12 +131,13 @@ fn inline(allow_breaks: bool) -> impl Strategy<Value = Vec<Value>> {
         1 => prop::sample::select(UUIDS.to_vec()).prop_map(|id| Some(json!({"type": "mention", "attrs": {"itemId": id}}))),
         1 => Just(None),
     ];
-    prop::collection::vec(piece, 1..5).prop_map(move |pieces| {
+    prop::collection::vec((piece, any::<bool>()), 1..6).prop_map(move |pieces| {
         let mut out: Vec<Value> = Vec::new();
-        for p in pieces {
+        for (p, adjacent) in pieces {
             match p {
                 Some(n) => {
-                    if let Some(last) = out.last()
+                    if !adjacent
+                        && let Some(last) = out.last()
                         && type_of(last) != "hardBreak"
                     {
                         out.push(json!({"type": "text", "text": " "}));
@@ -246,7 +266,11 @@ fn document_with_ids() -> impl Strategy<Value = Value> {
 
 fn config() -> ProptestConfig {
     ProptestConfig {
-        cases: 128,
+        // `PROPTEST_CASES` runs more (or fewer) cases.
+        cases: std::env::var("PROPTEST_CASES")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(128),
         failure_persistence: None,
         ..ProptestConfig::default()
     }
@@ -277,6 +301,138 @@ proptest! {
         let (parsed, _) = md_in::parse(&once, &NoLookup).unwrap();
         let twice = md_out::print(&parsed, &NoLookup, None).markdown;
         prop_assert_eq!(twice, once);
+    }
+}
+
+/// Marks whose delimiters touch a word or punctuation, e-mail addresses and `=` in text: each prints to Markdown
+/// that parses back to the same document, and printing that again gives the same Markdown.
+#[test]
+fn markdown_delimiters_next_to_words_and_punctuation() {
+    let t = |text: &str, marks: &[&str]| {
+        let mut n = json!({"type": "text", "text": text});
+        if !marks.is_empty() {
+            n["marks"] = marks.iter().map(|m| json!({"type": m})).collect();
+        }
+        n
+    };
+    let link = |text: &str| {
+        json!({"type": "text", "text": text, "marks": [{"type": "bold"},
+            {"type": "link", "attrs": {"href": "https://example.com/a", "itemId": null}}]})
+    };
+    let cases: Vec<(Vec<Value>, Option<&str>)> = vec![
+        (
+            vec![t("x", &[]), t("_y_", &["italic"])],
+            Some("&#120;*\\_y\\_*"),
+        ),
+        (vec![t("a@b.co", &[])], Some("a\\@b.co")),
+        // Italic inside bold keeps `*`; inside a `***` run it takes `_`.
+        (
+            vec![
+                t("a ", &["bold"]),
+                t("b", &["bold", "italic"]),
+                t(" c", &["bold"]),
+            ],
+            Some("**a *b* c**"),
+        ),
+        (
+            vec![
+                t("a", &["bold", "italic"]),
+                t("b", &["bold"]),
+                t("c", &["bold", "italic"]),
+            ],
+            Some("***a*&#98;_c_**"),
+        ),
+        (vec![t("mail a.b+c@d.example now", &[])], None),
+        (vec![t("a", &[]), t("(b)", &["bold"]), t("c", &[])], None),
+        (
+            vec![t("a", &[]), t("b", &["bold", "strike"]), t("c", &[])],
+            None,
+        ),
+        (
+            vec![t("a", &[]), t("(b)", &["bold", "strike"]), t("c", &[])],
+            None,
+        ),
+        (
+            vec![t("a", &[]), t("b", &["bold", "underline"]), t("c", &[])],
+            None,
+        ),
+        (
+            vec![t("a", &["italic"]), t("b", &["bold"]), t("c", &["italic"])],
+            None,
+        ),
+        (
+            vec![
+                t("a", &["bold", "italic"]),
+                t("b", &["italic"]),
+                t(".", &["bold"]),
+            ],
+            None,
+        ),
+        (
+            vec![
+                t("x", &["highlight"]),
+                t("=y", &[]),
+                t("z=", &["highlight"]),
+            ],
+            None,
+        ),
+        (vec![t("a=b=c", &[])], None),
+        (vec![t("\u{a0}y", &["italic"]), t("z", &[])], None),
+        (
+            vec![t("😀", &["bold"]), t("a", &[]), t("é", &["strike"])],
+            None,
+        ),
+        (
+            vec![
+                t("a!", &[]),
+                json!({"type": "mention", "attrs": {"itemId": UUIDS[0]}}),
+            ],
+            None,
+        ),
+        (
+            vec![t("snake_case", &[]), t("_", &["italic"]), t("x", &[])],
+            None,
+        ),
+        // Found by the proptests: a bold reopened after italic closes, italic reopened inside `***`, and a text
+        // `_` that would close an italic written with `_`.
+        (
+            vec![t("0", &["italic"]), t("a ", &["bold", "italic"]), link("0")],
+            None,
+        ),
+        (
+            vec![
+                t("0", &["bold", "italic"]),
+                t("a", &["bold"]),
+                t("0", &["bold", "italic"]),
+            ],
+            None,
+        ),
+        (
+            vec![
+                t("A", &["bold"]),
+                t("a_", &["italic", "underline"]),
+                t("0", &[]),
+            ],
+            None,
+        ),
+    ];
+    for (content, want) in cases {
+        let d = schema::normalize(
+            &json!({"type": "doc", "content": [{"type": "paragraph", "content": content}]}),
+        );
+        let printed = md_out::print(&d, &NoLookup, None).markdown;
+        if let Some(want) = want {
+            assert_eq!(printed.trim_end(), want);
+        }
+        let (parsed, _) = md_in::parse(&printed, &NoLookup).unwrap();
+        let normal = md_out::md_normalize(&d, &NoLookup);
+        assert!(
+            ydiff::same(&parsed, &normal),
+            "markdown {printed:?}\nparsed {}\nwant {}",
+            serde_json::to_string(&parsed).unwrap(),
+            serde_json::to_string(&normal).unwrap()
+        );
+        assert_eq!(md_out::print(&parsed, &NoLookup, None).markdown, printed);
     }
 }
 
@@ -779,12 +935,88 @@ fn markdown_prescan_rejects_depth_101() {
     assert_eq!(e.path, "1:101");
     let ok = format!("{} x\n", "> ".repeat(100));
     assert!(md_in::parse(&ok, &NoLookup).is_ok());
+    let e = md_in::parse(&format!("{} x\n", "> ".repeat(101)), &NoLookup).unwrap_err();
+    assert_eq!(e.path, "1:201", "the 101st quote, found in comrak's tree");
     let lists: String = (0..101)
         .map(|i| format!("{}- x\n", "  ".repeat(i)))
         .collect();
-    assert!(md_in::prescan(&lists).is_err());
-    let mixed = format!("{}x\n", "- > ".repeat(51));
-    assert!(md_in::prescan(&mixed).is_err());
+    let e = md_in::parse(&lists, &NoLookup).unwrap_err();
+    assert_eq!(e.path, "101:201");
+    // comrak opens at most 100 containers on one line, so 101 takes a second line.
+    let mixed = format!("- x\n  {}x\n", "- > ".repeat(50));
+    assert_eq!(md_in::parse(&mixed, &NoLookup).unwrap_err().path, "2:201");
+}
+
+/// Depth 101 refused, whatever spreads it over lines; and the parse never overflows the stack on the way
+/// (these inputs once reached comrak and the recursive block conversion thousands of levels deep).
+#[test]
+fn markdown_depth_bounded_across_lines() {
+    fn refused(name: &str, md: &str) {
+        let start = std::time::Instant::now();
+        let e = md_in::parse(md, &NoLookup).expect_err(name);
+        assert!(e.reason.contains("deeper"), "{name}: {e:?}");
+        assert!(
+            start.elapsed().as_secs() < 10,
+            "{name}: {:?}",
+            start.elapsed()
+        );
+    }
+    // Several markers on a line, the next lines indented to its innermost item (the review's input shape).
+    let mut md = String::new();
+    let mut markers = 0;
+    for k in 1..=30 {
+        md.push_str(&" ".repeat(2 * markers));
+        md.push_str(&"- ".repeat(100 - k));
+        md.push_str("x\n");
+        markers += 100 - k;
+    }
+    refused("markers per line", &md);
+    // The same nesting by tabs (a tab reaches the next multiple of four columns).
+    let tabs: String = (0..300)
+        .map(|i| format!("{}- x\n", "\t".repeat(i)))
+        .collect();
+    refused("tabs", &tabs);
+    // Items continued inside a quote whose prefix is narrower than the line that opened them.
+    let quoted: String = (0..300)
+        .map(|i| format!("> {}- x\n", "  ".repeat(i)))
+        .collect();
+    refused("quoted", &quoted);
+    // Lazy continuation lines between the items keep them open.
+    let lazy: String = (0..300)
+        .map(|i| format!("{}- x\nlazy\n", "  ".repeat(i)))
+        .collect();
+    refused("lazy", &lazy);
+    // CR line endings, alone or with LF.
+    let cr: String = (0..300)
+        .map(|i| format!("{}- x\r", "  ".repeat(i)))
+        .collect();
+    refused("cr", &cr);
+    refused("crlf", &cr.replace('\r', "\r\n"));
+    // Empty items nest as well.
+    let empty: String = (0..300).map(|i| format!("{}-\n", "  ".repeat(i))).collect();
+    refused("empty items", &empty);
+    // Exactly 100 levels pass, also with lists indented by four columns per level.
+    let mut md = format!("{}x\n", "- ".repeat(50));
+    md.push_str(&format!("{}{}x\n", " ".repeat(100), "- ".repeat(50)));
+    let (doc, _) = md_in::parse(&md, &NoLookup).unwrap();
+    assert_eq!(
+        serde_json::to_string(&doc)
+            .unwrap()
+            .matches("bulletList")
+            .count(),
+        100
+    );
+    let four: String = (0..100)
+        .map(|i| format!("{}- x\n", "    ".repeat(i)))
+        .collect();
+    assert!(md_in::parse(&four, &NoLookup).is_ok());
+    let deeper: String = (0..101)
+        .map(|i| format!("{}- x\n", "    ".repeat(i)))
+        .collect();
+    assert_eq!(
+        md_in::parse(&deeper, &NoLookup).unwrap_err().path,
+        "101:401"
+    );
 }
 
 #[test]
@@ -801,6 +1033,21 @@ fn adversarial_markdown_bounded() {
         let (d, _) = md_in::parse(&input, &NoLookup).unwrap();
         let _ = md_out::print(&d, &NoLookup, None);
     }
+    // Many marks whose delimiters need character references: the printer's run fixes stay linear.
+    let content: Vec<Value> = (0..20_000)
+        .flat_map(|i| {
+            [
+                json!({"type": "text", "text": format!("x{i}")}),
+                json!({"type": "text", "text": "(y)", "marks": [{"type": "italic"}]}),
+            ]
+        })
+        .collect();
+    let d = schema::normalize(
+        &json!({"type": "doc", "content": [{"type": "paragraph", "content": content}]}),
+    );
+    let printed = md_out::print(&d, &NoLookup, None).markdown;
+    let (parsed, _) = md_in::parse(&printed, &NoLookup).unwrap();
+    assert!(ydiff::same(&parsed, &md_out::md_normalize(&d, &NoLookup)));
     assert!(start.elapsed().as_secs() < 30, "took {:?}", start.elapsed());
 }
 

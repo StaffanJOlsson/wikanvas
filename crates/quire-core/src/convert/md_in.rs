@@ -1,15 +1,17 @@
 //! Quire Markdown 1 input: comrak to normalized ProseMirror JSON (owner: W4)
 //!
-//! [`parse`] runs [`prescan`] (container nesting deeper than 100 is refused before comrak sees the input), then
-//! comrak 0.59 with `table`, `strikethrough`, `tasklist`, `autolink`, `alerts` and `highlight` on and everything else
-//! off, then converts the AST to schema-v1 JSON following the "PUT Markdown" column of the §6.4 table. Raw HTML is
-//! never rendered: an HTML block becomes a paragraph of its literal text, inline HTML literal text, except the exact
-//! pair `<u>`…`</u>` (underline) and `<br>` in a table cell (a hard break). The result is normalized
-//! (`schema::normalize`); blocks have no `blockId` (the writer assigns them).
+//! [`parse`] runs [`prescan`] (a per-line upper bound on container nesting, refused above [`PRESCAN_LIMIT`] before
+//! comrak sees the input), then comrak 0.59 with `table`, `strikethrough`, `tasklist`, `autolink`, `alerts` and
+//! `highlight` on and everything else off, then [`check_depth`] (containers nested deeper than 100 in comrak's tree
+//! are refused, iteratively), then converts the AST to schema-v1 JSON following the "PUT Markdown" column of the
+//! §6.4 table. Raw HTML is never rendered: an HTML block becomes a paragraph of its literal text, inline HTML literal
+//! text, except the exact pair `<u>`…`</u>` (underline) and `<br>` in a table cell (a hard break). The result is
+//! normalized (`schema::normalize`); blocks have no `blockId` (the writer assigns them).
 //!
-//! Block conversion recurses (the pre-scan bounds container depth); inline conversion uses an explicit stack, since
-//! emphasis can nest as deep as the input is long.
+//! Block conversion recurses, within the bound [`check_depth`] enforces; inline conversion uses an explicit stack,
+//! since emphasis can nest as deep as the input is long.
 
+use comrak::arena_tree::NodeEdge;
 use comrak::nodes::{AlertType, AstNode, ListType, NodeValue, TableAlignment};
 use comrak::{Arena, Options};
 use serde_json::{Map, Value, json};
@@ -52,61 +54,91 @@ fn is_list_marker(line: &[u8], at: usize) -> Option<usize> {
     None
 }
 
-/// Refuses container nesting (`>` and list markers, including lists nested by indentation) deeper than
-/// [`MAX_DEPTH`], with the `line:column` where it happens (§6.4 step 1, D33).
+/// The pre-scan's bound (see [`prescan`]): twice [`MAX_DEPTH`], so lists indented by four columns per level still
+/// reach the exact check on comrak's tree, which refuses anything deeper than [`MAX_DEPTH`].
+pub const PRESCAN_LIMIT: usize = 2 * MAX_DEPTH;
+
+/// Refuses container nesting (`>` and list markers, including lists nested by indentation, lazy continuation lines
+/// and tabs) that could be deeper than [`PRESCAN_LIMIT`], with the `line:column` where the line's bound first passes
+/// [`MAX_DEPTH`] (§6.4 step 1, D33), before comrak sees the input.
+///
+/// The bound needs no state across lines. A line only opens containers through the markers of its prefix (the
+/// leading run of whitespace, `>` and list markers); every container it continues is a quote, matched by one `>` of
+/// that prefix, or a list item, matched by at least two columns of its whitespace (a marker and the space after it).
+/// So `markers + whitespace columns / 2` of the prefix bounds the depth of every line that opens a container, and a
+/// line that opens none (a blank or lazy line among them) is no deeper than the line before it. The bound can only
+/// over-count; [`check_depth`] then applies the exact limit to comrak's tree.
 pub fn prescan(md: &str) -> Result<(), Invalid> {
-    // Content columns of the open list items (indentation nesting).
-    let mut items: Vec<usize> = Vec::new();
     for (n, line) in md.split('\n').enumerate() {
-        let bytes = line.as_bytes();
-        let indent = bytes.iter().take_while(|b| **b == b' ').count();
-        if indent == bytes.len() {
-            continue;
+        // A lone CR ends a line as well (CommonMark); CRLF leaves an empty piece.
+        for piece in line.split('\r') {
+            prescan_line(piece.as_bytes(), n + 1)?;
         }
-        while items.last().is_some_and(|&c| c > indent) {
-            items.pop();
+    }
+    Ok(())
+}
+
+fn prescan_line(bytes: &[u8], line: usize) -> Result<(), Invalid> {
+    let (mut at, mut col, mut ws, mut markers) = (0, 0, 0, 0);
+    let mut over_at = None;
+    loop {
+        while let Some(b @ (b' ' | b'\t')) = bytes.get(at) {
+            let w = if *b == b'\t' { 4 - col % 4 } else { 1 };
+            col += w;
+            ws += w;
+            at += 1;
         }
-        let mut depth = items.len();
-        let mut at = indent;
-        let mut first_list = None;
-        loop {
-            let mut spaces = 0;
-            while spaces < 3 && bytes.get(at) == Some(&b' ') {
-                at += 1;
-                spaces += 1;
-            }
-            let marker = at;
-            match bytes.get(at) {
-                Some(b'>') => {
-                    depth += 1;
-                    at += 1;
-                    if bytes.get(at) == Some(&b' ') {
-                        at += 1;
-                    }
+        let width = match bytes.get(at) {
+            Some(b'>') => 1,
+            Some(_) => match is_list_marker(bytes, at) {
+                Some(w) => w,
+                None => return Ok(()),
+            },
+            None => return Ok(()),
+        };
+        markers += 1;
+        let bound = markers + ws / 2;
+        if bound > MAX_DEPTH && over_at.is_none() {
+            over_at = Some(at);
+        }
+        if bound > PRESCAN_LIMIT {
+            return Err(Invalid::new(
+                format!("{line}:{}", over_at.unwrap_or(at) + 1),
+                format!("containers (quotes and lists) are nested deeper than {MAX_DEPTH} levels"),
+            ));
+        }
+        at += width;
+        col += width;
+    }
+}
+
+/// Whether a comrak node is a container the depth limit counts: a quote (alerts included) or a list item.
+fn is_container(node: &AstNode<'_>) -> bool {
+    matches!(
+        node.data().value,
+        NodeValue::BlockQuote | NodeValue::Alert(_) | NodeValue::Item(_) | NodeValue::TaskItem(_)
+    )
+}
+
+/// The exact limit: containers nested deeper than [`MAX_DEPTH`] in comrak's tree are refused, with the
+/// `line:column` of the first one too deep, before the (recursive) block conversion runs. Iterative.
+pub fn check_depth<'a>(root: &'a AstNode<'a>) -> Result<(), Invalid> {
+    let mut depth = 0usize;
+    for edge in root.traverse() {
+        match edge {
+            NodeEdge::Start(node) if is_container(node) => {
+                depth += 1;
+                if depth > MAX_DEPTH {
+                    return Err(Invalid::new(
+                        line_col(node),
+                        format!(
+                            "containers (quotes and lists) are nested deeper than {MAX_DEPTH} levels"
+                        ),
+                    ));
                 }
-                _ => match is_list_marker(bytes, at) {
-                    Some(w) => {
-                        depth += 1;
-                        at += w;
-                        if bytes.get(at) == Some(&b' ') {
-                            at += 1;
-                        }
-                        first_list.get_or_insert(at);
-                    }
-                    None => break,
-                },
             }
-            if depth > MAX_DEPTH {
-                return Err(Invalid::new(
-                    format!("{}:{}", n + 1, marker + 1),
-                    format!(
-                        "containers (quotes and lists) are nested deeper than {MAX_DEPTH} levels"
-                    ),
-                ));
-            }
-        }
-        if let Some(col) = first_list {
-            items.push(col);
+            NodeEdge::End(node) if is_container(node) => depth -= 1,
+            _ => {}
         }
     }
     Ok(())
@@ -117,6 +149,7 @@ pub fn parse(md: &str, lookup: &dyn Lookup) -> Result<(Value, Warnings), Invalid
     prescan(md)?;
     let arena = Arena::new();
     let root = comrak::parse_document(&arena, md, &options());
+    check_depth(root)?;
     let mut cx = Cx {
         lookup,
         warnings: Warnings::default(),
