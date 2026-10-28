@@ -416,7 +416,7 @@ s.board-embed-card-title {
   opacity: 0.5;
 }
 
-.board-embed-empty,
+.board-embed-blank,
 .board-embed-message {
   margin: 0;
   font-size: 16px;

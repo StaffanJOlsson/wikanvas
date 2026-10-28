@@ -54,6 +54,17 @@ describe('board embeds CSS', () => {
     }
   });
 
+  it('styles no class of the document page’s board embed (board.css is in the shell, so its rules apply everywhere)', () => {
+    // The `boardEmbed` node view of a document (a board inside a page) shares the `board-embed` prefix, and a card can
+    // show such a document.
+    const views = readFileSync('src/editor/views.tsx', 'utf8');
+    const used = new Set([...views.matchAll(/className="([^"]+)"/g)].flatMap((m) => m[1]!.split(/\s+/)));
+    const nodeView = [...used].filter((c) => c.startsWith('board-embed'));
+    expect(nodeView).toContain('board-embed-empty');
+    const styled = new Set(embedRules().flatMap((r) => [...r.selector.matchAll(/\.([\w-]+)/g)].map((m) => m[1]!)));
+    for (const c of nodeView) expect(styled.has(c), c).toBe(false);
+  });
+
   it('has no will-change anywhere in the overlay', () => {
     for (const r of embedRules()) expect(r.body, r.selector).not.toMatch(/will-change/);
   });

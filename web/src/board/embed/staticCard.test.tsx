@@ -83,8 +83,8 @@ describe('static card', () => {
       ...docRoutes(docItem(DOC_1), { type: 'doc', content: [] }),
       ...docRoutes(docItem('0192f0e0-0000-7000-8000-0000000000e2'), paragraphs('')),
     });
-    await waitFor(() => expect(el().querySelector('.board-embed-empty')?.textContent).toBe('Empty page'));
-    await waitFor(() => expect(el('c2').querySelector('.board-embed-empty')?.textContent).toBe('Empty page'));
+    await waitFor(() => expect(el().querySelector('.board-embed-blank')?.textContent).toBe('Empty page'));
+    await waitFor(() => expect(el('c2').querySelector('.board-embed-blank')?.textContent).toBe('Empty page'));
     expect(el().querySelector('.ProseMirror')).toBeNull();
   });
 

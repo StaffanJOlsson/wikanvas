@@ -198,7 +198,7 @@ export function EmbedCard({ card, editing, readOnly, controller }: EmbedCardProp
       </div>
     );
   } else if (json === undefined) body = null;
-  else if (isBlankJson(json)) body = <p className="board-embed-empty">Empty page</p>;
+  else if (isBlankJson(json)) body = <p className="board-embed-blank">Empty page</p>;
   else {
     body = (
       <div className="board-embed-static">
