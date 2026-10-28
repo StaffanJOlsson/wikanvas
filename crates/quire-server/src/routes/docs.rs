@@ -351,7 +351,13 @@ async fn get_markdown(
     );
     let (k, v) = etag_header(&docs::etag(printed.seq));
     headers.insert(k, v);
-    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    // §11: never cached (private text, and the route never answers 304), and sandboxed like an attachment, so the
+    // user's text is never a page of the app's origin even where a browser ignores the media type.
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    headers.insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static(crate::headers::ATTACHMENT_CSP),
+    );
     if !printed.warnings.is_empty() {
         let codes: Vec<&str> = printed.warnings.iter().map(|w| w.code.as_str()).collect();
         if let Ok(v) = HeaderValue::from_str(&codes.join(", ")) {

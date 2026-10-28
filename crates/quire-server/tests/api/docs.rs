@@ -272,6 +272,13 @@ async fn markdown_get_etag_and_warnings_header_never_304() {
     res.assert_status_ok();
     assert_eq!(res.header("content-type"), "text/markdown; charset=utf-8");
     assert_eq!(res.header("etag"), "\"d1\"");
+    // §11: never stored, sandboxed, not sniffed (the body is user text, raw HTML included).
+    assert_eq!(res.header("cache-control"), "no-store");
+    assert_eq!(
+        res.header("content-security-policy"),
+        "default-src 'none'; sandbox"
+    );
+    assert_eq!(res.header("x-content-type-options"), "nosniff");
     assert_eq!(res.text(), "Text\n\n\\<span>html\\</span>\n");
     assert!(res.maybe_header("quire-conversion-warnings").is_none());
     // Never 304, even with the current ETag.
@@ -304,6 +311,12 @@ async fn markdown_get_etag_and_warnings_header_never_304() {
         res.header("content-disposition"),
         "attachment; filename=\"title-with-spaces.md\""
     );
+    assert_eq!(res.header("cache-control"), "no-store");
+    assert_eq!(
+        res.header("content-security-policy"),
+        "default-src 'none'; sandbox"
+    );
+    assert_eq!(res.header("x-content-type-options"), "nosniff");
 }
 
 #[tokio::test]
