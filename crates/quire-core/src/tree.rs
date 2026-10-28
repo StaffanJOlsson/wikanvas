@@ -83,6 +83,67 @@ pub fn keeps_parent(parent: Option<ParentState>, root_archived: bool) -> bool {
     }
 }
 
+/// The sort key of a title under `child_order = 'title'` (§9.6.2 "A–Z"). The web client's `titleKey`
+/// (`web/src/components/tree/buildTree.ts`) implements the same steps, and both are checked against
+/// `fixtures/tree/title-order.json`, so an optimistic reorder in the browser agrees with the server:
+/// 1. NFKD, then every `General_Category=Mark` character removed, then lowercased (accent- and case-insensitive;
+///    `ς` counts as `σ`);
+/// 2. compared character by character in code point order, except that a run of ASCII digits is one number,
+///    compared by value (leading zeros ignored) and placed where the digit `0` is.
+///
+/// Equal keys (`Café` and `cafe`) fall back to `sort_key`, then `id`.
+pub fn title_key(title: &str) -> TitleKey {
+    use unicode_normalization::UnicodeNormalization;
+    use unicode_normalization::char::is_combining_mark;
+    let bare: String = title.nfkd().filter(|c| !is_combining_mark(*c)).collect();
+    let folded = bare.to_lowercase().replace('ς', "σ");
+    let mut parts = Vec::with_capacity(folded.len());
+    let mut chars = folded.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c.is_ascii_digit() {
+            let mut digits = String::from(c);
+            while let Some(d) = chars.next_if(char::is_ascii_digit) {
+                digits.push(d);
+            }
+            let value = digits.trim_start_matches('0');
+            parts.push(TitlePart::Number(value.to_owned()));
+        } else {
+            parts.push(TitlePart::Char(c));
+        }
+    }
+    TitleKey(parts)
+}
+
+/// The key of [`title_key`]: its parts in order (a shorter key that is a prefix of a longer one comes first).
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct TitleKey(Vec<TitlePart>);
+
+/// One character, or a number: its ASCII digits without leading zeros.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum TitlePart {
+    Char(char),
+    Number(String),
+}
+
+impl Ord for TitlePart {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        match (self, other) {
+            (TitlePart::Char(a), TitlePart::Char(b)) => a.cmp(b),
+            (TitlePart::Number(a), TitlePart::Number(b)) => {
+                a.len().cmp(&b.len()).then_with(|| a.cmp(b))
+            }
+            (TitlePart::Number(_), TitlePart::Char(c)) => '0'.cmp(c),
+            (TitlePart::Char(c), TitlePart::Number(_)) => c.cmp(&'0'),
+        }
+    }
+}
+
+impl PartialOrd for TitlePart {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 /// What trashed an item: itself or an ancestor (an item root), or its collection.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum TrashRoot {
@@ -438,6 +499,36 @@ mod tests {
     use proptest::prelude::*;
 
     use super::*;
+
+    /// `fixtures/tree/title-order.json`: titles in A–Z order, each key greater than the one before; the web
+    /// client's test reads the same file.
+    #[test]
+    fn title_order_fixture() {
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../../../fixtures/tree/title-order.json")).unwrap();
+        let sorted: Vec<&str> = fixture["sorted"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t.as_str().unwrap())
+            .collect();
+        for pair in sorted.windows(2) {
+            assert!(
+                title_key(pair[0]) < title_key(pair[1]),
+                "{:?} before {:?}",
+                pair[0],
+                pair[1]
+            );
+        }
+        let mut shuffled = sorted.clone();
+        shuffled.reverse();
+        shuffled.sort_by_cached_key(|t| title_key(t));
+        assert_eq!(shuffled, sorted);
+        for pair in fixture["equal"].as_array().unwrap() {
+            let (a, b) = (pair[0].as_str().unwrap(), pair[1].as_str().unwrap());
+            assert_eq!(title_key(a), title_key(b), "{a:?} = {b:?}");
+        }
+    }
 
     #[test]
     fn rules() {

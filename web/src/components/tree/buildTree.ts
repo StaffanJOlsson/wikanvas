@@ -1,7 +1,8 @@
 // The flat `GET /collections/{id}/tree` list as a nested tree (docs/ARCHITECTURE.md D21, §9.6.2). Every sibling group
 // of a collection is ordered by the collection's `child_order`:
 // - manual: `sort_key` (byte order, the server's fractional keys, D6);
-// - title: A–Z, case- and accent-insensitive, numbers in numeric order;
+// - title: A–Z by `compareTitles`, the server's order (`quire_core::tree::title_key`): case- and accent-insensitive,
+//   numbers by value;
 // - updated / created: newest first.
 // Ties fall back to `sort_key`, then `id`, so the order is total and stable.
 import type { ChildOrder } from '../../api/gen/ChildOrder';
@@ -22,10 +23,54 @@ export interface Forest {
   byId: ReadonlyMap<string, TreeNode>;
 }
 
-const collator = new Intl.Collator('en', { sensitivity: 'base', numeric: true });
-
 function cmp(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/** One part of a title key: a code point, or a number (its ASCII digits without leading zeros). */
+type TitlePart = { n: string } | { c: number };
+
+const ZERO = 0x30;
+
+/**
+ * The sort key of a title, as the server builds it (`quire_core::tree::title_key`; both are checked against
+ * `fixtures/tree/title-order.json`): NFKD, every mark (`\p{M}`) removed, lowercased, `ς` as `σ`; then a run of
+ * ASCII digits is one number.
+ */
+export function titleKey(title: string): TitlePart[] {
+  const folded = title.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().replaceAll('ς', 'σ');
+  const parts: TitlePart[] = [];
+  let digits: string | null = null;
+  for (const ch of folded) {
+    const c = ch.codePointAt(0)!;
+    if (c >= ZERO && c <= 0x39) {
+      digits = (digits ?? '') + ch;
+      continue;
+    }
+    if (digits !== null) parts.push({ n: digits.replace(/^0+/, '') });
+    digits = null;
+    parts.push({ c });
+  }
+  if (digits !== null) parts.push({ n: digits.replace(/^0+/, '') });
+  return parts;
+}
+
+function comparePart(a: TitlePart, b: TitlePart): number {
+  if ('c' in a && 'c' in b) return a.c - b.c;
+  if ('n' in a && 'n' in b) return a.n.length - b.n.length || cmp(a.n, b.n);
+  // A number sits where the digit 0 is.
+  return ('c' in a ? a.c : ZERO) - ('c' in b ? b.c : ZERO);
+}
+
+/** Title order (§9.6.2 "A–Z"): the server's, part by part; a key that is a prefix of another comes first. */
+export function compareTitles(a: string, b: string): number {
+  const ka = titleKey(a);
+  const kb = titleKey(b);
+  for (let i = 0; i < Math.min(ka.length, kb.length); i++) {
+    const d = comparePart(ka[i]!, kb[i]!);
+    if (d !== 0) return d;
+  }
+  return ka.length - kb.length;
 }
 
 /** Manual order: sort key, then id. */
@@ -44,7 +89,7 @@ export function comparator(order: ChildOrder): (a: ItemSummary, b: ItemSummary) 
     case 'manual':
       return byKey;
     case 'title':
-      return (a, b) => collator.compare(a.title, b.title) || byKey(a, b);
+      return (a, b) => compareTitles(a.title, b.title) || byKey(a, b);
     case 'updated':
       return (a, b) => time(b.updated_at) - time(a.updated_at) || byKey(a, b);
     case 'created':
