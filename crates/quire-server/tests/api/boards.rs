@@ -591,6 +591,39 @@ async fn preview_route_headers_immutable_307_and_current_without_rev() {
     assert_eq!(meta.preview_rev, Some(2));
     assert_eq!(meta.pages[0].svg_len, Some(svg.len() as u64));
     assert_eq!(meta.pages[1].svg_len, Some(0));
+    // `ItemDetail.board` is that same BoardMeta, also when the stored previews come from different revisions: the
+    // newest one counts, and a page whose preview is older has no `svg_len`.
+    let detail = app
+        .server
+        .get(&format!("/api/v1/items/{id}"))
+        .await
+        .json::<quire_api::ItemDetail>();
+    assert_eq!(detail.board.as_ref(), Some(&meta));
+    let item = id.clone();
+    app.state
+        .db
+        .write(move |tx| {
+            Ok(tx.execute(
+                "UPDATE board_previews SET rev = 1 WHERE item_id = ?1 AND page_index = 1",
+                [item],
+            )?)
+        })
+        .await
+        .unwrap();
+    let item = id.clone();
+    let mixed = app
+        .state
+        .db
+        .read(move |c| quire_store::boards::board_meta(c, &item))
+        .await
+        .unwrap();
+    assert_eq!((mixed.preview_rev, mixed.pages[1].svg_len), (Some(2), None));
+    let detail = app
+        .server
+        .get(&format!("/api/v1/items/{id}"))
+        .await
+        .json::<quire_api::ItemDetail>();
+    assert_eq!(detail.board, Some(mixed));
     // A new revision makes the old URL redirect, and the plain URL serve the new page.
     let mut d2 = d.clone();
     d2.pages[0].objects.push(label_box("Second label"));
