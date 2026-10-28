@@ -304,6 +304,23 @@ describe('editing a card', () => {
     expect(scroll.defaultPrevented).toBe(false);
   });
 
+  it('a press in the body below the text puts the caret at the end', async () => {
+    const { r } = await setup();
+    await openCard(r);
+    const editor = editorOf();
+    act(() => {
+      editor.commands.setTextSelection(1);
+    });
+    const body = cardEl('c1')?.querySelector('.board-embed-body') as HTMLElement;
+    const down = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+    act(() => {
+      body.dispatchEvent(down);
+    });
+    expect(down.defaultPrevented).toBe(true);
+    expect(editor.state.selection.from).toBe(editor.state.doc.content.size - 1);
+    expect(cardEl('c1')?.dataset.state).toBe('editing');
+  });
+
   it('the editing card is drawn whatever the zoom, and its layout boxes keep coming', async () => {
     const { r } = await setup();
     await openCard(r);

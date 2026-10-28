@@ -234,7 +234,20 @@ export function EmbedCard({ card, editing, readOnly, controller }: EmbedCardProp
           </button>
         )}
       </div>
-      <div className="board-embed-body">{body}</div>
+      <div
+        className="board-embed-body"
+        onMouseDown={(e) => {
+          // A press in the editing body below the text (outside ProseMirror's own element) puts the caret at the end.
+          const pm = editorRef.current?.view.dom;
+          if (!isEditing || !pm || pm.contains(e.target as Node)) return;
+          const t = e.target as HTMLElement;
+          if (t !== e.currentTarget && !t.classList.contains('board-embed-editor') && !t.classList.contains('quire-editor-shell')) return;
+          e.preventDefault();
+          editorRef.current?.commands.focus('end');
+        }}
+      >
+        {body}
+      </div>
     </div>
   );
 }
