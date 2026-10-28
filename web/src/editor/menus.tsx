@@ -1,22 +1,25 @@
 // The editor's menus (docs/ARCHITECTURE.md §9.6.5): the suggestion popups (slash, mention), the bubble menu on a text
-// selection, the table cell menu, and the block handle.
+// selection, the table cell menu, and the block handle. In a board card (§18.5 Editing step 2) the popups render
+// into the overlay's popup root (`portal`) and the bubble and table menus are appended to it with `strategy:
+// 'fixed'`, because inside the scaled card a fixed or parent-relative menu would be offset and scaled.
 import DragHandle from '@tiptap/extension-drag-handle-react';
 import type { Node as PMNode } from '@tiptap/pm/model';
 import { type Editor, useEditorState } from '@tiptap/react';
 import { BubbleMenu } from '@tiptap/react/menus';
 import { Bold, Code, GripVertical, Highlighter, Italic, Link as LinkIcon, Strikethrough, Underline } from 'lucide-react';
-import { useState, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { headingAnchor } from './contents';
 import { isAllowedLink } from './links';
 import { BLOCK_ID } from './schema';
 import { usePopup, type Popup } from './suggest';
 
-/** A slash or mention popup, under the caret. */
-export function SuggestPopup({ popup, label }: { popup: Popup; label: string }) {
+/** A slash or mention popup, under the caret (in `portal` when given). */
+export function SuggestPopup({ popup, label, portal }: { popup: Popup; label: string; portal?: HTMLElement | null }) {
   const s = usePopup(popup);
   if (!s.open) return null;
   const style = s.rect ? { left: s.rect.left, top: s.rect.bottom + 4 } : undefined;
-  return (
+  const el = (
     <div className="suggest-popup" role="listbox" aria-label={label} style={style}>
       {s.items.length === 0 && <div className="suggest-empty">{s.empty ?? 'Nothing found'}</div>}
       {s.items.map((item, i) => (
@@ -36,6 +39,15 @@ export function SuggestPopup({ popup, label }: { popup: Popup; label: string }) 
         </button>
       ))}
     </div>
+  );
+  return portal ? createPortal(el, portal) : el;
+}
+
+/** The bubble menu props that put a menu into `root` (fixed), or none. */
+function useAppendTo(root: HTMLElement | null | undefined) {
+  return useMemo(
+    () => (root ? { appendTo: () => root, options: { strategy: 'fixed' as const } } : {}),
+    [root],
   );
 }
 
@@ -67,7 +79,8 @@ const TURN_INTO: { label: string; run(e: Editor): void }[] = [
 ];
 
 /** Bold, italic, underline, strike, code, highlight, link and "Turn into" on a text selection. */
-export function SelectionMenu({ editor }: { editor: Editor }) {
+export function SelectionMenu({ editor, appendTo }: { editor: Editor; appendTo?: HTMLElement | null }) {
+  const placement = useAppendTo(appendTo);
   const marks = useEditorState({
     editor,
     selector: ({ editor: e }) => ({
@@ -89,6 +102,7 @@ export function SelectionMenu({ editor }: { editor: Editor }) {
     <BubbleMenu
       editor={editor}
       className="bubble-menu"
+      {...placement}
       shouldShow={({ editor: e, state }) => e.isEditable && !state.selection.empty && !e.isActive('codeBlock') && !e.isActive('image')}
     >
       {btn('bold', 'Bold', <Bold size={14} />, () => editor.chain().focus().toggleBold().run())}
@@ -115,7 +129,8 @@ export function SelectionMenu({ editor }: { editor: Editor }) {
 }
 
 /** Rows and columns of the table the caret is in. */
-export function TableMenu({ editor }: { editor: Editor }) {
+export function TableMenu({ editor, appendTo }: { editor: Editor; appendTo?: HTMLElement | null }) {
+  const placement = useAppendTo(appendTo);
   const items: [string, () => boolean][] = [
     ['Row above', () => editor.chain().focus().addRowBefore().run()],
     ['Row below', () => editor.chain().focus().addRowAfter().run()],
@@ -131,6 +146,7 @@ export function TableMenu({ editor }: { editor: Editor }) {
       editor={editor}
       pluginKey="tableMenu"
       className="table-menu"
+      {...placement}
       shouldShow={({ editor: e }) => e.isEditable && e.isActive('table')}
     >
       {items.map(([label, run]) => (
