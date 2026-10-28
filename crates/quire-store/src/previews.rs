@@ -7,10 +7,6 @@
 //! preview worker and the on-demand render of `GET …/board/pages/{n}` (quire-server `board_previews`) deflate the pages
 //! outside the writer ([`PageSvg::new`]) and store them with [`store`]; the route reads them with [`state`] and [`get`].
 
-use std::io::Write;
-
-use flate2::Compression;
-use flate2::write::GzEncoder;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 use crate::boards::{deflate, inflate};
@@ -174,33 +170,4 @@ pub fn rev(conn: &Connection, item_id: &str) -> Result<Option<i64>> {
         [item_id],
         |r| r.get(0),
     )?)
-}
-
-/// gzip of `bytes` (§11: page previews are sent gzip-encoded to clients that accept it).
-pub fn gzip(bytes: &[u8]) -> Result<Vec<u8>> {
-    let mut enc = GzEncoder::new(
-        Vec::with_capacity(bytes.len() / 4 + 64),
-        Compression::fast(),
-    );
-    enc.write_all(bytes)?;
-    Ok(enc.finish()?)
-}
-
-#[cfg(test)]
-mod tests {
-    use std::io::Read;
-
-    use super::*;
-
-    #[test]
-    fn gzip_roundtrip() {
-        let svg = "<svg xmlns=\"http://www.w3.org/2000/svg\"/>".repeat(20);
-        let gz = gzip(svg.as_bytes()).unwrap();
-        assert_eq!(&gz[..2], &[0x1f, 0x8b]);
-        let mut back = String::new();
-        flate2::read::GzDecoder::new(&gz[..])
-            .read_to_string(&mut back)
-            .unwrap();
-        assert_eq!(back, svg);
-    }
 }

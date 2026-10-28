@@ -509,6 +509,12 @@ async fn preview_route_headers_immutable_307_and_current_without_rev() {
     let id = new_board(&app, "Pages").await;
     let mut d = Document::new("Pages");
     d.pages[0].objects.push(label_box("Page zero label"));
+    // Enough to make the page's SVG larger than 1 KiB, the compression threshold.
+    for i in 0..4 {
+        d.pages[0]
+            .objects
+            .push(label_box(&format!("Another label {i}")));
+    }
     d.pages.push(Page::new("Empty page"));
     put_ok(&app.server, &id, &serial::to_json(&d, false), "*").await;
     let page = |n: &str| format!("/api/v1/items/{id}/board/pages/{n}");
@@ -564,7 +570,8 @@ async fn preview_route_headers_immutable_307_and_current_without_rev() {
     for n in ["2", "-1", "x"] {
         assert_error(&app.server.get(&page(n)).await, 404, ErrorCode::NotFound);
     }
-    // gzip for a client that accepts it.
+    // gzip for a client that accepts it: the server's compression layer (§11), the page being over 1 KiB.
+    assert!(svg.len() > 1024, "{}", svg.len());
     let res = app
         .server
         .get(&page("0"))
@@ -839,4 +846,14 @@ async fn page_after_the_preview_budget_is_a_card() {
         res.text(),
         quire_core::board::card_svg("#ffffff", quire_core::board::TOO_LARGE)
     );
+    // A page under 1 KiB is sent identity even to a gzip client: one compression rule, the layer's (§11).
+    let res = app
+        .server
+        .get(&format!("/api/v1/items/{id}/board/pages/0?rev=2"))
+        .add_header("accept-encoding", "gzip")
+        .await;
+    res.assert_status_ok();
+    assert!(res.maybe_header("content-encoding").is_none());
+    assert_eq!(res.header("vary"), "Accept-Encoding");
+    assert_eq!(res.text(), "<svg>zero</svg>");
 }
