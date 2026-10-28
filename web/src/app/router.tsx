@@ -6,6 +6,7 @@ import type { ComponentType } from 'react';
 import Archive from '../pages/Archive';
 import Collection from '../pages/Collection';
 import Home from '../pages/Home';
+import ItemRedirect from '../pages/ItemRedirect';
 import Login from '../pages/Login';
 import NotFound from '../pages/NotFound';
 import Search from '../pages/Search';
@@ -67,6 +68,8 @@ export const routes: RouteObject[] = [
               { path: 'trash', Component: Trash },
               { path: 'settings/:section', Component: Settings },
               { path: 'collection/:slugId', Component: Collection },
+              // An item by its UUID (the href of a document's item links): a redirect to its page.
+              { path: 'item/:id', Component: ItemRedirect },
               lazyPage('doc/:slugId', () => import('../pages/DocPage')),
               lazyPage('board/:slugId', () => import('../pages/BoardPage')),
               // Also /drafts: there is no Drafts page in M1 (D23).

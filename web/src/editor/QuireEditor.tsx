@@ -3,9 +3,11 @@
 // passed to the editor.
 import { EditorContent, useEditor, type Editor } from '@tiptap/react';
 import { useEffect, useMemo, useRef } from 'react';
+import { useNavigate } from 'react-router';
 import { headingsOfNode, type Heading } from './contents';
 import type { DocSession } from './docSession';
-import { editorExtensions, uploadImages } from './extensions';
+import { editorExtensions, openOutside, uploadImages } from './extensions';
+import type { LinkTarget } from './links';
 import { forgetEditor, loadLowlight } from './lowlight';
 import { BlockHandle, SelectionMenu, SuggestPopup, TableMenu } from './menus';
 import type { SlashContext } from './slash';
@@ -44,9 +46,19 @@ export function QuireEditor({ itemId, session, readOnly, onHeadings, onEditor, p
     [],
   );
   const lastHeadings = useRef<Heading[]>([]);
+  const navigate = useNavigate();
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
+  const openLink = useMemo(
+    () => (target: LinkTarget) => {
+      if (target.kind === 'route') void navigateRef.current(target.to);
+      else openOutside(target);
+    },
+    [],
+  );
   const editor = useEditor(
     {
-      extensions: editorExtensions({ itemId, ydoc: session.ydoc, slash: popups.slash, mention: popups.mention, ctx }),
+      extensions: editorExtensions({ itemId, ydoc: session.ydoc, slash: popups.slash, mention: popups.mention, ctx, openLink }),
       editable: !readOnly,
       immediatelyRender: true,
       shouldRerenderOnTransaction: false,

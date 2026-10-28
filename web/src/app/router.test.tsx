@@ -1,6 +1,7 @@
 import { screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { Me } from '../api/gen/Me';
+import { makeCollection, makeDetail, makeItem } from '../test/mockApi';
 import { jsonFetch, renderRoutes } from '../test/render';
 import { routes } from './router';
 
@@ -27,6 +28,25 @@ describe('router', () => {
     renderRoutes(routes, path);
     expect(await screen.findByRole('heading', { name: heading })).toBeTruthy();
     expect(document.getElementById('main')).not.toBeNull();
+  });
+
+  it('/item/<uuid> (the href of an item link) replaces itself with the item\'s page; an unknown one is not found', async () => {
+    const id = '0192f0a0-1111-7000-8000-00000000000a';
+    const c = makeCollection({ id: 'c1' });
+    const board = makeItem({ id, collection_id: 'c1', kind: 'board', title: 'Big plan', url_id: 'AbCdEfGh12' });
+    vi.stubGlobal('fetch', jsonFetch({ 'GET /api/v1/auth/me': [200, me], [`GET /api/v1/items/${id}`]: [200, makeDetail(board, c)] }));
+    const { router, unmount } = renderRoutes(routes, '/home');
+    await screen.findByRole('heading', { name: 'Home' });
+    await router.navigate(`/item/${id}#h-2`);
+    await waitFor(() => expect(router.state.location.pathname).toBe('/board/big-plan-AbCdEfGh12'));
+    expect(router.state.location.hash).toBe('#h-2');
+    // Replaced, not pushed: Back returns to Home.
+    await router.navigate(-1);
+    await waitFor(() => expect(router.state.location.pathname).toBe('/home'));
+    unmount();
+    vi.stubGlobal('fetch', jsonFetch({ 'GET /api/v1/auth/me': [200, me] }));
+    renderRoutes(routes, '/item/0192f0a0-9999-7000-8000-00000000000a');
+    expect(await screen.findByRole('heading', { name: 'Page not found' })).toBeTruthy();
   });
 
   it('redirects / to /home', async () => {

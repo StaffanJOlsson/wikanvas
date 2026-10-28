@@ -14,7 +14,7 @@ import { searchTitles } from '../api/queries/docs';
 import type { ItemDetail } from '../api/gen/ItemDetail';
 import { TITLE_INPUT_ID } from '../components/item/ItemHeader';
 import { HeadingAnchors } from './contents';
-import { isAllowedLink, sameInstanceUrlId } from './links';
+import { isAllowedLink, linkTarget, sameInstanceUrlId, type LinkTarget } from './links';
 import { lazyLowlight } from './lowlight';
 import { schemaExtensions, YFIELD } from './schema';
 import { SlashCommand, type SlashContext } from './slash';
@@ -28,6 +28,8 @@ export interface EditorSetup {
   slash: Popup;
   mention: Popup;
   ctx: SlashContext;
+  /** Follows a link (`LinkOpener`); without it, links are not followed from the editor. */
+  openLink?(target: LinkTarget): void;
 }
 
 // ------------------------------------------------------------------------------------------------- uploads
@@ -168,6 +170,52 @@ function QuireUrlPaste(origin: string) {
   });
 }
 
+// ------------------------------------------------------------------------------------------------- following links
+
+/**
+ * Following a link mark (§9.6.5): a click when the document is read-only, Ctrl/Cmd+click while it is editable (a
+ * plain click there places the caret, so link text stays editable). `open` gets the target (`linkTarget`). Read-only,
+ * a click with Ctrl, Cmd or Shift is left to the browser (a new tab or window, by the anchor's real href). Mentions and
+ * board cards are node views with their own links and are left alone.
+ */
+export function LinkOpener(open: (target: LinkTarget) => void, origin: string) {
+  return Extension.create({
+    name: 'quireLinkOpener',
+    addProseMirrorPlugins() {
+      return [
+        new Plugin({
+          key: new PluginKey('quireLinkOpener'),
+          props: {
+            handleDOMEvents: {
+              click(view, event) {
+                if (event.button !== 0) return false;
+                const el = event.target instanceof Element ? event.target : (event.target as Node | null)?.parentElement;
+                const a = el?.closest('a[href]');
+                if (!a || !view.dom.contains(a) || a.closest('[data-node-view-wrapper]')) return false;
+                const mod = event.metaKey || event.ctrlKey;
+                if (view.editable ? !mod : mod || event.shiftKey) return false;
+                event.preventDefault();
+                const target = linkTarget(a.getAttribute('href'), a.getAttribute('data-item-id'), origin);
+                if (target) open(target);
+                return true;
+              },
+            },
+          },
+        }),
+      ];
+    },
+  });
+}
+
+/** Opens a link target outside the router: a fragment scrolls to its anchor, an external URL opens in a new tab. */
+export function openOutside(target: Exclude<LinkTarget, { kind: 'route' }>): void {
+  if (target.kind === 'hash') {
+    document.getElementById(decodeURIComponent(target.hash.slice(1)))?.scrollIntoView({ block: 'start' });
+    return;
+  }
+  window.open(target.url, '_blank', 'noopener,noreferrer');
+}
+
 // ------------------------------------------------------------------------------------------------- the rest
 
 const BackspaceToTitle = Extension.create({
@@ -271,6 +319,7 @@ export function editorExtensions(s: EditorSetup): AnyExtension[] {
       onDrop: (editor, files, pos) => uploadImages(editor, s.itemId, files, pos),
     }),
     QuireUrlPaste(typeof window !== 'undefined' ? window.location.origin : ''),
+    ...(s.openLink ? [LinkOpener(s.openLink, typeof window !== 'undefined' ? window.location.origin : '')] : []),
     SlashCommand(s.slash, s.ctx),
     BackspaceToTitle,
   ];

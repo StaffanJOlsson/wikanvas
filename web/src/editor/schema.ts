@@ -15,7 +15,7 @@ import TaskList from '@tiptap/extension-task-list';
 import UniqueID from '@tiptap/extension-unique-id';
 import { mergeAttributes, Node, wrappingInputRule, type AnyExtension, type NodeViewRenderer } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
-import { isAllowedImageSrc, isAllowedLink, LINK_SCHEMES, quireItemId } from './links';
+import { isAllowedImageSrc, isAllowedLink, itemIdPath, LINK_SCHEMES, quireItemId, quireItemUrl } from './links';
 
 export const SCHEMA_VERSION = 1;
 /** The Y XmlFragment that holds the document. */
@@ -204,7 +204,17 @@ export const QuireLink = Link.extend({
     return {
       href: {
         default: null,
-        parseHTML: (el) => el.getAttribute('href'),
+        // An item link's DOM href is `/item/<uuid>` (below): read back, it is the item's `quire://item/<uuid>`.
+        parseHTML: (el) => {
+          const id = el.getAttribute('data-item-id');
+          return id && quireItemId(quireItemUrl(id)) ? quireItemUrl(id.toLowerCase()) : el.getAttribute('href');
+        },
+        // The stored href stays as it is (`quire://item/<uuid>` or a pasted Quire URL); the DOM gets a URL a browser
+        // can open, so a click, "open in new tab" and "copy link address" reach the item (§9.6.5).
+        renderHTML: (attrs) => {
+          const id = (attrs.itemId as string | null) ?? quireItemId(attrs.href as string | null);
+          return { href: id ? itemIdPath(id) : (attrs.href as string | null) };
+        },
       },
       itemId: {
         default: null,

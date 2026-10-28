@@ -49,6 +49,42 @@ export function quireItemUrl(id: string): string {
 }
 
 /**
+ * The SPA path that opens an item by its id, `/item/<uuid>`: the route redirects to the item's page (§9.1). An item
+ * link's DOM `href` (the stored mark keeps `quire://item/<uuid>`), so "open in new tab" and "copy link address" work.
+ */
+export function itemIdPath(id: string): string {
+  return `/item/${encodeURIComponent(id)}`;
+}
+
+/** Where following a link goes (§9.6.5). */
+export type LinkTarget =
+  | { kind: 'route'; to: string }
+  | { kind: 'hash'; hash: string }
+  | { kind: 'external'; url: string };
+
+/**
+ * The target of a link: an item link (by its id) and a same-origin URL go through the router, a fragment scrolls the
+ * page, any other allowed URL opens in a new tab. Null for a URL outside the §6.4 allow-list.
+ */
+export function linkTarget(href: string | null | undefined, itemId: string | null | undefined, origin: string): LinkTarget | null {
+  const id = itemId ?? quireItemId(href);
+  if (id) return { kind: 'route', to: itemIdPath(id) };
+  if (!href || !isAllowedLink(href)) return null;
+  if (href.startsWith('#')) return { kind: 'hash', hash: href };
+  if (href.startsWith('/')) return { kind: 'route', to: href };
+  if (/^https?:/i.test(href)) {
+    let url: URL;
+    try {
+      url = new URL(href);
+    } catch {
+      return null;
+    }
+    if (url.origin === origin) return { kind: 'route', to: url.pathname + url.search + url.hash };
+  }
+  return { kind: 'external', url: href };
+}
+
+/**
  * The url_id of a same-instance item URL (`/doc/<slug>-<url_id>` or `/board/<slug>-<url_id>`, relative or under
  * `origin`), or null. A pasted Quire URL becomes `link{itemId}` once the id is resolved (§9.6.5).
  */
