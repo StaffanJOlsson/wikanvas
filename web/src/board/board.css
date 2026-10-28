@@ -41,8 +41,7 @@
   background: transparent;
 }
 
-.board-banner,
-.board-update-banner {
+.board-banner {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -53,8 +52,7 @@
   color: var(--text);
 }
 
-.board-banner button,
-.board-update-banner button {
+.board-banner button {
   padding: var(--space-1) var(--space-3);
   border: 1px solid var(--border);
   border-radius: var(--radius-control);
@@ -63,8 +61,7 @@
   cursor: pointer;
 }
 
-.board-banner button:hover,
-.board-update-banner button:hover {
+.board-banner button:hover {
   background: var(--bg-hover);
 }
 
@@ -75,17 +72,6 @@
 
 .board-banner.board-warning {
   border-left: 3px solid var(--warning);
-}
-
-.board-update-banner {
-  position: fixed;
-  top: var(--space-4);
-  left: 50%;
-  z-index: 20;
-  transform: translateX(-50%);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-menu);
-  box-shadow: var(--shadow-pop);
 }
 
 .board-loading {

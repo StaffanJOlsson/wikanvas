@@ -1,8 +1,8 @@
 // The board frame host's state, outside React (docs/ARCHITECTURE.md §9.5, D37: BoardFrameHost is mounted beside the
 // routes, so pages reach it through an external store, not a React context).
 //
-// - `useHostStore` holds what pages render from: the connected frame, a failure, the download progress, the update
-//   banner, the surface the iframe covers, and whether the current board is shown.
+// - `useHostStore` holds what pages render from: the connected frame, a failure, the download progress, the surface
+//   the iframe covers, and whether the current board is shown.
 // - `frameEvents` are the FrameEvents the host connects with. Each event carries an itemId; events for any board but
 //   the current one are ignored (§10.4: "the host ignores events whose id is not current"). Host keys go to
 //   `runHostShortcut`.
@@ -26,8 +26,6 @@ export interface HostState {
   failure: Failure | null;
   /** The engine download (`onProgress`), until it finished. */
   progress: { loaded: number; total: number } | null;
-  /** `frame.html` answered 404 and `/config` names another build: show "Quire was updated. Reload". */
-  updateAvailable: boolean;
   /** The BoardSurface element the iframe covers. */
   surface: HTMLElement | null;
   /** The current board is open in the frame, so the iframe may be shown over the surface. */
@@ -42,7 +40,6 @@ const initial: HostState = {
   frame: null,
   failure: null,
   progress: null,
-  updateAvailable: false,
   surface: null,
   shown: false,
   savedAt: {},

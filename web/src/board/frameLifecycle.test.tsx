@@ -1,5 +1,6 @@
 import { act, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { useUpdate } from '../app/updateCheck';
 import { IDLE_REMOVE_MS } from './BoardFrameHost';
 import type { OpenArgs } from './bridge';
 import { useHostStore } from './host';
@@ -118,7 +119,10 @@ describe('BoardFrameHost', () => {
     await act(async () => r.fake.rejectConnect('download', 'no frame script', true));
     expect(await screen.findByText(/Quire was updated/)).toBeTruthy();
     expect(configCalls).toBe(2);
-    expect(screen.getByRole('button', { name: 'Reload' })).toBeTruthy();
+    // One banner, the shell's (AppShell's UpdateBanner), whichever part of the page noticed the new build.
+    expect(screen.getAllByText(/Quire was updated/)).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: 'Reload' })).toHaveLength(1);
+    expect(useUpdate.getState().available).toBe(true);
     // Meanwhile the board is shown read-only.
     expect(screen.getByText(/could not start/)).toBeTruthy();
   });

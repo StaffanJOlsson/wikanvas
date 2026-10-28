@@ -10,6 +10,7 @@ import type { BoardMeta } from '../api/gen/BoardMeta';
 import type { BoardPutResult } from '../api/gen/BoardPutResult';
 import type { Config } from '../api/gen/Config';
 import type { ItemDetail } from '../api/gen/ItemDetail';
+import { UpdateBanner } from '../app/UpdateBanner';
 import { itemPath } from '../lib/urls';
 import BoardPage from '../pages/BoardPage';
 import { createTestQueryClient } from '../test/render';
@@ -193,6 +194,7 @@ export function renderBoardApp(path: string, opts: FakeFrameOptions & { fake?: F
     {
       element: (
         <>
+          <UpdateBanner />
           <main id="main">
             <Outlet />
           </main>

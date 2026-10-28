@@ -1,13 +1,12 @@
 // Engine cache warm-up (docs/ARCHITECTURE.md §9.5): hovering a board row for 300 ms fetches the engine's wasm and JS
 // with `fetch(url, {cache: 'force-cache', priority: 'low'})`, so the first board opens from the HTTP cache. A
 // `<link rel=prefetch>` would fall under the SPA CSP's `default-src 'none'`, so it is never used. Each engine build is
-// warmed once per page load. The sidebar's board rows (W3) spread `useBoardWarmup()` on themselves.
-import { useMemo } from 'react';
+// warmed once per page load. The sidebar (W3, `TreeRow`) times the hover and calls `boardRowHovered`; the board host
+// registers the warm-up there with `useBoardRowWarmup()`, since it is mounted once beside the routes.
+import { useEffect } from 'react';
 import { useConfig } from '../api/queries/config';
 import { inkboardBase } from '../lib/urls';
-
-/** How long the pointer rests on a board row before the engine is fetched. */
-export const HOVER_WARM_MS = 300;
+import { onBoardRowHover } from '../state/hover';
 
 /** The engine files worth warming (the frame page itself is small and loads with the iframe). */
 export const WARM_FILES = ['inkboard_bg.wasm', 'inkboard.js'] as const;
@@ -35,33 +34,14 @@ export function resetWarmup(): void {
   warmed.clear();
 }
 
-export interface HoverHandlers {
-  onPointerEnter(): void;
-  onPointerLeave(): void;
-}
-
-/** Hover handlers that warm the engine of `base()` after HOVER_WARM_MS; leaving earlier cancels. */
-export function hoverWarmup(base: () => string | null): HoverHandlers {
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  return {
-    onPointerEnter() {
-      if (timer !== null) return;
-      timer = setTimeout(() => {
-        timer = null;
-        const b = base();
-        if (b !== null) warmEngine(b);
-      }, HOVER_WARM_MS);
-    },
-    onPointerLeave() {
-      if (timer !== null) clearTimeout(timer);
-      timer = null;
-    },
-  };
-}
-
-/** `<a {...useBoardWarmup()}>` on a board row: warms the embedded engine on hover (nothing without one). */
-export function useBoardWarmup(): HoverHandlers {
-  const config = useConfig();
-  const base = inkboardBase(config.data);
-  return useMemo(() => hoverWarmup(() => base), [base]);
+/**
+ * Registers the warm-up for the sidebar's 300 ms board-row hover (`onBoardRowHover`) while mounted: it warms the
+ * embedded engine of the current config, and does nothing without one.
+ */
+export function useBoardRowWarmup(): void {
+  const base = inkboardBase(useConfig().data);
+  useEffect(() => {
+    if (base === null) return;
+    return onBoardRowHover(() => warmEngine(base));
+  }, [base]);
 }
