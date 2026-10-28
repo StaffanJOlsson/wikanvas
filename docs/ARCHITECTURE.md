@@ -88,7 +88,7 @@ layout slots (§15).
 | D31 | The board title is owned by Quire (`items.title`). The server overwrites `document.name` when it returns a board, and ignores it on save. | One source of truth for the tree, breadcrumbs and search. |
 | D32 | Doc autosave: 1 s debounce, at most 5 s apart, plus a flush on hide, blur, navigation and Ctrl/Cmd+S. Board autosave: 1.5 s quiet, at most 10 s apart, plus the same flushes. Title autosave: 500 ms debounce, registered in the same pending registry. | A board save sends the whole snapshot, so it is less frequent. |
 | D33 | Limits: upload 25 MB (`QUIRE_MAX_UPLOAD_MB`); image 100 megapixels (read from the header only); board 50 MB (`QUIRE_MAX_BOARD_MB`, warning at 15 MB); stored Y document 16 MiB (`QUIRE_MAX_DOC_MB`); a single update POST up to 16 MiB; a Markdown document PUT up to 1 MiB and a ProseMirror JSON PUT up to 4 MiB (nesting depth 100); every other body 1 MiB; per-token body bytes (D47). Writes that stage files (uploads, board PUTs, export, backup) first check free space on `/data` (`statvfs`, rustix): below the smaller of `QUIRE_MIN_FREE_MB` (default 1024) and 10% of the filesystem they answer 507 `insufficient_storage` | A loaded yrs Doc takes 5–10× its encoded size, so 16 MiB (at most 160 MiB loaded, one `doc_work` permit) is the ceiling the 1 GiB budget of D25 is built on. A full disk would stop SQLite, and with it the whole wiki. |
-| D34 | Export in M1: `GET /api/v1/export` streams a tar of `manifest.json`, a copy of `quire.db` (made with `VACUUM INTO` under `/data/tmp`, then sessions and API tokens deleted, password hashes cleared, and the `sqlite_stat1`/`sqlite_stat4` rows of the credential tables deleted, because `PRAGMA optimize` samples index keys such as token hashes into them, on a connection with `journal_mode=DELETE` and `secure_delete=ON`, closed before streaming, so no `-wal` file keeps the deleted rows) and `files/**`. Single-flight (D47). Per item: a document exports as Markdown (server, `GET …/doc/markdown`, §6.4) or HTML (client-side), a board as `.inkboard` or SVG (server). | Exact and cheap, and the download carries no credentials. A whole-workspace Markdown zip is deferred to M2; with server-side Markdown (D49) it is a loop over items. Full backups (§12) keep everything. |
+| D34 | Export in M1: `GET /api/v1/export` streams a tar of `manifest.json`, a copy of `quire.db` (made with `VACUUM INTO` under `/data/tmp`, then sessions and API tokens deleted, password hashes cleared, and the `sqlite_stat1`/`sqlite_stat4` rows of the credential tables deleted, because `PRAGMA optimize` samples index keys such as token hashes into them, on a connection with `journal_mode=DELETE` and `secure_delete=ON`, closed before streaming, so no `-wal` file keeps the deleted rows; then a second `VACUUM INTO` from that scrubbed copy writes the file that is streamed, because the unused space of the first copy's pages can still hold older copies of deleted rows, such as stat4 samples of token hashes; the first copy is deleted) and `files/**`. Single-flight (D47). Per item: a document exports as Markdown (server, `GET …/doc/markdown`, §6.4) or HTML (client-side), a board as `.inkboard` or SVG (server). | Exact and cheap, and the download carries no credentials. A whole-workspace Markdown zip is deferred to M2; with server-side Markdown (D49) it is a loop over items. Full backups (§12) keep everything. |
 | D35 | Passwords are 12–1024 bytes. Reset is done with `quire admin reset-password --email X` (`quire-server admin …`, §7.8), which sets a random temporary password, prints it, sets `must_change_password`, and revokes all sessions; with `--revoke-tokens` also every API token of that user (the compromise switch) | M1 sends no email. A one-time password needs no reset-link route. |
 | D36 | Doc images are referenced through `item_attachments`, rebuilt from the ytext walk in every save transaction and copied by duplicate. Yjs revisions record their attachment ids. Attachments that no live item, revision or setting references are deleted after 24 h. `attachments.item_id` is the upload context only and is never used for authorization. | Images removed from docs are eventually freed, and later multi-user authorization of `GET /api/v1/attachments/{id}` can go through the referencing items. |
 | D37 | Open-ended value lists are lookup tables, not CHECKs: `content_formats`, `revision_reasons`, `link_kinds` (like `user_roles` and `item_kinds`). Formats are stored as `(format, format_version)`, e.g. `('inkboard', 2)`, `('yjs', 1)`. | SQLite cannot alter a CHECK without a 12-step table rebuild; `revisions` holds large binary snapshots. A new format or link kind is one `INSERT`. |
@@ -189,7 +189,7 @@ Quire/
     agent/           # agent harness: lib.sh, scenarios/NN-*.sh, fixtures/ (§14.1); results/ is git-ignored
   fixtures/          # cross-language golden files: ydoc/*.bin + *.txt + *.links.json + *.y.json + *.pm.json,
                      # ydoc/server/*.bin + *.pm.json, markdown/*.md (+ *.expected.md, *.warnings.json), schema/v1.json,
-                     # boards/*.inkboard
+                     # boards/*.inkboard, tree/title-order.json (the A–Z sibling order, §9.6.2)
   patches/inkboard/  # 000N-*.patch (git format-patch against the base copy of 41e0295), README.md (base, patchset,
                      # sizes), check-baseline.txt (the warning counts of `inkboard.sh check` on the base, §10.5)
   docker/Dockerfile  # stages: node, toolchain-base, toolchain, inkboard-web, web, licenses, server, cli-src, cli,
@@ -255,7 +255,9 @@ crc32fast 1.5, rustix (`fs`: `statvfs` for the free-space floor, D33). ts-rs get
 tower-http also gets `cors`. CLI only (`quire-cli`): ureq 3.5.0 (`default-features = false`, `rustls-no-provider`,
 `json`, `gzip`; never its `rustls` feature, which adds webpki-roots, D54), rustls 0.23 (`default-features = false`,
 `ring`, `std`, `tls12`), etcetera 0.11.0, toml 1.1. Dev dependencies: axum-test 21.1, tempfile 3.27, proptest,
-assert_cmd 2.2.2, oas3 0.22.0 (parses the spec as OpenAPI 3.1 in a test). Versions and licences of the additions were
+assert_cmd 2.2.2, oas3 0.22.0 (`default-features = false`; parses the spec as OpenAPI 3.1 in a test; its default
+`preserve-order` feature would turn on serde_json's `preserve_order` in every workspace test build, so test and release
+builds would order JSON objects differently). Versions and licences of the additions were
 checked on crates.io on 2026-10-27 (utoipa, utoipa-axum, ureq, clap, assert_cmd, etcetera, toml: MIT OR Apache-2.0;
 rustls: Apache-2.0 OR ISC OR MIT; ring: Apache-2.0 AND ISC; comrak: BSD-2-Clause; oas3: MIT). comrak 0.59.0 and ureq
 3.5.0 are days old: W0b re-checks both (§16). Versions W0b picked where this list gives none are in `Cargo.toml` and
@@ -683,8 +685,9 @@ Rules for the data model:
 - **Sort keys.** When a sibling's key grows past 64 characters, the whole sibling group is rebalanced in one
   transaction (a collection rebalance bumps `tree_version` of every collection whose key it rewrites). Non-manual sorts
   are computed at read time; `sort_key` still applies to `manual`. Tree order: parents before children, depth first;
-  siblings by `child_order`: `manual` by `sort_key`, `title` case-insensitively, `updated` and `created` newest first;
-  the id breaks ties. `…/children` uses the same order.
+  siblings by `child_order`: `manual` by `sort_key`, `title` A–Z by `quire_core::tree::title_key` (case- and
+  accent-insensitive, numbers by value; §9.6.2, the web client's order too), `updated` and `created` newest first;
+  ties go to `sort_key`, then the id. `…/children` uses the same order.
 - **Versions.** `meta_version` goes up on every change to the item row except a content save: title, `full_width`,
   move (the root and, across collections, its descendants), publication, archive, trash and their reverses, collection
   delete and restore. `updated_at`/`updated_by` change on rename, `full_width`, move (the root) and publication; not on
@@ -852,7 +855,8 @@ The web client and API clients use this same pipeline (D51):
    memory at a time, about 3× its size (D25); a slow upload delays other board work, at most for its deadline.
 3. In `spawn_blocking`: UTF-8 (422 `invalid_board`), a non-recursive pre-scan of the JSON depth (more than 100 levels
    is 422 `invalid_board`, "nests JSON N levels deep"), then `inspect` the full body, `split` it, check free space
-   (D33, 507) and `BlobStore::stage` each asset (outside the writer).
+   (D33, 507; `boards::prepare_with` takes the check from the route, which passes the server's injectable probe
+   `AppState::free_space`, so tests can fake a full disk) and `BlobStore::stage` each asset (outside the writer).
 4. If sha256(stripped) equals `body_sha256`, and every asset sent with data has the same sha256 as the board's
    `board_assets` row for that id and that blob's file exists, drop the staged files and return the current `{rev}`;
    this is a no-op. It runs before the `If-Match` check, so resending the stored body with a stale tag answers 200
@@ -1004,7 +1008,8 @@ after the wait for permits:
      same client id, clocks and content, which the §6.1 no-op rule absorbs; the bytes are identical too unless the
      update writes an item link, because yrs encodes the keys of a map value (`{href, itemId}`) in hash-map order.
      The content hashes serialize through `schema::canonical` (sorted keys, explicit stack), so serde_json's map order
-     (insertion order in workspace test builds, where oas3 turns on `preserve_order`) never changes them. Collision
+     never changes them (a dependency that turns on `preserve_order` makes it insertion order; oas3 did in test builds
+     until it was built without default features, §4.1). Collision
      odds equal those of Yjs's random ids.
 5. **Commit.** Encode the update (`encode_update_v1` against the base's state vector) and drop the base and scratch
    docs. Then, in the writer transaction: re-read `next_seq - 1`; if it moved past the base and neither `merge` nor
@@ -1176,7 +1181,7 @@ JSON 4 MiB, nesting depth 100 (D33).
   - `Collection{id,url_id,name,description,icon,color,sort_key,child_order,item_count,updated_at}`
   - `ItemSummary{id,url_id,collection_id,parent_id,kind,title,sort_key,child_count,published,archived,updated_at,content_at,created_at}`
   - `Crumb{id,url_id,kind,title}`
-  - `ItemDetail{item:ItemSummary, collection:Collection, breadcrumbs:[Crumb], starred, effectively_published, trashed_at?, purge_at?, archived_at?, board?:BoardMeta, full_width, meta_version}` (`full_width` is additive, §17.4)
+  - `ItemDetail{item:ItemSummary, collection:Collection, breadcrumbs:[Crumb], starred, effectively_published, trashed_at?, purge_at?, archived_at?, full_width, board?:BoardMeta, meta_version}` (`full_width` is additive, §17.4; `board` is `boards::board_meta`, the same `BoardMeta` a board PUT returns, §5 "Previews")
   - `BoardMeta{rev,pages:[{id,name,svg_len}],objects,background,bytes,preview_rev,text_excerpt}`
   - `Page<T>{items:[T], next_cursor}`
   - `SearchHit{item:ItemSummary, path:[Crumb], snippet:[{text,hit}], score}`
@@ -1461,7 +1466,7 @@ references the file as `![alt](/api/v1/attachments/<id>)` in Markdown or as `ima
   | `item get <i>` | `GET /items/{id}` | `ItemDetail` |
   | `item create --collection <c> --kind doc\|board [--parent <i>] [--title T] [position] [--md F\|- [--title-h1]]` | `POST /items`. The item is published on create (D23; `item unpublish` makes it a draft). With `--md` (docs only): the item is created without a title, then `PUT …/doc/markdown` with `If-Match: "d0"`, then `PATCH` of `--title` only once the PUT succeeded. If the PUT fails, the new empty item is discarded (`DELETE ?discard_empty=true`; a failed discard adds `discard_failed`) and the PUT's error is reported; a failed title PATCH after a good PUT is the warning `item_created`. The file is read before the POST (an unreadable one creates nothing), `--kind board` with `--md` is exit 2, and `--title-h1` without `--title` prints the item from `GET /items/{id}` | `ItemSummary`; with `--md` `{item: ItemSummary, doc: DocWriteResult}` |
   | `item update <i> [--title T] [--full-width true\|false] [--if-match E]` | `PATCH /items/{id}` | `ItemSummary` |
-  | `item move <i> (--parent <i> \| --top) [--collection <c>] [position]` | `POST …/move` | `ItemSummary` |
+  | `item move <i> [--parent <i> \| --top] [--collection <c>] [position]` | `POST …/move`. With neither `--parent` nor `--top` the item keeps its parent (a reorder): the CLI reads the item and sends its current `parent_id`. `--collection` needs `--parent` or `--top` (exit 2 otherwise) | `ItemSummary` |
   | `item duplicate\|unpublish\|archive\|unarchive\|restore <i>` · `item publish <i> [--with-ancestors]` · `item trash <i> [--discard-empty]` · `item children <i>` · `item text <i>` | `/items/{id}…` | the body |
   | `tree <c>` | `GET /collections/{id}/tree` (human output indented) | `{collection, items}` |
   | `list recent\|updated\|drafts\|starred\|archive` · `trash list` · `trash purge (<i> \| --collection <c> \| --all) --yes` | lists, `/trash` | `Page` · the body · ok |
@@ -1596,8 +1601,9 @@ From the host: `docker compose exec quire quire admin create-token --name ci --s
     …` at startup. The code is compared ignoring case and surrounding spaces, in constant time; a wrong one is 401
     `invalid_credentials` (§7.2 has the order of the checks).
   - `POST /api/v1/setup` runs one IMMEDIATE transaction guarded by `NOT EXISTS (SELECT 1 FROM users)`. It creates the owner
-    and the settings, seeds "Getting started" (`fixtures/ydoc/getting-started.bin` and
-    `fixtures/boards/getting-started.inkboard`, both `include_bytes!`), and signs the owner in. It shares the per-IP
+    and the settings, seeds "Getting started" (`fixtures/ydoc/getting-started.bin`,
+    `fixtures/ydoc/writing-in-quire.bin` and `fixtures/boards/getting-started.inkboard`, all embedded at build time,
+    §9.6.7), and signs the owner in. It shares the per-IP
     login limiter.
   - The server caches whether an owner exists. While the cache says no, every request re-checks with one reader query
     and flips it once, so an owner made by `quire admin create-owner` while the server runs is seen on the next
@@ -1845,14 +1851,16 @@ Interfaces that cross workstreams (all from W0b, typed):
     canvas. Its state is an external zustand store, read with `useBoardFrame()`.
   - After `load` it calls `iframe.contentWindow.quireBoardFrame.connect(events)` (§10.4). A page without
     `window.quireBoardFrame` counts as `{kind:'download', missing:true}`: the host then GETs `frame.html` (`no-store`)
-    and, on a 404, runs the update check (§9.1). A `connect()` rejected with `download` may be retried; other
+    and, on a 404, runs the shell's update check `checkForUpdate()` (§9.1), so the one "Quire was updated" banner is
+    the shell's; the board host has no banner of its own. A `connect()` rejected with `download` may be retried; other
     rejections are final (`BoardPreview`).
   - Off board routes the iframe gets `visibility:hidden`, `inert` and `setActive(false)`; back on a board route,
     `setActive(true)`. It is removed after 10 minutes away from boards.
   - Hovering a board row for 300 ms warms the cache with `fetch(url, {cache: 'force-cache', priority: 'low'})` for
     `inkboard_bg.wasm` and `inkboard.js` (`<link rel=prefetch>` falls under the SPA CSP's `default-src 'none'`): the
-    sidebar reports the hover through `onBoardRowHover` (`state/hover.ts`), and the board module's warm-up
-    (`board/warmup.ts`) registers for it.
+    sidebar's tree row times the 300 ms hover and reports it through `onBoardRowHover` (`state/hover.ts`), and
+    `BoardFrameHost`, mounted once beside the routes, registers the warm-up for it with `useBoardRowWarmup()`
+    (`board/warmup.ts`). There is one hover timer, the sidebar's.
 - **Open.**
   1. Flush the board the frame showed before (await `host.flushPrevious`). A page's session stays active until its last
      flush is done, so reopening a board while its PUT still runs waits for that PUT and never shows an older
@@ -1941,9 +1949,16 @@ Outline's source or theme.
   New board, Sort, Delete); item rows show "+" and "⋯" (Rename, New child document, New child board, Duplicate, Move…,
   Star, Archive, Delete). "+ New collection…" ends the list.
 - **Sibling order.** The client sorts every sibling group itself (`buildTree`): Manual by `sort_key` (code-unit
-  order), then `id`; A–Z with `Intl.Collator('en', {sensitivity: 'base', numeric: true})` (case- and
-  accent-insensitive, numbers in numeric order); Last updated and Created newest first; ties by `sort_key`, then `id`.
-  The server's `title` order is case-insensitive only (§5), so the two can disagree until the tree is refetched (§16).
+  order), then `id`; A–Z by the title key; Last updated and Created newest first; ties by `sort_key`, then `id`. The
+  server sorts the same way (§5), so an optimistic reorder agrees with the next tree fetch. The **title key** is
+  defined twice, as `quire_core::tree::title_key` and the web's `titleKey` (`buildTree.ts`), and both are checked
+  against `fixtures/tree/title-order.json`:
+  1. NFKD, then every `General_Category=Mark` character removed, then lowercased, with `ς` as `σ` (case- and
+     accent-insensitive: `Café` and `cafe` have one key);
+  2. compared character by character in code point order, except that a run of ASCII digits is one number, compared
+     by value (leading zeros ignored) and placed where the digit `0` is (`Chapter 2` before `Chapter 10`).
+  It is not a locale collation (`Äpfel` sorts with `apfel`, after `@home` and `_underscore`), so server and browser
+  never differ by ICU version.
 - **Footer:** Archive, Trash, Settings. "+ Invite people…" is hidden in M1.
 
 #### 9.6.3 Tree drag and drop and keyboard
@@ -2001,8 +2016,9 @@ shortcuts dialog. (Mod+Shift+P, publish or unpublish, comes back with the draft 
   Export (Markdown, HTML; boards: .inkboard, SVG), Delete; Duplicate, Move…, Archive and Delete are disabled for a
   trashed item). Every "new item" action navigates with `{state: {created: true}}`, so the page discards exactly the
   items this page session created and left empty (`DELETE ?discard_empty=true`; 409 `not_empty` is ignored). Full width
-  is `PATCH /items/{id} {full_width}`; pages read it with `useFullWidthOf(item)`, which prefers the server's
-  `ItemDetail.full_width` over the value toggled in this page session. There is no Publish button or step: a new item
+  is `PATCH /items/{id} {full_width}`, applied to the cached `ItemDetail` at once and rolled back if the PATCH fails;
+  the document page reads `ItemDetail.full_width` and sets `data-full-width` on `.doc-page`, which lifts the 720 px cap
+  of the column and the item header (there is no per-session copy of the setting). There is no Publish button or step: a new item
   is published when it is created (D23). The avatars, Share and "Viewed by" slots are hidden in M1. Export → Markdown downloads `GET /api/v1/items/{id}/doc/markdown?download=true`
   (server-side, §6.4); HTML is produced on the client from the editor.
 - Item header (docs): large title input (placeholder "Untitled"; Enter moves to the body; Backspace at the start of an
@@ -2062,7 +2078,11 @@ shortcuts dialog. (Mod+Shift+P, publish or unpublish, comes back with the draft 
 Collection "Getting started" (colour `#3E63DD`, icon `rocket`), all items published (on create, like every item, D23):
 - "Welcome to Quire": what collections and nesting are, the sidebar, Mod+K, search, stars, Trash and Archive, and
   where backups live. It does not mention drafts or publishing. It embeds the board below and mentions "Writing in Quire".
-  - "Writing in Quire": the slash menu, Markdown shortcuts, mentions, images, callouts, tables.
+  Its fixture, `fixtures/ydoc/getting-started.bin`, names the placeholder ids `docs::SEED_WRITING_ID` and
+  `docs::SEED_BOARD_ID`; `seed::getting_started` stores it with `docs::init_seed`, which maps them to the two seeded
+  items' ids, so the mention and the embed open the real items.
+  - "Writing in Quire" (`fixtures/ydoc/writing-in-quire.bin`, stored with `docs::init_with`): the slash menu, Markdown
+    shortcuts, mentions, images, callouts, tables.
   - "Example board" (board, `fixtures/boards/getting-started.inkboard`): a few labelled shapes, a connector, a sticky
     note.
 
@@ -2265,19 +2285,20 @@ does not parse, or its `build` is empty or not alphanumeric, it **refuses to sta
 | `/index.html` and every SPA route (any path without an extension outside `/api`, `/assets`, `/inkboard`) | `no-cache` | br / gzip | SPA CSP, `X-Frame-Options: DENY` |
 | Other root files of `web/dist`: `/theme-init.js`, `/favicon.svg`, and `/licenses.txt` (written by the image build, §13.2) | `no-cache` | identity | the type from the extension table (`text/plain; charset=utf-8` for `.txt`) |
 | `/inkboard/{build}/…`: `frame.html`, `*.js`, `*.css`, `*.wasm`, and the licence files (`LICENSE-*`, `THIRD_PARTY_LICENSES.md`, `ICONS-LICENSES.txt`) | `public, max-age=31536000, immutable` | br / gzip / identity where the dist has the variant; `.wasm` is `application/wasm` | Frame CSP, `X-Frame-Options: SAMEORIGIN` |
-| `/inkboard/{build}/manifest.json` | `public, max-age=31536000, immutable` (the build id in the path names its content) | identity only (the dist has no variants of it) | `application/json`, Frame CSP, `X-Frame-Options: SAMEORIGIN`. `frame.js` reads it (§10.4) |
+| `/inkboard/{build}/manifest.json` (the embedded build only) | `no-cache` + ETag (304 on `If-None-Match`). Not immutable: `{build}` hashes the dist's other files but not the manifest's own fields (`patchset`), so one build id can come with another manifest | identity only (the dist has no variants of it, and the compression layer never re-encodes a static file) | `application/json`, `nosniff`; no CSP or `X-Frame-Options` (data that `frame.js` fetches, §10.4, never a page) |
 | `/inkboard/{build}/icons.bin` | immutable | identity only (already deflated per set) | `application/octet-stream` |
 | `/inkboard/{other}/…` | 404 | | |
 | `/api/v1/attachments/{id}` | `private, max-age=31536000, immutable` | identity | `nosniff`, `CSP: default-src 'none'; sandbox`. Inline only for png, jpeg, gif, webp and avif; SVG and everything else get `Content-Disposition: attachment` (filename per §8) |
-| `/api/v1/items/{id}/board/pages/{n}` | `?rev=` current: `private, max-age=31536000, immutable`; no `rev`: `no-cache` + ETag; a redirect to the current rev: `no-store` | gzip when the client accepts it, by the route itself on a blocking thread, with `Vary: Accept-Encoding` | `image/svg+xml`, `nosniff`, `CSP: default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox` |
+| `/api/v1/items/{id}/board/pages/{n}` | `?rev=` current: `private, max-age=31536000, immutable`; no `rev`: `no-cache` + ETag; a redirect to the current rev: `no-store` | gzip (fast level) when over 1 KiB and the client accepts it, by the compression layer, with `Vary: Accept-Encoding`; the route itself sends identity | `image/svg+xml`, `nosniff`, `CSP: default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox` |
 | `/api/v1/items/{id}/doc/markdown` | `no-store` | gzip (fast level) when over 1 KiB | `text/markdown; charset=utf-8`, `nosniff`, `CSP: default-src 'none'; sandbox`; `Content-Disposition: attachment` (filename per §8) with `?download=true` |
 | `/api/v1/openapi.json` | `no-cache` + ETag | gzip (fast level) | `application/json` |
 | `/api/*` JSON | `no-store` (every `/api/` response without its own policy) | gzip (fast level) when over 1 KiB | `X-Request-Id`, `Quire-Api-Version` (every `/api/v1` response); CORS headers only for an origin in `QUIRE_CORS_ORIGINS` (§8) |
 
 Dynamic responses are gzipped at the fastest level by tower-http when the body is over 1 KiB and carries no
 `Content-Encoding` yet: every `application/json` and `text/markdown` body (the `/api` JSON, `openapi.json`, the Markdown
-GET). Static files and attachments, SVG attachments included, are never re-encoded, and a response that is already
-encoded (the board page route's own gzip) is skipped.
+GET), and `image/svg+xml` on the board-page route only (the route marks its response). Static files (the fallback marks
+each response, so a JSON one such as the Inkboard `manifest.json` keeps its bytes too) and attachments, SVG attachments
+included, are never re-encoded, and a response that is already encoded is skipped.
 
 How a static file is served:
 - Pick `name.br` when `Accept-Encoding` offers br with a non-zero q-value, then `name.gz`, then identity. Requests for
@@ -2363,7 +2384,11 @@ One tokio task per job, each using the writer through `Db`:
   api_token_scopes; DELETE FROM api_tokens; UPDATE users SET password_hash = NULL;`, and delete the `sqlite_stat1` and
   `sqlite_stat4` rows of `sessions`, `api_tokens`, `api_token_scopes` and `users` (`PRAGMA optimize` samples their index
   keys, token and session hashes among them, into those tables); close it, so no `-wal` or `-journal` file remains next
-  to it; stream the tar (`manifest.json` with `format`, `format_version` 1, `created_at`, `server_version`,
+  to it. Then `VACUUM INTO` a second `/data/tmp/export-….db` from that scrubbed copy, delete the first copy and check
+  that the new file is in `DELETE` journal mode: `secure_delete` zeroes the deleted cells, but the first `VACUUM INTO`
+  builds its b-trees without clearing unused page space, where older copies of deleted rows (stat4 samples of token
+  hashes) survived; the second copy holds only the remaining rows. For a moment `/data/tmp` holds two copies of the
+  database, so an export needs about twice its size free on `/data` (the D33 floor does not scale with it). Stream the tar (`manifest.json` with `format`, `format_version` 1, `created_at`, `server_version`,
   `api_version`, `schema_version` and `without`; `quire.db`; `files/aa/bb/<sha>`), reading the copy and each file in
   256 KiB chunks through a 4-chunk channel (at most 1 MiB in flight, D25); delete the copy. The free-space check and
   the copy run on the blocking pool, which owns the single-flight guard; the guard then moves into the response body,
@@ -2935,7 +2960,7 @@ root is in it, or `--ca-file quire-local-ca.crt` (D54). Only `root.crt` ever lea
 | Web unit | vitest + happy-dom + Testing Library (`maxWorkers: 4`): tree builder and visible rows, DnD hit zones → positions, keyboard tree navigation, autosave queue (merge, retry, outbox, flush on hide), board save loop against a fake frame, search snippet rendering, Contents column; the headless TipTap+Yjs fixture writer (`pnpm --dir web fixtures`) | `scripts/dev.sh pnpm --dir web test`, `scripts/dev.sh pnpm --dir web typecheck`, `scripts/dev.sh pnpm --dir web build` |
 | Inkboard patch | Build checks plus a frame test (Playwright, frame.html served statically by `e2e/serve-static.mjs`, which sends the §11 frame CSP and `X-Frame-Options` and negotiates the `.br`/`.gz` copies, so the engine runs under production headers): open `fixtures/boards/frame-test.inkboard`; snapshot round-trip (parsed JSON equal, compared without each page's `view`, which the engine refits to the canvas on open); focus the canvas, press `R` (rectangle tool, `keymap.rs:377`) and drag, so `onChange` reports a higher revision and the snapshot has one more object; `markSaved` → `isDirty()==false`; Ctrl+S → `onSave`; read-only blocks the drag; setting `location.hash` changes nothing; `setBoard` swaps the board and resets undo; `setBoard` while a text label is being edited leaves `isDirty()==false` after `markSaved`; a second `mount` rejects; after F5 in the canvas, R + drag still adds an object (Present is inert when hosted); `setActive(false)` stops painting: WebGL draw calls, counted after checking that they do grow while active, stay flat for 2 s without input (eframe 0.33's web runner requests an animation frame on every display frame and paints only when a repaint is due, so a `requestAnimationFrame` counter shows nothing: 121 calls and 0 paints in 2 s while inactive); **background page**: with a dirty board, bring another page to the front for 60 s, then `snapshot()` works and no `onError{panic}` fired, and a board opened while hidden mounts only once visible. Headless Chromium keeps reporting `visibilityState === 'visible'` for a background page, so that test records a skip, a second test emulates the visibility (an init script overrides `document.visibilityState`) to check the frame's own wait, and §16 records the manual browser check. Also: the panic backup listeners (one `onError{panic}` per trap, none for a plain `Error`), an unreadable board on a later `open()` (rejects `load`, keeps the previous board), `connect()` retried after a `manifest.json` 500, a `format_version` mismatch (`start`, final), Mod+K and double-Esc forwarding, no CSP violation under the frame CSP, the wasm served as br, and `setBoard` resetting undo with a positive control (Ctrl+Z first undoes a rectangle). A `beforeAll` fails once against the stub dist ("run scripts/dev.sh scripts/inkboard.sh build first"), so the frame test needs a real engine build | `scripts/dev.sh scripts/inkboard.sh check`, `scripts/dev.sh scripts/inkboard.sh build`, `scripts/e2e.sh frame` |
 | E2E smoke | Playwright against the production image (compose + e2e override); PLAN W7 | `scripts/image.sh && scripts/e2e.sh smoke` |
-| Image smoke | `compose.yaml` + `compose.smoke.yaml` (project `quire-smoke`, its own subnet, Caddy in `internal` mode for `localhost` on `127.0.0.1:18443` only, throwaway volumes; §13.3), so the caps checked are the compose ones. `QUIRE_SMOKE_LEVEL` is `full` by default; `basic` also passes with an `INKBOARD_BUILD=stub` image, and `full` fails on one with a hint. Exit codes: 0 pass, 1 a check failed, 2 usage, 3 a missing prerequisite (docker, curl, jq or the image), 4 the project not healthy (at most 180 s; log tails are printed). `basic`: both binaries start (`quire-server --version`, `quire --version` inside the container); the `quire` container has no published port; Caddy's root is read from its tmpfs with `docker compose exec -T caddy cat …/root.crt` (bounded poll; `docker cp` cannot read a tmpfs, §13.3) and `curl --cacert <root> --resolve localhost:18443:127.0.0.1 https://localhost:18443/healthz` answers 200 over HTTPS (and fails without `--cacert`); `docker inspect` shows NanoCpus=2000000000 and Memory = MemorySwap = 1073741824 for `quire`, NanoCpus=500000000 and Memory = MemorySwap = 134217728 for `caddy`. `full` adds, all through Caddy: CSP on `/`; `.wasm` with `Accept-Encoding: br` → `Content-Encoding: br`, `application/wasm`, and exactly the manifest's `br` byte count (nothing re-encoded); setup with `smoke-setup-code` (sent with `Origin: https://localhost:18443`, since curl sends no fetch metadata and the CSRF rule of §8 covers every non-bearer POST) sets `__Host-quire_session` with `Secure`; no `Strict-Transport-Security` (`internal` mode); `docker stats` stays under both limits during the smoke | `scripts/image-smoke.sh` (host prerequisites: Docker, curl, jq) |
+| Image smoke | `compose.yaml` + `compose.smoke.yaml` (project `quire-smoke`, its own subnet, Caddy in `internal` mode for `localhost` on `127.0.0.1:18443` only, throwaway volumes; §13.3), so the caps checked are the compose ones. `QUIRE_SMOKE_LEVEL` is `full` by default; `basic` also passes with an `INKBOARD_BUILD=stub` image, and `full` fails on one with a hint. Exit codes: 0 pass, 1 a check failed, 2 usage, 3 a missing prerequisite (docker, curl, jq or the image), 4 the project not healthy (at most 180 s; log tails are printed). `basic`: both binaries start (`quire-server --version`, `quire --version` inside the container); the `quire` container has no published port; Caddy's root is read from its tmpfs with `docker compose exec -T caddy cat …/root.crt` (bounded poll; `docker cp` cannot read a tmpfs, §13.3) and `curl --cacert <root> --resolve localhost:18443:127.0.0.1 https://localhost:18443/healthz` answers 200 over HTTPS (and fails without `--cacert`); `docker inspect` shows NanoCpus=2000000000 and Memory = MemorySwap = 1073741824 for `quire`, NanoCpus=500000000 and Memory = MemorySwap = 134217728 for `caddy`. `full` adds, all through Caddy: CSP on `/`; `.wasm` with `Accept-Encoding: br` → `Content-Encoding: br`, `application/wasm`, and exactly the manifest's `br` byte count (nothing re-encoded); `manifest.json` next to `frame.html` → 200, identity, `application/json`, the build in the path (`frame.js` cannot connect without it); setup with `smoke-setup-code` (sent with `Origin: https://localhost:18443`, since curl sends no fetch metadata and the CSRF rule of §8 covers every non-bearer POST) sets `__Host-quire_session` with `Secure`; no `Strict-Transport-Security` (`internal` mode); `docker stats` stays under both limits during the smoke | `scripts/image-smoke.sh` (host prerequisites: Docker, curl, jq) |
 
 `scripts/e2e.sh <frame|smoke>`:
 1. Takes the build lock (exporting `QUIRE_LOCK_HELD=1`, so the nested `dev.sh` calls below do not lock again) and
@@ -3195,17 +3220,20 @@ asynchronous (board previews).
     board warm-up and the update banner were not wired across W3 and W6, Full width and the new-item discard were
     inert, the seed did not use W4's seed helpers, `ItemDetail.board` came from W1's own meta, page SVGs were gzipped
     twice, `quire item move` without `--parent` sent `parent_id: null`, agent scenario 04 resent an unchanged board as
-    its stale write, and the client's title order differs from the server's. This document states the contract each is
-    fixed to (§9.1, §9.5, §9.6.2, §9.6.4, §9.6.7, §11, §7.6, §17.4); the fixes are W7's code commits. Also open from
-    the notes: W4's request to build `oas3` without `preserve-order` (it changes serde_json's map order in workspace
-    test builds; W4's canonical serialization makes the conversion independent of it, D11a), and the 545 kB main web
-    chunk (W3; Vite warns, a `manualChunks` split is optional).
+    its stale write, and the client's title order differed from the server's. All eleven are fixed on main by W7's
+    code commits (`ws/W7-fixes`, each with a test; `docs/handoff/merge.md` "W7 merge"), and this document states the
+    contract each is fixed to (§5, §6.2, §7.2, §7.6, §9.5, §9.6.2, §9.6.4, §9.6.7, §11, §17.4). W4's request to build
+    `oas3` without `preserve-order` is done too (§4.1). Still to confirm in the real image: the manifest fix runs in
+    `QUIRE_SMOKE_LEVEL=full scripts/image-smoke.sh` and agent scenario 04 in `scripts/agent-test.sh`, neither run yet.
+    Still open: the 545 kB main web chunk (W3; Vite warns, a `manualChunks` split is optional).
 28. **Smaller follow-ups from the notes.** The per-IP limiters key IPv6 clients by the full address, so one client with a
     /64 can rotate addresses (§8 says "per IP"; keying IPv6 by /64 would close it). Two readers of large boards can hold
     the whole body budget for up to 600 s each, and a third large GET then gets 429 `busy` (small boards are not
     affected). Inkboard's `Page::connector_path` looks objects up linearly, so a page with many connectors renders in
     quadratic time under `board_work` (upstream, §15). If a client trickles a board PUT, `board_work` is held while the
-    body arrives, bounded by the 120 s deadline and the per-token byte limit.
+    body arrives, bounded by the 120 s deadline and the per-token byte limit. Board-page SVGs are now gzipped by the
+    compression layer on an async worker (up to `PAGE_SVG_MAX`, 16 MiB, at the fastest level) instead of on a blocking
+    thread; if that shows in latency on the 2-CPU limit, move the page's gzip back to `spawn_blocking` (§17.4).
 29. **Licence records.** `THIRD_PARTY.md` is kept by hand: a change to `Cargo.lock` or `web/pnpm-lock.yaml` must update
     its tables (it says how), while the image's `/licenses.txt` is regenerated by every build. The standalone CLI
     (`dist/cli`) ships `THIRD_PARTY.md` and `LICENSE-*`, which name every crate with its version, licence and source,
@@ -3316,11 +3344,11 @@ asked, and the owner's open decisions (§16 items 24 and 25) were left open.
 
 | Question (source) | Decision | Rejected alternatives and why |
 |---|---|---|
-| Headers of `/inkboard/{build}/manifest.json` (merge item 1; W5 requests W2-1, W7-2) | Served like the other files of the dist: immutable, identity only, `application/json`, the frame CSP and `X-Frame-Options: SAMEORIGIN` (§11). `frame.js` cannot connect without it | `no-cache` (the build id in the path already names the content); keeping it private (every board in the real image failed to connect) |
-| Board-page SVG gzipped by both the route and the compression layer (merge item 8; W2 D10, W6-D29) | The route's own gzip stays, on a blocking thread; the layer skips encoded responses, so its board-page rule is redundant and may go (§11) | The layer only (it compresses up to 16 MiB of SVG on one of the two async workers) |
+| Headers of `/inkboard/{build}/manifest.json` (merge item 1; W5 requests W2-1, W7-2) | Revised at the W7 merge to match the code: served for the embedded build only, `no-cache` with its ETag, identity only, `application/json`, `nosniff`; no CSP or `X-Frame-Options`, as it is data that `frame.js` fetches (§11). `frame.js` cannot connect without it | Immutable, the first wording of this row (`{build}` hashes the dist's other files but not the manifest's `patchset`, so one build id can come with another manifest and a cached copy would go stale); keeping it private (every board in the real image failed to connect) |
+| Board-page SVG gzipped by both the route and the compression layer (merge item 8; W2 D10, W6-D29) | Revised at the W7 merge to match the code: the compression layer alone, at the fastest level and only over 1 KiB, the rule every other dynamic body follows; the route sends identity and `Vary: Accept-Encoding` (§11). W2 withdrew its request for the route to gzip, so the layer is the one that stays | The route's own gzip on a blocking thread, the first wording of this row (a second compression rule, which also gzipped pages under 1 KiB). Its argument, that the layer compresses up to 16 MiB of SVG on an async worker, is kept as a follow-up (§16 item 28) |
 | `ItemDetail.board` from W1's or W6's meta (merge item 7; W1 D17, W6 D12) | W6's `boards::board_meta`: `preview_rev` is the newest stored rev, `svg_len` that rev's (§5 "Previews") | W1's oldest rev (it points clients at a render older than the one the page route serves) |
-| Title order of the tree (merge item 11; W3-D1, W1 D10) | The client sorts with `Intl.Collator('en', {sensitivity: 'base', numeric: true})` (§9.6.2); the server stays case-insensitive in M1 (§5), and the difference is recorded (§16 item 27) | Changing either order in a documentation pass (both are stable; a server collation change is code, and W1's) |
-| Full width across reloads (merge item 4; W3 request W1-2) | `ItemDetail.full_width`, an additive field (R3, §7.1); pages read it through `useFullWidthOf` (§9.6.4) | Session-only state (the column exists and the PATCH writes it, but nothing could show it after a reload) |
+| Title order of the tree (merge item 11; W3-D1, W1 D10) | Revised at the W7 merge to match the code: one title key defined twice, `quire_core::tree::title_key` and the web's `titleKey` (accent- and case-insensitive, numbers by value), both checked against `fixtures/tree/title-order.json`; ties go to `sort_key`, then the id, for the title, updated and created orders (§5, §9.6.2) | Keeping two orders, the first wording of this row (an optimistic reorder in the browser could disagree with the server until the next fetch); `Intl.Collator` on the client (its order depends on the browser's ICU data, which the server cannot reproduce) |
+| Full width across reloads (merge item 4; W3 request W1-2) | `ItemDetail.full_width`, an additive field (R3, §7.1). Revised at the W7 merge to match the code: the document page reads `ItemDetail.full_width` directly and sets `data-full-width`; the PATCH updates the cached detail at once and rolls it back on failure (§9.6.4) | Session-only state (the column exists and the PATCH writes it, but nothing could show it after a reload); a per-session store next to the server value (`useFullWidthOf`, the first wording of this row: two sources for one setting) |
 | Sort directions, drop details and toasts the UI spec left open (W3-D1, D2, D4, D5; W3 request W7-1) | Adopted as implemented (§9.6.2, §9.6.3) | Leaving them unwritten (the next owner of the sidebar would have to read the code to keep them) |
 | What the update check compares (W3-D6) | `version`, `commit` and `inkboard.base`, against the first `/config` the page loaded (§9.1) | `version` alone (dev images keep 0.1.0 between builds) |
 | `doc put --json F` (D-W8-2) | The flag is `--json-input F`, and `--json F` after the item is rewritten to it, so §7.6's spelling keeps working (§7.6) | A different public spelling (breaks the contract of §7.6); a second global flag name (clap cannot hold both ids) |
@@ -3337,3 +3365,5 @@ asked, and the owner's open decisions (§16 items 24 and 25) were left open.
 | The licence list of Settings → About (PLAN W7) | A `licenses` stage in `docker/Dockerfile` writes `/licenses.txt` from `cargo metadata` and `pnpm licenses list`, with every package's licence files, each distinct text once; About shows it on demand and links the engine's own lists (§13.2, §9.6.6). `THIRD_PARTY.md` is the hand-kept record, with the commands that regenerate its tables | Generating `THIRD_PARTY.md` in the build (a build cannot update the source tree, and the record should be reviewed); names and licences without the texts (MIT and BSD ask for their notices to travel with the binaries); a script under `scripts/` (the stage stays self-contained as a heredoc) |
 | Quire behind the owner's own proxy, which holds port 443 (owner's machine; W0a "Environment findings") | README: a `compose.override.yaml` that publishes Quire on a loopback port, keeps the bundled Caddy off through a compose profile, and trusts the project network's `ip_range`, checked against the logged `client_ip`; or `QUIRE_HTTPS_PORT`/`QUIRE_HTTP_PORT` with the bundled Caddy | Trusting `127.0.0.1` or the network gateway (checked on this host with Docker 29: connections through a loopback-published port reach Quire from an address inside the project's `ip_range`); reusing `QUIRE_PROXY_IP` (it also moves the bundled Caddy's address) |
 | W5 D18, one host-side `node --check` | Acknowledged (§16 item 30) | — |
+| `quire item move` without `--parent` or `--top` (merge item 9; W1 D23) | Decided at the W7 merge (W7 fixes): the item keeps its parent, so a position alone reorders; the CLI reads the item and sends its current `parent_id`, and `--collection` needs `--parent` or `--top` (§7.6) | Sending `parent_id: null` (a reorder moved the item to the top level, or got 422 when the position named a sibling); making one of the flags required (no way to reorder without restating the parent) |
+| Token hashes left in an export's free page space (found by `integration::export_after_api_writes_has_no_tokens_or_sessions`) | Decided at the W7 merge (W7 integration tests): a second `VACUUM INTO` from the scrubbed copy writes the exported file, so every byte comes from the remaining rows; `/data/tmp` briefly holds two copies (D34, §12) | Deleting the stat rows only (older copies of them stayed in the unused space of the first copy's pages) |
