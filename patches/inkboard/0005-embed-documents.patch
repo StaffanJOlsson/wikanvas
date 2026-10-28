@@ -31,16 +31,16 @@ Not hosted, a card is a plain rectangle. No new text is shown, so no
 translation is added. Native tests in src/tests_embed.rs.
 ---
  crates/inkboard-app/src/app.rs           |  29 +-
- crates/inkboard-app/src/embed.rs         | 145 ++++++-
- crates/inkboard-app/src/embed_cards.rs   | 494 +++++++++++++++++++++++
+ crates/inkboard-app/src/embed.rs         | 145 +++++-
+ crates/inkboard-app/src/embed_cards.rs   | 494 +++++++++++++++++++
  crates/inkboard-app/src/main.rs          |   3 +
  crates/inkboard-app/src/rich_edit.rs     |  12 +-
- crates/inkboard-app/src/tests_embed.rs   | 494 +++++++++++++++++++++++
+ crates/inkboard-app/src/tests_embed.rs   | 577 +++++++++++++++++++++++
  crates/inkboard-app/src/tools.rs         |  23 +-
- crates/inkboard-core/src/model.rs        | 123 +++++-
+ crates/inkboard-core/src/model.rs        | 123 ++++-
  crates/inkboard-core/tests/properties.rs |   5 +-
  crates/inkboard-formats/src/mermaid.rs   |   3 +-
- 10 files changed, 1312 insertions(+), 19 deletions(-)
+ 10 files changed, 1395 insertions(+), 19 deletions(-)
  create mode 100644 crates/inkboard-app/src/embed_cards.rs
  create mode 100644 crates/inkboard-app/src/tests_embed.rs
 
@@ -908,10 +908,10 @@ index 3daf83d..53feaa3 100644
          }
 diff --git a/crates/inkboard-app/src/tests_embed.rs b/crates/inkboard-app/src/tests_embed.rs
 new file mode 100644
-index 0000000..4e6166d
+index 0000000..19100b2
 --- /dev/null
 +++ b/crates/inkboard-app/src/tests_embed.rs
-@@ -0,0 +1,494 @@
+@@ -0,0 +1,577 @@
 +// Changed for Quire (embed feature): see patches/inkboard/README.md
 +//! Cards of a hosted board (`embed_cards.rs`) in a real egui cycle without a window, with the host page's events recorded: the
 +//! layout, opening a card instead of editing its label, the host's editing, inserting a card, titles in place, no rotation handle.
@@ -920,7 +920,7 @@ index 0000000..4e6166d
 +use crate::embed_cards::{EditEnd, EmbedLayout};
 +use crate::tests::T;
 +use crate::tools::Tool;
-+use eframe::egui::{Event, Key, Modifiers, PointerButton, Pos2};
++use eframe::egui::{CursorIcon, Event, Key, Modifiers, PointerButton, Pos2, vec2};
 +use inkboard_core::num;
 +use inkboard_core::*;
 +use std::cell::RefCell;
@@ -1085,9 +1085,24 @@ index 0000000..4e6166d
 +#[test]
 +fn embed_layout_is_forced_on_a_new_board() {
 +    let (mut t, host) = hosted(FIXTURE, false);
-+    t.app().host_load(FIXTURE).unwrap();
-+    t.h.step();
-+    assert!(!host.layouts().is_empty(), "the first frame after setBoard reports");
++    // the same board again, shown exactly as before (no refit): nothing in the layout differs, yet the first frame reports, since the
++    // host page cannot tell the new board's layout from the old one's otherwise
++    let again = |t: &mut T| {
++        t.app().host_load(FIXTURE).unwrap();
++        t.app().fit_pending = false;
++        t.app().set_view(View { x: 600.0, y: 400.0, zoom: 1.0 });
++        t.h.step();
++    };
++    again(&mut t);
++    assert_eq!(host.layouts().len(), 1, "the first frame after setBoard reports");
++    settle(&mut t);
++    assert_eq!(host.layouts(), [], "then only changes are reported");
++    // the control: the same view set again without a new board reports nothing
++    t.app().set_view(View { x: 600.0, y: 400.0, zoom: 1.0 });
++    settle(&mut t);
++    assert_eq!(host.layouts(), []);
++    again(&mut t);
++    assert_eq!(host.layouts().len(), 1);
 +}
 +
 +#[test]
@@ -1156,11 +1171,16 @@ index 0000000..4e6166d
 +    assert!(t.app().drag.is_none(), "no marquee");
 +    t.button(p, false, Modifiers::NONE);
 +    settle(&mut t);
-+    assert_eq!(host.others(), [Heard::End(id("embedcard1"), EditEnd::Press)]);
++    let heard = host.take();
++    let others: Vec<&Heard> = heard.iter().filter(|h| !matches!(h, Heard::Layout(_))).collect();
++    assert_eq!(others, [&Heard::End(id("embedcard1"), EditEnd::Press)]);
 +    assert_eq!(t.app().sel, [id("embedcard1")], "the selection is unchanged");
 +    assert_eq!(t.objects().len(), objects);
 +    assert_eq!(t.app().embed_editing(), None);
-+    assert_eq!(host.layouts(), [], "the layout went out with the end");
++    // the layout follows the end: no editing any more, the card still selected
++    let end = heard.iter().position(|h| matches!(h, Heard::End(..))).unwrap();
++    let after: Vec<&EmbedLayout> = heard[end..].iter().filter_map(|h| if let Heard::Layout(l) = h { Some(l) } else { None }).collect();
++    assert!(matches!(after.as_slice(), [l] if l.editing.is_none() && l.cards[0].selected), "{heard:?}");
 +    // the next press is an ordinary one again
 +    click_screen(&mut t, p);
 +    assert!(t.app().sel.is_empty());
@@ -1208,10 +1228,16 @@ index 0000000..4e6166d
 +    let (mut t, _host) = hosted(FIXTURE, false);
 +    t.app().sel = vec![id("embedcard1")];
 +    t.h.step();
++    // the control: over the bottom right corner of the selected card, its resize handle shows its cursor
++    let corner = t.at(-40.0, 160.0);
++    t.mv(corner);
++    assert_eq!(t.h.output().platform_output.cursor_icon, CursorIcon::ResizeNwSe);
 +    t.app().set_embed_editing(Some(id("embedcard1")));
 +    t.h.step();
-+    // the corner handle no longer resizes: a press there ends the editing and is swallowed
-+    let corner = t.at(-40.0, 160.0);
++    // while the host page edits the card there is no handle under the pointer, only the selected card (which moves)
++    t.mv(corner + vec2(0.0, -1.0));
++    assert_eq!(t.h.output().platform_output.cursor_icon, CursorIcon::Move, "no handle while the host page edits the card");
++    // and a press there ends the editing and is swallowed: nothing resizes
 +    t.mv(corner);
 +    t.button(corner, true, Modifiers::NONE);
 +    assert!(t.app().drag.is_none());
@@ -1254,6 +1280,63 @@ index 0000000..4e6166d
 +    t.app().set_embed_editing(Some(id("embedplain")));
 +    t.app().set_embed_editing(Some(id("nothing")));
 +    assert_eq!(t.app().embed_editing(), None);
++}
++
++#[test]
++fn embed_editing_is_gone_when_its_layer_is_hidden() {
++    let (mut t, host) = hosted(FIXTURE, false);
++    t.app().set_embed_editing(Some(id("embedcard1")));
++    t.h.step();
++    host.take();
++    let mut layers = t.app().ed.page().layers.clone();
++    layers[0].visible = false;
++    t.app().ed.set_layers(layers);
++    t.h.step();
++    let heard = host.take();
++    assert_eq!(heard.iter().filter(|h| matches!(h, Heard::End(..))).collect::<Vec<_>>(), [&Heard::End(id("embedcard1"), EditEnd::Gone)]);
++    // the layout then holds no card and no editing
++    assert!(matches!(heard.last(), Some(Heard::Layout(l)) if l.cards.is_empty() && l.editing.is_none()), "{heard:?}");
++    // a hidden card cannot be edited
++    t.app().set_embed_editing(Some(id("embedcard1")));
++    assert_eq!(t.app().embed_editing(), None);
++}
++
++#[test]
++fn a_press_wins_over_a_focus_gain_in_the_same_frame() {
++    let (mut t, host) = hosted(FIXTURE, false);
++    t.h.input_mut().focused = false;
++    t.h.event(Event::WindowFocused(false));
++    t.h.step();
++    t.app().set_embed_editing(Some(id("embedcard1")));
++    t.h.step();
++    host.take();
++    // a click into the unfocused board: the press and the focus arrive in one frame (pushed into one frame's input: the harness runs a
++    // frame per queued event)
++    let p = t.at(300.0, -300.0);
++    t.mv(p);
++    let input = t.h.input_mut();
++    input.focused = true;
++    input.events.push(Event::WindowFocused(true));
++    input.events.push(Event::PointerButton { pos: p, button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE });
++    t.h.step();
++    t.button(p, false, Modifiers::NONE);
++    settle(&mut t);
++    assert_eq!(host.others(), [Heard::End(id("embedcard1"), EditEnd::Press)]);
++    assert_eq!(t.app().sel, [id("embedcard1")], "the press was swallowed");
++}
++
++#[test]
++fn embed_open_is_sent_once_per_frame_and_card() {
++    // egui may run a frame twice (a discarded pass): the host page hears of a card once per frame
++    let (mut t, host) = hosted(FIXTURE, false);
++    t.app().start_editing(&id("embedcard1"), None);
++    t.app().start_editing(&id("embedcard1"), None);
++    t.app().start_editing(&id("embedcard2"), None);
++    assert_eq!(host.others(), [Heard::Open(id("embedcard1"), ITEM1.into(), None), Heard::Open(id("embedcard2"), ITEM2.into(), None)]);
++    // the next frame opens again
++    t.h.step();
++    t.app().start_editing(&id("embedcard1"), None);
++    assert_eq!(host.others(), [Heard::Open(id("embedcard1"), ITEM1.into(), None)]);
 +}
 +
 +#[test]
