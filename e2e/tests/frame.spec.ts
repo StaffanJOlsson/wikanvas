@@ -1089,4 +1089,50 @@ test.describe('Inkboard frame', () => {
     expect((await log(page)).change).toEqual([]);
     await expectClean(page);
   });
+
+  test('embeds: frame pixels when the canvas is not at the frame origin', async ({ page }) => {
+    // frame.js adds the canvas's offset to every point, rect and origin it reports, and takes it off insertEmbed's point. The
+    // canvas fills frame.html at 0, 0, so the other tests cannot tell a missing or reversed conversion: move it, then check each
+    // direction against something absolute (the pixels drawn, the mouse, the engine's own hit test).
+    const offset = { x: 100, y: 80 };
+    await connect(page);
+    await page.evaluate(({ x, y }) => {
+      document.getElementById('board')!.style.cssText =
+        `position: fixed; left: ${x}px; top: ${y}px; width: calc(100% - ${x}px); height: calc(100% - ${y}px)`;
+    }, offset);
+    await open(page, 'item-a', EMBED);
+    const l = await settledLayout(page);
+    expect(l.canvas).toEqual({ x: offset.x, y: offset.y, width: 1280 - offset.x, height: 720 - offset.y });
+    expect(l.occluders.length).toBeGreaterThan(0);
+    for (const r of l.occluders) {
+      expect(r.x >= l.canvas.x - 0.01 && r.y >= l.canvas.y - 0.01, `${JSON.stringify(r)} inside the canvas`).toBe(true);
+    }
+    // the origin: each card's title snapshot is drawn where origin + centre * zoom says, in frame pixels
+    for (const card of l.embeds) {
+      const c = screen(l, card.x + card.w / 2, card.y + card.h / 2);
+      expectClear(l, c, `the centre of ${card.objectId}`);
+      expect(await darkPixels(page, { x: c.x - 40, y: c.y - 12, width: 80, height: 24 })).toBeGreaterThan(20);
+    }
+    // onEmbedOpen's point: where the mouse double-clicked
+    const p = screen(l, -280, 60);
+    expectClear(l, p, 'card 1');
+    await page.mouse.dblclick(p.x, p.y);
+    await expect.poll(async () => (await log(page)).open.length).toBe(1);
+    const [opened] = (await log(page)).open;
+    expect(opened.objectId).toBe('embedcard1');
+    expect(Math.hypot(opened.point!.x - p.x, opened.point!.y - p.y)).toBeLessThanOrEqual(2);
+    // insertEmbed's point: a small card centred there, on top of card 2, is what a double-click at that frame point opens
+    const at = screen(l, 280, -40);
+    expectClear(l, at, 'card 2');
+    const small = await call<string>(page, 'insertEmbed', { item: ITEM3, title: 'Small', at, w: 40, h: 40 });
+    const placed = JSON.parse((await snapshot(page)).board).document.pages[0].objects.find((o: { id: string }) => o.id === small);
+    expect(Math.abs(placed.kind.frame.x + 20 - 280)).toBeLessThanOrEqual(1);
+    expect(Math.abs(placed.kind.frame.y + 20 + 40)).toBeLessThanOrEqual(1);
+    await expect.poll(async () => (await lastLayout(page))!.embeds.some((e) => e.objectId === small)).toBe(true);
+    await page.waitForTimeout(600); // far enough from the last double-click
+    await page.mouse.dblclick(at.x, at.y);
+    await expect.poll(async () => (await log(page)).open.length).toBe(2);
+    expect((await log(page)).open[1]).toMatchObject({ itemId: 'item-a', objectId: small, item: ITEM3 });
+    await expectClean(page);
+  });
 });
