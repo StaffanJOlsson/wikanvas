@@ -270,12 +270,77 @@ async fn spa_csp_and_frame_csp() {
     );
 }
 
+/// The frame page fetches `manifest.json` next to `frame.html` before it downloads the engine (`frame.js`
+/// `loadManifest`); without it every board fails to connect with `download`.
+#[tokio::test]
+async fn inkboard_manifest_served_next_to_the_frame() {
+    let app = app().await;
+    let url = format!("/inkboard/{BUILD}/manifest.json");
+    let res = app
+        .server
+        .get(&url)
+        .add_header("accept-encoding", "br, gzip")
+        .await;
+    res.assert_status_ok();
+    assert_eq!(res.header("content-type"), "application/json");
+    assert!(res.maybe_header("content-encoding").is_none(), "identity");
+    assert_eq!(res.header("cache-control"), "no-cache");
+    assert_eq!(res.header("x-content-type-options"), "nosniff");
+    let served: serde_json::Value = res.json();
+    let embedded: serde_json::Value = serde_json::from_str(&manifest(
+        BUILD,
+        "0.2.0-beta.3+embed.quire.1",
+        inkboard_core::serial::VERSION,
+    ))
+    .unwrap();
+    assert_eq!(served, embedded);
+    assert_eq!(served["files"]["inkboard_bg.wasm"]["raw"], 8);
+    // Revalidated with its ETag.
+    let res = app
+        .server
+        .get(&url)
+        .add_header("if-none-match", res.header("etag"))
+        .await;
+    assert_eq!(res.status_code(), 304);
+    // Another build's manifest is 404 like its other files.
+    let res = app.server.get("/inkboard/ffffffffffff/manifest.json").await;
+    assert_eq!(res.status_code(), 404);
+}
+
+/// A manifest over 1 KiB keeps its bytes: the compression layer never re-encodes a static file.
+#[tokio::test]
+async fn large_inkboard_manifest_is_not_gzipped() {
+    let mut app = TestApp::new().await;
+    let mut files = String::new();
+    for i in 0..60 {
+        files.push_str(&format!(
+            r#""chunk-{i:02}.js":{{"raw":100,"br":40,"gz":50}},"#
+        ));
+    }
+    let big = format!(
+        r#"{{"build":"{BUILD}","engine_version":"0.2.0-beta.3+embed.quire.1","format_version":{},"patchset":"1",
+            "files":{{{files}"inkboard_bg.wasm":{{"raw":8,"br":5,"gz":6}}}}}}"#,
+        inkboard_core::serial::VERSION
+    );
+    assert!(big.len() > 2048, "{}", big.len());
+    app.set_assets(site(None).with_inkboard("manifest.json", big.clone()));
+    let res = app
+        .server
+        .get(&format!("/inkboard/{BUILD}/manifest.json"))
+        .add_header("accept-encoding", "gzip")
+        .await;
+    res.assert_status_ok();
+    assert!(res.maybe_header("content-encoding").is_none());
+    assert_eq!(res.text(), big);
+}
+
 #[tokio::test]
 async fn old_inkboard_build_404() {
     let app = app().await;
     for path in [
         "/inkboard/ffffffffffff/frame.html".to_owned(),
-        format!("/inkboard/{BUILD}/manifest.json"),
+        "/inkboard/ffffffffffff/manifest.json".to_owned(),
+        format!("/inkboard/{BUILD}/manifest.json.gz"),
         format!("/inkboard/{BUILD}/missing.js"),
         format!("/inkboard/{BUILD}/"),
         "/inkboard/frame.html".to_owned(),

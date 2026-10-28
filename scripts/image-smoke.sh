@@ -253,6 +253,20 @@ if [ "$level" = full ]; then
     else
       fail "${base}inkboard_bg.wasm: HTTP and bytes '$code' (want '200 $want_br'), Content-Encoding '$enc', Content-Type '$type'"
     fi
+    # The frame page reads manifest.json next to frame.html before it downloads the engine (§11).
+    build="${base#/inkboard/}"
+    build="${build%/}"
+    code="$(hcurl -H 'Accept-Encoding: br, gzip' -o "$work/manifest.json" -D "$work/manifest.h" -w '%{http_code}' \
+      "$url${base}manifest.json" 2>/dev/null)" || code=000
+    enc="$(header "$work/manifest.h" content-encoding)"
+    type="$(header "$work/manifest.h" content-type)"
+    if [ "$code" = 200 ] && [ -z "$enc" ] && [[ "$type" == application/json* ]] &&
+      jq -e --arg build "$build" '.build == $build and (.files["inkboard_bg.wasm"].raw | type) == "number"' \
+        "$work/manifest.json" >/dev/null 2>&1; then
+      pass "${base}manifest.json: identity application/json of build $build"
+    else
+      fail "${base}manifest.json: HTTP $code, Content-Encoding '$enc', Content-Type '$type' (want 200, identity, the manifest of build $build)"
+    fi
   fi
 
   body="$(jq -nc '{code: "smoke-setup-code", workspace_name: "Smoke", name: "Smoke Owner",

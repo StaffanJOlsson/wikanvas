@@ -126,15 +126,20 @@ async fn mark_board_page(req: Request, next: Next) -> Response {
     res
 }
 
+/// Marks a static file's response (the fallback): its bytes are an embedded variant, sent as they are (§11).
+#[derive(Clone, Copy, Debug)]
+struct StaticFile;
+
 /// gzip only bodies that are not encoded yet (§11; [`SizeAbove`] adds "over 1 KiB"): JSON and Markdown, and SVG on a
-/// board-page response. Other SVG (an attachment download, a static file) is never re-encoded.
+/// board-page response. Static files (a JSON one such as the Inkboard `manifest.json` included) and other SVG (an
+/// attachment download) are never re-encoded.
 fn compressible(
     _status: StatusCode,
     _version: axum::http::Version,
     headers: &HeaderMap,
     extensions: &axum::http::Extensions,
 ) -> bool {
-    if headers.contains_key(header::CONTENT_ENCODING) {
+    if headers.contains_key(header::CONTENT_ENCODING) || extensions.get::<StaticFile>().is_some() {
         return false;
     }
     headers
@@ -211,7 +216,9 @@ async fn fallback(
     if path == "/api" || path.starts_with("/api/") {
         return error::api_not_found().into_response();
     }
-    state.site.serve(&method, &uri, &headers)
+    let mut res = state.site.serve(&method, &uri, &headers);
+    res.extensions_mut().insert(StaticFile);
+    res
 }
 
 /// `quire-server serve`: opens the state, logs the setup link while no owner exists, starts the background jobs,
@@ -313,6 +320,12 @@ mod tests {
         assert!(!compressible(ok, v, &encoded, &page));
         let json = headers(&[(header::CONTENT_TYPE, "application/json")]);
         assert!(compressible(ok, v, &json, &none));
+        let mut static_file = axum::http::Extensions::new();
+        static_file.insert(StaticFile);
+        assert!(
+            !compressible(ok, v, &json, &static_file),
+            "a static JSON file (the Inkboard manifest) keeps its bytes"
+        );
         let png = headers(&[(header::CONTENT_TYPE, "image/png")]);
         assert!(!compressible(ok, v, &png, &page));
     }

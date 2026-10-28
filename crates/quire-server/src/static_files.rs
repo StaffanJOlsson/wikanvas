@@ -9,6 +9,9 @@
 //! - `/inkboard/{build}/…` for the embedded manifest's `build` only: immutable, br / gzip / identity (`.wasm` is
 //!   `application/wasm`), the frame CSP and `X-Frame-Options: SAMEORIGIN`; `icons.bin` identity only. Any other build
 //!   is 404, so a page left open across an upgrade asks for the new one.
+//! - `/inkboard/{build}/manifest.json`, which the frame page reads before it downloads the engine (§10.4): `no-cache`
+//!   with the ETag, identity, `application/json`. Not immutable: `{build}` hashes the dist's files but not the
+//!   manifest's own fields (`patchset`), so one build id can come with another manifest.
 //! - A variant is picked from `Accept-Encoding` (br, then gzip, then identity) with `Vary: Accept-Encoding`; its bytes
 //!   are the embedded `.br` / `.gz` file unchanged. The ETag is the embedded sha256 of the chosen variant, and a
 //!   matching `If-None-Match` gets 304. Unknown paths with an extension are 404.
@@ -138,7 +141,7 @@ impl std::fmt::Debug for Site {
 impl Site {
     /// Reads and checks the manifest (see the module docs).
     pub fn new(source: Arc<dyn AssetSource>) -> Result<Site, String> {
-        let manifest = match source.inkboard("manifest.json") {
+        let manifest = match source.inkboard(MANIFEST) {
             None => None,
             Some(asset) => {
                 let m: Manifest = serde_json::from_slice(&asset.data)
@@ -244,10 +247,13 @@ impl Site {
     fn inkboard_file(&self, rest: &str, headers: &HeaderMap) -> Option<Response> {
         let manifest = self.manifest.as_ref()?;
         let (build, file) = rest.split_once('/')?;
-        if build != manifest.build || file.is_empty() || file == "manifest.json" {
+        if build != manifest.build || file.is_empty() {
             return None;
         }
         let get = |p: &str| self.source.inkboard(p);
+        if file == MANIFEST {
+            return file_response(&get, MANIFEST, headers, Encodings::Identity, NO_CACHE);
+        }
         let icons = file == "icons.bin" || file.ends_with("/icons.bin");
         let encodings = if icons {
             Encodings::Identity
@@ -281,6 +287,8 @@ impl Site {
     }
 }
 
+/// The dist's manifest (§10.5), served next to `frame.html`.
+const MANIFEST: &str = "manifest.json";
 const IMMUTABLE: &str = "public, max-age=31536000, immutable";
 const NO_CACHE: &str = "no-cache";
 
