@@ -1,0 +1,1708 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: quire <quire@localhost>
+Date: Wed, 28 Oct 2026 23:08:11 +0100
+Subject: [PATCH 5/6] embed: documents
+
+Cards: a host page can embed its own documents in a board. A card is a
+rectangle whose box carries the new optional field `embed` ({"item"}),
+read leniently (a value that is not an object with a string `item` loads
+as a plain box), so the native format stays version 2 and a board written
+by another program always opens. `BoxObj::is_embed` is the one test.
+
+When the board is hosted (feature `embed`), src/embed_cards.rs:
+- reports the cards of the current page, the camera and the engine's own
+  interface over the canvas after every frame in which any of it changed
+  (`onEmbedLayout`, at most once per frame, not from a discarded pass; a
+  page without cards reports no pan or zoom);
+- opens a card's document in the host (`onEmbedOpen`) instead of editing
+  its label, on every path into label editing (double-click with its point,
+  Enter, the menu's "Edit text"), and never in a read-only host;
+- keeps the card the host edits (`setEmbedEditing`): no handles, no keys,
+  and the first primary press in the board or the board taking the focus
+  ends it (`onEmbedEditEnd`), the press doing nothing else on the canvas;
+  a card that leaves the page or a new board end it as `gone`;
+- inserts cards (`insertEmbed`: 480 x 360 by default, the first visible
+  unlocked layer, one undo step, null when read-only) and shows the
+  documents' live titles as the labels in place (`setEmbedTitles`: no undo
+  step, no revision, again after every revision change);
+- gives a single card no rotation handle.
+
+Not hosted, a card is a plain rectangle. No new text is shown, so no
+translation is added. Native tests in src/tests_embed.rs.
+---
+ crates/inkboard-app/src/app.rs           |  29 +-
+ crates/inkboard-app/src/embed.rs         | 145 ++++++-
+ crates/inkboard-app/src/embed_cards.rs   | 494 +++++++++++++++++++++++
+ crates/inkboard-app/src/main.rs          |   3 +
+ crates/inkboard-app/src/rich_edit.rs     |  12 +-
+ crates/inkboard-app/src/tests_embed.rs   | 494 +++++++++++++++++++++++
+ crates/inkboard-app/src/tools.rs         |  23 +-
+ crates/inkboard-core/src/model.rs        | 123 +++++-
+ crates/inkboard-core/tests/properties.rs |   5 +-
+ crates/inkboard-formats/src/mermaid.rs   |   3 +-
+ 10 files changed, 1312 insertions(+), 19 deletions(-)
+ create mode 100644 crates/inkboard-app/src/embed_cards.rs
+ create mode 100644 crates/inkboard-app/src/tests_embed.rs
+
+diff --git a/crates/inkboard-app/src/app.rs b/crates/inkboard-app/src/app.rs
+index e54512d..e098d4d 100644
+--- a/crates/inkboard-app/src/app.rs
++++ b/crates/inkboard-app/src/app.rs
+@@ -68,6 +68,12 @@ pub trait HostEvents {
+     fn changed(&self, rev: u64);
+     /// Ctrl/Cmd+S: the host page saves the board (it owns the file).
+     fn save(&self);
++    /// The cards of the current page and the camera, after a frame in which any of it changed (see `embed_cards.rs`).
++    fn embed_layout(&self, _layout: &crate::embed_cards::EmbedLayout) {}
++    /// The user asked to edit a card (`item`: its document); `point`: the double-click, in CSS pixels of the canvas.
++    fn embed_open(&self, _id: &Id, _item: &str, _point: Option<egui::Pos2>) {}
++    /// The editing of a card set by the host page ended in the engine.
++    fn embed_edit_end(&self, _id: &Id, _reason: crate::embed_cards::EditEnd) {}
+ }
+ 
+ /// The board is embedded in a page that owns the file (feature `embed`): no New, Open, Save as, Join or Quit, no window title, no
+@@ -84,6 +90,15 @@ pub struct HostMode {
+     /// Revision and text being typed last reported by `changed`.
+     pub last_key: (u64, u64),
+     pub ready_sent: bool,
++    /// The cards that embed the host page's documents (`embed_cards.rs`).
++    pub cards: crate::embed_cards::EmbedState,
++}
++
++#[cfg(any(test, all(target_arch = "wasm32", feature = "embed")))]
++impl HostMode {
++    pub fn new(read_only: bool, dark: Option<bool>, events: Box<dyn HostEvents>) -> Self {
++        Self { read_only, dark, paused: false, events, last_key: (0, 0), ready_sent: false, cards: crate::embed_cards::EmbedState::default() }
++    }
+ }
+ 
+ /// Caches rebuilt when the document revision changes: positions by id and the spatial index.
+@@ -445,8 +460,8 @@ impl App {
+     }
+ 
+     /// Tells the host page that the first frame is drawn, and about a change of the board or of the text being typed: at most once
+-    /// per frame, and never in the middle of a gesture (the board is only consistent once it ends).
+-    fn host_frame(&mut self) {
++    /// per frame, and never in the middle of a gesture (the board is only consistent once it ends). Then the cards' layout.
++    fn host_frame(&mut self, ctx: &egui::Context) {
+         if self.host.is_none() {
+             return;
+         }
+@@ -461,6 +476,7 @@ impl App {
+             h.last_key = key;
+             h.events.changed(key.0);
+         }
++        self.embed_frame_end(ctx);
+     }
+ 
+     pub fn title(&self) -> String {
+@@ -885,7 +901,8 @@ impl App {
+         if self.presenting {
+             return self.present_keys(ctx);
+         }
+-        if ctx.wants_keyboard_input() || self.editing.is_some() || self.recording_shortcut() {
++        // nor while the host page edits a card: what is typed before its editor has the focus must not pick tools or delete the card
++        if ctx.wants_keyboard_input() || self.editing.is_some() || self.recording_shortcut() || self.embed_editing().is_some() {
+             return;
+         }
+         let events = ctx.input(|i| i.events.clone());
+@@ -1199,7 +1216,7 @@ impl App {
+ }
+ 
+ /// The board as the host page sees it (feature `embed`, see `embed.rs`).
+-#[cfg(all(target_arch = "wasm32", feature = "embed"))]
++#[cfg(any(test, all(target_arch = "wasm32", feature = "embed")))]
+ impl App {
+     /// The board for the host page to save, in the native format: the text being typed included, unused assets left out. Both
+     /// happen on a copy: the live document keeps its editing and its assets (undoing the removal of an image still finds it).
+@@ -1218,6 +1235,7 @@ impl App {
+     /// Shows another board: a fresh history, nothing of the previous board left in the editor (the text being typed, a gesture, a
+     /// dialog; `open_text` can rely on the menu to validate the editing first, a host page cannot), saved as it is.
+     pub fn host_load_doc(&mut self, doc: Document) {
++        self.embed_board_replaced();
+         self.editing = None;
+         self.drag = None;
+         self.draft = None;
+@@ -1279,6 +1297,7 @@ impl eframe::App for App {
+         }
+         self.poll_platform();
+         self.host_guard();
++        self.embed_frame_start(ctx);
+         self.apply_present_request(ctx);
+         self.guest_frame(ctx);
+         #[cfg(all(target_arch = "wasm32", feature = "web-test"))]
+@@ -1314,7 +1333,7 @@ impl eframe::App for App {
+             platform::set_title(ctx, &title);
+             self.last_title = title;
+         }
+-        self.host_frame();
++        self.host_frame(ctx);
+         self.autosave();
+         self.screenshot_step(ctx);
+         if ctx.input(|i| i.viewport().close_requested()) && self.screenshot.is_none() {
+diff --git a/crates/inkboard-app/src/embed.rs b/crates/inkboard-app/src/embed.rs
+index cea5dc4..a8b7dbd 100644
+--- a/crates/inkboard-app/src/embed.rs
++++ b/crates/inkboard-app/src/embed.rs
+@@ -7,12 +7,15 @@
+ //!   `setReadOnly`, `setName`, `setActive`, `focus`, `fitView`, `destroy`). It rejects with `{kind, message}`: `webgl` (no WebGL 2),
+ //!   `load` (the board cannot be read) or `start` (eframe could not start, or another board is mounted: one board per page, because
+ //!   the browser side of `platform` keeps one application state).
++//! - Cards that embed the host page's documents (`embed_cards.rs`): the options `onEmbedLayout`, `onEmbedOpen` and `onEmbedEditEnd`,
++//!   and the handle's `insertEmbed`, `setEmbedEditing`, `setEmbedTitles` and `requestEmbedLayout`.
+ //!
+ //! The workspace forbids unsafe code, so nothing is exported with `#[wasm_bindgen]`: the API is an object of closures, like the test
+ //! hook of `web_test.rs`. Calls to the page's callbacks always go through `spawn_local`, because eframe holds the application while it
+ //! builds a frame; the panic report goes through a plain timer of the page, which still fires after the wasm instance has trapped.
+ 
+ use crate::app::{App, HostEvents, HostMode};
++use crate::embed_cards::{EditEnd, EmbedLayout};
+ use crate::{i18n, platform, web};
+ use eframe::egui;
+ use js_sys::{Function, Object, Promise, Reflect};
+@@ -84,7 +87,14 @@ impl MountOptions {
+             dark: theme_of(&get(o, "theme")),
+             lang,
+             read_only: get(o, "readOnly").is_truthy(),
+-            events: JsEvents { ready: function(o, "onReady"), change: function(o, "onChange"), save: function(o, "onSave") },
++            events: JsEvents {
++                ready: function(o, "onReady"),
++                change: function(o, "onChange"),
++                save: function(o, "onSave"),
++                embed_layout: function(o, "onEmbedLayout"),
++                embed_open: function(o, "onEmbedOpen"),
++                embed_edit_end: function(o, "onEmbedEditEnd"),
++            },
+             on_error: function(o, "onError"),
+         })
+     }
+@@ -132,7 +142,7 @@ fn mount(canvas: JsValue, options: &JsValue) -> Promise {
+                 Box::new(move |cc| {
+                     platform::init_ctx(&cc.egui_ctx);
+                     let mut app = App::new(cc, None, None);
+-                    app.host = Some(HostMode { read_only, dark, paused: false, events: Box::new(events), last_key: (0, 0), ready_sent: false });
++                    app.host = Some(HostMode::new(read_only, dark, Box::new(events)));
+                     if let Some(lang) = lang {
+                         i18n::set(lang);
+                     }
+@@ -172,6 +182,7 @@ fn handle(generation: u32) -> JsValue {
+     let h = Object::new();
+     board_methods(&h, generation);
+     view_methods(&h, generation);
++    embed_methods(&h, generation);
+     method(&h, "destroy", Closure::<dyn Fn()>::new(move || destroy(generation)));
+     let _ = Object::freeze(&h);
+     h.into()
+@@ -292,6 +303,63 @@ fn view_methods(h: &Object, generation: u32) {
+     );
+ }
+ 
++/// The cards that embed the host page's documents (`embed_cards.rs`): `insertEmbed`, `setEmbedEditing`, `setEmbedTitles`,
++/// `requestEmbedLayout`.
++fn embed_methods(h: &Object, generation: u32) {
++    method(
++        h,
++        "insertEmbed",
++        Closure::<dyn Fn(JsValue) -> Result<JsValue, JsValue>>::new(move |a: JsValue| {
++            let item = get(&a, "item").as_string().ok_or_else(|| type_error("insertEmbed: `item` must be a string"))?;
++            let title = get(&a, "title").as_string().unwrap_or_default();
++            let at = get(&a, "at");
++            let at = if at.as_string().as_deref() == Some("center") {
++                None
++            } else {
++                let (x, y) = (get(&at, "x").as_f64(), get(&at, "y").as_f64());
++                match (x, y) {
++                    (Some(x), Some(y)) if x.is_finite() && y.is_finite() => Some(egui::pos2(inkboard_core::num::f32(x), inkboard_core::num::f32(y))),
++                    _ => return Err(type_error("insertEmbed: `at` must be 'center' or a point {x, y}")),
++                }
++            };
++            let (w, h) = (get(&a, "w").as_f64(), get(&a, "h").as_f64());
++            let id = with_app(generation, true, |app, _| app.insert_embed(&item, &title, at, w, h)).ok_or_else(not_mounted)?;
++            Ok(id.map_or(JsValue::NULL, |id| JsValue::from_str(id.as_str())))
++        }),
++    );
++    method(
++        h,
++        "setEmbedEditing",
++        Closure::<dyn Fn(JsValue)>::new(move |id: JsValue| {
++            let id = id.as_string().map(|id| inkboard_core::Id::from(id.as_str()));
++            with_app(generation, true, |app, _| app.set_embed_editing(id));
++        }),
++    );
++    method(
++        h,
++        "setEmbedTitles",
++        Closure::<dyn Fn(JsValue)>::new(move |titles: JsValue| {
++            let mut map = std::collections::HashMap::new();
++            if titles.is_object() {
++                for entry in Object::entries(titles.unchecked_ref()).iter() {
++                    let pair: js_sys::Array = entry.unchecked_into();
++                    if let (Some(item), Some(title)) = (pair.get(0).as_string(), pair.get(1).as_string()) {
++                        map.insert(item, title);
++                    }
++                }
++            }
++            with_app(generation, true, |app, _| app.set_embed_titles(map));
++        }),
++    );
++    method(
++        h,
++        "requestEmbedLayout",
++        Closure::<dyn Fn()>::new(move || {
++            with_app(generation, true, |app, _| app.request_embed_layout());
++        }),
++    );
++}
++
+ /// Runs `f` on the board of `generation` and, with `repaint`, asks for a frame. `None` when that board is gone (destroyed, or the
+ /// engine stopped after a panic).
+ fn with_app<R>(generation: u32, repaint: bool, f: impl FnOnce(&mut App, &Mounted) -> R) -> Option<R> {
+@@ -329,6 +397,9 @@ struct JsEvents {
+     ready: Option<Function>,
+     change: Option<Function>,
+     save: Option<Function>,
++    embed_layout: Option<Function>,
++    embed_open: Option<Function>,
++    embed_edit_end: Option<Function>,
+ }
+ 
+ impl HostEvents for JsEvents {
+@@ -345,6 +416,72 @@ impl HostEvents for JsEvents {
+     fn save(&self) {
+         later(self.save.as_ref(), JsValue::UNDEFINED);
+     }
++
++    fn embed_layout(&self, l: &EmbedLayout) {
++        if self.embed_layout.is_none() {
++            return;
++        }
++        let e = Object::new();
++        set(&e, "page", &JsValue::from_str(l.page.as_str()));
++        set(&e, "zoom", &JsValue::from(l.zoom));
++        set(&e, "originX", &JsValue::from(l.origin.x));
++        set(&e, "originY", &JsValue::from(l.origin.y));
++        set(&e, "canvas", &js_rect(l.canvas));
++        set(&e, "occluders", &l.occluders.iter().map(|r| js_rect(*r)).collect::<js_sys::Array>());
++        let cards: js_sys::Array = l
++            .cards
++            .iter()
++            .map(|c| {
++                let o = Object::new();
++                set(&o, "id", &JsValue::from_str(c.id.as_str()));
++                set(&o, "item", &JsValue::from_str(&c.item));
++                set(&o, "x", &JsValue::from(c.frame.x));
++                set(&o, "y", &JsValue::from(c.frame.y));
++                set(&o, "w", &JsValue::from(c.frame.w));
++                set(&o, "h", &JsValue::from(c.frame.h));
++                set(&o, "angle", &JsValue::from(c.frame.angle));
++                set(&o, "label", &JsValue::from_str(&c.label));
++                set(&o, "selected", &JsValue::from(c.selected));
++                set(&o, "locked", &JsValue::from(c.locked));
++                JsValue::from(o)
++            })
++            .collect();
++        set(&e, "embeds", &cards);
++        set(&e, "items", &l.items.iter().map(|i| JsValue::from_str(i)).collect::<js_sys::Array>());
++        set(&e, "editing", &l.editing.as_ref().map_or(JsValue::NULL, |id| JsValue::from_str(id.as_str())));
++        later(self.embed_layout.as_ref(), e.into());
++    }
++
++    fn embed_open(&self, id: &inkboard_core::Id, item: &str, point: Option<egui::Pos2>) {
++        let e = Object::new();
++        set(&e, "id", &JsValue::from_str(id.as_str()));
++        set(&e, "item", &JsValue::from_str(item));
++        set(&e, "point", &point.map_or(JsValue::NULL, |p| js_point(p.x, p.y)));
++        later(self.embed_open.as_ref(), e.into());
++    }
++
++    fn embed_edit_end(&self, id: &inkboard_core::Id, reason: EditEnd) {
++        let e = Object::new();
++        set(&e, "id", &JsValue::from_str(id.as_str()));
++        set(&e, "reason", &JsValue::from_str(reason.as_str()));
++        later(self.embed_edit_end.as_ref(), e.into());
++    }
++}
++
++/// `{x, y}` in CSS pixels of the canvas.
++fn js_point(x: f32, y: f32) -> JsValue {
++    let o = Object::new();
++    set(&o, "x", &JsValue::from(x));
++    set(&o, "y", &JsValue::from(y));
++    o.into()
++}
++
++/// `{x, y, width, height}` in CSS pixels of the canvas.
++fn js_rect(r: egui::Rect) -> JsValue {
++    let o = js_point(r.min.x, r.min.y);
++    set(&o, "width", &JsValue::from(r.width()));
++    set(&o, "height", &JsValue::from(r.height()));
++    o
+ }
+ 
+ /// Calls `f(arg)` once the current frame is over (eframe holds the application while it builds one, so a callback that calls the
+@@ -415,6 +552,10 @@ fn error(kind: &str, message: &str) -> JsValue {
+     o.into()
+ }
+ 
++fn type_error(message: &str) -> JsValue {
++    js_sys::TypeError::new(message).into()
++}
++
+ fn not_mounted() -> JsValue {
+     error("start", "the board is not mounted (destroyed, or the engine stopped)")
+ }
+diff --git a/crates/inkboard-app/src/embed_cards.rs b/crates/inkboard-app/src/embed_cards.rs
+new file mode 100644
+index 0000000..f1145c4
+--- /dev/null
++++ b/crates/inkboard-app/src/embed_cards.rs
+@@ -0,0 +1,494 @@
++// Changed for Quire (embed feature): see patches/inkboard/README.md
++//! Cards of a hosted board (feature `embed`, see `embed.rs`): rectangles that embed one of the host page's documents
++//! (`BoxObj::embed`, `BoxObj::is_embed`). The host page draws the document inside the card, over the canvas, and edits it there; the
++//! engine keeps the card a box that is selected, moved, resized, copied and deleted like any other, and tells the host page:
++//!
++//! - after every frame in which any of it changed: the cards of the current page, the camera and the engine's own interface over the
++//!   canvas ([`EmbedLayout`], `HostEvents::embed_layout`), so that the host page can follow pans, zooms and gestures;
++//! - instead of editing a card's label: that its document should be opened (`HostEvents::embed_open`), never in a read-only host;
++//! - while the host page edits a card ([`App::set_embed_editing`]) the engine takes no key and shows no handle, and the first press in
++//!   the board, or the board taking the keyboard focus, ends that editing (`HostEvents::embed_edit_end`); a press on the canvas then
++//!   does nothing else, as the click that leaves a label's editing.
++//!
++//! [`App::insert_embed`] adds a card, and [`App::set_embed_titles`] shows the documents' live titles as the cards' labels, in place:
++//! no undo step and no revision, and the next save keeps them. Coordinates for the host page are CSS pixels of the canvas element
++//! (egui points times the zoom factor); world units are the board's own. When the board is not hosted, a card is a plain rectangle
++//! whose label is edited as any other, and nothing here runs.
++
++use crate::app::App;
++use crate::render::Cam;
++use eframe::egui::{self, Pos2, pos2};
++use inkboard_core::num;
++use inkboard_core::{Color, Frame, Id, Kind, Object, RichText, Span, SpanStyle};
++use std::collections::HashMap;
++#[cfg(any(test, all(target_arch = "wasm32", feature = "embed")))]
++use {
++    crate::tools::Tool,
++    eframe::egui::vec2,
++    inkboard_core::model::Embed,
++    inkboard_core::{Align, BoxGeom, Dash, FontFamily, Label, Style},
++};
++
++/// Size of a new card, in world units.
++#[cfg(any(test, all(target_arch = "wasm32", feature = "embed")))]
++pub const CARD_SIZE: (f64, f64) = (480.0, 360.0);
++
++/// Style of a new card: a white sheet with a light gray border and a shadow.
++#[cfg(any(test, all(target_arch = "wasm32", feature = "embed")))]
++fn card_style() -> Style {
++    Style {
++        stroke: Color::rgb(0xc4, 0xca, 0xd4),
++        fill: Some(Color::rgb(0xff, 0xff, 0xff)),
++        width: 1.0,
++        dash: Dash::Solid,
++        opacity: 1.0,
++        roundness: 0.04,
++        shadow: true,
++    }
++}
++
++/// Style of a card's title: bold, dark ink whatever the background (the card is white).
++const TITLE_STYLE: SpanStyle =
++    SpanStyle { bold: true, italic: false, underline: false, strike: false, color: Some(Color::rgb(0x1d, 0x24, 0x30)), highlight: None };
++
++/// `text` as a card's title, in `style`.
++fn title_text(text: &str, style: SpanStyle) -> RichText {
++    if text.is_empty() { RichText::default() } else { RichText(vec![Span { text: text.to_owned(), style }]) }
++}
++
++/// The document a card embeds, `None` for any other object (an `embed` on another shape is not a card).
++pub fn card_item(o: &Object) -> Option<&str> {
++    match &o.kind {
++        Kind::Box(b) if b.is_embed() => b.embed.as_ref().map(|e| e.item.as_str()),
++        _ => None,
++    }
++}
++
++/// Why the host page's editing of a card ended in the engine.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub enum EditEnd {
++    /// A primary press in the board (its canvas or its interface).
++    Press,
++    /// The board took the keyboard focus.
++    Focus,
++    /// The card left the current page (deleted, hidden, another page or another board).
++    Gone,
++}
++
++impl EditEnd {
++    #[cfg_attr(not(all(target_arch = "wasm32", feature = "embed")), allow(dead_code, reason = "the embed feature's JS side reads it"))]
++    pub fn as_str(self) -> &'static str {
++        match self {
++            EditEnd::Press => "press",
++            EditEnd::Focus => "focus",
++            EditEnd::Gone => "gone",
++        }
++    }
++}
++
++/// A card of the current page, as drawn this frame.
++#[derive(Clone, Debug, PartialEq)]
++#[cfg_attr(not(all(target_arch = "wasm32", feature = "embed")), allow(dead_code, reason = "the embed feature's JS side reads it"))]
++pub struct EmbedBox {
++    pub id: Id,
++    /// `embed.item`, as stored.
++    pub item: String,
++    /// In world units; `angle` in radians about the frame's centre.
++    pub frame: Frame,
++    /// The label's plain text: the title the board stores.
++    pub label: String,
++    pub selected: bool,
++    /// The card or its layer is locked.
++    pub locked: bool,
++}
++
++/// Where the cards are: `screen = origin + world × zoom`, in CSS pixels of the canvas element.
++#[derive(Clone, Debug, PartialEq)]
++#[cfg_attr(not(all(target_arch = "wasm32", feature = "embed")), allow(dead_code, reason = "the embed feature's JS side reads it"))]
++pub struct EmbedLayout {
++    pub page: Id,
++    /// CSS pixels per world unit.
++    pub zoom: f32,
++    pub origin: Pos2,
++    /// The drawing area.
++    pub canvas: egui::Rect,
++    /// The engine's interface over the drawing area: every visible egui layer above the background (floating cards, menus, popups,
++    /// tooltips, toasts, windows), each cut to `canvas`.
++    pub occluders: Vec<egui::Rect>,
++    /// The cards of the current page on visible layers, in drawing order.
++    pub cards: Vec<EmbedBox>,
++    /// Every distinct `embed.item` of the board's cards (all pages and layers), sorted.
++    pub items: Vec<String>,
++    /// The card the host page edits.
++    pub editing: Option<Id>,
++}
++
++/// A value rounded to 1/1000, as layouts are compared.
++fn milli(v: f64) -> i64 {
++    num::to_i64((v * 1000.0).round())
++}
++
++fn same_rect(a: egui::Rect, b: egui::Rect) -> bool {
++    [a.min.x, a.min.y, a.max.x, a.max.y].map(|v| milli(f64::from(v))) == [b.min.x, b.min.y, b.max.x, b.max.y].map(|v| milli(f64::from(v)))
++}
++
++fn same_card(a: &EmbedBox, b: &EmbedBox) -> bool {
++    let f = |f: &Frame| [f.x, f.y, f.w, f.h, f.angle].map(milli);
++    a.id == b.id && a.item == b.item && a.label == b.label && a.selected == b.selected && a.locked == b.locked && f(&a.frame) == f(&b.frame)
++}
++
++impl EmbedLayout {
++    /// The cards, the board's items and the editing state are the same.
++    fn same_cards(&self, other: &EmbedLayout) -> bool {
++        self.page == other.page
++            && self.items == other.items
++            && self.editing == other.editing
++            && self.cards.len() == other.cards.len()
++            && self.cards.iter().zip(&other.cards).all(|(a, b)| same_card(a, b))
++    }
++
++    /// The camera, the drawing area and the interface over it are the same.
++    fn same_view(&self, other: &EmbedLayout) -> bool {
++        milli(f64::from(self.zoom)) == milli(f64::from(other.zoom))
++            && milli(f64::from(self.origin.x)) == milli(f64::from(other.origin.x))
++            && milli(f64::from(self.origin.y)) == milli(f64::from(other.origin.y))
++            && same_rect(self.canvas, other.canvas)
++            && self.occluders.len() == other.occluders.len()
++            && self.occluders.iter().zip(&other.occluders).all(|(a, b)| same_rect(*a, *b))
++    }
++
++    /// Is this layout news after `last` (the last one reported)? A page without cards, which had none either, does not report a change
++    /// of the camera or of the interface alone: nothing on it follows the camera.
++    fn worth_reporting(&self, last: &EmbedLayout) -> bool {
++        if !self.same_cards(last) {
++            return true;
++        }
++        let no_cards = self.cards.is_empty() && last.cards.is_empty();
++        if no_cards {
++            return false;
++        }
++        !self.same_view(last)
++    }
++}
++
++/// What a hosted board keeps about its cards (a part of `HostMode`).
++pub struct EmbedState {
++    /// The card the host page edits (`setEmbedEditing`).
++    pub editing: Option<Id>,
++    /// The documents' live titles, by `embed.item`.
++    titles: HashMap<String, String>,
++    /// The revision at which the titles were last applied (`None`: apply them on the next occasion).
++    titles_rev: Option<u64>,
++    /// The last layout reported.
++    last: Option<EmbedLayout>,
++    /// The next frame reports its layout whatever it holds (`requestEmbedLayout`, a new board).
++    force: bool,
++    /// The board's items and the revision they were collected at.
++    items: Option<(u64, Vec<String>)>,
++    /// Did the board have the keyboard focus on the last frame?
++    focused: bool,
++    /// The frame (egui's frame number) whose press ended the editing: its canvas press does nothing, in every pass of that frame.
++    swallow: Option<u64>,
++    /// The current frame, and the card opened in it: egui may run a frame twice, and the host page hears of a card once.
++    frame: u64,
++    opened: Option<(u64, Id)>,
++    /// CSS pixels per egui point, and the camera the canvas was drawn with on the last frame.
++    zoom_factor: f32,
++    cam: Option<Cam>,
++}
++
++impl Default for EmbedState {
++    fn default() -> Self {
++        Self {
++            editing: None,
++            titles: HashMap::new(),
++            titles_rev: None,
++            last: None,
++            force: true,
++            items: None,
++            focused: false,
++            swallow: None,
++            frame: 0,
++            opened: None,
++            zoom_factor: 1.0,
++            cam: None,
++        }
++    }
++}
++
++impl App {
++    /// The card the host page edits, while it does.
++    pub fn embed_editing(&self) -> Option<&Id> {
++        self.host.as_ref().and_then(|h| h.cards.editing.as_ref())
++    }
++
++    /// Is `id` a card of the current page, on a visible layer?
++    fn is_visible_card(&self, id: &Id) -> bool {
++        let page = self.ed.page();
++        page.get(id).is_some_and(|o| page.is_visible(o) && card_item(o).is_some())
++    }
++
++    /// Ends the host page's editing, telling it why.
++    fn end_embed_editing(&mut self, reason: EditEnd) {
++        let Some(h) = self.host.as_mut() else { return };
++        if let Some(id) = h.cards.editing.take() {
++            h.events.embed_edit_end(&id, reason);
++        }
++    }
++
++    /// Start of a hosted frame, before anything handles input: the host's editing ends on a primary press (whose canvas part is then
++    /// swallowed) or when the board takes the focus without one; the titles follow a revision change.
++    pub(crate) fn embed_frame_start(&mut self, ctx: &egui::Context) {
++        let Some(h) = self.host.as_mut() else { return };
++        let (pressed, focused) = ctx.input(|i| (i.pointer.button_pressed(egui::PointerButton::Primary), i.focused));
++        let c = &mut h.cards;
++        c.frame = ctx.cumulative_frame_nr();
++        c.zoom_factor = ctx.zoom_factor();
++        let gained = focused && !c.focused;
++        c.focused = focused;
++        if c.editing.is_some() {
++            if pressed {
++                c.swallow = Some(c.frame);
++                self.end_embed_editing(EditEnd::Press);
++            } else if gained {
++                self.end_embed_editing(EditEnd::Focus);
++            }
++        }
++        self.apply_embed_titles();
++    }
++
++    /// Does the canvas ignore this frame's press (the one that ended the host's editing)?
++    pub(crate) fn embed_swallows_press(&self, ctx: &egui::Context) -> bool {
++        self.host.as_ref().is_some_and(|h| h.cards.swallow == Some(ctx.cumulative_frame_nr()))
++    }
++
++    /// The camera the canvas is drawn with this frame (for the layout, and for points given by the host page).
++    pub(crate) fn embed_drawn(&mut self, cam: Cam) {
++        if let Some(h) = self.host.as_mut() {
++            h.cards.cam = Some(cam);
++        }
++    }
++
++    /// End of a hosted frame: the host's editing ends when its card left the page, the titles follow a revision change made during
++    /// the frame, and the layout goes to the host page when it changed (once per frame: not from a pass that egui throws away).
++    pub(crate) fn embed_frame_end(&mut self, ctx: &egui::Context) {
++        if self.host.is_none() {
++            return;
++        }
++        if self.embed_editing().is_some_and(|id| !self.is_visible_card(id)) {
++            self.end_embed_editing(EditEnd::Gone);
++        }
++        if self.apply_embed_titles() {
++            ctx.request_repaint();
++        }
++        if ctx.will_discard() {
++            return;
++        }
++        let Some(now) = self.embed_layout(ctx) else { return };
++        let Some(h) = self.host.as_mut() else { return };
++        let c = &mut h.cards;
++        if c.force || c.last.as_ref().is_none_or(|last| now.worth_reporting(last)) {
++            c.force = false;
++            h.events.embed_layout(&now);
++            c.last = Some(now);
++        }
++    }
++
++    /// The layout of this frame (`None` before the canvas was first drawn).
++    fn embed_layout(&mut self, ctx: &egui::Context) -> Option<EmbedLayout> {
++        let rev = self.ed.revision();
++        let h = self.host.as_mut()?;
++        let cam = h.cards.cam?;
++        if h.cards.items.as_ref().is_none_or(|(r, _)| *r != rev) {
++            let mut items: Vec<String> = self.ed.doc.pages.iter().flat_map(|p| &p.objects).filter_map(card_item).map(str::to_owned).collect();
++            items.sort_unstable();
++            items.dedup();
++            h.cards.items = Some((rev, items));
++        }
++        let items = h.cards.items.as_ref().map(|(_, items)| items.clone()).unwrap_or_default();
++        let zf = h.cards.zoom_factor;
++        let editing = h.cards.editing.clone();
++        let px = |r: egui::Rect| egui::Rect::from_min_max(pos2(r.min.x * zf, r.min.y * zf), pos2(r.max.x * zf, r.max.y * zf));
++        let canvas = self.canvas_rect;
++        let mut occluders: Vec<egui::Rect> = ctx.memory(|m| {
++            m.areas()
++                .visible_layer_ids()
++                .into_iter()
++                .filter(|l| l.order != egui::Order::Background)
++                .filter_map(|l| m.area_rect(l.id))
++                .map(|r| r.intersect(canvas))
++                .filter(egui::Rect::is_positive)
++                .map(px)
++                .collect()
++        });
++        // the layers come from a hash set: a fixed order, so that the same interface compares equal
++        occluders
++            .sort_by(|a, b| a.min.y.total_cmp(&b.min.y).then(a.min.x.total_cmp(&b.min.x)).then(a.max.y.total_cmp(&b.max.y)).then(a.max.x.total_cmp(&b.max.x)));
++        occluders.dedup();
++        let page = self.ed.page();
++        let cards = page
++            .objects
++            .iter()
++            .filter(|o| page.is_visible(o))
++            .filter_map(|o| {
++                let item = card_item(o)?;
++                let Kind::Box(b) = &o.kind else { return None };
++                Some(EmbedBox {
++                    id: o.id.clone(),
++                    item: item.to_owned(),
++                    frame: b.frame,
++                    label: b.label.text.to_plain(),
++                    selected: self.sel.contains(&o.id),
++                    locked: page.is_locked(o),
++                })
++            })
++            .collect();
++        Some(EmbedLayout {
++            page: page.id.clone(),
++            zoom: cam.zoom * zf,
++            origin: pos2(cam.origin.x * zf, cam.origin.y * zf),
++            canvas: px(canvas),
++            occluders,
++            cards,
++            items,
++            editing,
++        })
++    }
++
++    /// Instead of editing a card's label: asks the host page to open the card's document (`point`: where the double-click was, in egui
++    /// points). `false` when this is not a card of a hosted board, whose label is then edited as usual. A read-only host opens nothing.
++    pub(crate) fn open_embed(&mut self, id: &Id, point: Option<Pos2>) -> bool {
++        let Some(h) = self.host.as_mut() else { return false };
++        let Some(item) = self.ed.page().get(id).and_then(card_item) else { return false };
++        if h.read_only {
++            return true;
++        }
++        let c = &mut h.cards;
++        if c.opened.as_ref().is_some_and(|(frame, opened)| *frame == c.frame && opened == id) {
++            return true;
++        }
++        c.opened = Some((c.frame, id.clone()));
++        let zf = c.zoom_factor;
++        h.events.embed_open(id, item, point.map(|p| pos2(p.x * zf, p.y * zf)));
++        true
++    }
++
++    /// A new board in the host: its editing is gone, the titles were the previous board's, and the first frame reports its layout.
++    #[cfg(any(test, all(target_arch = "wasm32", feature = "embed")))]
++    pub(crate) fn embed_board_replaced(&mut self) {
++        self.end_embed_editing(EditEnd::Gone);
++        if let Some(h) = self.host.as_mut() {
++            let c = &mut h.cards;
++            c.titles.clear();
++            c.titles_rev = None;
++            c.items = None;
++            c.opened = None;
++            c.force = true;
++        }
++    }
++
++    /// Shows the live titles as the labels of the cards whose document has one, on every page: in place, so no undo step and no
++    /// revision (the next save keeps them). Once per revision, since an undo can bring an older label back. `true` when a label changed.
++    fn apply_embed_titles(&mut self) -> bool {
++        let rev = self.ed.revision();
++        let Some(h) = self.host.as_mut() else { return false };
++        let c = &mut h.cards;
++        if c.titles_rev == Some(rev) {
++            return false;
++        }
++        c.titles_rev = Some(rev);
++        let mut changed = false;
++        if c.titles.is_empty() {
++            return false;
++        }
++        for o in self.ed.doc.pages.iter_mut().flat_map(|p| p.objects.iter_mut()) {
++            let Kind::Box(b) = &mut o.kind else { continue };
++            if !b.is_embed() {
++                continue;
++            }
++            let Some(title) = b.embed.as_ref().and_then(|e| c.titles.get(&e.item)) else { continue };
++            if b.label.text.to_plain() != *title {
++                let style = b.label.text.0.first().map_or(TITLE_STYLE, |s| s.style);
++                b.label.text = title_text(title, style);
++                changed = true;
++            }
++        }
++        changed
++    }
++}
++
++/// The host page's calls (`embed.rs`).
++#[cfg(any(test, all(target_arch = "wasm32", feature = "embed")))]
++impl App {
++    /// The host page edits `id` (`None`: no card): the engine keeps it selected, shows no handle and takes no key until the editing
++    /// ends. An id that is not a card on a visible layer of the current page is ignored.
++    pub fn set_embed_editing(&mut self, id: Option<Id>) {
++        if self.host.is_none() || id.as_ref().is_some_and(|id| !self.is_visible_card(id)) {
++            return;
++        }
++        if let Some(id) = &id {
++            self.commit_editing();
++            self.sel = vec![id.clone()];
++        }
++        if let Some(h) = self.host.as_mut() {
++            h.cards.editing = id;
++        }
++    }
++
++    /// Adds a card for the document `item`, labelled `title`, centred on `at` (CSS pixels of the canvas; `None`: the centre of the
++    /// view), `w` × `h` world units when given and positive ([`CARD_SIZE`] otherwise), on the current page's first visible and unlocked
++    /// layer: one undo step, selected, with the select tool. `None` when the board is read-only (nothing changes).
++    pub fn insert_embed(&mut self, item: &str, title: &str, at: Option<Pos2>, w: Option<f64>, h: Option<f64>) -> Option<Id> {
++        // checked here: the editor drops a read-only change, but `Editor::insert` still returns an id
++        if self.view_only() {
++            return None;
++        }
++        self.commit_editing();
++        let size = |v: Option<f64>, default: f64| v.filter(|v| v.is_finite() && *v > 0.0).unwrap_or(default);
++        let (w, h) = (size(w, CARD_SIZE.0), size(h, CARD_SIZE.1));
++        let centre = match at {
++            None => self.view_center(),
++            Some(p) => {
++                let zf = self.host.as_ref().map_or(1.0, |h| h.cards.zoom_factor);
++                self.embed_cam().w(pos2(p.x / zf, p.y / zf))
++            }
++        };
++        let page = self.ed.page();
++        let layer = page.layers.iter().find(|l| l.visible && !l.locked).or(page.layers.first()).map(|l| l.id.clone());
++        let label = Label { text: title_text(title, TITLE_STYLE), family: FontFamily::Sans, size: 24.0, align: Align::Center };
++        let mut card = Object::new_box(BoxGeom::Rect, Frame::new(centre.x - w / 2.0, centre.y - h / 2.0, w, h), card_style(), label);
++        if let Kind::Box(b) = &mut card.kind {
++            b.embed = Some(Embed { item: item.to_owned() });
++        }
++        if let Some(layer) = layer {
++            card.layer = layer;
++        }
++        let id = self.ed.insert(card);
++        self.sel = vec![id.clone()];
++        self.tool = Tool::Select;
++        Some(id)
++    }
++
++    /// The camera of the last frame drawn (or the view's, before the first one).
++    fn embed_cam(&self) -> Cam {
++        self.host.as_ref().and_then(|h| h.cards.cam).unwrap_or_else(|| {
++            let v = self.ed.page().view;
++            Cam { origin: self.canvas_rect.min + vec2(num::f32(v.x), num::f32(v.y)), zoom: num::f32(v.zoom) }
++        })
++    }
++
++    /// Replaces the live titles (by `embed.item`) and shows them at once.
++    pub fn set_embed_titles(&mut self, titles: HashMap<String, String>) {
++        let Some(h) = self.host.as_mut() else { return };
++        h.cards.titles = titles;
++        h.cards.titles_rev = None;
++        self.apply_embed_titles();
++    }
++
++    /// The next frame reports its layout even when nothing changed.
++    pub fn request_embed_layout(&mut self) {
++        if let Some(h) = self.host.as_mut() {
++            h.cards.force = true;
++        }
++    }
++}
+diff --git a/crates/inkboard-app/src/main.rs b/crates/inkboard-app/src/main.rs
+index b97b5b9..ce800fc 100644
+--- a/crates/inkboard-app/src/main.rs
++++ b/crates/inkboard-app/src/main.rs
+@@ -85,6 +85,7 @@ mod web;
+ // the JS API of a board embedded in another page (`globalThis.inkboardEmbed`), installed instead of starting the page of its own
+ #[cfg(all(target_arch = "wasm32", feature = "embed"))]
+ mod embed;
++mod embed_cards;
+ #[cfg(all(target_arch = "wasm32", feature = "web-test"))]
+ mod web_test;
+ 
+@@ -324,6 +325,8 @@ mod tests_crowd;
+ #[cfg(test)]
+ mod tests_crowd_ui;
+ #[cfg(test)]
++mod tests_embed;
++#[cfg(test)]
+ mod tests_hostile_host;
+ #[cfg(test)]
+ mod tests_session_e2e;
+diff --git a/crates/inkboard-app/src/rich_edit.rs b/crates/inkboard-app/src/rich_edit.rs
+index 3daf83d..53feaa3 100644
+--- a/crates/inkboard-app/src/rich_edit.rs
++++ b/crates/inkboard-app/src/rich_edit.rs
+@@ -1,3 +1,4 @@
++// Changed for Quire (embed feature): see patches/inkboard/README.md
+ //! Rich-text editing: word selection, bold / italic / underline / strikethrough, color, highlight.
+ //!
+ //! The raw string (`buf`) remains the source of the input field; `rich` carries the styles and follows every keystroke
+@@ -9,7 +10,7 @@ use crate::i18n::t;
+ use crate::keymap::Action;
+ use crate::render::{Cam, col, label_screen_rect};
+ use eframe::egui::text::{CCursor, CCursorRange, LayoutJob, TextFormat};
+-use eframe::egui::{self, Color32, Stroke, vec2};
++use eframe::egui::{self, Color32, Pos2, Stroke, vec2};
+ use inkboard_core::num;
+ use inkboard_core::style::PALETTE;
+ use inkboard_core::text::Format;
+@@ -116,6 +117,15 @@ fn apply_text(o: &mut Object, cell: Option<(usize, usize)>, rich: &RichText, def
+ 
+ impl App {
+     pub fn start_editing(&mut self, id: &Id, cell: Option<(usize, usize)>) {
++        self.start_editing_at(id, cell, None);
++    }
++
++    /// [`App::start_editing`] from a double-click at `point` (screen): every way into a label's editing (double-click, Enter, the
++    /// menu's "Edit text") comes through here. A card of a hosted board opens its document in the host page instead.
++    pub fn start_editing_at(&mut self, id: &Id, cell: Option<(usize, usize)>, point: Option<Pos2>) {
++        if self.open_embed(id, point) {
++            return;
++        }
+         if self.edit_formula(id) {
+             return;
+         }
+diff --git a/crates/inkboard-app/src/tests_embed.rs b/crates/inkboard-app/src/tests_embed.rs
+new file mode 100644
+index 0000000..4e6166d
+--- /dev/null
++++ b/crates/inkboard-app/src/tests_embed.rs
+@@ -0,0 +1,494 @@
++// Changed for Quire (embed feature): see patches/inkboard/README.md
++//! Cards of a hosted board (`embed_cards.rs`) in a real egui cycle without a window, with the host page's events recorded: the
++//! layout, opening a card instead of editing its label, the host's editing, inserting a card, titles in place, no rotation handle.
++
++use crate::app::{HostEvents, HostMode};
++use crate::embed_cards::{EditEnd, EmbedLayout};
++use crate::tests::T;
++use crate::tools::Tool;
++use eframe::egui::{Event, Key, Modifiers, PointerButton, Pos2};
++use inkboard_core::num;
++use inkboard_core::*;
++use std::cell::RefCell;
++use std::collections::HashMap;
++use std::rc::Rc;
++
++/// Quire's shared fixture (`fixtures/boards/embed.inkboard`): two cards and a plain box.
++const FIXTURE: &str = r##"{"format":"inkboard","version":2,"document":{"name":"Embed test","background":{"preset":"white","pattern":"dots"},"pages":[{"id":"embedtest1","name":"Page 1","layers":[{"id":"main","name":"Layer 1","visible":true,"locked":false}],"objects":[{"id":"embedcard1","kind":{"type":"box","geom":"rect","frame":{"x":-520.0,"y":-200.0,"w":480.0,"h":360.0},"label":{"text":[{"text":"First page","bold":true,"color":"#1d2430"}],"family":"sans","size":24.0,"align":"center"},"embed":{"item":"0192f0e0-0000-7000-8000-000000000001"}},"style":{"stroke":"#c4cad4","fill":"#ffffff","width":1.0,"dash":"solid","opacity":1.0,"roundness":0.04,"shadow":true},"layer":"main"},{"id":"embedcard2","kind":{"type":"box","geom":"rect","frame":{"x":40.0,"y":-200.0,"w":480.0,"h":360.0},"label":{"text":[{"text":"Second page","bold":true,"color":"#1d2430"}],"family":"sans","size":24.0,"align":"center"},"embed":{"item":"0192f0e0-0000-7000-8000-000000000002"}},"style":{"stroke":"#c4cad4","fill":"#ffffff","width":1.0,"dash":"solid","opacity":1.0,"roundness":0.04,"shadow":true},"layer":"main"},{"id":"embedplain","kind":{"type":"box","geom":"rect","frame":{"x":-120.0,"y":220.0,"w":240.0,"h":120.0},"label":{"text":[{"text":"Plain box"}],"family":"sans","size":20.0,"align":"center"}},"style":{"stroke":"ink","fill":null,"width":3.0,"dash":"solid","opacity":1.0,"roundness":0.0},"layer":"main"}],"view":{"x":0.0,"y":0.0,"zoom":1.0}}],"assets":{}}}"##;
++const ITEM1: &str = "0192f0e0-0000-7000-8000-000000000001";
++const ITEM2: &str = "0192f0e0-0000-7000-8000-000000000002";
++
++#[derive(Clone, Debug, PartialEq)]
++enum Heard {
++    Changed(u64),
++    Layout(EmbedLayout),
++    Open(Id, String, Option<Pos2>),
++    End(Id, EditEnd),
++}
++
++/// The host page: records what it hears.
++#[derive(Clone, Default)]
++struct Host(Rc<RefCell<Vec<Heard>>>);
++
++impl HostEvents for Host {
++    fn ready(&self) {}
++    fn changed(&self, rev: u64) {
++        self.0.borrow_mut().push(Heard::Changed(rev));
++    }
++    fn save(&self) {}
++    fn embed_layout(&self, layout: &EmbedLayout) {
++        self.0.borrow_mut().push(Heard::Layout(layout.clone()));
++    }
++    fn embed_open(&self, id: &Id, item: &str, point: Option<Pos2>) {
++        self.0.borrow_mut().push(Heard::Open(id.clone(), item.to_owned(), point));
++    }
++    fn embed_edit_end(&self, id: &Id, reason: EditEnd) {
++        self.0.borrow_mut().push(Heard::End(id.clone(), reason));
++    }
++}
++
++impl Host {
++    fn take(&self) -> Vec<Heard> {
++        std::mem::take(&mut *self.0.borrow_mut())
++    }
++    fn layouts(&self) -> Vec<EmbedLayout> {
++        self.take().into_iter().filter_map(|h| if let Heard::Layout(l) = h { Some(l) } else { None }).collect()
++    }
++    fn others(&self) -> Vec<Heard> {
++        self.take().into_iter().filter(|h| !matches!(h, Heard::Layout(_))).collect()
++    }
++}
++
++/// A hosted board showing `board`, its view at scale 1 with the world origin at (600, 400) of the canvas, settled; nothing heard yet.
++fn hosted(board: &str, read_only: bool) -> (T, Host) {
++    let mut t = T::new();
++    let host = Host::default();
++    t.app().host = Some(HostMode::new(read_only, None, Box::new(host.clone())));
++    t.app().host_load(board).expect("the board loads");
++    t.app().ed.set_read_only(read_only);
++    t.app().fit_pending = false;
++    t.app().set_view(View { x: 600.0, y: 400.0, zoom: 1.0 });
++    settle(&mut t);
++    host.take();
++    (t, host)
++}
++
++/// Enough frames for the floating cards to settle.
++fn settle(t: &mut T) {
++    for _ in 0..6 {
++        t.h.step();
++    }
++}
++
++fn id(s: &str) -> Id {
++    Id::from(s)
++}
++
++fn label_of(t: &mut T, card: &str) -> String {
++    let Some(Kind::Box(b)) = t.app().ed.page().get(&id(card)).map(|o| o.kind.clone()) else { panic!("no box {card}") };
++    b.label.text.to_plain()
++}
++
++/// A double-click at the screen point `p`, with event times close enough for egui (each step advances its clock by 0.25 s), and
++/// far enough from any earlier click.
++fn double_click(t: &mut T, p: Pos2) {
++    t.mv(p);
++    let t0 = t.h.ctx.input(|i| i.time) + 1.0;
++    for (k, pressed) in [true, false, true, false].into_iter().enumerate() {
++        t.h.input_mut().time = Some(t0 + 0.05 * num::f64_of(k + 1));
++        t.button(p, pressed, Modifiers::NONE);
++    }
++    t.h.step();
++}
++
++fn click_screen(t: &mut T, p: Pos2) {
++    t.mv(p);
++    t.button(p, true, Modifiers::NONE);
++    t.button(p, false, Modifiers::NONE);
++}
++
++#[test]
++fn embed_layout_of_the_fixture() {
++    let (mut t, host) = hosted(FIXTURE, false);
++    t.app().request_embed_layout();
++    t.h.step();
++    let layouts = host.layouts();
++    assert_eq!(layouts.len(), 1, "one report for the request");
++    let l = &layouts[0];
++    assert_eq!(l.page, id("embedtest1"));
++    let ids: Vec<&str> = l.cards.iter().map(|c| c.id.as_str()).collect();
++    assert_eq!(ids, ["embedcard1", "embedcard2"], "the plain box is left out");
++    assert_eq!(l.cards[0].item, ITEM1);
++    assert_eq!(l.cards[1].label, "Second page");
++    assert_eq!(l.cards[0].frame, Frame::new(-520.0, -200.0, 480.0, 360.0));
++    assert!(!l.cards[0].selected && !l.cards[0].locked);
++    assert_eq!(l.items, [ITEM1, ITEM2]);
++    assert_eq!(l.editing, None);
++    // screen = origin + world × zoom: the canvas origin plus the view
++    let canvas = t.app().canvas_rect;
++    assert_eq!(l.canvas, canvas);
++    assert!((l.zoom - 1.0).abs() < 1e-6);
++    assert!((l.origin.x - (canvas.min.x + 600.0)).abs() < 1e-3 && (l.origin.y - (canvas.min.y + 400.0)).abs() < 1e-3, "{:?}", l.origin);
++    assert!(!l.occluders.is_empty(), "the floating cards are over the canvas");
++    assert!(l.occluders.iter().all(|r| canvas.contains_rect(*r) && r.is_positive()), "{:?}", l.occluders);
++}
++
++#[test]
++fn embed_layout_is_reported_only_when_it_changes() {
++    let (mut t, host) = hosted(FIXTURE, false);
++    settle(&mut t);
++    assert_eq!(host.layouts(), [], "nothing changed");
++    let v = t.app().ed.page().view;
++    t.app().set_view(View { x: v.x + 30.0, ..v });
++    t.h.step();
++    let layouts = host.layouts();
++    assert_eq!(layouts.len(), 1, "one report after a pan");
++    assert!((layouts[0].origin.x - (t.app().canvas_rect.min.x + 630.0)).abs() < 1e-3);
++    settle(&mut t);
++    assert_eq!(host.layouts(), []);
++    // a card moved without an undo step (a gesture's live state) is reported too
++    t.app().sel = vec![id("embedcard1")];
++    t.h.step();
++    assert!(host.layouts()[0].cards[0].selected);
++}
++
++#[test]
++fn embed_layout_ignores_the_camera_on_a_page_without_cards() {
++    let board = Document::new("No cards");
++    let (mut t, host) = hosted(&inkboard_core::serial::to_json(&board, false), false);
++    let v = t.app().ed.page().view;
++    t.app().set_view(View { x: v.x + 30.0, y: v.y - 10.0, zoom: 1.5 });
++    settle(&mut t);
++    assert_eq!(host.layouts(), [], "a camera change alone on a page without cards");
++    // the first card is news, with the camera as it is now
++    t.app().insert_embed(ITEM1, "Notes", None, None, None).expect("a card");
++    t.h.step();
++    let layouts = host.layouts();
++    assert_eq!(layouts.len(), 1);
++    assert!((layouts[0].zoom - 1.5).abs() < 1e-6);
++}
++
++#[test]
++fn embed_layout_is_forced_on_a_new_board() {
++    let (mut t, host) = hosted(FIXTURE, false);
++    t.app().host_load(FIXTURE).unwrap();
++    t.h.step();
++    assert!(!host.layouts().is_empty(), "the first frame after setBoard reports");
++}
++
++#[test]
++fn embed_open_instead_of_label_editing() {
++    let (mut t, host) = hosted(FIXTURE, false);
++    let rev = t.app().ed.revision();
++    let p = t.at(-280.0, 0.0);
++    double_click(&mut t, p);
++    let heard = host.others();
++    let opens: Vec<&Heard> = heard.iter().filter(|h| matches!(h, Heard::Open(..))).collect();
++    assert_eq!(opens.len(), 1, "{heard:?}");
++    let Heard::Open(card, item, Some(point)) = opens[0] else { panic!("{heard:?}") };
++    assert_eq!((card.as_str(), item.as_str()), ("embedcard1", ITEM1));
++    assert!(point.distance(p) < 1.0, "{point:?} for a double-click at {p:?}");
++    assert!(t.app().editing.is_none(), "no label editing");
++    assert_eq!(t.app().sel, [id("embedcard1")]);
++    assert_eq!(t.app().ed.revision(), rev);
++    // Enter and the menu ("Edit text") reach start_editing without a point
++    t.key(Key::Enter);
++    assert_eq!(host.others(), [Heard::Open(id("embedcard1"), ITEM1.into(), None)]);
++    t.app().start_editing(&id("embedcard2"), None);
++    assert_eq!(host.others(), [Heard::Open(id("embedcard2"), ITEM2.into(), None)]);
++    assert!(t.app().editing.is_none());
++    // the plain box still edits its label
++    let p = t.at(0.0, 280.0);
++    double_click(&mut t, p);
++    assert_eq!(t.app().editing.as_ref().map(|e| e.id.clone()), Some(id("embedplain")));
++    assert!(!host.others().iter().any(|h| matches!(h, Heard::Open(..))));
++}
++
++#[test]
++fn embed_open_is_never_sent_by_a_read_only_host() {
++    let (mut t, host) = hosted(FIXTURE, true);
++    let p = t.at(-280.0, 0.0);
++    double_click(&mut t, p);
++    // a right click selects under any tool, and then Enter or the menu's "Edit text" call start_editing
++    t.app().sel = vec![id("embedcard1")];
++    t.key(Key::Enter);
++    t.app().start_editing(&id("embedcard1"), None);
++    t.h.step();
++    assert_eq!(host.others(), []);
++    assert!(t.app().editing.is_none());
++}
++
++#[test]
++fn a_card_label_is_edited_as_any_box_when_not_hosted() {
++    let mut t = T::new();
++    t.app().host_load(FIXTURE).unwrap();
++    t.app().host = None;
++    t.app().start_editing(&id("embedcard1"), None);
++    assert_eq!(t.app().editing.as_ref().map(|e| e.id.clone()), Some(id("embedcard1")));
++}
++
++#[test]
++fn embed_editing_ends_on_a_press_that_does_nothing_else() {
++    let (mut t, host) = hosted(FIXTURE, false);
++    t.app().set_embed_editing(Some(id("embedcard1")));
++    t.h.step();
++    assert_eq!(host.layouts().last().and_then(|l| l.editing.clone()), Some(id("embedcard1")));
++    assert_eq!(t.app().sel, [id("embedcard1")]);
++    let objects = t.objects().len();
++    // a press on empty canvas: reported once, and it neither deselects nor starts a marquee
++    let p = t.at(300.0, -300.0);
++    t.mv(p);
++    t.button(p, true, Modifiers::NONE);
++    assert!(t.app().drag.is_none(), "no marquee");
++    t.button(p, false, Modifiers::NONE);
++    settle(&mut t);
++    assert_eq!(host.others(), [Heard::End(id("embedcard1"), EditEnd::Press)]);
++    assert_eq!(t.app().sel, [id("embedcard1")], "the selection is unchanged");
++    assert_eq!(t.objects().len(), objects);
++    assert_eq!(t.app().embed_editing(), None);
++    assert_eq!(host.layouts(), [], "the layout went out with the end");
++    // the next press is an ordinary one again
++    click_screen(&mut t, p);
++    assert!(t.app().sel.is_empty());
++}
++
++#[test]
++fn a_double_click_on_another_card_while_editing_opens_it() {
++    let (mut t, host) = hosted(FIXTURE, false);
++    t.app().set_embed_editing(Some(id("embedcard1")));
++    t.h.step();
++    let p = t.at(280.0, 0.0);
++    double_click(&mut t, p);
++    let heard = host.others();
++    assert_eq!(heard[0], Heard::End(id("embedcard1"), EditEnd::Press), "{heard:?}");
++    assert!(matches!(&heard[1..], [Heard::Open(card, _, Some(_))] if card.as_str() == "embedcard2"), "{heard:?}");
++}
++
++#[test]
++fn embed_editing_takes_no_key() {
++    let (mut t, host) = hosted(FIXTURE, false);
++    t.app().sel = vec![id("embedcard1")];
++    t.app().copy_selection();
++    t.app().set_embed_editing(Some(id("embedcard1")));
++    t.h.step();
++    let rev = t.app().ed.revision();
++    t.key(Key::R);
++    t.key(Key::Delete);
++    t.key_mod(Modifiers::COMMAND, Key::V);
++    t.h.event(Event::Paste(String::new()));
++    t.h.step();
++    t.key_mod(Modifiers::COMMAND, Key::A);
++    assert_eq!(t.app().tool, Tool::Select);
++    assert_eq!(t.app().ed.revision(), rev, "nothing deleted or pasted");
++    assert!(t.app().ed.page().get(&id("embedcard1")).is_some());
++    assert_eq!(t.app().sel, [id("embedcard1")]);
++    assert!(!host.others().iter().any(|h| matches!(h, Heard::Changed(_) | Heard::End(..))));
++    // once the editing is over the keys work again
++    t.app().set_embed_editing(None);
++    t.key(Key::R);
++    assert_eq!(t.app().tool, Tool::Shape(BoxGeom::Rect));
++}
++
++#[test]
++fn embed_editing_hides_the_handles() {
++    let (mut t, _host) = hosted(FIXTURE, false);
++    t.app().sel = vec![id("embedcard1")];
++    t.h.step();
++    t.app().set_embed_editing(Some(id("embedcard1")));
++    t.h.step();
++    // the corner handle no longer resizes: a press there ends the editing and is swallowed
++    let corner = t.at(-40.0, 160.0);
++    t.mv(corner);
++    t.button(corner, true, Modifiers::NONE);
++    assert!(t.app().drag.is_none());
++    t.button(corner, false, Modifiers::NONE);
++    assert_eq!(t.frame(&id("embedcard1")), Frame::new(-520.0, -200.0, 480.0, 360.0));
++}
++
++#[test]
++fn embed_editing_ends_when_the_board_takes_the_focus() {
++    let (mut t, host) = hosted(FIXTURE, false);
++    t.h.input_mut().focused = false;
++    t.h.event(Event::WindowFocused(false));
++    t.h.step();
++    t.app().set_embed_editing(Some(id("embedcard1")));
++    t.h.step();
++    t.h.step();
++    assert_eq!(host.others(), []);
++    t.h.input_mut().focused = true;
++    t.h.event(Event::WindowFocused(true));
++    t.h.step();
++    assert_eq!(host.others(), [Heard::End(id("embedcard1"), EditEnd::Focus)]);
++}
++
++#[test]
++fn embed_editing_is_gone_with_its_card_and_with_the_board() {
++    let (mut t, host) = hosted(FIXTURE, false);
++    t.app().set_embed_editing(Some(id("embedcard1")));
++    t.h.step();
++    t.app().ed.remove(&[id("embedcard1")]);
++    t.h.step();
++    assert_eq!(host.others().last(), Some(&Heard::End(id("embedcard1"), EditEnd::Gone)));
++    t.app().ed.undo();
++    t.h.step();
++    host.take();
++    t.app().set_embed_editing(Some(id("embedcard2")));
++    t.app().host_load(FIXTURE).unwrap();
++    assert_eq!(host.others(), [Heard::End(id("embedcard2"), EditEnd::Gone)]);
++    assert_eq!(t.app().embed_editing(), None);
++    // an id that is not a card of the page is ignored
++    t.app().set_embed_editing(Some(id("embedplain")));
++    t.app().set_embed_editing(Some(id("nothing")));
++    assert_eq!(t.app().embed_editing(), None);
++}
++
++#[test]
++fn insert_embed_adds_a_card_with_the_defaults() {
++    let (mut t, host) = hosted(FIXTURE, false);
++    let before = t.objects().len();
++    let centre = t.app().view_center();
++    let card = t.app().insert_embed(ITEM2, "Meeting notes", None, None, None).expect("a card");
++    assert_eq!(t.app().sel, std::slice::from_ref(&card));
++    let o = t.app().ed.page().get(&card).cloned().unwrap();
++    let json = serde_json::to_value(&o).unwrap();
++    let frame = o.frame().unwrap();
++    assert!((frame.center().x - centre.x).abs() < 1e-6 && (frame.center().y - centre.y).abs() < 1e-6, "{frame:?} for {centre:?}");
++    let expected = serde_json::json!({
++        "id": card.as_str(),
++        "kind": {
++            "type": "box", "geom": "rect", "frame": { "x": frame.x, "y": frame.y, "w": 480.0, "h": 360.0 },
++            "label": { "text": [{ "text": "Meeting notes", "bold": true, "color": "#1d2430" }], "family": "sans", "size": 24.0, "align": "center" },
++            "embed": { "item": ITEM2 }
++        },
++        "style": { "stroke": "#c4cad4", "fill": "#ffffff", "width": 1.0, "dash": "solid", "opacity": 1.0, "roundness": 0.04_f32, "shadow": true },
++        "layer": "main"
++    });
++    assert_eq!(json, expected);
++    assert_eq!(t.objects().len(), before + 1);
++    t.h.step();
++    assert!(host.others().iter().any(|h| matches!(h, Heard::Changed(_))), "an edit like any other");
++    // one undo step
++    t.key_mod(Modifiers::COMMAND, Key::Z);
++    assert!(t.app().ed.page().get(&card).is_none());
++    assert_eq!(t.objects().len(), before);
++}
++
++#[test]
++fn insert_embed_at_a_point_of_the_canvas() {
++    let (mut t, _host) = hosted(FIXTURE, false);
++    // the point is in CSS pixels of the canvas: the world point under it is the card's centre
++    let screen = t.at(700.0, -350.0);
++    let card = t.app().insert_embed(ITEM1, "Here", Some(screen), Some(200.0), Some(-3.0)).unwrap();
++    let f = t.frame(&card);
++    assert!((f.center().x - 700.0).abs() < 1.0 && (f.center().y + 350.0).abs() < 1.0, "{f:?}");
++    assert_eq!((f.w, f.h), (200.0, 360.0), "a size that is not positive is the default");
++}
++
++#[test]
++fn insert_embed_refuses_a_read_only_board() {
++    let (mut t, _host) = hosted(FIXTURE, true);
++    let rev = t.app().ed.revision();
++    assert_eq!(t.app().insert_embed(ITEM1, "No", None, None, None), None);
++    assert_eq!(t.objects().len(), 3);
++    assert_eq!(t.app().ed.revision(), rev);
++}
++
++#[test]
++fn insert_embed_uses_the_first_visible_unlocked_layer() {
++    let mut board: serde_json::Value = serde_json::from_str(FIXTURE).unwrap();
++    board["document"]["pages"][0]["layers"] = serde_json::json!([
++        { "id": "hidden", "name": "Hidden", "visible": false, "locked": false },
++        { "id": "locked", "name": "Locked", "visible": true, "locked": true },
++        { "id": "open", "name": "Open", "visible": true, "locked": false }
++    ]);
++    let (mut t, host) = hosted(&board.to_string(), false);
++    let card = t.app().insert_embed(ITEM1, "Layered", None, None, None).unwrap();
++    assert_eq!(t.app().ed.page().get(&card).unwrap().layer, id("open"));
++    t.h.step();
++    assert!(host.layouts().last().is_some_and(|l| l.cards.iter().any(|c| c.id == card)), "the new card is in the layout");
++    // no visible unlocked layer: the first one
++    board["document"]["pages"][0]["layers"] = serde_json::json!([
++        { "id": "a", "name": "A", "visible": false, "locked": false },
++        { "id": "b", "name": "B", "visible": true, "locked": true }
++    ]);
++    t.app().host_load(&board.to_string()).unwrap();
++    let card = t.app().insert_embed(ITEM1, "Layered", None, None, None).unwrap();
++    assert_eq!(t.app().ed.page().get(&card).unwrap().layer, id("a"));
++}
++
++#[test]
++fn insert_embed_validates_a_label_being_typed_first() {
++    let (mut t, _host) = hosted(FIXTURE, false);
++    t.app().start_editing(&id("embedplain"), None);
++    t.h.step();
++    t.app().editing.as_mut().unwrap().buf = "Typed".into();
++    t.app().insert_embed(ITEM1, "After", None, None, None).unwrap();
++    assert!(t.app().editing.is_none());
++    assert_eq!(label_of(&mut t, "embedplain"), "Typed");
++}
++
++#[test]
++fn embed_titles_change_labels_in_place() {
++    let (mut t, host) = hosted(FIXTURE, false);
++    // an undo step that holds the old label, for later
++    t.app().ed.translate(&[id("embedcard1")], Pt::new(10.0, 0.0));
++    t.h.step();
++    let saved = t.app().ed.revision();
++    t.app().saved_rev = saved;
++    host.take();
++    t.app().set_embed_titles(HashMap::from([(ITEM1.to_owned(), "Renamed".to_owned()), ("not-a-card".to_owned(), "Other".to_owned())]));
++    t.h.step();
++    assert_eq!(label_of(&mut t, "embedcard1"), "Renamed");
++    assert_eq!(label_of(&mut t, "embedcard2"), "Second page");
++    assert_eq!(t.app().ed.revision(), saved, "no revision");
++    assert!(!t.app().dirty());
++    assert!(!t.app().ed.can_redo());
++    let heard = host.take();
++    assert!(!heard.iter().any(|h| matches!(h, Heard::Changed(_))), "no change event");
++    assert!(heard.iter().any(|h| matches!(h, Heard::Layout(l) if l.cards[0].label == "Renamed")), "{heard:?}");
++    // the style of the first span stays
++    let Some(Kind::Box(b)) = t.app().ed.page().get(&id("embedcard1")).map(|o| o.kind.clone()) else { unreachable!() };
++    assert!(b.label.text.0[0].style.bold && b.label.text.0[0].style.color == Some(Color::rgb(0x1d, 0x24, 0x30)));
++    assert!(t.app().host_snapshot().contains(r#""text":"Renamed""#), "the next save keeps the title");
++    // an undo brings the old label back, and the title is shown again
++    t.key_mod(Modifiers::COMMAND, Key::Z);
++    assert_eq!(t.frame(&id("embedcard1")).x, -520.0, "undone");
++    assert_eq!(label_of(&mut t, "embedcard1"), "Renamed");
++    // a new board starts without titles
++    t.app().host_load(FIXTURE).unwrap();
++    t.h.step();
++    assert_eq!(label_of(&mut t, "embedcard1"), "First page");
++}
++
++#[test]
++fn no_rotation_handle_for_a_single_card() {
++    let (mut t, _host) = hosted(FIXTURE, false);
++    // where the rotation handle of the selected card would be: 28 px above the middle of its top edge
++    t.app().sel = vec![id("embedcard2")];
++    t.h.step();
++    t.drag((280.0, -228.0), (520.0, 0.0));
++    assert_eq!(t.frame(&id("embedcard2")).angle, 0.0);
++    // the plain box rotates (the control)
++    t.app().sel = vec![id("embedplain")];
++    t.h.step();
++    t.drag((0.0, 192.0), (240.0, 280.0));
++    assert!(t.frame(&id("embedplain")).angle.abs() > 0.5, "{:?}", t.frame(&id("embedplain")));
++}
++
++#[test]
++fn embed_layout_reports_a_gesture_as_it_is_drawn() {
++    let (mut t, host) = hosted(FIXTURE, false);
++    let from = t.at(-280.0, 0.0);
++    let to = t.at(-180.0, 40.0);
++    t.mv(from);
++    t.button(from, true, Modifiers::NONE);
++    for k in 1..=4 {
++        t.mv(from.lerp(to, num::f32(f64::from(k)) / 4.0));
++    }
++    // still dragging: the card moved without an undo step, and the layout follows it
++    let moved = host.layouts().last().map(|l| l.cards[0].frame).unwrap();
++    assert!((moved.x - (-420.0)).abs() < 1.0 && (moved.y - (-160.0)).abs() < 1.0, "{moved:?}");
++    t.h.event(Event::PointerButton { pos: to, button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE });
++    t.h.step();
++    assert!((t.frame(&id("embedcard1")).x - (-420.0)).abs() < 1.0, "committed where it was dropped");
++}
+diff --git a/crates/inkboard-app/src/tools.rs b/crates/inkboard-app/src/tools.rs
+index b6a5542..335bc30 100644
+--- a/crates/inkboard-app/src/tools.rs
++++ b/crates/inkboard-app/src/tools.rs
+@@ -1,3 +1,4 @@
++// Changed for Quire (embed feature): see patches/inkboard/README.md
+ //! Canvas interactions: tools, selection, handles, text editing.
+ 
+ use crate::app::App;
+@@ -167,7 +168,8 @@ impl App {
+     fn selection_box(&self) -> Option<SelBox> {
+         let page = self.ed.page();
+         let objs = self.selected_objects();
+-        if objs.is_empty() || self.editing.is_some() {
++        // no handles while a label is edited, nor while the host page edits a card
++        if objs.is_empty() || self.editing.is_some() || self.embed_editing().is_some() {
+             return None;
+         }
+         if objs.iter().all(|o| page.is_locked(o)) {
+@@ -175,7 +177,15 @@ impl App {
+         }
+         if let [o] = objs.as_slice() {
+             return Some(match &o.kind {
+-                Kind::Box(b) => SelBox { frame: b.frame, edges: b.geom != BoxGeom::Text, rotate: true, single_frame: true, ends: None, via: Vec::new() },
++                // a hosted card is not rotated by hand: the host page draws its document upright over it
++                Kind::Box(b) => SelBox {
++                    frame: b.frame,
++                    edges: b.geom != BoxGeom::Text,
++                    rotate: !(self.hosted() && b.is_embed()),
++                    single_frame: true,
++                    ends: None,
++                    via: Vec::new(),
++                },
+                 Kind::Image(i) => SelBox { frame: i.frame, edges: true, rotate: true, single_frame: true, ends: None, via: Vec::new() },
+                 Kind::Table(t) => SelBox { frame: Frame::from_rect(t.rect()), edges: true, rotate: false, single_frame: true, ends: None, via: Vec::new() },
+                 Kind::Pen(p) => SelBox {
+@@ -747,6 +757,8 @@ fn canvas_pointer(app: &mut App, ctx: &egui::Context, resp: &egui::Response, rec
+             i.modifiers.shift,
+         )
+     });
++    // the press that ended the host page's editing of a card does nothing else (it neither selects, nor drags, nor creates)
++    let pressed = pressed && !app.embed_swallows_press(ctx);
+     let inside = resp.contains_pointer();
+     let editing_now = app.editing.is_some();
+     if (pressed || middle) && inside {
+@@ -777,7 +789,7 @@ fn canvas_pointer(app: &mut App, ctx: &egui::Context, resp: &egui::Response, rec
+         }
+         if dbl && inside && (app.drag.is_none() || matches!(app.drag, Some(Drag::Move { moved: false, .. } | Drag::Marquee { .. }))) {
+             app.drag = None;
+-            handle_double_click(app, cam, w);
++            handle_double_click(app, cam, w, sp);
+         }
+         if let Some(Drag::Pan { from, view }) = &app.drag {
+             let d = sp - *from;
+@@ -881,6 +893,7 @@ pub fn canvas(app: &mut App, ui: &mut egui::Ui) {
+     });
+ 
+     canvas_pointer(app, &ctx, &resp, rect, &mut cam);
++    app.embed_drawn(cam);
+     // ---- drawing
+     let dark = app.ed.doc.background.preset.is_dark();
+     let (r, g, b) = app.ed.doc.background.preset.rgb();
+@@ -927,14 +940,14 @@ pub fn canvas(app: &mut App, ui: &mut egui::Ui) {
+     });
+ }
+ 
+-fn handle_double_click(app: &mut App, cam: &Cam, w: Pt) {
++fn handle_double_click(app: &mut App, cam: &Cam, w: Pt, screen: Pos2) {
+     let tol = 6.0 / f64::from(cam.zoom);
+     if let Some(i) = app.pick_at(w, tol) {
+         let o = app.ed.page().objects[i].clone();
+         match &o.kind {
+             Kind::Box(_) | Kind::Connector(_) => {
+                 app.sel = vec![o.id.clone()];
+-                app.start_editing(&o.id, None);
++                app.start_editing_at(&o.id, None, Some(screen));
+             }
+             Kind::Table(t) => {
+                 let cell = t.cell_at(w);
+diff --git a/crates/inkboard-core/src/model.rs b/crates/inkboard-core/src/model.rs
+index a0329e1..67719e0 100644
+--- a/crates/inkboard-core/src/model.rs
++++ b/crates/inkboard-core/src/model.rs
+@@ -1,3 +1,4 @@
++// Changed for Quire (embed feature): see patches/inkboard/README.md
+ //! Document model: objects, pages, layers, assets.
+ 
+ use crate::connector::Connector;
+@@ -175,9 +176,38 @@ pub struct BoxObj {
+     /// Programming language when the box is a code block (its text is then colored automatically).
+     #[serde(default, skip_serializing_if = "Option::is_none")]
+     pub lang: Option<crate::highlight::Lang>,
++    /// A document that the page embedding the board shows inside a rectangle (see [`Embed`]). Read leniently: a value that is not
++    /// an object with a string `item` loads as `None`, so a board written by another program always opens.
++    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "lenient_embed")]
++    pub embed: Option<Embed>,
++}
++
++/// A document embedded in a rectangle: the page that embeds the board draws the document's content inside the box, and the label
++/// keeps its title (what any other reader shows). `item` names the document for that page; the engine never interprets it.
++#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
++pub struct Embed {
++    pub item: String,
++}
++
++/// `embed` as written by any program: an object with a string `item` is kept (its other fields are not), anything else is `None`.
++fn lenient_embed<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Embed>, D::Error> {
++    // a JSON value never fails to deserialize from well-formed JSON, so a malformed `embed` cannot make the board unreadable
++    Ok(match serde_json::Value::deserialize(d)? {
++        serde_json::Value::Object(mut fields) => match fields.remove("item") {
++            Some(serde_json::Value::String(item)) => Some(Embed { item }),
++            _ => None,
++        },
++        _ => None,
++    })
+ }
+ 
+ impl BoxObj {
++    /// Is this box a card that embeds a document: a rectangle with an [`Embed`]?
++    #[must_use]
++    pub fn is_embed(&self) -> bool {
++        self.geom == BoxGeom::Rect && self.embed.is_some()
++    }
++
+     /// Area (local frame) in which the text is laid out.
+     #[must_use]
+     pub fn label_rect(&self) -> Rect {
+@@ -429,7 +459,7 @@ impl Object {
+     /// Shape, note or text.
+     #[must_use]
+     pub fn new_box(geom: BoxGeom, frame: Frame, style: Style, label: Label) -> Self {
+-        Self::new(Kind::Box(BoxObj { geom, frame, label, lang: None }), style)
++        Self::new(Kind::Box(BoxObj { geom, frame, label, lang: None, embed: None }), style)
+     }
+ 
+     #[must_use]
+@@ -813,7 +843,13 @@ mod tests {
+                 num::f64_of(s.chars().count()) * size * 0.6
+             }
+         }
+-        let b = BoxObj { geom: BoxGeom::Diamond, frame: Frame::new(0.0, 0.0, 160.0, 110.0), label: Label::new("Diamond", 20.0, Align::Center), lang: None };
++        let b = BoxObj {
++            geom: BoxGeom::Diamond,
++            frame: Frame::new(0.0, 0.0, 160.0, 110.0),
++            label: Label::new("Diamond", 20.0, Align::Center),
++            lang: None,
++            embed: None,
++        };
+         assert_eq!(b.layout(&Wide).lines.len(), 1, "a short word must stay on one line");
+         let r = b.label_rect();
+         let (hw, hh) = (80.0, 55.0);
+@@ -824,7 +860,13 @@ mod tests {
+ 
+     #[test]
+     fn text_box_fits_content() {
+-        let mut b = BoxObj { geom: BoxGeom::Text, frame: Frame::new(0.0, 0.0, 1.0, 1.0), label: Label::new("Hello\nworld", 20.0, Align::Left), lang: None };
++        let mut b = BoxObj {
++            geom: BoxGeom::Text,
++            frame: Frame::new(0.0, 0.0, 1.0, 1.0),
++            label: Label::new("Hello\nworld", 20.0, Align::Left),
++            lang: None,
++            embed: None,
++        };
+         b.fit(&ApproxMeasurer);
+         assert!(b.frame.w > 40.0);
+         assert!((b.frame.h - 2.0 * 26.0).abs() < 1e-9);
+@@ -837,6 +879,7 @@ mod tests {
+             frame: Frame::new(0.0, 0.0, 100.0, 40.0),
+             label: Label::new("a really long text that overflows", 20.0, Align::Center),
+             lang: None,
++            embed: None,
+         };
+         let before = b.frame.h;
+         b.fit(&ApproxMeasurer);
+@@ -872,6 +915,80 @@ mod tests {
+         assert!((o.frame().unwrap().w - 200.0).abs() < 1e-9);
+     }
+ 
++    /// A card as Quire writes it: a rectangle whose box kind ends with `embed`.
++    const CARD: &str = r##"{"id":"card1","kind":{"type":"box","geom":"rect","frame":{"x":-240.0,"y":-180.0,"w":480.0,"h":360.0},"label":{"text":[{"text":"Meeting notes","bold":true,"color":"#1d2430"}],"family":"sans","size":24.0,"align":"center"},"embed":{"item":"0192f0e0-0000-7000-8000-000000000001"}},"style":{"stroke":"#c4cad4","fill":"#ffffff","width":1.0,"dash":"solid","opacity":1.0,"roundness":0.04,"shadow":true},"layer":"main"}"##;
++
++    fn box_of(o: &Object) -> &BoxObj {
++        let Kind::Box(b) = &o.kind else { panic!("not a box: {o:?}") };
++        b
++    }
++
++    /// `CARD` with its `embed` value replaced by `value` (JSON text).
++    fn card_with_embed(value: &str) -> String {
++        CARD.replace(r#"{"item":"0192f0e0-0000-7000-8000-000000000001"}"#, value)
++    }
++
++    #[test]
++    fn an_embedded_document_round_trips_byte_for_byte() {
++        let o: Object = serde_json::from_str(CARD).unwrap();
++        let b = box_of(&o);
++        assert_eq!(b.embed, Some(Embed { item: "0192f0e0-0000-7000-8000-000000000001".into() }));
++        assert!(b.is_embed());
++        assert_eq!(serde_json::to_string(&o).unwrap(), CARD);
++    }
++
++    #[test]
++    fn a_box_without_embed_serializes_exactly_as_before() {
++        let o = Object::new_box(BoxGeom::Rect, Frame::new(0.0, 0.0, 10.0, 10.0), Style::default(), Label::new("x", 20.0, Align::Center));
++        assert!(box_of(&o).embed.is_none() && !box_of(&o).is_embed());
++        let json = serde_json::to_string(&o).unwrap();
++        assert!(!json.contains("embed"), "{json}");
++        assert_eq!(serde_json::from_str::<Object>(&json).unwrap(), o);
++    }
++
++    #[test]
++    fn a_malformed_embed_loads_as_a_plain_box() {
++        for value in ["5", "{}", r#"{"item":3}"#, "null", r#""0192f0e0""#, "[]", r#"{"item":null}"#, r#"{"items":"a"}"#] {
++            let o: Object = serde_json::from_str(&card_with_embed(value)).unwrap_or_else(|e| panic!("{value}: {e}"));
++            assert_eq!(box_of(&o).embed, None, "{value}");
++            assert!(!box_of(&o).is_embed(), "{value}");
++            assert!(!serde_json::to_string(&o).unwrap().contains("embed"), "{value}: dropped on the next save");
++        }
++        // fields next to `item` are not kept
++        let o: Object = serde_json::from_str(&card_with_embed(r#"{"item":"a","size":3,"item2":"b"}"#)).unwrap();
++        assert_eq!(box_of(&o).embed, Some(Embed { item: "a".into() }));
++        let json = serde_json::to_string(&o).unwrap();
++        assert!(json.contains(r#""embed":{"item":"a"}},"style""#) && !json.contains("item2"), "{json}");
++    }
++
++    #[test]
++    fn an_embed_on_another_shape_is_kept_but_is_not_a_card() {
++        let json = CARD.replace(r#""geom":"rect""#, r#""geom":"ellipse""#);
++        let o: Object = serde_json::from_str(&json).unwrap();
++        assert!(box_of(&o).embed.is_some());
++        assert!(!box_of(&o).is_embed());
++        assert_eq!(serde_json::to_string(&o).unwrap(), json);
++    }
++
++    #[test]
++    fn a_board_with_cards_and_malformed_embeds_opens() {
++        let objects = [CARD.to_owned(), card_with_embed("5").replace("card1", "card2"), card_with_embed(r#"{"item":3}"#).replace("card1", "card3")];
++        let board = format!(
++            r#"{{"format":"inkboard","version":2,"document":{{"name":"Cards","pages":[{{"id":"p1","name":"Page 1","layers":[{{"id":"main","name":"Layer 1","visible":true,"locked":false}}],"objects":[{}]}}]}}}}"#,
++            objects.join(",")
++        );
++        let doc = crate::serial::from_json(&board).unwrap();
++        let cards: Vec<bool> = doc.pages[0].objects.iter().map(|o| box_of(o).is_embed()).collect();
++        assert_eq!(cards, [true, false, false]);
++    }
++
++    #[test]
++    fn a_box_kind_with_the_embed_key_twice_is_refused() {
++        // serde refuses a repeated known field before the lenient reader runs: the server refuses such a board too (it could not open)
++        let twice = CARD.replace(r#""embed":{"item""#, r#""embed":5,"embed":{"item""#);
++        assert!(serde_json::from_str::<Object>(&twice).is_err());
++    }
++
+     #[test]
+     fn pen_is_copy_on_write() {
+         let mut a = Object::new_pen(vec![Pt::ZERO, Pt::new(1.0, 1.0)], false, Style::default());
+diff --git a/crates/inkboard-core/tests/properties.rs b/crates/inkboard-core/tests/properties.rs
+index b3cae00..cc979c0 100644
+--- a/crates/inkboard-core/tests/properties.rs
++++ b/crates/inkboard-core/tests/properties.rs
+@@ -1,3 +1,4 @@
++// Changed for Quire (embed feature): see patches/inkboard/README.md
+ //! Engine invariants checked on random documents (0 to 200 objects): undo/redo, saving, bound connectors, elbow routing,
+ //! spatial index, handle transformations.
+ 
+@@ -152,7 +153,7 @@ fn object(s: &Spec, id: Id, attach: &[Id], doc: &mut Document) -> Object {
+     let style = Style { fill: s.fill.map(|(r, g, b)| Color::rgb(r, g, b)), width: s.width, opacity: s.opacity, ..Style::default() };
+     let f = s.frame;
+     let kind = match &s.shape {
+-        Shape::Box(geom) => Kind::Box(BoxObj { geom: *geom, frame: f, label: Label::new(&s.text, 20.0, Align::Center), lang: None }),
++        Shape::Box(geom) => Kind::Box(BoxObj { geom: *geom, frame: f, label: Label::new(&s.text, 20.0, Align::Center), lang: None, embed: None }),
+         Shape::Image { latex, mono, data } => {
+             Kind::Image(ImageObj { frame: f, asset: doc.add_asset("image/png", data.clone()), latex: latex.clone(), mono: *mono, recolor: Vec::new() })
+         }
+@@ -504,7 +505,7 @@ fn scene_page(cells: &[Cell], links: &[(Index, Index)], rotated: bool) -> Page {
+         let kind = match c.geom {
+             Some(geom) => {
+                 let frame = Frame { x: cx - c.size.0 / 2.0, y: cy - c.size.1 / 2.0, w: c.size.0, h: c.size.1, angle: if rotated { c.angle } else { 0.0 } };
+-                Kind::Box(BoxObj { geom, frame, label: Label::default(), lang: None })
++                Kind::Box(BoxObj { geom, frame, label: Label::default(), lang: None, embed: None })
+             }
+             None => Kind::Table(Table::new(Pt::new(cx - 70.0, cy - 22.0 * num::f64_of(c.rows)), c.rows, 1)),
+         };
+diff --git a/crates/inkboard-formats/src/mermaid.rs b/crates/inkboard-formats/src/mermaid.rs
+index f0ac749..f644f30 100644
+--- a/crates/inkboard-formats/src/mermaid.rs
++++ b/crates/inkboard-formats/src/mermaid.rs
+@@ -1,3 +1,4 @@
++// Changed for Quire (embed feature): see patches/inkboard/README.md
+ //! Mermaid : `flowchart` / `graph`, `stateDiagram`, `sequenceDiagram`, `classDiagram`, `erDiagram`.
+ //!
+ //! The text becomes real shapes linked by real connectors: moving a node
+@@ -438,7 +439,7 @@ fn node_size(n: &Node, m: &dyn Measurer) -> (BoxGeom, f64, f64) {
+         BoxGeom::Diamond => (tw / 0.5 + 24.0).clamp(w, 340.0),
+         _ => (tw + 40.0).clamp(w, 300.0),
+     };
+-    let mut obj = BoxObj { geom, frame: Frame::new(0.0, 0.0, w, h), label: Label::new(&n.label, FONT, Align::Center), lang: None };
++    let mut obj = BoxObj { geom, frame: Frame::new(0.0, 0.0, w, h), label: Label::new(&n.label, FONT, Align::Center), lang: None, embed: None };
+     for _ in 0..6 {
+         let before = obj.frame.h;
+         obj.fit(m);

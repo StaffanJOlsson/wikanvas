@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: quire <quire@localhost>
 Date: Wed, 28 Oct 2026 13:45:18 +0100
-Subject: [PATCH 1/4] theme: sync egui theme
+Subject: [PATCH 1/6] theme: sync egui theme
 
 `theme::apply` sets the visuals of the current egui style only, but egui keeps
 one style per theme and follows the system theme by default. When the OS

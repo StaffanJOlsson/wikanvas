@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: quire <quire@localhost>
 Date: Wed, 28 Oct 2026 14:02:15 +0100
-Subject: [PATCH 3/4] optional net
+Subject: [PATCH 3/6] optional net
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit

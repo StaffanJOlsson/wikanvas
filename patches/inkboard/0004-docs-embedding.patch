@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: quire <quire@localhost>
 Date: Wed, 28 Oct 2026 14:04:05 +0100
-Subject: [PATCH 4/4] docs: embedding
+Subject: [PATCH 4/6] docs: embedding
 
 An "Embedding (feature `embed`)" section in docs/WEB.md and docs/fr/WEB.md:
 how to build the engine for a host page, the JS API, the single-mount rule,
