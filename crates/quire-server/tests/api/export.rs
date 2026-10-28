@@ -1,1 +1,270 @@
 //! Export tests (owner: W2)
+//!
+//! `GET /api/v1/export`: the tar layout, a database copy without credentials (checked on the extracted file and its
+//! raw bytes), single-flight, and the cookie rule for cross-site navigations.
+
+use axum::body::Body;
+use axum::http::Request;
+use quire_api::{Attachment, ErrorBody, ErrorCode, Scope};
+use tower::ServiceExt as _;
+
+use crate::common::{OWNER_PASSWORD, TestApp, assert_error, router};
+
+/// The entries of a ustar archive: (name, bytes).
+fn untar(bytes: &[u8]) -> Vec<(String, Vec<u8>)> {
+    let mut out = Vec::new();
+    let mut at = 0;
+    while at + 512 <= bytes.len() {
+        let header = &bytes[at..at + 512];
+        if header.iter().all(|b| *b == 0) {
+            break;
+        }
+        let field = |r: std::ops::Range<usize>| {
+            let raw = &header[r];
+            let end = raw.iter().position(|b| *b == 0).unwrap_or(raw.len());
+            String::from_utf8(raw[..end].to_vec()).unwrap()
+        };
+        let mut name = field(0..100);
+        let prefix = field(345..500);
+        if !prefix.is_empty() {
+            name = format!("{prefix}/{name}");
+        }
+        let size = u64::from_str_radix(field(124..136).trim(), 8).unwrap() as usize;
+        let data = bytes[at + 512..at + 512 + size].to_vec();
+        out.push((name, data));
+        at += 512 + size.div_ceil(512) * 512;
+    }
+    out
+}
+
+/// An owner with a session, a token, a password hash, and one uploaded file.
+async fn populated() -> (TestApp, String, Attachment) {
+    let app = TestApp::with_owner().await;
+    let token = app.mint_token(app.owner(), Scope::Admin).await;
+    let res = app
+        .server
+        .post("/api/v1/attachments?filename=hello.txt")
+        .bytes("hello, export\n".into())
+        .content_type("application/octet-stream")
+        .await;
+    let attachment: Attachment = res.json();
+    (app, token, attachment)
+}
+
+async fn export(app: &TestApp) -> Vec<(String, Vec<u8>)> {
+    let res = app.server.get("/api/v1/export").await;
+    res.assert_status_ok();
+    assert_eq!(res.header("content-type"), "application/x-tar");
+    assert!(
+        res.header("content-disposition")
+            .to_str()
+            .unwrap()
+            .starts_with("attachment; filename=\"quire-export-")
+    );
+    assert_eq!(res.header("cache-control"), "no-store");
+    untar(res.as_bytes())
+}
+
+#[tokio::test]
+async fn tar_has_manifest_db_and_files() {
+    let (app, _, attachment) = populated().await;
+    let entries = export(&app).await;
+    let names: Vec<&str> = entries.iter().map(|(n, _)| n.as_str()).collect();
+    let sha = &attachment.sha256;
+    let blob = format!("files/{}/{}/{sha}", &sha[0..2], &sha[2..4]);
+    assert_eq!(names, ["manifest.json", "quire.db", blob.as_str()]);
+    let manifest: serde_json::Value = serde_json::from_slice(&entries[0].1).unwrap();
+    assert_eq!(manifest["format"], "quire-export");
+    assert_eq!(manifest["format_version"], 1);
+    assert_eq!(manifest["api_version"], quire_api::API_VERSION);
+    assert_eq!(manifest["schema_version"], quire_store::migrate::latest());
+    assert_eq!(entries[2].1, b"hello, export\n");
+    assert!(entries[1].1.starts_with(b"SQLite format 3\0"));
+    // The copy in /data/tmp is gone once the stream ended.
+    let leftovers: Vec<_> = std::fs::read_dir(app.state.config.tmp_dir())
+        .unwrap()
+        .flatten()
+        .collect();
+    assert!(leftovers.is_empty(), "{leftovers:?}");
+}
+
+/// Extracts `quire.db` into an empty directory and opens it read-only (no `-wal` next to it).
+fn extracted_db(
+    entries: &[(String, Vec<u8>)],
+) -> (tempfile::TempDir, rusqlite::Connection, Vec<u8>) {
+    let dir = tempfile::tempdir().unwrap();
+    let db = entries
+        .iter()
+        .find(|(n, _)| n == "quire.db")
+        .unwrap()
+        .1
+        .clone();
+    std::fs::write(dir.path().join("quire.db"), &db).unwrap();
+    let conn = rusqlite::Connection::open_with_flags(
+        dir.path().join("quire.db"),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .unwrap();
+    (dir, conn, db)
+}
+
+fn count(conn: &rusqlite::Connection, sql: &str) -> i64 {
+    conn.query_row(sql, [], |r| r.get(0)).unwrap()
+}
+
+#[tokio::test]
+async fn copy_has_no_sessions_or_password_hashes() {
+    let (app, _, _) = populated().await;
+    let (_dir, conn, _) = extracted_db(&export(&app).await);
+    assert_eq!(count(&conn, "SELECT count(*) FROM sessions"), 0);
+    assert_eq!(count(&conn, "SELECT count(*) FROM users"), 1);
+    assert_eq!(
+        count(
+            &conn,
+            "SELECT count(*) FROM users WHERE password_hash IS NOT NULL"
+        ),
+        0
+    );
+    assert_eq!(count(&conn, "SELECT count(*) FROM attachments"), 1);
+    // The live database keeps everything.
+    let live: i64 = app
+        .state
+        .db
+        .read(|c| Ok(c.query_row("SELECT count(*) FROM sessions", [], |r| r.get(0))?))
+        .await
+        .unwrap();
+    assert_eq!(live, 1);
+    app.login(OWNER_PASSWORD, false, None)
+        .await
+        .assert_status_ok();
+}
+
+#[tokio::test]
+async fn copy_has_no_api_tokens() {
+    let (app, token, _) = populated().await;
+    let (_dir, conn, _) = extracted_db(&export(&app).await);
+    assert_eq!(count(&conn, "SELECT count(*) FROM api_tokens"), 0);
+    assert_eq!(count(&conn, "SELECT count(*) FROM api_token_scopes"), 0);
+    app.token_client(&token)
+        .get("/api/v1/auth/me")
+        .await
+        .assert_status_ok();
+}
+
+#[tokio::test]
+async fn extracted_db_has_no_credentials_without_sidecars() {
+    let (app, token, _) = populated().await;
+    let entries = export(&app).await;
+    assert!(
+        entries
+            .iter()
+            .all(|(n, _)| !n.ends_with("-wal") && !n.ends_with("-journal") && !n.ends_with("-shm"))
+    );
+    let (dir, conn, raw) = extracted_db(&entries);
+    let check: String = conn
+        .query_row("PRAGMA quick_check", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(check, "ok");
+    assert_eq!(count(&conn, "SELECT count(*) FROM sessions"), 0);
+    assert_eq!(count(&conn, "SELECT count(*) FROM api_tokens"), 0);
+    drop(conn);
+    let names: Vec<String> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().into_string().unwrap())
+        .collect();
+    assert_eq!(
+        names,
+        ["quire.db"],
+        "opened read-only, nothing was created next to it"
+    );
+    let contains = |needle: &[u8]| raw.windows(needle.len()).any(|w| w == needle);
+    assert!(
+        !contains(b"$argon2id$"),
+        "a password hash survived in the raw bytes"
+    );
+    assert!(
+        !contains(&quire_store::tokens::hash(&token)),
+        "a token hash survived"
+    );
+    let session = quire_store::sessions::token_hash(app.session.as_deref().unwrap()).unwrap();
+    assert!(!contains(&session), "a session hash survived");
+}
+
+#[tokio::test]
+async fn single_flight_429_busy() {
+    let (app, token, _) = populated().await;
+    let req = || {
+        Request::get("/api/v1/export")
+            .header("host", "localhost")
+            .header("authorization", format!("Bearer {token}"))
+            .body(Body::empty())
+            .unwrap()
+    };
+    let first = router(&app.state).oneshot(req()).await.unwrap();
+    assert_eq!(first.status(), 200);
+    // The body is not read yet: the export is still running.
+    let second = router(&app.state).oneshot(req()).await.unwrap();
+    assert_eq!(second.status(), 429);
+    assert!(second.headers().contains_key("retry-after"));
+    let body = axum::body::to_bytes(second.into_body(), 1 << 20)
+        .await
+        .unwrap();
+    let err: ErrorBody = serde_json::from_slice(&body).unwrap();
+    assert_eq!(err.error.code, ErrorCode::RateLimited);
+    assert_eq!(
+        err.error.details,
+        Some(serde_json::json!({"reason": "busy"}))
+    );
+    let bytes = axum::body::to_bytes(first.into_body(), 64 << 20)
+        .await
+        .unwrap();
+    assert!(untar(&bytes).len() >= 2);
+    let third = router(&app.state).oneshot(req()).await.unwrap();
+    assert_eq!(third.status(), 200);
+    drop(third);
+    // A dropped response (the client went away) frees it too.
+    let fourth = router(&app.state).oneshot(req()).await.unwrap();
+    assert_eq!(fourth.status(), 200);
+}
+
+#[tokio::test]
+async fn cookie_cross_site_navigation_403() {
+    let (app, token, _) = populated().await;
+    let cookie = format!("quire_session={}", app.session.clone().unwrap());
+    let get = |headers: &[(&'static str, &'static str)]| {
+        let mut req = app
+            .client()
+            .get("/api/v1/export")
+            .add_header("cookie", cookie.clone());
+        for (k, v) in headers {
+            req = req.add_header(*k, *v);
+        }
+        req
+    };
+    for headers in [
+        &[("sec-fetch-site", "cross-site")][..],
+        &[("sec-fetch-site", "same-site")],
+        &[],
+        &[("referer", "https://evil.example/page")],
+        &[
+            ("sec-fetch-site", "cross-site"),
+            ("referer", "http://localhost/settings"),
+        ],
+    ] {
+        assert_error(&get(headers).await, 403, ErrorCode::CsrfRejected);
+    }
+    for headers in [
+        &[("sec-fetch-site", "same-origin")][..],
+        &[("sec-fetch-site", "none")],
+        &[("referer", "http://localhost/settings/export")],
+    ] {
+        get(headers).await.assert_status_ok();
+    }
+    // A token is not a navigation: no rule.
+    app.token_client(&token)
+        .get("/api/v1/export")
+        .add_header("sec-fetch-site", "cross-site")
+        .await
+        .assert_status_ok();
+}

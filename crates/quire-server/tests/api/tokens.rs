@@ -1,30 +1,17 @@
 //! Personal access token route tests (owner: W2)
 //!
-//! W0b: the bearer branch of `Auth<S>` (classification of malformed, unknown, expired and revoked tokens, the scope
-//! check) and the minimal `/tokens` routes.
+//! The bearer branch of `Auth<S>` (classification of malformed, unknown, expired, revoked and disabled tokens, the
+//! scope check), the `/tokens` routes with their caps, revocation with children, the 100-token limit and the
+//! once-a-minute last-use write.
 
-use quire_api::{ApiToken, CreatedToken, ErrorCode, Me, Scope};
+use std::time::Duration;
+
+use quire_api::tokens::NewToken;
+use quire_api::{ApiToken, CreatedToken, ErrorBody, ErrorCode, Me, Scope};
+use quire_store::tokens::{CreatedVia, TokenLookup};
 use serde_json::json;
 
-use crate::common::{TestApp, assert_error};
-
-#[tokio::test]
-async fn me_with_token_reports_auth_token() {
-    let app = TestApp::with_token(Scope::Read).await;
-    let res = app.server.get("/api/v1/auth/me").await;
-    res.assert_status_ok();
-    let me: Me = res.json();
-    assert_eq!(me.user.id.to_string(), app.owner());
-    assert_eq!(me.workspace.name, "Test workspace");
-    assert_eq!(me.auth.method.as_str(), "token");
-    let token = me.auth.token.expect("auth.token for a token request");
-    assert_eq!(token.scopes, vec![Scope::Read]);
-    assert!(app.token.as_deref().unwrap().starts_with(&token.prefix));
-    assert!(
-        !res.text().contains(app.token.as_deref().unwrap()),
-        "never the secret"
-    );
-}
+use crate::common::{OWNER_PASSWORD, TestApp, assert_error};
 
 #[tokio::test]
 async fn me_describes_the_token_behind_100_newer_ones() {
@@ -52,6 +39,9 @@ async fn malformed_token_401_without_lookup() {
     let app = TestApp::with_owner().await;
     let client = app.client();
     let mut token = app.mint_token(app.owner(), Scope::Read).await;
+    // From here any token lookup fails loudly: the table it reads is gone.
+    app.exec("ALTER TABLE api_tokens RENAME TO api_tokens_hidden", vec![])
+        .await;
     // Flip the last checksum character: the format check fails before any lookup.
     let last = token.pop().unwrap();
     token.push(if last == 'A' { 'B' } else { 'A' });
@@ -67,6 +57,13 @@ async fn malformed_token_401_without_lookup() {
             "Bearer error=\"invalid_token\""
         );
     }
+    // A well-formed token is looked up, and the lookup hits the missing table: the malformed ones never queried.
+    let well_formed = quire_api::token::encode(&[3u8; 32]);
+    let res = client
+        .get("/api/v1/auth/me")
+        .add_header("authorization", format!("Bearer {well_formed}"))
+        .await;
+    assert_error(&res, 500, ErrorCode::Internal);
 }
 
 #[tokio::test]
@@ -156,6 +153,19 @@ async fn create_shows_secret_once_list_never() {
     let listed = app.server.get("/api/v1/tokens").await;
     listed.assert_status_ok();
     assert!(!listed.text().contains(&created.token));
+    let hash: String = quire_store::tokens::hash(&created.token)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    assert!(
+        !listed.text().to_lowercase().contains(&hash),
+        "never the hash"
+    );
+    let me = app
+        .token_client(&created.token)
+        .get("/api/v1/auth/me")
+        .await;
+    assert!(!me.text().contains(&created.token) && !me.text().to_lowercase().contains(&hash));
     let tokens: Vec<ApiToken> = listed.json();
     assert_eq!(tokens.len(), 1);
     // The new token works and carries its scopes.
@@ -252,4 +262,260 @@ async fn revoke_unknown_token_404() {
     assert_error(&res, 404, ErrorCode::NotFound);
     let res = app.server.delete("/api/v1/tokens/not-a-uuid").await;
     assert_error(&res, 404, ErrorCode::NotFound);
+}
+
+#[tokio::test]
+async fn scopes_expanded_and_capped_by_caller() {
+    let app = TestApp::with_owner().await;
+    // A session may grant any scope; scopes are stored expanded.
+    let res = app
+        .server
+        .post("/api/v1/tokens")
+        .json(&json!({"name": "w", "scopes": ["write"], "expires_in_days": 30}))
+        .await;
+    res.assert_status(axum::http::StatusCode::CREATED);
+    let write: CreatedToken = res.json();
+    assert_eq!(write.api_token.scopes, vec![Scope::Read, Scope::Write]);
+    let res = app
+        .server
+        .post("/api/v1/tokens")
+        .json(&json!({"name": "a", "scopes": ["read", "admin"], "expires_in_days": 30, "password": OWNER_PASSWORD}))
+        .await;
+    res.assert_status(axum::http::StatusCode::CREATED);
+    let admin: CreatedToken = res.json();
+    assert_eq!(
+        admin.api_token.scopes,
+        vec![Scope::Read, Scope::Write, Scope::Admin]
+    );
+    // An admin token grants write but never admin.
+    let res = app
+        .token_client(&admin.token)
+        .post("/api/v1/tokens")
+        .json(&json!({"name": "c", "scopes": ["write"], "expires_in_days": 1}))
+        .await;
+    res.assert_status(axum::http::StatusCode::CREATED);
+    // A write token cannot reach POST /tokens at all (admin scope), and below the route the store caps a token
+    // parent: a scope above its own is 422 `scopes`, admin is 403 `session_required`.
+    let res = app
+        .token_client(&write.token)
+        .post("/api/v1/tokens")
+        .json(&json!({"name": "x", "scopes": ["admin"]}))
+        .await;
+    assert_error(&res, 403, ErrorCode::InsufficientScope);
+    let read = app.mint_token(app.owner(), Scope::Read).await;
+    let owner = app.owner().to_owned();
+    let now = app.state.now();
+    let err = app
+        .state
+        .db
+        .write(move |tx| {
+            let TokenLookup::Live(parent) = quire_store::tokens::lookup(tx, &read, now)? else {
+                panic!("live");
+            };
+            let new = |scope| NewToken {
+                name: "child".into(),
+                scopes: vec![scope],
+                expires_in_days: Some(Some(1)),
+                password: None,
+            };
+            let above = quire_store::tokens::create(
+                tx,
+                &owner,
+                &new(Scope::Write),
+                CreatedVia::Api,
+                Some(&parent),
+                now,
+            )
+            .unwrap_err();
+            let admin = quire_store::tokens::create(
+                tx,
+                &owner,
+                &new(Scope::Admin),
+                CreatedVia::Api,
+                Some(&parent),
+                now,
+            )
+            .unwrap_err();
+            Ok((above, admin))
+        })
+        .await
+        .unwrap();
+    assert_eq!(err.0.code, ErrorCode::Validation);
+    assert_eq!(err.0.details, Some(json!({"field": "scopes"})));
+    assert_eq!(err.1.code, ErrorCode::SessionRequired);
+}
+
+fn same_rejection(a: &ErrorBody, b: &ErrorBody) {
+    assert_eq!(a.error, b.error, "the same code, message and details");
+}
+
+#[tokio::test]
+async fn lookup_classifies_expired_revoked_disabled() {
+    let app = TestApp::with_owner().await;
+    let client = app.client();
+    let me = |token: String| {
+        client
+            .get("/api/v1/auth/me")
+            .add_header("authorization", format!("Bearer {token}"))
+    };
+    let unknown = assert_error(
+        &me(quire_api::token::encode(&[5u8; 32])).await,
+        401,
+        ErrorCode::InvalidToken,
+    );
+    let revoked = app.mint_token(app.owner(), Scope::Read).await;
+    app.exec("UPDATE api_tokens SET revoked_at = 1", vec![])
+        .await;
+    let revoked = assert_error(&me(revoked).await, 401, ErrorCode::InvalidToken);
+    same_rejection(&unknown, &revoked);
+    let expired = app.mint_token(app.owner(), Scope::Read).await;
+    app.exec(
+        "UPDATE api_tokens SET expires_at = 1 WHERE revoked_at IS NULL",
+        vec![],
+    )
+    .await;
+    let expired = assert_error(&me(expired).await, 401, ErrorCode::InvalidToken);
+    assert_eq!(expired.error.details, Some(json!({"reason": "expired"})));
+    let live = app.mint_token(app.owner(), Scope::Read).await;
+    me(live.clone()).await.assert_status_ok();
+    app.exec("UPDATE users SET disabled_at = 1", vec![]).await;
+    let disabled = assert_error(&me(live).await, 401, ErrorCode::InvalidToken);
+    same_rejection(&unknown, &disabled);
+}
+
+#[tokio::test]
+async fn revoking_parent_revokes_children() {
+    let app = TestApp::with_owner().await;
+    let res = app
+        .server
+        .post("/api/v1/tokens")
+        .json(&json!({"name": "parent", "scopes": ["admin"], "expires_in_days": 10, "password": OWNER_PASSWORD}))
+        .await;
+    let parent: CreatedToken = res.json();
+    let mut children = Vec::new();
+    for name in ["a", "b"] {
+        let res = app
+            .token_client(&parent.token)
+            .post("/api/v1/tokens")
+            .json(&json!({"name": name, "scopes": ["write"], "expires_in_days": 5}))
+            .await;
+        res.assert_status(axum::http::StatusCode::CREATED);
+        let child: CreatedToken = res.json();
+        assert_eq!(child.api_token.parent_token_id, Some(parent.api_token.id));
+        children.push(child);
+    }
+    let sibling = app.mint_token(app.owner(), Scope::Read).await;
+    app.server
+        .delete(&format!("/api/v1/tokens/{}", parent.api_token.id))
+        .await
+        .assert_status_no_content();
+    for t in children.iter().map(|c| &c.token).chain([&parent.token]) {
+        assert_error(
+            &app.token_client(t).get("/api/v1/auth/me").await,
+            401,
+            ErrorCode::InvalidToken,
+        );
+    }
+    app.token_client(&sibling)
+        .get("/api/v1/auth/me")
+        .await
+        .assert_status_ok();
+}
+
+#[tokio::test]
+async fn limit_100_live_tokens_422() {
+    let app = TestApp::with_owner().await;
+    for _ in 0..99 {
+        app.mint_token(app.owner(), Scope::Read).await;
+    }
+    // An expired token does not count.
+    app.exec(
+        "INSERT INTO api_tokens (id, user_id, name, token_hash, prefix, created_via, created_at, expires_at)
+         VALUES ('00000000-0000-7000-8000-000000000001', ?1, 'old', randomblob(32), 'qpat_0000000', 'admin', 1, 2)",
+        vec![app.owner().to_owned()],
+    )
+    .await;
+    let body = json!({"name": "100th", "scopes": ["read"], "expires_in_days": 1});
+    app.server
+        .post("/api/v1/tokens")
+        .json(&body)
+        .await
+        .assert_status(axum::http::StatusCode::CREATED);
+    let res = app.server.post("/api/v1/tokens").json(&body).await;
+    let err = assert_error(&res, 422, ErrorCode::Validation);
+    assert_eq!(err.error.details, Some(json!({"field": "tokens"})));
+    // Every live token is listed even with expired ones around.
+    let listed: Vec<ApiToken> = app.server.get("/api/v1/tokens").await.json();
+    assert_eq!(listed.len(), 100);
+    assert!(listed.iter().all(|t| t.name != "old"));
+}
+
+async fn last_used(app: &TestApp) -> (Option<i64>, Option<String>) {
+    app.state
+        .db
+        .read(|c| {
+            Ok(c.query_row(
+                "SELECT last_used_at, last_used_ip FROM api_tokens",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )?)
+        })
+        .await
+        .unwrap()
+}
+
+/// Waits for the spawned last-use write to show `expect`.
+async fn wait_last_used(app: &TestApp, expect: i64) {
+    for _ in 0..200 {
+        if last_used(app).await.0 == Some(expect) {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!(
+        "last_used_at never became {expect}: {:?}",
+        last_used(app).await
+    );
+}
+
+#[tokio::test]
+async fn last_used_written_at_most_once_per_minute() {
+    let mut app = TestApp::with_fake_clock().await;
+    let owner = app.insert_owner().await;
+    let token = app.mint_token(&owner, Scope::Read).await;
+    app.server = app.token_client(&token);
+    assert_eq!(last_used(&app).await, (None, None));
+    let t0 = app.state.now();
+    let get = || {
+        app.server
+            .get("/api/v1/auth/me")
+            .add_header(crate::common::PEER, "192.0.2.44:9")
+    };
+    get().await.assert_status_ok();
+    wait_last_used(&app, t0).await;
+    assert_eq!(last_used(&app).await.1.as_deref(), Some("192.0.2.44"));
+    app.state.clock.advance(Duration::from_secs(59));
+    get().await.assert_status_ok();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(
+        last_used(&app).await.0,
+        Some(t0),
+        "no second write within the minute"
+    );
+    app.state.clock.advance(Duration::from_secs(1));
+    get().await.assert_status_ok();
+    wait_last_used(&app, t0 + 60_000).await;
+}
+
+#[tokio::test]
+async fn password_change_keeps_tokens() {
+    let app = TestApp::with_owner().await;
+    let token = app.mint_token(app.owner(), Scope::Read).await;
+    app.server
+        .post("/api/v1/auth/password")
+        .json(&json!({"current": OWNER_PASSWORD, "new": "another long password"}))
+        .await
+        .assert_status_no_content();
+    let me: Me = app.token_client(&token).get("/api/v1/auth/me").await.json();
+    assert_eq!(me.auth.method.as_str(), "token");
 }

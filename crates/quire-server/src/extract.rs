@@ -8,29 +8,34 @@
 //!    with `details.reason = "expired"`; revoked, disabled or unknown: 401). The cookie is ignored;
 //! 3. any other request (no `Authorization`, or any other value) takes the session cookie named for the request's
 //!    scheme (`__Host-quire_session` over HTTPS from the trusted proxy, `quire_session` otherwise); none, unknown or
-//!    expired is 401 `unauthenticated`;
+//!    expired is 401 `unauthenticated`. A session past half of its window is renewed, and a persistent one gets its
+//!    cookie again with the new `Max-Age` (§8);
 //! 4. the requirement `S`: `Read`/`Write`/`Admin` need that scope (a session has every scope), else 403
 //!    `insufficient_scope`; `Session` answers a token with 403 `session_required`; `AnyToken` answers a session with
 //!    403 `forbidden`.
+//!
+//! A token request is also counted: a failed one against the client IP (30 per minute, then 429 instead of 401), a
+//! live one against the token's request rate and its body bytes (429 with `Retry-After`), and its `last_used_at` is
+//! written at most once a minute in a spawned task (D47, §7.3). The token id goes into the access log's span.
 
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::net::{IpAddr, SocketAddr};
 use std::ops::Deref;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use axum::extract::{ConnectInfo, FromRequestParts, Path};
 use axum::http::request::Parts;
-use axum::http::{HeaderMap, header};
-use base64::Engine as _;
-use quire_api::{ErrorCode, Role, Scope};
+use axum::http::{HeaderMap, HeaderValue, header};
+use quire_api::{ErrorCode, RateLimitReason, Role, Scope};
 use quire_store::tokens::TokenLookup;
-use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::config::{Config, canonical_ip};
 use crate::csrf::bearer_token;
 use crate::error::ApiError;
-use crate::state::{AppState, now_ms};
+use crate::state::AppState;
 
 pub use quire_store::shared::Viewer;
 
@@ -220,6 +225,23 @@ impl FromRequestParts<AppState> for Viewer {
     }
 }
 
+/// Per-request state shared between [`crate::headers::layer`] (which inserts it) and the extractors: the renewed
+/// session cookie to send, and the body meter of a token request (D47: bytes counted as they are read).
+#[derive(Debug, Default)]
+pub struct RequestContext {
+    /// A `Set-Cookie` the response must carry (a renewed persistent session, §8).
+    pub set_cookie: Mutex<Option<HeaderValue>>,
+    /// Request body bytes read so far (token requests only).
+    pub body_read: AtomicU64,
+    /// Bytes already counted against the token's budget (the declared `Content-Length` at authentication, then
+    /// whatever the body brings beyond it).
+    pub body_charged: AtomicU64,
+    /// The authenticated token, whose budget the body counts against.
+    pub token_id: OnceLock<String>,
+    /// Set when the body went over the token's budget while it was read: the response becomes 429 `bytes`.
+    pub over_budget: Mutex<Option<std::time::Duration>>,
+}
+
 /// The authenticated actor of the request, resolved once and cached in the request's extensions.
 pub async fn authenticate(parts: &mut Parts, state: &AppState) -> Result<Actor, ApiError> {
     if let Some(actor) = parts.extensions.get::<Actor>() {
@@ -233,36 +255,99 @@ pub async fn authenticate(parts: &mut Parts, state: &AppState) -> Result<Actor, 
     }
     let client = ClientInfo::from_parts(parts, &state.config);
     let actor = match bearer_token(&parts.headers) {
-        Some(token) => authenticate_token(state, token.to_owned()).await?,
-        None => authenticate_cookie(state, &parts.headers, client.https).await?,
+        Some(token) => authenticate_token(state, parts, token.to_owned(), client).await?,
+        None => {
+            if parts.headers.contains_key(header::AUTHORIZATION) {
+                note_foreign_authorization();
+            }
+            authenticate_cookie(state, parts, client).await?
+        }
     };
     parts.extensions.insert(actor.clone());
     Ok(actor)
 }
 
-async fn authenticate_token(state: &AppState, token: String) -> Result<Actor, ApiError> {
-    if quire_api::token::check(&token).is_err() {
-        return Err(ApiError::invalid_token(false));
+/// Logs, once per process at debug level, that an `Authorization` value other than a Quire token was ignored (D43:
+/// a proxy's Basic or JWT header takes the cookie path with the full CSRF checks).
+fn note_foreign_authorization() {
+    static NOTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if !NOTED.swap(true, Ordering::Relaxed) {
+        tracing::debug!(
+            "ignoring an Authorization header that is not a Quire token (qpat_); using the session cookie"
+        );
     }
-    let now = now_ms();
+}
+
+/// A failed bearer authentication from `client`: 401 `invalid_token`, or 429 `auth_failures` once the IP is over
+/// its limit (D47).
+fn bearer_failure(state: &AppState, client: ClientInfo, expired: bool) -> ApiError {
+    match state.auth_fail_limiter.record_failure(client.limiter_ip()) {
+        Ok(()) => ApiError::invalid_token(expired),
+        Err(retry) => ApiError::rate_limited(RateLimitReason::AuthFailures, retry),
+    }
+}
+
+async fn authenticate_token(
+    state: &AppState,
+    parts: &Parts,
+    token: String,
+    client: ClientInfo,
+) -> Result<Actor, ApiError> {
+    if quire_api::token::check(&token).is_err() {
+        return Err(bearer_failure(state, client, false));
+    }
+    let now = state.now();
     let found = state
         .db
-        .read(move |conn| {
-            Ok(match quire_store::tokens::lookup(conn, &token, now)? {
-                TokenLookup::Live(row) => Ok(Actor {
-                    user_id: row.user_id,
-                    role: row.role,
-                    method: AuthMethod::Token {
-                        token_id: row.id,
-                        scopes: Scope::expand_all(&row.scopes),
-                    },
-                }),
-                TokenLookup::Expired => Err(true),
-                TokenLookup::Rejected => Err(false),
-            })
-        })
+        .read(move |conn| quire_store::tokens::lookup(conn, &token, now))
         .await?;
-    found.map_err(ApiError::invalid_token)
+    let row = match found {
+        TokenLookup::Live(row) => row,
+        TokenLookup::Expired => return Err(bearer_failure(state, client, true)),
+        TokenLookup::Rejected => return Err(bearer_failure(state, client, false)),
+    };
+    tracing::Span::current().record("token_id", tracing::field::display(&row.id));
+    state
+        .token_limiter
+        .check(&row.id)
+        .map_err(|retry| ApiError::rate_limited(RateLimitReason::Requests, retry))?;
+    let declared = parts
+        .headers
+        .get(header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .unwrap_or(0);
+    state
+        .token_bytes_limiter
+        .check(&row.id, declared)
+        .map_err(|retry| ApiError::rate_limited(RateLimitReason::Bytes, retry))?;
+    if let Some(ctx) = parts.extensions.get::<Arc<RequestContext>>() {
+        ctx.body_charged.fetch_add(declared, Ordering::Relaxed);
+        let _ = ctx.token_id.set(row.id.clone());
+    }
+    if state.last_used.due(&row.id, now) {
+        let (db, id, ip) = (
+            state.db.clone(),
+            row.id.clone(),
+            client.ip.map(|ip| ip.to_string()),
+        );
+        tokio::spawn(async move {
+            let written = db
+                .write(move |tx| quire_store::tokens::touch_last_used(tx, &id, now, ip.as_deref()))
+                .await;
+            if let Err(e) = written {
+                tracing::warn!(error = %e, "cannot record a token's last use");
+            }
+        });
+    }
+    Ok(Actor {
+        user_id: row.user_id,
+        role: row.role,
+        method: AuthMethod::Token {
+            token_id: row.id,
+            scopes: Scope::expand_all(&row.scopes),
+        },
+    })
 }
 
 /// The value of cookie `name` in the request's `Cookie` headers.
@@ -280,49 +365,75 @@ pub fn cookie_value<'h>(headers: &'h HeaderMap, name: &str) -> Option<&'h str> {
 /// sha256 of a session token, as stored in `sessions.token_hash`. `None` when `cookie` is not the base64url form of 32
 /// bytes.
 pub fn session_token_hash(cookie: &str) -> Option<[u8; 32]> {
-    let raw = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .decode(cookie)
-        .ok()?;
-    (raw.len() == 32).then(|| Sha256::digest(&raw).into())
+    quire_store::sessions::token_hash(cookie)
+}
+
+/// The session cookie's name for a request over HTTPS (`__Host-quire_session`) or plain HTTP (`quire_session`).
+pub fn session_cookie_name(https: bool) -> &'static str {
+    if https {
+        SESSION_COOKIE_SECURE
+    } else {
+        SESSION_COOKIE
+    }
+}
+
+/// `Set-Cookie` for a session (§8): `HttpOnly; SameSite=Lax; Path=/`, plus `Secure` (and the `__Host-` name) over
+/// HTTPS, and `Max-Age` for a persistent session.
+pub fn session_cookie(https: bool, value: &str, max_age_secs: Option<i64>) -> HeaderValue {
+    let mut cookie = format!(
+        "{}={value}; HttpOnly; SameSite=Lax; Path=/",
+        session_cookie_name(https)
+    );
+    if https {
+        cookie.push_str("; Secure");
+    }
+    if let Some(age) = max_age_secs {
+        cookie.push_str(&format!("; Max-Age={age}"));
+    }
+    HeaderValue::from_str(&cookie).expect("base64url and ASCII attributes")
+}
+
+/// `Set-Cookie` that deletes the session cookie of this scheme.
+pub fn clear_session_cookie(https: bool) -> HeaderValue {
+    session_cookie(https, "", Some(0))
 }
 
 async fn authenticate_cookie(
     state: &AppState,
-    headers: &HeaderMap,
-    https: bool,
+    parts: &Parts,
+    client: ClientInfo,
 ) -> Result<Actor, ApiError> {
-    let name = if https {
-        SESSION_COOKIE_SECURE
-    } else {
-        SESSION_COOKIE
-    };
-    let hash = cookie_value(headers, name)
-        .and_then(session_token_hash)
-        .ok_or_else(ApiError::unauthenticated)?;
-    let now = now_ms();
+    let cookie = cookie_value(&parts.headers, session_cookie_name(client.https))
+        .filter(|c| session_token_hash(c).is_some())
+        .ok_or_else(ApiError::unauthenticated)?
+        .to_owned();
+    let now = state.now();
     let row = state
         .db
-        .read(move |conn| {
-            let mut stmt = conn.prepare_cached(
-                "SELECT s.id, s.user_id, u.role FROM sessions s JOIN users u ON u.id = s.user_id
-                 WHERE s.token_hash = ?1 AND s.expires_at > ?2 AND u.disabled_at IS NULL",
-            )?;
-            let mut rows = stmt.query(rusqlite::params![hash.as_slice(), now])?;
-            Ok(match rows.next()? {
-                Some(r) => Some((
-                    r.get::<_, String>(0)?,
-                    r.get::<_, String>(1)?,
-                    r.get::<_, String>(2)?,
-                )),
-                None => None,
-            })
-        })
-        .await?;
-    let (session_id, user_id, role) = row.ok_or_else(ApiError::unauthenticated)?;
+        .read(move |conn| quire_store::sessions::lookup(conn, &cookie, now))
+        .await?
+        .ok_or_else(ApiError::unauthenticated)?;
+    if quire_store::sessions::needs_refresh(&row, now) {
+        let renewed = quire_store::sessions::renewal(&row, now);
+        let (id, ip) = (row.id.clone(), client.ip.map(|ip| ip.to_string()));
+        state
+            .db
+            .write(move |tx| quire_store::sessions::refresh(tx, &id, renewed, now, ip.as_deref()))
+            .await?;
+        if let Some(expires_at) = renewed
+            && row.persistent
+            && let Some(ctx) = parts.extensions.get::<Arc<RequestContext>>()
+            && let Some(value) = cookie_value(&parts.headers, session_cookie_name(client.https))
+        {
+            let max_age = ((expires_at - now).max(0) + 999) / 1000;
+            *ctx.set_cookie.lock().unwrap_or_else(|p| p.into_inner()) =
+                Some(session_cookie(client.https, value, Some(max_age)));
+        }
+    }
     Ok(Actor {
-        user_id,
-        role: role.parse().map_err(ApiError::internal)?,
-        method: AuthMethod::Session { session_id },
+        user_id: row.user_id,
+        role: row.role,
+        method: AuthMethod::Session { session_id: row.id },
     })
 }
 
@@ -339,8 +450,16 @@ pub struct ClientInfo {
 
 impl ClientInfo {
     pub fn from_parts(parts: &Parts, config: &Config) -> ClientInfo {
-        let peer = parts
-            .extensions
+        ClientInfo::from_headers(&parts.headers, &parts.extensions, config)
+    }
+
+    /// [`ClientInfo::from_parts`] for a whole request (the middleware).
+    pub fn from_headers(
+        headers: &HeaderMap,
+        extensions: &axum::http::Extensions,
+        config: &Config,
+    ) -> ClientInfo {
+        let peer = extensions
             .get::<ConnectInfo<SocketAddr>>()
             .map(|ConnectInfo(addr)| canonical_ip(addr.ip()));
         let trusted = peer.is_some_and(|ip| config.trusted_proxies.iter().any(|n| n.contains(ip)));
@@ -350,8 +469,7 @@ impl ClientInfo {
                 https: false,
             };
         }
-        let forwarded = parts
-            .headers
+        let forwarded = headers
             .get_all("x-forwarded-for")
             .iter()
             .filter_map(|v| v.to_str().ok())
@@ -360,8 +478,7 @@ impl ClientInfo {
             .rfind(|s| !s.is_empty())
             .and_then(|s| s.parse::<IpAddr>().ok())
             .map(canonical_ip);
-        let https = parts
-            .headers
+        let https = headers
             .get("x-forwarded-proto")
             .and_then(|v| v.to_str().ok())
             .is_some_and(|v| v.trim().eq_ignore_ascii_case("https"));
@@ -369,6 +486,13 @@ impl ClientInfo {
             ip: forwarded.or(peer),
             https,
         }
+    }
+
+    /// The key of the per-IP limiters: the client IP, or `0.0.0.0` when the peer is unknown (fail closed: every
+    /// such request shares one budget).
+    pub fn limiter_ip(&self) -> IpAddr {
+        self.ip
+            .unwrap_or(IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED))
     }
 }
 
@@ -457,7 +581,8 @@ impl<S: Send + Sync> FromRequestParts<S> for IdPath {
 
 #[cfg(test)]
 mod tests {
-    use axum::http::HeaderValue;
+    use base64::Engine as _;
+    use sha2::{Digest, Sha256};
 
     use super::*;
 

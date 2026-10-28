@@ -15,7 +15,7 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use quire_api::{
     ErrorBody, ErrorCode, ErrorInfo, InsufficientScopeDetails, InvalidTokenDetails,
-    InvalidTokenReason, LimitDetails, Scope, ValidationDetails,
+    InvalidTokenReason, LimitDetails, RateLimitDetails, RateLimitReason, Scope, ValidationDetails,
 };
 use serde::Serialize;
 
@@ -149,6 +149,28 @@ impl ApiError {
             format!("the request body is larger than {limit_bytes} bytes"),
         )
         .with_details(&LimitDetails { limit_bytes })
+    }
+
+    /// 429 `rate_limited` with `details.reason` and `Retry-After` (whole seconds, at least 1).
+    pub fn rate_limited(reason: RateLimitReason, retry_after: std::time::Duration) -> ApiError {
+        let secs = crate::ratelimit::retry_after_secs(retry_after);
+        let message = match reason {
+            RateLimitReason::Requests => "too many requests",
+            RateLimitReason::Bytes => "too many request bytes for this token",
+            RateLimitReason::AuthFailures => "too many failed attempts",
+            RateLimitReason::Busy => "another export or backup is running",
+        };
+        ApiError::new(
+            ErrorCode::RateLimited,
+            format!("{message}; retry in {secs} s"),
+        )
+        .with_details(&RateLimitDetails { reason })
+        .with_header(header::RETRY_AFTER, HeaderValue::from(secs))
+    }
+
+    /// 429 `rate_limited` with `reason: "busy"`: a single-flight operation is running (D47).
+    pub fn busy() -> ApiError {
+        ApiError::rate_limited(RateLimitReason::Busy, std::time::Duration::from_secs(5))
     }
 
     fn info(&self) -> ErrorInfo {

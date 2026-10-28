@@ -7,19 +7,49 @@
 //!   no cookie.
 //!
 //! [`TestApp::client`] builds another client on the same state (no default headers), so one test can mix a cookie
-//! client, token clients and anonymous requests.
+//! client, token clients and anonymous requests. Every client's router injects the peer address from an
+//! `x-test-peer: <ip:port>` request header as `ConnectInfo` (the socket peer of §8), so tests can play a direct client
+//! or the trusted proxy; without the header a request has no peer, like axum-test's mock transport.
 
 #![allow(dead_code)]
 
+use std::net::SocketAddr;
+use std::sync::Arc;
+
+use axum::Router;
+use axum::extract::{ConnectInfo, Request};
+use axum::middleware::Next;
+use axum::response::Response;
 use axum_test::TestServer;
 use base64::Engine as _;
 use quire_api::tokens::NewToken;
 use quire_api::{ErrorBody, ErrorCode, Scope};
 use quire_server::AppState;
 use quire_server::config::Config;
+use quire_server::static_files::AssetSource;
 use quire_store::tokens::CreatedVia;
 use sha2::{Digest, Sha256};
 use tempfile::TempDir;
+
+/// The header the test routers read the peer address from.
+pub const PEER: &str = "x-test-peer";
+
+async fn inject_peer(mut req: Request, next: Next) -> Response {
+    let peer = req
+        .headers()
+        .get(PEER)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<SocketAddr>().ok());
+    if let Some(peer) = peer {
+        req.extensions_mut().insert(ConnectInfo(peer));
+    }
+    next.run(req).await
+}
+
+/// `quire_server::app(state)` with the peer injection of the module docs.
+pub fn router(state: &AppState) -> Router {
+    quire_server::app(state.clone()).layer(axum::middleware::from_fn(inject_peer))
+}
 
 /// The owner's email in every TestApp.
 pub const OWNER_EMAIL: &str = "owner@quire.invalid";
@@ -55,7 +85,10 @@ impl TestApp {
         let mut config = Config::for_tests(dir.path());
         configure(&mut config);
         let state = AppState::open(config).await.expect("the app state opens");
-        let server = TestServer::new(quire_server::app(state.clone()));
+        let state = state
+            .with_assets(Arc::new(quire_server::static_files::MemoryAssets::new()))
+            .expect("no manifest");
+        let server = TestServer::new(router(&state));
         TestApp {
             server,
             state,
@@ -64,6 +97,49 @@ impl TestApp {
             token: None,
             dir,
         }
+    }
+
+    /// Like [`with_config`](Self::with_config), from `QUIRE_*` variables as `serve` reads them (the data directory
+    /// and cheap argon2 are the test's).
+    pub async fn from_vars(vars: &[(&str, &str)]) -> TestApp {
+        let vars: Vec<(String, String)> = vars
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        let parsed =
+            Config::from_lookup(|k| vars.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone()))
+                .expect("the variables parse");
+        TestApp::with_config(move |c| {
+            let (data_dir, argon2) = (c.data_dir.clone(), c.test_argon2);
+            *c = parsed;
+            c.data_dir = data_dir;
+            c.test_argon2 = argon2;
+        })
+        .await
+    }
+
+    /// No owner, a fake clock (`state.clock.advance`).
+    pub async fn with_fake_clock() -> TestApp {
+        TestApp::with_config(|c| c.fake_clock = true).await
+    }
+
+    /// The same state with `source` as the static files; `server` becomes an anonymous client of it.
+    pub fn set_assets(&mut self, source: impl AssetSource) {
+        self.state = self
+            .state
+            .clone()
+            .with_assets(Arc::new(source))
+            .expect("the assets' manifest is valid");
+        self.server = self.client();
+    }
+
+    /// Makes this app's default client the owner's cookie client (an owner and a session are inserted).
+    pub async fn sign_in_owner(&mut self) {
+        let owner = self.insert_owner().await;
+        let session = self.insert_session(&owner).await;
+        self.server = self.cookie_client(&session);
+        self.owner_id = Some(owner);
+        self.session = Some(session);
     }
 
     /// An owner and a session; `server` sends the cookie, an allowed `Host` and `Sec-Fetch-Site: same-origin`.
@@ -95,7 +171,15 @@ impl TestApp {
 
     /// A client on the same state without default headers.
     pub fn client(&self) -> TestServer {
-        TestServer::new(quire_server::app(self.state.clone()))
+        TestServer::new(router(&self.state))
+    }
+
+    /// A client without credentials that passes the CSRF check (`Host: localhost`, `Sec-Fetch-Site: same-origin`).
+    pub fn anon_client(&self) -> TestServer {
+        let mut server = self.client();
+        server.add_header("host", "localhost");
+        server.add_header("sec-fetch-site", "same-origin");
+        server
     }
 
     /// A client that sends the session cookie, `Host: localhost` and `Sec-Fetch-Site: same-origin`.
@@ -139,6 +223,22 @@ impl TestApp {
             .await
             .expect("insert the owner");
         id
+    }
+
+    /// Signs in through `POST /auth/login` from `peer` (or no peer) and returns the response.
+    pub async fn login(
+        &self,
+        password: &str,
+        remember: bool,
+        peer: Option<&str>,
+    ) -> axum_test::TestResponse {
+        let mut req = self.anon_client().post("/api/v1/auth/login").json(
+            &serde_json::json!({"email": OWNER_EMAIL, "password": password, "remember": remember}),
+        );
+        if let Some(peer) = peer {
+            req = req.add_header(PEER, peer.to_owned());
+        }
+        req.await
     }
 
     /// Inserts a session of `user_id` valid for a day; returns the cookie value (base64url of 32 random bytes).
@@ -195,6 +295,60 @@ impl TestApp {
             .await
             .expect("exec");
     }
+}
+
+/// Every `Set-Cookie` of a response.
+pub fn set_cookies(res: &axum_test::TestResponse) -> Vec<String> {
+    res.headers()
+        .get_all("set-cookie")
+        .iter()
+        .map(|v| v.to_str().unwrap().to_owned())
+        .collect()
+}
+
+/// The value of cookie `name` in a `Set-Cookie` of the response.
+pub fn cookie_from(res: &axum_test::TestResponse, name: &str) -> Option<String> {
+    set_cookies(res).iter().find_map(|c| {
+        let (pair, _) = c.split_once(';').unwrap_or((c, ""));
+        let (k, v) = pair.split_once('=')?;
+        (k == name).then(|| v.to_owned())
+    })
+}
+
+/// Runs `quire-server admin <args>` on `dir` (cheap argon2), with `stdin`.
+pub fn admin(dir: &std::path::Path, args: &[&str], stdin: Option<&str>) -> std::process::Output {
+    use std::io::Write as _;
+    use std::process::{Command, Stdio};
+    let mut child = Command::new(env!("CARGO_BIN_EXE_quire-server"))
+        .arg("admin")
+        .args(args)
+        .env_clear()
+        .env("QUIRE_DATA_DIR", dir)
+        .env("QUIRE_TEST_ARGON2", "1")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("run quire-server admin");
+    {
+        let mut pipe = child.stdin.take().unwrap();
+        if let Some(input) = stdin {
+            pipe.write_all(input.as_bytes()).unwrap();
+        }
+    }
+    child.wait_with_output().unwrap()
+}
+
+/// stdout of a command as JSON (panics with both streams otherwise).
+pub fn stdout_json(out: &std::process::Output) -> serde_json::Value {
+    serde_json::from_slice(&out.stdout).unwrap_or_else(|e| {
+        panic!(
+            "{e}: status {:?}, stdout {:?}, stderr {:?}",
+            out.status.code(),
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        )
+    })
 }
 
 /// Asserts that `res` is the error envelope with `status` and `code`, with `X-Request-Id` equal to `request_id`;

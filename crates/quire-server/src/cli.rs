@@ -175,7 +175,12 @@ fn serve() -> u8 {
 fn init_tracing() {
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
-    let _ = tracing_subscriber::fmt().with_env_filter(filter).try_init();
+    // Colours only on a terminal: `docker compose logs` and log files get plain text.
+    let ansi = std::io::IsTerminal::is_terminal(&std::io::stdout());
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_ansi(ansi)
+        .try_init();
 }
 
 /// SIGTERM (Docker's stop) or SIGINT.

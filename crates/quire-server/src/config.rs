@@ -30,8 +30,10 @@ pub const Q_MAX_CHARS: u32 = 500;
 pub const PAGE_MAX: u32 = 100;
 /// The per-token request burst (D47).
 pub const TOKEN_BURST: u32 = 120;
-/// The request timeout (`TimeoutLayer`, §8).
+/// The request timeout (§8).
 pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+/// The body deadline of uploads and board PUTs (§8).
+pub const UPLOAD_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// `QUIRE_TLS`: how Caddy terminates HTTPS in front of Quire (D57). Only `acme` sends HSTS (§11).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -296,6 +298,12 @@ pub struct Config {
     pub sync: SyncMode,
     /// `QUIRE_TEST_ARGON2=1`: cheap argon2 parameters, for tests only.
     pub test_argon2: bool,
+    /// Tests only (no variable): the limiters and "now" run on a fake clock (`AppState::clock`).
+    pub fake_clock: bool,
+    /// Every request but uploads and board PUTs: 30 s, then 408 `request_timeout` (no variable).
+    pub request_timeout: Duration,
+    /// Uploads and board PUTs: 120 s (no variable).
+    pub upload_timeout: Duration,
 }
 
 impl Config {
@@ -418,6 +426,9 @@ impl Config {
                 "0" | "false" => Ok(false),
                 _ => Err(format!("{s:?}: expected 1 or 0")),
             })?,
+            fake_clock: false,
+            request_timeout: REQUEST_TIMEOUT,
+            upload_timeout: UPLOAD_TIMEOUT,
         })
     }
 

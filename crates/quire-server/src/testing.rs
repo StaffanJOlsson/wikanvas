@@ -1,9 +1,11 @@
 //! TestServer: an in-process server on 127.0.0.1:0 for the CLI tests, feature `testing` (owner: W2)
 //!
 //! [`TestServer::start`] binds a free loopback port, runs [`crate::app`] on its own tokio runtime thread with a
-//! temporary data directory and cheap argon2 parameters, creates the owner ([`OWNER_EMAIL`], [`OWNER_PASSWORD`]) and
-//! one token per scope, and returns once the server accepts connections. Dropping it stops the server and deletes
-//! the data directory.
+//! temporary data directory and cheap argon2 parameters, creates the owner ([`OWNER_EMAIL`], [`OWNER_PASSWORD`];
+//! without the "Getting started" seed, so the workspace starts empty) and one token per scope (`created_via` admin,
+//! never expiring), and returns once the server accepts connections. The server is the real one: the Host allowlist,
+//! CSRF, the limiters and the peer address all apply as in `serve`, but no background job runs. Dropping it stops the
+//! server and deletes the data directory.
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -16,7 +18,7 @@ use tokio::sync::oneshot;
 
 use crate::admin::{self, NewOwner};
 use crate::config::{Config, Origin, Scheme};
-use crate::state::{self, AppState, now_ms};
+use crate::state::{self, AppState};
 
 /// The owner's email.
 pub const OWNER_EMAIL: &str = "owner@quire.invalid";
@@ -39,12 +41,15 @@ pub struct TestServer {
     pub admin_token: String,
     /// The server's `QUIRE_DATA_DIR` (deleted on drop).
     pub data_dir: PathBuf,
+    /// The owner's user id.
+    pub owner_id: String,
     shutdown: Option<oneshot::Sender<()>>,
     thread: Option<JoinHandle<()>>,
     _dir: tempfile::TempDir,
 }
 
 struct Ready {
+    owner_id: String,
     read_token: String,
     write_token: String,
     admin_token: String,
@@ -134,6 +139,7 @@ impl TestServer {
             write_token: ready.write_token,
             admin_token: ready.admin_token,
             data_dir: dir.path().to_path_buf(),
+            owner_id: ready.owner_id,
             shutdown: Some(shutdown_tx),
             thread: Some(thread),
             _dir: dir,
@@ -161,8 +167,9 @@ async fn provision(state: &AppState) -> Result<Ready, crate::error::ApiError> {
             workspace: WORKSPACE_NAME.into(),
             password_hash,
             must_change_password: false,
+            seed: false,
         },
-        now_ms(),
+        state.now(),
     )
     .await?;
     let mut tokens = Vec::new();
@@ -173,12 +180,13 @@ async fn provision(state: &AppState) -> Result<Ready, crate::error::ApiError> {
             expires_in_days: None,
             password: None,
         };
-        let created = admin::create_token(state, user.id.to_string(), new, now_ms()).await?;
+        let created = admin::create_token(state, user.id.to_string(), new, state.now()).await?;
         tokens.push(created.token);
     }
     let [read_token, write_token, admin_token]: [String; 3] =
         tokens.try_into().expect("three tokens");
     Ok(Ready {
+        owner_id: user.id.to_string(),
         read_token,
         write_token,
         admin_token,
