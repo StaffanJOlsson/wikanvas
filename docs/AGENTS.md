@@ -40,7 +40,7 @@ create; `item unpublish` makes a draft (D23).
 | attachment | `attachment upload F\|- [--item ITEM] [--filename N]`, `attachment get ID --out F` | `{id, url, sha256, mime, size, width, height}`; `{path, bytes, sha256, content_type}` |
 | export, backup | `export --out F` (a tar), `backup` (a file on the server) | `{path, bytes, sha256, content_type}`; `{path, size}` |
 | api | `api METHOD PATH [--input F\|-] [--header K:V]… [--out F]` (PATH under `/api/`, no `..`, no other host) | the body unchanged |
-| admin | `admin …`: runs `quire-server admin …` (`create-owner`, `create-token`, `list-tokens`, `revoke-token`, `reset-password`, `backup`, `check`) | as the server's admin commands |
+| admin | `admin …`: runs `quire-server admin …` (`create-owner`, `create-token`, `list-tokens`, `revoke-token`, `reset-password`, `backup`, `check`) | `create-owner`: `{user, workspace, generated_password}`; `create-token`: `{token, api_token}` or `{token_file, api_token}`; `list-tokens`: `[ApiToken]`; `revoke-token`: `{revoked}`; `reset-password`: `{user, password, sessions_revoked, tokens_revoked}`; `backup`: `{path, size}`; `check`: `{ok, quick_check, foreign_key_violations, cycles, fts, missing_blobs}` (exit 1 when not ok) |
 | version, help | `version`, `exit-codes`, `help [COMMAND…]` | `{cli, server}`; the table below; the command tree |
 
 ```sh
