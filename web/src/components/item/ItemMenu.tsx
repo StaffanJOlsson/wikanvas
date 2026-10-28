@@ -8,6 +8,7 @@ import { usePatchItem, updateCachedItem } from '../../api/queries/items';
 import { useQueryClient } from '@tanstack/react-query';
 import { collectionPath, itemPath } from '../../lib/urls';
 import { openDialog } from '../../state/dialogs';
+import { fullWidthSetting, setFullWidthSetting, useFullWidthStore } from '../../state/fullWidth';
 import { errorToast } from '../../state/toasts';
 import { Menu, type MenuEntry } from '../ui/Menu';
 import { useItemActions } from './useItemActions';
@@ -23,12 +24,25 @@ export interface ItemMenuProps {
   extraExports: ExtraExport[];
 }
 
+/** The `full_width` of the detail when the server sends one (request W1-2), else undefined. */
+function serverFullWidth(item: ItemDetail): boolean | undefined {
+  const v = (item as ItemDetail & { full_width?: boolean | null }).full_width;
+  return typeof v === 'boolean' ? v : undefined;
+}
+
 /**
  * The document's full-width setting. `ItemDetail` has no `full_width` field yet (request to W1 in docs/handoff/W3.md);
- * until it does, the value set in this session is kept in the cached detail.
+ * until it does, the value set in this session comes from `state/fullWidth`, which a refetch of the detail does not
+ * overwrite. Toggling also rewrites the cached detail, so a page that renders from `useItem` re-renders.
  */
 export function fullWidthOf(item: ItemDetail): boolean {
-  return (item as ItemDetail & { full_width?: boolean }).full_width === true;
+  return serverFullWidth(item) ?? fullWidthSetting(item.item.id) ?? false;
+}
+
+/** `fullWidthOf` as a hook: also re-renders when the session's value changes. */
+export function useFullWidthOf(item: ItemDetail): boolean {
+  const stored = useFullWidthStore((s) => s.byId[item.item.id]);
+  return serverFullWidth(item) ?? stored ?? false;
 }
 
 export function ItemMenu({ item, extraExports }: ItemMenuProps) {
@@ -45,13 +59,18 @@ export function ItemMenu({ item, extraExports }: ItemMenuProps) {
       .catch((e: unknown) => errorToast(e));
   };
 
+  const fullWidth = useFullWidthOf(item);
+  const setFullWidth = (value: boolean) => {
+    setFullWidthSetting(s.id, value);
+    updateCachedItem(qc, s.id, (d) => ({ ...d, full_width: value }) as ItemDetail);
+  };
   const toggleFullWidth = async () => {
-    const next = !fullWidthOf(item);
-    updateCachedItem(qc, s.id, (d) => ({ ...d, full_width: next }) as ItemDetail);
+    const next = !fullWidth;
+    setFullWidth(next);
     try {
       await patch({ item: s, patch: { full_width: next } });
     } catch (e) {
-      updateCachedItem(qc, s.id, (d) => ({ ...d, full_width: !next }) as ItemDetail);
+      setFullWidth(!next);
       throw e;
     }
   };
@@ -60,7 +79,7 @@ export function ItemMenu({ item, extraExports }: ItemMenuProps) {
     { label: item.starred ? 'Unstar' : 'Star', onSelect: run(() => actions.setStarred(s, !item.starred)) },
   ];
   if (s.kind === 'doc') {
-    entries.push({ label: 'Full width', checkbox: true, checked: fullWidthOf(item), onSelect: run(toggleFullWidth) });
+    entries.push({ label: 'Full width', checkbox: true, checked: fullWidth, onSelect: run(toggleFullWidth) });
   }
   entries.push(
     { label: 'Duplicate', disabled: readOnly, onSelect: run(() => actions.duplicate(s)) },

@@ -8,6 +8,7 @@ import { resetConfigBaseline } from '../api/queries/config';
 import { resetUpdate } from '../app/updateCheck';
 import { resetDialogs } from '../state/dialogs';
 import { reloadExpanded } from '../state/expanded';
+import { resetFullWidth } from '../state/fullWidth';
 import { clearToasts } from '../state/toasts';
 import { reloadUi } from '../state/ui';
 
@@ -22,6 +23,7 @@ afterEach(() => {
   resetDialogs();
   clearToasts();
   reloadExpanded();
+  resetFullWidth();
   reloadUi();
   resetUpdate();
   resetConfigBaseline();
