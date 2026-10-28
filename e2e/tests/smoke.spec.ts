@@ -13,6 +13,9 @@
 //   reload is saved as a board of two objects.
 // - Step 9's fallback branch (WebGL unavailable) is taken only when this browser really has no WebGL 2; the reason is
 //   printed and recorded as an annotation, and the engine steps 10-12 are skipped.
+// - Step 13: the export is fetched by the page itself, as the browser sends it (cookie and `Sec-Fetch-Site`); the same
+//   GET without fetch metadata is refused (`csrf_rejected`), which the step checks too.
+// - Every page of the run must log no CSP violation (the production headers of §11, which happy-dom never applies).
 import { expect, test, type Locator, type Page, type Response } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 
@@ -66,6 +69,14 @@ function saveStatus(page: Page): Locator {
 
 function editor(page: Page): Locator {
   return page.locator('.quire-editor');
+}
+
+/**
+ * A pause after a selection change, as a person makes between selecting and typing: ProseMirror takes a DOM
+ * selection over on `selectionchange`, which a key pressed in the same instant can overtake.
+ */
+async function settle(page: Page): Promise<void> {
+  await page.waitForTimeout(150);
 }
 
 /** Types a title into the document header (or the board's title crumb) and waits for its PATCH. */
@@ -201,6 +212,12 @@ test('smoke: setup to export (PLAN W7 steps 1-15)', async ({ page, context, requ
   test.setTimeout(15 * 60_000);
   const pageErrors: string[] = [];
   page.on('pageerror', (e) => pageErrors.push(e.message));
+  // Every page of the context, its board iframe included: a CSP violation means something the production headers
+  // block (§11), which happy-dom never sees.
+  const cspViolations: string[] = [];
+  context.on('console', (m) => {
+    if (/Content Security Policy/i.test(m.text())) cspViolations.push(`${m.location().url}: ${m.text()}`);
+  });
 
   let aUrl = '';
   let cUrl = '';
@@ -301,10 +318,9 @@ test('smoke: setup to export (PLAN W7 steps 1-15)', async ({ page, context, requ
   });
 
   await test.step('4. Delete the body text of C: Saved, empty after a reload; type "quokka" again', async () => {
-    const body = editor(page).locator('p', { hasText: 'quokka' });
-    await body.click();
-    await page.keyboard.press('End');
-    await page.keyboard.press('Shift+Home');
+    // Selects the paragraph's text (a DOM range over it, as a drag across it would).
+    await editor(page).locator('p', { hasText: 'quokka' }).selectText();
+    await settle(page);
     const deleted = page.waitForResponse((r) => isDocUpdate(r) && r.ok(), { timeout: SAVE_TIMEOUT });
     await page.keyboard.press('Backspace');
     await deleted;
@@ -322,14 +338,19 @@ test('smoke: setup to export (PLAN W7 steps 1-15)', async ({ page, context, requ
     expect(stored.body).toContain('Plan');
     expect(stored.body).not.toContain('quokka');
 
-    await editor(page).locator('h1').click();
-    await page.keyboard.press('End');
+    // The caret at the end of the heading (its text selected, then collapsed to the right), then a new paragraph.
+    await editor(page).locator('h1').selectText();
+    await settle(page);
+    await page.keyboard.press('ArrowRight');
+    await settle(page);
     await page.keyboard.press('Enter');
     const retyped = page.waitForResponse((r) => isDocUpdate(r) && r.ok(), { timeout: SAVE_TIMEOUT });
     await page.keyboard.type('quokka');
     await retyped;
     await expect(saveStatus(page)).toHaveText('Saved', { timeout: SAVE_TIMEOUT });
     await expect(editor(page).locator('p', { hasText: 'quokka' })).toHaveCount(1);
+    await expect(editor(page).locator('h1')).toHaveText('Plan');
+    await expect(editor(page).locator('h1 + p')).toHaveText('quokka');
   });
 
   await test.step('5. Search "quok": C first with a marked hit; "quok -zebra" still finds C; Mod+K, "C", Enter opens C', async () => {
@@ -470,6 +491,7 @@ test('smoke: setup to export (PLAN W7 steps 1-15)', async ({ page, context, requ
     }
     testInfo.annotations.push({ type: 'webgl2', description: gl ?? 'none' });
     await waitForEngine(page);
+    console.log(`smoke: the board engine is ready (WebGL 2: ${gl}); steps 10-12 run on it`);
     // The frame page, its manifest and the engine came from /inkboard/{build}/ (merge.md item 1).
     const manifest = inkboard.find((r) => r.url.endsWith('/manifest.json'));
     expect(manifest, 'the frame fetched manifest.json').toBeDefined();
@@ -578,10 +600,21 @@ test('smoke: setup to export (PLAN W7 steps 1-15)', async ({ page, context, requ
   });
 
   await test.step('13. GET /api/v1/export is a tar with manifest.json', async () => {
-    const res = await page.request.get('/api/v1/export');
-    expect(res.status()).toBe(200);
-    expect(res.headers()['content-type']).toMatch(/^application\/(x-)?tar/);
-    const entries = tarEntries(await res.body());
+    // The browser's own GET (cookie and fetch metadata, `Sec-Fetch-Site: same-origin`): a cookie request without
+    // fetch metadata or a same-origin Referer is refused (§8, the export's CSRF rule).
+    const bare = await page.request.get('/api/v1/export');
+    expect(bare.status()).toBe(403);
+    expect((await bare.json()).error.code).toBe('csrf_rejected');
+    const res = await page.evaluate(async () => {
+      const r = await fetch('/api/v1/export', { credentials: 'same-origin' });
+      const bytes = new Uint8Array(await r.arrayBuffer());
+      let bin = '';
+      for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      return { status: r.status, type: r.headers.get('content-type') ?? '', body: btoa(bin) };
+    });
+    expect(res.status).toBe(200);
+    expect(res.type).toMatch(/^application\/(x-)?tar/);
+    const entries = tarEntries(Buffer.from(res.body, 'base64'));
     expect([...entries.keys()]).toContain('manifest.json');
     expect([...entries.keys()]).toContain('quire.db');
     const manifest = JSON.parse(entries.get('manifest.json')!.toString('utf8'));
@@ -642,4 +675,7 @@ test('smoke: setup to export (PLAN W7 steps 1-15)', async ({ page, context, requ
   });
 
   if (pageErrors.length > 0) testInfo.annotations.push({ type: 'page errors', description: pageErrors.join('\n') });
+  await test.step('No CSP violation on any page of the run', async () => {
+    expect(cspViolations).toEqual([]);
+  });
 });
