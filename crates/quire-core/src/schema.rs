@@ -841,8 +841,9 @@ fn parse_seq(t: &[String], pos: &mut usize, schema: &Schema) -> Result<Expr, Str
 }
 
 /// Feeds a canonical serialization of `v` to `out`: object keys sorted, no whitespace, with an explicit stack.
-/// `serde_json::Map` keeps insertion order when any crate in the build turns on serde_json's `preserve_order`
-/// (oas3 does, in the workspace's test builds), so nothing that compares or stores JSON may rely on its order.
+/// `serde_json::Map` keeps insertion order when any crate in the build turns on serde_json's `preserve_order` (none
+/// does today: the workspace takes oas3 without its default `preserve-order`), so nothing that compares or stores
+/// JSON may rely on its order.
 pub fn canonical(v: &Value, out: &mut dyn FnMut(&[u8])) {
     enum Tok<'a> {
         V(&'a Value),

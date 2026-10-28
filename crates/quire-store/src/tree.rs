@@ -167,19 +167,25 @@ pub fn collection_tree(
     Ok(CollectionTree { collection, items })
 }
 
-/// Sorts siblings in a collection's `child_order`: `manual` by `sort_key`, `title` A–Z ignoring case, `updated` and
-/// `created` newest first; the id breaks ties.
+/// Sorts siblings in a collection's `child_order`, as the web client does (`buildTree.ts` `comparator`): `manual` by
+/// `sort_key`; `title` A–Z by [`quire_core::tree::title_key`] (case- and accent-insensitive, numbers by value);
+/// `updated` and `created` newest first. Ties go to `sort_key`, then the id.
 pub fn sort_siblings(rows: &mut [&ItemRow], order: ChildOrder) {
+    let tie = |a: &ItemRow, b: &ItemRow| (&a.sort_key, &a.id).cmp(&(&b.sort_key, &b.id));
     match order {
-        ChildOrder::Manual => rows.sort_by(|a, b| (&a.sort_key, &a.id).cmp(&(&b.sort_key, &b.id))),
-        ChildOrder::Title => {
-            rows.sort_by_cached_key(|r| (r.title.to_lowercase(), r.title.clone(), r.id.clone()))
-        }
+        ChildOrder::Manual => rows.sort_by(|a, b| tie(a, b)),
+        ChildOrder::Title => rows.sort_by_cached_key(|r| {
+            (
+                quire_core::tree::title_key(&r.title),
+                r.sort_key.clone(),
+                r.id.clone(),
+            )
+        }),
         ChildOrder::Updated => {
-            rows.sort_by(|a, b| (b.updated_at, &a.id).cmp(&(a.updated_at, &b.id)))
+            rows.sort_by(|a, b| b.updated_at.cmp(&a.updated_at).then_with(|| tie(a, b)))
         }
         ChildOrder::Created => {
-            rows.sort_by(|a, b| (b.created_at, &a.id).cmp(&(a.created_at, &b.id)))
+            rows.sort_by(|a, b| b.created_at.cmp(&a.created_at).then_with(|| tie(a, b)))
         }
     }
 }

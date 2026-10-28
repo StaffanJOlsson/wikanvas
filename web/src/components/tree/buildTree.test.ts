@@ -1,7 +1,8 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { makeItem } from '../../test/mockApi';
 import { items } from '../../test/treeFixtures';
-import { ancestorIds, buildTree, comparator, descendantIds } from './buildTree';
+import { ancestorIds, buildTree, comparator, compareTitles, descendantIds } from './buildTree';
 
 const ids = (nodes: { item: { id: string } }[]) => nodes.map((n) => n.item.id);
 
@@ -58,6 +59,25 @@ describe('buildTree', () => {
       const f = buildTree('c', list, 'title');
       expect(ids(f.roots)).toEqual(['b', 'a', 'd', 'c']);
       expect(ids(f.byId.get('a')!.children)).toEqual(['k1', 'k2']);
+    });
+
+    it('title: the server\'s order, checked against fixtures/tree/title-order.json', () => {
+      // Relative to web/, where Vitest runs; quire_core::tree's title_order_fixture reads the same file.
+      const fixture = JSON.parse(readFileSync('../fixtures/tree/title-order.json', 'utf8')) as {
+        sorted: string[];
+        equal: [string, string][];
+      };
+      for (let i = 1; i < fixture.sorted.length; i++) {
+        const [a, b] = [fixture.sorted[i - 1]!, fixture.sorted[i]!];
+        expect(compareTitles(a, b), `${a} before ${b}`).toBeLessThan(0);
+        expect(compareTitles(b, a), `${b} after ${a}`).toBeGreaterThan(0);
+      }
+      expect([...fixture.sorted].reverse().sort(compareTitles)).toEqual(fixture.sorted);
+      for (const [a, b] of fixture.equal) expect(compareTitles(a, b), `${a} = ${b}`).toBe(0);
+      // Equal keys fall back to sort_key, then id.
+      const cafe = makeItem({ id: 'y', collection_id: 'c', title: 'Café', sort_key: 'a1' });
+      const plain = makeItem({ id: 'x', collection_id: 'c', title: 'cafe', sort_key: 'a2' });
+      expect(comparator('title')(cafe, plain)).toBeLessThan(0);
     });
 
     it('updated: newest first, ties by sort key', () => {

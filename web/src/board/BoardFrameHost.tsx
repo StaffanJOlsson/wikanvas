@@ -6,16 +6,16 @@
 //   surface's rect, which is tracked on resize and scroll.
 // - Off board routes it gets `visibility: hidden`, `inert` and `setActive(false)`; back on a board route
 //   `setActive(true)`. It is removed after 10 minutes away from boards.
-// - If `frame.html` turns out to be missing (404), `/config` is fetched again and, when the build changed, a banner
-//   offers "Quire was updated. Reload".
+// - If `frame.html` turns out to be missing (404), the shell's update check runs (`checkForUpdate`, W3): when the
+//   server is another build, the one "Quire was updated. Reload" banner shows (AppShell's UpdateBanner).
 // - Quire's theme is passed on with `setTheme`; host keys from the frame go to `runHostShortcut` (host.ts).
+// - While mounted it registers the engine warm-up of a 300 ms sidebar board-row hover (`useBoardRowWarmup`).
 // The default export (no props) and `useBoardFrame(): BoardFrameContext | null` are the frozen contract (PLAN W0b).
-import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useLocation } from 'react-router';
 import { useShallow } from 'zustand/react/shallow';
-import type { Config } from '../api/gen/Config';
-import { configKey, fetchConfig, useConfig } from '../api/queries/config';
+import { useConfig } from '../api/queries/config';
+import { checkForUpdate, useUpdate } from '../app/updateCheck';
 import { inkboardBase } from '../lib/urls';
 import type { BoardFrameApi, OpenArgs } from './bridge';
 import { frameDriver, toConnectFailure } from './frameDriver';
@@ -32,6 +32,7 @@ import {
   type Failure,
 } from './host';
 import { useResolvedTheme } from './theme';
+import { useBoardRowWarmup } from './warmup';
 import './board.css';
 
 /** How long the iframe is kept while no board route is open. */
@@ -50,7 +51,7 @@ export interface BoardFrameContext {
   // Additions (W6, PLAN R3):
   /** The engine download, while it runs (`onProgress`). */
   readonly progress: { loaded: number; total: number } | null;
-  /** "Quire was updated. Reload" is showing. */
+  /** "Quire was updated. Reload" is showing (the shell's banner, `useUpdate`). */
   readonly updateAvailable: boolean;
   /** When each board was last saved (ms). */
   readonly savedAt: Readonly<Record<string, number>>;
@@ -74,17 +75,17 @@ export function useBoardFrame(): BoardFrameContext | null {
       frame: st.frame,
       failure: st.failure,
       progress: st.progress,
-      updateAvailable: st.updateAvailable,
       savedAt: st.savedAt,
     })),
   );
+  const updateAvailable = useUpdate((u) => u.available);
   return useMemo<BoardFrameContext | null>(() => {
     if (!s.mounted) return null;
     return {
       frame: s.frame,
       failure: s.failure,
       progress: s.progress,
-      updateAvailable: s.updateAvailable,
+      updateAvailable,
       savedAt: s.savedAt,
       attach: attachSurface,
       open: openBoard,
@@ -95,7 +96,7 @@ export function useBoardFrame(): BoardFrameContext | null {
         await useHostStore.getState().iframe?.requestFullscreen?.();
       },
     };
-  }, [s]);
+  }, [s, updateAvailable]);
 }
 
 /** Removes the iframe and forgets the frame. */
@@ -104,13 +105,11 @@ function removeFrame(): void {
   resetFrame();
 }
 
-/** After a connection without `quireBoardFrame`: whether `frame.html` is gone and `/config` names another build. */
-async function updated(src: string, before: Config | undefined, refetch: () => Promise<Config>): Promise<boolean> {
+/** After a connection without `quireBoardFrame`: whether `frame.html` is gone (404). */
+async function frameGone(src: string): Promise<boolean> {
   try {
     const res = await fetch(src, { cache: 'no-store', credentials: 'same-origin' });
-    if (res.status !== 404) return false;
-    const now = await refetch();
-    return now.version !== before?.version || inkboardBase(now) !== inkboardBase(before);
+    return res.status === 404;
   } catch {
     return false;
   }
@@ -120,7 +119,6 @@ export default function BoardFrameHost() {
   const location = useLocation();
   const onBoard = location.pathname.startsWith('/board/');
   const config = useConfig();
-  const qc = useQueryClient();
   const theme = useResolvedTheme();
   const layer = useRef<HTMLDivElement>(null);
   const st = useHostStore(
@@ -130,10 +128,11 @@ export default function BoardFrameHost() {
       failure: s.failure,
       surface: s.surface,
       shown: s.shown,
-      updateAvailable: s.updateAvailable,
     })),
   );
   const base = inkboardBase(config.data);
+  // Hovering a sidebar board row for 300 ms warms the engine's cache (§9.5).
+  useBoardRowWarmup();
 
   useEffect(() => {
     useHostStore.setState({ mounted: true });
@@ -153,7 +152,6 @@ export default function BoardFrameHost() {
     iframe.style.visibility = 'hidden';
     iframe.setAttribute('inert', '');
     useHostStore.setState({ iframe, failure: null, progress: null });
-    const before = config.data;
     driver.connect(iframe, frameEvents).then(
       (frame) => {
         if (useHostStore.getState().iframe === iframe) useHostStore.setState({ frame });
@@ -162,14 +160,12 @@ export default function BoardFrameHost() {
         const failure = toConnectFailure(e);
         if (useHostStore.getState().iframe !== iframe) return;
         useHostStore.setState((s) => ({ failure: s.failure ?? { kind: failure.kind, message: failure.message } }));
-        if (failure.missing) {
-          const refetch = () => qc.fetchQuery({ queryKey: configKey, queryFn: ({ signal }) => fetchConfig(signal), staleTime: 0 });
-          if (await updated(src, before, refetch)) useHostStore.setState({ updateAvailable: true });
-        }
+        // The shell's update check compares /config with the config this page started with (§9.1).
+        if (failure.missing && (await frameGone(src))) void checkForUpdate();
       },
     );
     layer.current.appendChild(iframe);
-  }, [wanted, base, config.data, qc]);
+  }, [wanted, base]);
 
   // Shown over the surface only on a board route, with the board open; hidden and inert otherwise.
   const visible = onBoard && st.surface !== null && st.shown && st.frame !== null && st.failure === null;
@@ -229,17 +225,5 @@ export default function BoardFrameHost() {
     };
   }, [trackedFrame, trackedSurface]);
 
-  return (
-    <>
-      <div ref={layer} className="board-frame-layer" />
-      {st.updateAvailable && (
-        <div role="alert" className="board-update-banner">
-          Quire was updated.{' '}
-          <button type="button" onClick={() => window.location.reload()}>
-            Reload
-          </button>
-        </div>
-      )}
-    </>
-  );
+  return <div ref={layer} className="board-frame-layer" />;
 }

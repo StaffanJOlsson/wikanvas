@@ -262,6 +262,22 @@ async fn low_disk_507() {
     assert_error(&res, 507, ErrorCode::InsufficientStorage);
     let res = app.server.post("/api/v1/admin/backup").await;
     assert_error(&res, 507, ErrorCode::InsufficientStorage);
+    // A board PUT checks through the same probe before it stages its assets (§6.2 step 3): nothing is written.
+    let board = crate::boards::new_board(&app, "Full disk").await;
+    let res = app
+        .server
+        .put(&format!("/api/v1/items/{board}/board"))
+        .add_header("if-match", "*")
+        .text(crate::boards::board("Full disk", "x"))
+        .content_type("application/json")
+        .await;
+    assert_error(&res, 507, ErrorCode::InsufficientStorage);
+    let detail: quire_api::ItemDetail = app
+        .server
+        .get(&format!("/api/v1/items/{board}"))
+        .await
+        .json();
+    assert_eq!(detail.board.map(|b| (b.rev, b.objects)), Some((1, 0)));
     assert_eq!(
         std::fs::read_dir(app.state.blobs.tmp_dir())
             .unwrap()

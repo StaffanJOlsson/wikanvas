@@ -35,6 +35,14 @@ fn spec_matches_committed() {
     );
 }
 
+/// No crate of the workspace's test builds turns on serde_json's `preserve_order` (oas3's default `preserve-order` did,
+/// through this test binary): object keys come out sorted, as in a release build.
+#[test]
+fn json_maps_are_sorted_as_in_release_builds() {
+    let v: serde_json::Value = serde_json::from_str(r#"{"b":1,"a":{"d":2,"c":3}}"#).unwrap();
+    assert_eq!(v.to_string(), r#"{"a":{"c":3,"d":2},"b":1}"#);
+}
+
 #[test]
 fn spec_parses_as_3_1() {
     // The generated spec, so this also holds while UPDATE_OPENAPI rewrites the committed copy; spec_matches_committed

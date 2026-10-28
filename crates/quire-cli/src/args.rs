@@ -441,17 +441,17 @@ pub struct ItemUpdate {
 }
 
 #[derive(Debug, Args)]
-#[command(group(ArgGroup::new("target").required(true).args(["parent", "top"])))]
+#[command(group(ArgGroup::new("target").args(["parent", "top"])))]
 pub struct ItemMove {
     #[arg(value_name = "ITEM")]
     pub item: String,
-    /// The new parent item
+    /// The new parent item (neither this nor --top: the item keeps its parent, a reorder)
     #[arg(long, value_name = "ITEM")]
     pub parent: Option<String>,
     /// Move to the top level of the collection
     #[arg(long)]
     pub top: bool,
-    /// Move to another collection
+    /// Move to another collection (with --parent or --top)
     #[arg(long, value_name = "COLLECTION")]
     pub collection: Option<String>,
     #[command(flatten)]

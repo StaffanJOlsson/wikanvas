@@ -43,6 +43,7 @@ const detail: ItemDetail = {
   trashed_at: null,
   purge_at: null,
   archived_at: null,
+  full_width: false,
   board: null,
   meta_version: 1,
 };

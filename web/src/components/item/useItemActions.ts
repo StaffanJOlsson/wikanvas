@@ -111,7 +111,8 @@ export function useItemActions() {
         try {
           const created = await create({ collection_id: collectionId, parent_id: parentId, kind });
           expandAll(parentId ? [collectionId, parentId] : [collectionId]);
-          void navigate(itemPath(created));
+          // DocPage discards only the items it was told this page session created (W4 D20).
+          void navigate(itemPath(created), { state: { created: true } });
           return created;
         } catch (e) {
           errorToast(e, `The ${kind === 'board' ? 'board' : 'document'} was not created`);

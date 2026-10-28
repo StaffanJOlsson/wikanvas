@@ -267,11 +267,13 @@ async fn put_board(
         .map_err(ApiError::internal)?;
     let bytes = read_body_within(body, limit, BODY_DEADLINE).await?;
     let (blobs, min_free) = (state.blobs.clone(), state.config.min_free_mb);
+    let free_space = Arc::clone(&state.free_space);
     let (permit, prepared) = tokio::task::spawn_blocking(move || -> Result<_, ApiError> {
         let text = String::from_utf8(bytes)
             .map_err(|_| ApiError::new(ErrorCode::InvalidBoard, "the body is not UTF-8"))?;
         check_depth(&text)?;
-        Ok((permit, boards::prepare(&blobs, &text, min_free)?))
+        let check = || free_space(blobs.root(), min_free);
+        Ok((permit, boards::prepare_with(&blobs, &text, check)?))
     })
     .await
     .map_err(ApiError::internal)??;
@@ -314,8 +316,8 @@ async fn put_board(
 /// Without `rev`: the current page, `Cache-Control: no-cache` with `ETag: "r{rev}"`. With the current `rev`:
 /// `Cache-Control: private, max-age=31536000, immutable`. With another `rev`: 307 to the current one. An empty page
 /// answers 204. Images that would make the SVG too large are drawn as grey boxes, and a page (or a page after the
-/// board's preview budget) that is too large to preview is a small card that says so. Sent gzip-encoded when the
-/// client accepts it.
+/// board's preview budget) that is too large to preview is a small card that says so. Over 1 KiB it is sent
+/// gzip-encoded when the client accepts it.
 #[utoipa::path(
     get,
     path = "/items/{id}/board/pages/{n}",
@@ -430,34 +432,20 @@ async fn get_board_page(
         Preview::Empty => StatusCode::NO_CONTENT.into_response(),
         Preview::Omitted => {
             let card = board::card_svg(&current.background, board::TOO_LARGE);
-            svg_response(card, &headers, BodySlot(None)).await?
+            svg_response(card, BodySlot(None))
         }
-        Preview::Svg(svg) => svg_response(svg, &headers, slot).await?,
+        Preview::Svg(svg) => svg_response(svg, slot),
     };
     Ok(preview_headers(res, rev, query.rev.is_some()))
 }
 
-/// The SVG response, gzip-encoded (on a blocking thread) when the client accepts it, sent under `slot`.
-async fn svg_response(
-    svg: String,
-    headers: &HeaderMap,
-    slot: BodySlot,
-) -> Result<Response, ApiError> {
-    let gzip = accepts_gzip(headers);
-    let body = if gzip {
-        tokio::task::spawn_blocking(move || previews::gzip(svg.as_bytes()))
-            .await
-            .map_err(ApiError::internal)??
-    } else {
-        svg.into_bytes()
-    };
-    let mut res = send(body, slot);
-    if gzip {
-        set(&mut res, header::CONTENT_ENCODING, "gzip");
-    }
+/// The SVG response, sent under `slot`. The server's compression layer gzips it for a client that accepts gzip (§11,
+/// `app::compressible`), so it is identity here; `Vary` is set for the identity answers too.
+fn svg_response(svg: String, slot: BodySlot) -> Response {
+    let mut res = send(svg.into_bytes(), slot);
     set(&mut res, header::CONTENT_TYPE, "image/svg+xml");
     set(&mut res, header::VARY, "Accept-Encoding");
-    Ok(res)
+    res
 }
 
 /// [`boards::envelope_len`]: what a GET of the board will send, about; a non-board is 404.
@@ -559,25 +547,6 @@ fn is_json(headers: &HeaderMap) -> bool {
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.split(';').next())
         .is_some_and(|t| t.trim().eq_ignore_ascii_case("application/json"))
-}
-
-fn accepts_gzip(headers: &HeaderMap) -> bool {
-    headers
-        .get_all(header::ACCEPT_ENCODING)
-        .iter()
-        .filter_map(|v| v.to_str().ok())
-        .flat_map(|v| v.split(','))
-        .any(|coding| {
-            let mut parts = coding.split(';');
-            let name = parts.next().unwrap_or("").trim();
-            let refused = parts.any(|p| {
-                p.trim()
-                    .strip_prefix("q=")
-                    .and_then(|q| q.trim().parse::<f32>().ok())
-                    == Some(0.0)
-            });
-            name.eq_ignore_ascii_case("gzip") && !refused
-        })
 }
 
 /// `X-Quire-Engine`, or `"api"` when absent (D51); 422 `validation` when it is not 1–128 printable ASCII characters.
@@ -928,7 +897,7 @@ mod tests {
     }
 
     #[test]
-    fn content_types_and_encodings() {
+    fn content_types() {
         let mut h = HeaderMap::new();
         assert!(!is_json(&h));
         h.insert(
@@ -938,16 +907,5 @@ mod tests {
         assert!(is_json(&h));
         h.insert(header::CONTENT_TYPE, HeaderValue::from_static("text/plain"));
         assert!(!is_json(&h));
-        assert!(!accepts_gzip(&h));
-        h.insert(
-            header::ACCEPT_ENCODING,
-            HeaderValue::from_static("br, gzip;q=0.8"),
-        );
-        assert!(accepts_gzip(&h));
-        h.insert(
-            header::ACCEPT_ENCODING,
-            HeaderValue::from_static("gzip;q=0, br"),
-        );
-        assert!(!accepts_gzip(&h));
     }
 }

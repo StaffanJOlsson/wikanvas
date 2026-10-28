@@ -54,7 +54,7 @@ async fn new_item(app: &TestApp, kind: ItemKind, title: &str) -> String {
         .expect("create the item")
 }
 
-async fn new_board(app: &TestApp, title: &str) -> String {
+pub async fn new_board(app: &TestApp, title: &str) -> String {
     new_item(app, ItemKind::Board, title).await
 }
 
@@ -68,7 +68,7 @@ fn label_box(text: &str) -> Object {
 }
 
 /// A board with a labelled box and an image, named `name`.
-fn board(name: &str, text: &str) -> String {
+pub fn board(name: &str, text: &str) -> String {
     let mut d = Document::new(name);
     let asset = d.add_asset("image/png", PNG.to_vec());
     d.pages[0].objects.extend([
@@ -509,6 +509,12 @@ async fn preview_route_headers_immutable_307_and_current_without_rev() {
     let id = new_board(&app, "Pages").await;
     let mut d = Document::new("Pages");
     d.pages[0].objects.push(label_box("Page zero label"));
+    // Enough to make the page's SVG larger than 1 KiB, the compression threshold.
+    for i in 0..4 {
+        d.pages[0]
+            .objects
+            .push(label_box(&format!("Another label {i}")));
+    }
     d.pages.push(Page::new("Empty page"));
     put_ok(&app.server, &id, &serial::to_json(&d, false), "*").await;
     let page = |n: &str| format!("/api/v1/items/{id}/board/pages/{n}");
@@ -564,7 +570,8 @@ async fn preview_route_headers_immutable_307_and_current_without_rev() {
     for n in ["2", "-1", "x"] {
         assert_error(&app.server.get(&page(n)).await, 404, ErrorCode::NotFound);
     }
-    // gzip for a client that accepts it.
+    // gzip for a client that accepts it: the server's compression layer (§11), the page being over 1 KiB.
+    assert!(svg.len() > 1024, "{}", svg.len());
     let res = app
         .server
         .get(&page("0"))
@@ -584,6 +591,39 @@ async fn preview_route_headers_immutable_307_and_current_without_rev() {
     assert_eq!(meta.preview_rev, Some(2));
     assert_eq!(meta.pages[0].svg_len, Some(svg.len() as u64));
     assert_eq!(meta.pages[1].svg_len, Some(0));
+    // `ItemDetail.board` is that same BoardMeta, also when the stored previews come from different revisions: the
+    // newest one counts, and a page whose preview is older has no `svg_len`.
+    let detail = app
+        .server
+        .get(&format!("/api/v1/items/{id}"))
+        .await
+        .json::<quire_api::ItemDetail>();
+    assert_eq!(detail.board.as_ref(), Some(&meta));
+    let item = id.clone();
+    app.state
+        .db
+        .write(move |tx| {
+            Ok(tx.execute(
+                "UPDATE board_previews SET rev = 1 WHERE item_id = ?1 AND page_index = 1",
+                [item],
+            )?)
+        })
+        .await
+        .unwrap();
+    let item = id.clone();
+    let mixed = app
+        .state
+        .db
+        .read(move |c| quire_store::boards::board_meta(c, &item))
+        .await
+        .unwrap();
+    assert_eq!((mixed.preview_rev, mixed.pages[1].svg_len), (Some(2), None));
+    let detail = app
+        .server
+        .get(&format!("/api/v1/items/{id}"))
+        .await
+        .json::<quire_api::ItemDetail>();
+    assert_eq!(detail.board, Some(mixed));
     // A new revision makes the old URL redirect, and the plain URL serve the new page.
     let mut d2 = d.clone();
     d2.pages[0].objects.push(label_box("Second label"));
@@ -839,4 +879,14 @@ async fn page_after_the_preview_budget_is_a_card() {
         res.text(),
         quire_core::board::card_svg("#ffffff", quire_core::board::TOO_LARGE)
     );
+    // A page under 1 KiB is sent identity even to a gzip client: one compression rule, the layer's (§11).
+    let res = app
+        .server
+        .get(&format!("/api/v1/items/{id}/board/pages/0?rev=2"))
+        .add_header("accept-encoding", "gzip")
+        .await;
+    res.assert_status_ok();
+    assert!(res.maybe_header("content-encoding").is_none());
+    assert_eq!(res.header("vary"), "Accept-Encoding");
+    assert_eq!(res.text(), "<svg>zero</svg>");
 }

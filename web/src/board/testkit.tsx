@@ -10,6 +10,7 @@ import type { BoardMeta } from '../api/gen/BoardMeta';
 import type { BoardPutResult } from '../api/gen/BoardPutResult';
 import type { Config } from '../api/gen/Config';
 import type { ItemDetail } from '../api/gen/ItemDetail';
+import { UpdateBanner } from '../app/UpdateBanner';
 import { itemPath } from '../lib/urls';
 import BoardPage from '../pages/BoardPage';
 import { createTestQueryClient } from '../test/render';
@@ -99,6 +100,7 @@ export function boardItem(n = 1, over: Partial<ItemDetail['item']> = {}): ItemDe
     trashed_at: null,
     purge_at: null,
     archived_at: null,
+    full_width: false,
     board: meta(1),
     meta_version: 1,
   };
@@ -192,6 +194,7 @@ export function renderBoardApp(path: string, opts: FakeFrameOptions & { fake?: F
     {
       element: (
         <>
+          <UpdateBanner />
           <main id="main">
             <Outlet />
           </main>

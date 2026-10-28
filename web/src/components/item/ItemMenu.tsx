@@ -4,11 +4,9 @@
 import { MoreHorizontal } from 'lucide-react';
 import { useNavigate } from 'react-router';
 import type { ItemDetail } from '../../api/gen/ItemDetail';
-import { usePatchItem, updateCachedItem } from '../../api/queries/items';
-import { useQueryClient } from '@tanstack/react-query';
+import { usePatchItem } from '../../api/queries/items';
 import { collectionPath, itemPath } from '../../lib/urls';
 import { openDialog } from '../../state/dialogs';
-import { fullWidthSetting, setFullWidthSetting, useFullWidthStore } from '../../state/fullWidth';
 import { errorToast } from '../../state/toasts';
 import { Menu, type MenuEntry } from '../ui/Menu';
 import { useItemActions } from './useItemActions';
@@ -24,30 +22,13 @@ export interface ItemMenuProps {
   extraExports: ExtraExport[];
 }
 
-/** The `full_width` of the detail when the server sends one (request W1-2), else undefined. */
-function serverFullWidth(item: ItemDetail): boolean | undefined {
-  const v = (item as ItemDetail & { full_width?: boolean | null }).full_width;
-  return typeof v === 'boolean' ? v : undefined;
-}
-
-/**
- * The document's full-width setting. `ItemDetail` has no `full_width` field yet (request to W1 in docs/handoff/W3.md);
- * until it does, the value set in this session comes from `state/fullWidth`, which a refetch of the detail does not
- * overwrite. Toggling also rewrites the cached detail, so a page that renders from `useItem` re-renders.
- */
+/** The document's "Full width" setting (`ItemDetail.full_width`; `usePatchItem` updates the cached detail at once). */
 export function fullWidthOf(item: ItemDetail): boolean {
-  return serverFullWidth(item) ?? fullWidthSetting(item.item.id) ?? false;
-}
-
-/** `fullWidthOf` as a hook: also re-renders when the session's value changes. */
-export function useFullWidthOf(item: ItemDetail): boolean {
-  const stored = useFullWidthStore((s) => s.byId[item.item.id]);
-  return serverFullWidth(item) ?? stored ?? false;
+  return item.full_width;
 }
 
 export function ItemMenu({ item, extraExports }: ItemMenuProps) {
   const navigate = useNavigate();
-  const qc = useQueryClient();
   const actions = useItemActions();
   const patch = usePatchItem().mutateAsync;
   const s = item.item;
@@ -59,20 +40,10 @@ export function ItemMenu({ item, extraExports }: ItemMenuProps) {
       .catch((e: unknown) => errorToast(e));
   };
 
-  const fullWidth = useFullWidthOf(item);
-  const setFullWidth = (value: boolean) => {
-    setFullWidthSetting(s.id, value);
-    updateCachedItem(qc, s.id, (d) => ({ ...d, full_width: value }) as ItemDetail);
-  };
+  const fullWidth = fullWidthOf(item);
+  // Optimistic: usePatchItem sets the cached detail's `full_width` first and restores it when the PATCH fails.
   const toggleFullWidth = async () => {
-    const next = !fullWidth;
-    setFullWidth(next);
-    try {
-      await patch({ item: s, patch: { full_width: next } });
-    } catch (e) {
-      setFullWidth(!next);
-      throw e;
-    }
+    await patch({ item: s, patch: { full_width: !fullWidth } });
   };
 
   const entries: MenuEntry[] = [

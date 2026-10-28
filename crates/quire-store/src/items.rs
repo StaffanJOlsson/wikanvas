@@ -7,8 +7,8 @@
 //! content save bumps its `meta_version` (the `"m{n}"` ETag of `GET /items/{id}`).
 
 use quire_core::api::{
-    BoardMeta, BoardPageMeta, ErrorCode, ItemDetail, ItemKind, ItemPatch, ItemSummary, ItemText,
-    MoveItem, NewItem, Position, RestoredItem, RevMismatchDetails, Timestamp,
+    BoardMeta, ErrorCode, ItemDetail, ItemKind, ItemPatch, ItemSummary, ItemText, MoveItem,
+    NewItem, Position, RestoredItem, RevMismatchDetails, Timestamp,
 };
 use quire_core::time::{DISCARD_WINDOW_MS, purge_at};
 use quire_core::tree::{ParentState, check_move, check_new_parent, keeps_parent};
@@ -590,6 +590,7 @@ pub fn detail(conn: &Connection, viewer: &Viewer, row: &ItemRow) -> Result<ItemD
         trashed_at: row.deleted_at.map(Timestamp),
         purge_at: row.deleted_at.map(|d| Timestamp(purge_at(d))),
         archived_at: row.archived_at.map(Timestamp),
+        full_width: row.full_width,
         board: match row.kind {
             ItemKind::Board => board_meta(conn, &row.id)?,
             ItemKind::Doc => None,
@@ -598,52 +599,18 @@ pub fn detail(conn: &Connection, viewer: &Viewer, row: &ItemRow) -> Result<ItemD
     })
 }
 
-/// `ItemDetail.board`: `board_state.meta` (§5) with the revision, plus the stored previews: `svg_len` of each page's
-/// preview and `preview_rev`, the oldest revision among them (`null` before the first preview).
+/// `ItemDetail.board`: [`crate::boards::board_meta`] (`board_state.meta` with the revision and the preview state of
+/// the newest stored previews), or `None` for a board without a stored state.
 pub fn board_meta(conn: &Connection, item_id: &str) -> Result<Option<BoardMeta>> {
-    let Some(rev) = conn
-        .query_row(
-            "SELECT rev FROM board_state WHERE item_id = ?1",
-            [item_id],
-            |r| r.get::<_, i64>(0),
-        )
-        .optional()?
-    else {
+    let stored: bool = conn.query_row(
+        "SELECT EXISTS (SELECT 1 FROM board_state WHERE item_id = ?1)",
+        [item_id],
+        |r| r.get(0),
+    )?;
+    if !stored {
         return Ok(None);
-    };
-    let meta = crate::boards::meta(conn, item_id)?;
-    let previews = conn
-        .prepare_cached("SELECT page_index, rev, svg_len FROM board_previews WHERE item_id = ?1")?
-        .query_map([item_id], |r| {
-            Ok((
-                r.get::<_, i64>(0)?,
-                r.get::<_, i64>(1)?,
-                r.get::<_, i64>(2)?,
-            ))
-        })?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    let pages = meta
-        .pages
-        .into_iter()
-        .enumerate()
-        .map(|(i, p)| BoardPageMeta {
-            id: p.id,
-            name: p.name,
-            svg_len: previews
-                .iter()
-                .find(|(page, _, _)| *page == i as i64)
-                .map(|(_, _, len)| *len as u64),
-        })
-        .collect();
-    Ok(Some(BoardMeta {
-        rev,
-        pages,
-        objects: meta.objects,
-        background: meta.background,
-        bytes: meta.bytes,
-        preview_rev: previews.iter().map(|(_, r, _)| *r).min(),
-        text_excerpt: meta.text_excerpt,
-    }))
+    }
+    crate::boards::board_meta(conn, item_id).map(Some)
 }
 
 /// `GET /items/{id}/text`: the derived plain text search indexes (§6.1, §6.2), in any state.

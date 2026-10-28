@@ -1,0 +1,34 @@
+{
+  "about": "Sibling titles under child_order 'title' (A-Z), checked by quire_core::tree::title_key and the web client's titleKey (web/src/components/tree/buildTree.ts): 'sorted' is in strictly increasing order, each pair in 'equal' has the same key (ties go to sort_key, then id).",
+  "sorted": [
+    "!Important",
+    "(draft)",
+    "1 Intro",
+    "2 Setup",
+    "007 Spy",
+    "10 Results",
+    "@home",
+    "_underscore",
+    "Äpfel",
+    "apple",
+    "Apple pie",
+    "Chapter 2",
+    "chapter 9b",
+    "Chapter 10",
+    "Chapter 10a",
+    "Crème brûlée",
+    "École",
+    "ﬁle",
+    "Ölmalerei",
+    "Zebra",
+    "Σίσυφος",
+    "日本"
+  ],
+  "equal": [
+    ["Café", "cafe"],
+    ["CHAPTER 07", "chapter 7"],
+    ["Ångström", "angstrom"],
+    ["ΣΟΦΟΣ", "σοφος"],
+    ["Ｃｈａｐｔｅｒ １０", "chapter 10"]
+  ]
+}

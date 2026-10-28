@@ -388,6 +388,54 @@ async fn tree_is_flat_parents_first_in_child_order() {
     assert!(e.is(ErrorCode::NotFound));
 }
 
+/// The `title` order is the web client's (`buildTree.ts`): accents and case ignored, numbers by value, ties by
+/// `sort_key`, so an optimistic reorder in the sidebar agrees with the next `/tree`.
+#[tokio::test]
+async fn title_order_ignores_accents_and_sorts_numbers_by_value() {
+    let t = TestDb::new();
+    let owner = t.owner().await;
+    let c = t.collection(&owner, "Notes").await;
+    for title in [
+        "Zebra",
+        "Chapter 10",
+        "École",
+        "cafe",
+        "chapter 9",
+        "Café",
+        "apple",
+    ] {
+        t.item(&owner, c.id, None, ItemKind::Doc, title).await;
+    }
+    let (cid, o) = (c.id.to_string(), owner.clone());
+    t.w(move |tx| {
+        collections::update(
+            tx,
+            &cid,
+            &CollectionPatch {
+                child_order: Some(ChildOrder::Title),
+                ..Default::default()
+            },
+            &o,
+            NOW,
+        )
+    })
+    .await
+    .unwrap();
+    // "cafe" and "Café" have the same key: the earlier sort_key (created first) wins.
+    assert_eq!(
+        t.tree_titles(&owner, c.id).await,
+        [
+            "apple",
+            "cafe",
+            "Café",
+            "chapter 9",
+            "Chapter 10",
+            "École",
+            "Zebra"
+        ]
+    );
+}
+
 // ---------------------------------------------------------------- the store against the reference model
 
 #[derive(Clone, Debug)]

@@ -363,3 +363,57 @@ fn url_ids_and_urls_resolve_to_uuids() {
     ]));
     assert_eq!(code, 2);
 }
+
+/// `item move` always sends `parent_id` (§7.2, W1 D23). Without `--parent` or `--top` (a reorder) it is the item's
+/// current parent, read first; `--top` sends `null`; `--collection` needs one of the two.
+#[test]
+fn item_move_without_parent_keeps_the_current_parent() {
+    const PARENT: &str = "0192f3a4-0000-7000-8000-0000000000aa";
+    const SIBLING: &str = "0192f3a4-0000-7000-8000-0000000000bb";
+    let mock = Mock::start(|r: &Recorded, _| match (r.method.as_str(), r.path()) {
+        ("GET", p) if p == format!("/api/v1/items/{ID}") => Reply::json(
+            200,
+            &json!({"item": {"id": ID, "url_id": "Item000001", "parent_id": PARENT, "kind": "doc"}}),
+        ),
+        ("POST", p) if p == format!("/api/v1/items/{ID}/move") => {
+            Reply::json(200, &json!({"id": ID, "parent_id": PARENT}))
+        }
+        _ => Reply::error(404, "not_found"),
+    });
+    let s = Sandbox::new();
+    let run = |extra: &[&str]| {
+        let mut args = vec!["--json", "item", "move", ID];
+        args.extend_from_slice(extra);
+        run_json(s.quire_at(&mock.url, &fake_token(1)).args(args))
+    };
+    let (code, _, err) = run(&["--after", SIBLING]);
+    assert_eq!(code, 0, "{err}");
+    let bodies = |mock: &Mock| -> Vec<Value> {
+        mock.requests()
+            .iter()
+            .filter(|r| r.method == "POST")
+            .map(|r| serde_json::from_slice(&r.body).unwrap())
+            .collect()
+    };
+    assert_eq!(
+        calls(&mock),
+        [
+            format!("GET /api/v1/items/{ID}"),
+            format!("POST /api/v1/items/{ID}/move"),
+        ]
+    );
+    assert_eq!(
+        bodies(&mock),
+        [json!({"parent_id": PARENT, "position": {"after_id": SIBLING}})]
+    );
+    // --top: null, without a GET.
+    let (code, _, err) = run(&["--top"]);
+    assert_eq!(code, 0, "{err}");
+    assert_eq!(bodies(&mock)[1], json!({"parent_id": null}));
+    assert_eq!(calls(&mock).len(), 3);
+    // --collection alone is a usage error, and nothing is sent.
+    let (code, _, err) = run(&["--collection", ID]);
+    assert_eq!(code, 2, "{err}");
+    assert_eq!(last_error(&err)["error"]["code"], "cli_usage");
+    assert_eq!(calls(&mock).len(), 3);
+}

@@ -18,6 +18,16 @@
   margin: 0 auto;
 }
 
+/* "Full width" (§9.6.1: the viewport minus 2×48 px, the layout's own padding). */
+.doc-page[data-full-width] .doc-layout[data-contents='docked'] {
+  grid-template-columns: 220px minmax(0, 1fr);
+}
+
+.doc-page[data-full-width] .doc-column,
+.doc-page[data-full-width] .item-header {
+  max-width: none;
+}
+
 .contents-column {
   position: sticky;
   top: 24px;

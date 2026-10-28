@@ -13,7 +13,7 @@ import { useCreateItem, useItem } from '../api/queries/items';
 import type { ItemDetail } from '../api/gen/ItemDetail';
 import type { TitleHit } from '../api/gen/TitleHit';
 import { ItemHeader } from '../components/item/ItemHeader';
-import { ItemMenu } from '../components/item/ItemMenu';
+import { fullWidthOf, ItemMenu } from '../components/item/ItemMenu';
 import { TopBar } from '../components/topbar/TopBar';
 import { activeHeading, headingAnchor, showContents, type Heading } from '../editor/contents';
 import { DocSession } from '../editor/docSession';
@@ -252,8 +252,9 @@ function DocView({ detail }: { detail: ItemDetail }) {
 
   const contents = showContents(headings);
   const exports = docExports(id, () => titleRef.current, () => editorRef.current);
+  const fullWidth = fullWidthOf(detail);
   return (
-    <article className="doc-page">
+    <article className="doc-page" data-full-width={fullWidth ? '' : undefined}>
       <TopBar
         item={detail}
         leading={contents && !docked ? <ContentsPopover headings={headings} active={active} /> : undefined}

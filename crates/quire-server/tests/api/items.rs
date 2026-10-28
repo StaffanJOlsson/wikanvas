@@ -371,6 +371,7 @@ async fn get_sets_meta_etag_and_patch_stale_if_match_412() {
     assert_eq!(body.error.details, Some(json!({"etag": "\"m2\""})));
     assert_eq!(get(&app, doc.id).await.item.title, "New");
     // W/ is ignored, * and no If-Match win.
+    assert!(!get(&app, doc.id).await.full_width);
     let res = app
         .server
         .patch(&path)
@@ -378,6 +379,10 @@ async fn get_sets_meta_etag_and_patch_stale_if_match_412() {
         .json(&json!({"full_width": true}))
         .await;
     assert_eq!(res.header("etag"), "\"m3\"");
+    assert!(
+        get(&app, doc.id).await.full_width,
+        "ItemDetail carries the setting"
+    );
     app.server
         .patch(&path)
         .add_header("if-match", "*")
@@ -746,5 +751,37 @@ async fn move_duplicate_archive_and_restore() {
             .await,
         404,
         ErrorCode::NotFound,
+    );
+}
+
+/// A new board's background follows the caller's theme, read through `users::get` (W1 D19): dark gives `slate`.
+#[tokio::test]
+async fn new_board_background_follows_the_theme() {
+    let app = TestApp::with_owner().await;
+    let c = collection(&app, "Boards").await;
+    let preset = |id: Uuid| {
+        let server = &app.server;
+        async move {
+            let res = server.get(&format!("/api/v1/items/{id}/board")).await;
+            res.assert_status_ok();
+            res.json::<Value>()["document"]["background"]["preset"]
+                .as_str()
+                .unwrap()
+                .to_owned()
+        }
+    };
+    let light = item(&app, c.id, None, "board", "Light").await;
+    assert_eq!(preset(light.id).await, "white");
+    app.server
+        .patch("/api/v1/auth/me")
+        .json(&json!({"theme": "dark"}))
+        .await
+        .assert_status_ok();
+    let dark = item(&app, c.id, None, "board", "Dark").await;
+    assert_eq!(preset(dark.id).await, "slate");
+    assert_eq!(
+        preset(light.id).await,
+        "white",
+        "existing boards keep theirs"
     );
 }
