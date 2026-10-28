@@ -27,8 +27,6 @@ import { PlaceholderPage } from './PlaceholderPage';
 
 /** The Contents column docks from this width (§9.6.4). */
 const DOCK_QUERY = '(min-width: 1280px)';
-/** An item this page treats as new and discards when left empty (when the router state does not say so). */
-const NEW_ITEM_MS = 2 * 60 * 1000;
 
 function useMedia(query: string): boolean {
   const subscribe = useCallback(
@@ -193,10 +191,10 @@ function DocView({ detail }: { detail: ItemDetail }) {
   const editorRef = useRef<Editor | null>(null);
   const titleRef = useRef(detail.item.title);
   titleRef.current = detail.item.title;
-  const createdHere = useRef(
-    (location.state as { created?: boolean } | null)?.created === true ||
-      (detail.item.content_at === null && detail.item.title === '' && Date.now() - Date.parse(detail.item.created_at) < NEW_ITEM_MS),
-  );
+  // Only an item this page session created is discarded: whoever creates one navigates to it with
+  // `{ state: { created: true } }` ("Add a page" below does). An empty item someone else just created (an agent
+  // about to write its content) is never deleted from here.
+  const createdHere = useRef((location.state as { created?: boolean } | null)?.created === true);
 
   useEffect(() => {
     let cancelled = false;
