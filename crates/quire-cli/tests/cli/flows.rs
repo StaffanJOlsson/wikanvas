@@ -151,6 +151,8 @@ fn doc_markdown_roundtrip_and_stale_etag_exit_9() {
     );
     assert_eq!(code, 9, "a stale ETag: {err}");
     assert_eq!(last_error(&err)["error"]["code"], "rev_mismatch");
+    let got = ok(&h, Scope::Read, &["doc", "get", &id, "--format", "md"]);
+    assert_eq!(got["content"], "Second version.\n", "the 412 wrote nothing");
     let json = ok(&h, Scope::Read, &["doc", "get", &id, "--format", "json"]);
     assert_eq!(json["content"]["schema_version"], 1);
 }
@@ -437,9 +439,9 @@ fn board_put_get_preserves_unknown_fields() {
     assert_eq!(content["document"]["pages"][0]["x_future"], 42);
     assert_eq!(content["document"]["name"], "Plan");
     // A stale If-Match with a changed board: 412. Re-sending the stored board would be a no-op (§6.2 step 4).
-    let changed = std::fs::read_to_string(fixture)
-        .unwrap()
-        .replace(r#""note":"kept""#, r#""note":"changed""#);
+    let original = std::fs::read_to_string(fixture).unwrap();
+    let changed = original.replace(r#""note":"kept""#, r#""note":"changed""#);
+    assert_ne!(changed, original, "the fixture has \"note\":\"kept\"");
     let changed = h
         .sandbox
         .file("changed.inkboard", changed.as_bytes(), 0o600);
@@ -449,6 +451,12 @@ fn board_put_get_preserves_unknown_fields() {
         &["board", "put", &id, changed, "--if-match", "r1"],
     );
     assert_eq!(code, 9, "{err}");
+    assert_eq!(last_error(&err)["error"]["code"], "rev_mismatch");
+    let got = ok(&h, Scope::Read, &["board", "get", &id]);
+    assert_eq!(
+        got["content"]["document"]["x_future"]["note"], "kept",
+        "the 412 wrote nothing"
+    );
     ok(&h, Scope::Write, &["board", "put", &id, changed, "--force"]);
     let got = ok(&h, Scope::Read, &["board", "get", &id]);
     assert_eq!(got["content"]["document"]["x_future"]["note"], "changed");
