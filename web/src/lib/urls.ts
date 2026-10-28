@@ -65,12 +65,24 @@ export function inkboardFrameUrl(config: Pick<Config, 'inkboard'> | null | undef
   return base === null ? null : `${base}frame.html`;
 }
 
+/** The origin `safeNext` resolves against; any other origin after parsing means the target left the app. */
+const NEXT_BASE = 'http://quire.invalid';
+
 /**
- * The `?next=` target after signing in: a same-origin path only (no scheme, no `//host`, no backslash tricks), else
- * `/home`.
+ * The `?next=` target after signing in: a same-origin path only, else `/home`. Refused: a scheme, `//host`, a
+ * backslash, and any control character (the URL parser drops tab and newline, so `/\t/evil.example` would become
+ * `//evil.example`). The rest is parsed as a URL against a fixed origin, which must stay the same; the result is the
+ * parsed path, query and hash. `/login` and `/setup` also give `/home`.
  */
 export function safeNext(next: string | null | undefined): string {
-  if (!next || !next.startsWith('/') || next.startsWith('//') || next.includes('\\')) return '/home';
-  if (next === '/login' || next.startsWith('/login?') || next.startsWith('/setup')) return '/home';
-  return next;
+  if (!next || !next.startsWith('/') || next.startsWith('//') || /[\\\u0000-\u001f\u007f]/.test(next)) return '/home';
+  let url: URL;
+  try {
+    url = new URL(next, NEXT_BASE);
+  } catch {
+    return '/home';
+  }
+  if (url.origin !== NEXT_BASE || url.pathname.startsWith('//')) return '/home';
+  if (url.pathname === '/login' || url.pathname.startsWith('/setup')) return '/home';
+  return url.pathname + url.search + url.hash;
 }
