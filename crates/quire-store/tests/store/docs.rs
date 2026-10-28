@@ -5,7 +5,7 @@
 //! writes of §6.4 (one update through the save path, strict and merging `If-Match`, retries, `schema_too_new`).
 
 use quire_core::api::{ErrorCode, ItemKind, YFIELD};
-use quire_store::docs::{self, Author, ContentInput, ContentWrite, IfMatch, PmJson};
+use quire_store::docs::{self, ContentInput, ContentWrite, IfMatch, PmJson};
 use quire_store::shared::WriteBy;
 use rusqlite::params;
 use serde_json::{Value, json};
@@ -224,11 +224,11 @@ impl Fixture {
         req: ContentWrite,
         token: Option<&str>,
     ) -> quire_store::Result<quire_core::api::DocWriteResult> {
-        let author = Author {
-            user_id: self.owner.clone(),
-            token_id: token.map(str::to_owned),
+        let by = WriteBy {
+            user_id: &self.owner,
+            token_id: token,
         };
-        docs::write_content(&self.t.db, req, author, NOW).await
+        docs::write_content(&self.t.db, req, &by, NOW).await
     }
 
     async fn markdown(&self) -> String {
@@ -941,6 +941,39 @@ async fn api_write_clears_pm_json() {
         .await
         .unwrap();
     assert_eq!(f.n("SELECT count(*) FROM doc_state WHERE item_id = ?1 AND pm_json IS NOT NULL AND pm_json_seq = 1").await, 1);
+    // The Yjs POST stores the editor's JSON text as sent (it never builds a JSON tree of it).
+    let (id, owner, update) = (f.doc_id.clone(), f.owner.clone(), c.type_text(0, "?"));
+    f.t.db
+        .write(move |tx| {
+            let by = WriteBy {
+                user_id: &owner,
+                token_id: None,
+            };
+            docs::save_update(
+                tx,
+                &id,
+                &update,
+                PmJson::Raw(r#"{"type":"doc", "content":[ ]}"#),
+                &by,
+                docs::DEFAULT_MAX_DOC_BYTES,
+                NOW,
+            )
+        })
+        .await
+        .unwrap();
+    let id = f.doc_id.clone();
+    let stored: String =
+        f.t.db
+            .read(move |c| {
+                Ok(c.query_row(
+                    "SELECT pm_json FROM doc_state WHERE item_id = ?1 AND pm_json_seq = 2",
+                    [id],
+                    |r| r.get(0),
+                )?)
+            })
+            .await
+            .unwrap();
+    assert_eq!(stored, r#"{"type":"doc", "content":[ ]}"#);
     f.put(
         f.write_req(md("Cached! And more\n"), IfMatch::Any),
         Some("tok"),

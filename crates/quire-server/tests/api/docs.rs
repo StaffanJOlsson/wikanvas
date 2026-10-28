@@ -643,3 +643,131 @@ async fn prosemirror_put_validates_with_a_pointer() {
         .await;
     assert_error(&res, 422, ErrorCode::Validation);
 }
+
+/// Markdown whose nesting spreads over lines (several markers per line, the next lines indented to the innermost
+/// item) is 422 `invalid_document`, and the server keeps serving: this body once nested about 950 levels and
+/// reached the recursive block conversion.
+#[tokio::test]
+async fn markdown_put_nested_over_lines_422_and_server_survives() {
+    let app = TestApp::with_owner().await;
+    let id = new_doc(&app, "Deep").await;
+    let mut md = String::new();
+    let mut markers = 0;
+    for k in 1..=10 {
+        md.push_str(&" ".repeat(2 * markers));
+        md.push_str(&"- ".repeat(100 - k));
+        md.push_str("x\n");
+        markers += 100 - k;
+    }
+    let res = put_md(&app.server, &id, &md, Some("*")).await;
+    let body = assert_error(&res, 422, ErrorCode::InvalidDocument);
+    assert!(
+        body.error.details.unwrap()["reason"]
+            .as_str()
+            .unwrap()
+            .contains("deeper than 100")
+    );
+    // A tab-indented variant, and one just inside the limit.
+    let tabs: String = (0..300)
+        .map(|i| format!("{}- x\n", "\t".repeat(i)))
+        .collect();
+    let res = put_md(&app.server, &id, &tabs, Some("*")).await;
+    assert_error(&res, 422, ErrorCode::InvalidDocument);
+    let ok: String = (0..100)
+        .map(|i| format!("{}- x\n", "  ".repeat(i)))
+        .collect();
+    put_md(&app.server, &id, &ok, Some("*"))
+        .await
+        .assert_status_ok();
+    app.server
+        .get(&format!("/api/v1/items/{id}/doc/markdown"))
+        .await
+        .assert_status_ok();
+}
+
+/// A writing route takes its `doc_work` permits before it reads the body: with every permit held, a PUT or a Yjs
+/// POST with a malformed body waits instead of answering 422 at once, and answers it once the permits are free.
+#[tokio::test]
+async fn doc_writes_parse_bodies_under_permits() {
+    let app = TestApp::with_owner().await;
+    let id = new_doc(&app, "Permits first").await;
+    let sem = app.state.doc_work.clone();
+    let all = sem.clone().acquire_many_owned(3).await.unwrap();
+    let session = app.session.clone().unwrap();
+    let put = app.cookie_client(&session);
+    let path = format!("/api/v1/items/{id}/doc/prosemirror");
+    let put = tokio::spawn(async move {
+        put.put(&path)
+            .add_header("if-match", "*")
+            .content_type("application/json")
+            .bytes("{not json".as_bytes().to_vec().into())
+            .await
+            .status_code()
+    });
+    let post = app.cookie_client(&session);
+    let path = format!("/api/v1/items/{id}/doc/updates");
+    let post = tokio::spawn(async move {
+        post.post(&path)
+            .content_type("application/json")
+            .bytes("[0,0,0".as_bytes().to_vec().into())
+            .await
+            .status_code()
+    });
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(
+        !put.is_finished() && !post.is_finished(),
+        "both wait for permits"
+    );
+    drop(all);
+    assert_eq!(put.await.unwrap(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(post.await.unwrap(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(sem.available_permits(), 3);
+}
+
+/// `pm_json` is stored as the text it was sent as; it must be a JSON object, and null is the same as absent.
+#[tokio::test]
+async fn yjs_post_pm_json_is_an_object() {
+    let app = TestApp::with_owner().await;
+    let id = new_doc(&app, "Cache").await;
+    let a = Client::new(4101);
+    a.sync(&app.server, &id).await;
+    let u = a.add_paragraph("one");
+    let path = format!("/api/v1/items/{id}/doc/updates");
+    let res = app
+        .server
+        .post(&path)
+        .json(&json!({"update": b64(&u), "pm_json": [0, 0, 0]}))
+        .await;
+    let body = assert_error(&res, 422, ErrorCode::Validation);
+    assert_eq!(body.error.details.unwrap()["field"], "pm_json");
+    let body = format!(
+        r#"{{"update": "{}", "pm_json": {{"type":"doc",  "content":[]}}}}"#,
+        b64(&u)
+    );
+    app.server
+        .post(&path)
+        .content_type("application/json")
+        .bytes(body.into_bytes().into())
+        .await
+        .assert_status_ok();
+    let id2 = id.clone();
+    let stored: String = app
+        .state
+        .db
+        .read(move |c| {
+            Ok(c.query_row(
+                "SELECT pm_json FROM doc_state WHERE item_id = ?1",
+                [id2],
+                |r| r.get(0),
+            )?)
+        })
+        .await
+        .unwrap();
+    assert_eq!(stored, r#"{"type":"doc",  "content":[]}"#);
+    let u2 = a.add_paragraph("two");
+    app.server
+        .post(&path)
+        .json(&json!({"update": b64(&u2), "pm_json": null}))
+        .await
+        .assert_status_ok();
+}

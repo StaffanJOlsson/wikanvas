@@ -315,6 +315,8 @@ pub enum PmJson<'a> {
     Keep,
     /// The editor's JSON after the update.
     Set(&'a Value),
+    /// The same as JSON text, already checked to be a JSON object (the Yjs POST keeps it unparsed).
+    Raw(&'a str),
     /// Cleared: it no longer matches (an API write).
     Clear,
 }
@@ -420,10 +422,10 @@ pub fn save_update(
     )?;
     match pm_json {
         PmJson::Keep => {}
-        PmJson::Set(v) => {
+        PmJson::Set(_) | PmJson::Raw(_) => {
             tx.execute(
                 "UPDATE doc_state SET pm_json = ?2, pm_json_seq = ?3 WHERE item_id = ?1",
-                params![item_id, serde_json::to_string(v)?, seq],
+                params![item_id, pm_text(pm_json)?, seq],
             )?;
         }
         PmJson::Clear => {
@@ -446,8 +448,8 @@ pub fn save_update(
     if newest.is_none_or(|t| now - t > revisions::AUTO_INTERVAL_MS) {
         let attachments = attachment_rows(tx, item_id)?;
         let mut draft = RevisionDraft::yjs(full(), seq, attachments, Some(by.user_id));
-        if let PmJson::Set(v) = pm_json {
-            draft.preview = Some(serde_json::to_string(v)?);
+        if matches!(pm_json, PmJson::Set(_) | PmJson::Raw(_)) {
+            draft.preview = pm_text(pm_json)?;
         }
         revisions::maybe_auto(tx, item_id, draft, now)?;
     }
@@ -472,6 +474,15 @@ pub fn save_update(
         state_vector,
         updated_at: now,
         changed: true,
+    })
+}
+
+/// The `pm_json` text to store, if any.
+fn pm_text(pm_json: PmJson<'_>) -> Result<Option<String>> {
+    Ok(match pm_json {
+        PmJson::Set(v) => Some(serde_json::to_string(v)?),
+        PmJson::Raw(s) => Some(s.to_owned()),
+        PmJson::Keep | PmJson::Clear => None,
     })
 }
 
@@ -811,9 +822,13 @@ fn raw_json(doc: &Doc) -> Result<Value> {
 pub async fn write_content(
     db: &Db,
     req: ContentWrite,
-    author: Author,
+    by: &WriteBy<'_>,
     now: i64,
 ) -> Result<DocWriteResult> {
+    let author = Author {
+        user_id: by.user_id.to_owned(),
+        token_id: by.token_id.map(str::to_owned),
+    };
     let r = req.clone();
     let (prepared, warnings, title) = db.read(move |conn| prepare(conn, &r)).await?;
     let warnings = warnings.into_vec();

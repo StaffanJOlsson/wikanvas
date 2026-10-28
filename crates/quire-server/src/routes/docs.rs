@@ -1,8 +1,13 @@
 //! Routes /api/v1/items/{id}/doc*, and /api/v1/schema/doc (owner: W4)
 //!
 //! §6.1, §6.4, §7.2, §7.5. Every document route takes `doc_work` permits (D25): one for a read or a Yjs POST, two at
-//! once (`acquire_many(2)`) for a whole-document PUT, held from parsing to commit. The bodies are read here with the
-//! route's own limit (Yjs update 16 MiB, ProseMirror JSON 4 MiB, Markdown 1 MiB), so a 413 names that limit.
+//! once (`acquire_many(2)`) for a whole-document PUT. A writing route takes them after its header checks (415, 428)
+//! and before it reads the body, so a request waiting for a permit holds no body, and holds them until the commit;
+//! bodies are parsed in `spawn_blocking`. The bodies are read here with the route's own limit (Yjs update 16 MiB,
+//! ProseMirror JSON 4 MiB, Markdown 1 MiB), so a 413 names that limit. A slow sender holds its permits for at most the
+//! 30 s request timeout.
+
+use std::borrow::Cow;
 
 use axum::Json;
 use axum::body::{Body, Bytes};
@@ -17,7 +22,11 @@ use quire_api::{
     MarkdownPutTitle, MarkdownTitle, ProseMirrorPutQuery, SCHEMA_VERSION, Timestamp,
 };
 use quire_store::docs::{self, Author, ContentInput, ContentWrite, IfMatch, PmJson};
+use quire_store::shared::WriteBy;
+use serde::Deserialize;
+use serde_json::value::RawValue;
 use sha2::{Digest, Sha256};
+use tokio::sync::SemaphorePermit;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
@@ -83,8 +92,47 @@ fn require_media(headers: &HeaderMap, wanted: &str) -> Result<(), ApiError> {
     ))
 }
 
+/// Runs CPU-bound work (parsing a body) on the blocking pool.
+async fn blocking<T, F>(f: F) -> Result<T, ApiError>
+where
+    F: FnOnce() -> Result<T, ApiError> + Send + 'static,
+    T: Send + 'static,
+{
+    tokio::task::spawn_blocking(f)
+        .await
+        .map_err(ApiError::internal)?
+}
+
+/// The body of `POST …/doc/updates` (the wire shape of [`DocUpdate`]), read without building a JSON tree:
+/// `update` is borrowed from the body when it has no escapes, and `pm_json` stays the text it was sent as.
+#[derive(Deserialize)]
+struct UpdateBody<'a> {
+    #[serde(borrow)]
+    update: Cow<'a, str>,
+    #[serde(borrow, default)]
+    pm_json: Option<&'a RawValue>,
+}
+
+/// The update bytes and the `pm_json` text of a Yjs POST body: 422 `validation` when `update` is not base64 or
+/// `pm_json` is not a JSON object (null is the same as absent).
+fn parse_update(bytes: &[u8]) -> Result<(Vec<u8>, Option<String>), ApiError> {
+    let body: UpdateBody<'_> = json_body(bytes)?;
+    let update = b64d("update", &body.update)?;
+    let pm_json = match body.pm_json {
+        None => None,
+        Some(raw) if raw.get().starts_with('{') => Some(raw.get().to_owned()),
+        Some(_) => {
+            return Err(ApiError::validation(
+                "pm_json",
+                "pm_json is the editor's JSON document (an object)",
+            ));
+        }
+    };
+    Ok((update, pm_json))
+}
+
 /// A JSON body: 422 `validation` (`field: "body"`) when it does not parse, `invalid_document` when it nests too deep.
-fn json_body<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, ApiError> {
+fn json_body<'a, T: Deserialize<'a>>(bytes: &'a [u8]) -> Result<T, ApiError> {
     serde_json::from_slice(bytes).map_err(|e| {
         if e.to_string().contains("recursion limit") {
             ApiError::new(
@@ -239,20 +287,17 @@ async fn post_updates(
     let id = id.to_string();
     authz::require(&actor, Action::Write, Resource::Item(&id))?;
     require_media(&headers, "application/json")?;
-    let bytes = body(raw, MAX_UPDATE_BYTES).await?;
-    let req: DocUpdate = json_body(&bytes)?;
-    drop(bytes);
-    let update = b64d("update", &req.update)?;
     let author = author(&actor);
     let cap = max_doc_bytes(&state);
-    let now = now_ms();
     let _permit = state.doc_work.acquire().await.map_err(ApiError::internal)?;
-    let pm_json = req.pm_json;
+    let bytes = body(raw, MAX_UPDATE_BYTES).await?;
+    let (update, pm_json) = blocking(move || parse_update(&bytes)).await?;
+    let now = now_ms();
     let saved = state
         .db
         .write(move |tx| {
             let pm = match &pm_json {
-                Some(v) => PmJson::Set(v),
+                Some(text) => PmJson::Raw(text),
                 None => PmJson::Keep,
             };
             docs::save_update(tx, &id, &update, pm, &author.write_by(), cap, now)
@@ -364,9 +409,15 @@ async fn put_markdown(
     authz::require(&actor, Action::Write, Resource::Item(&id))?;
     require_media(&headers, "text/markdown")?;
     let if_match = if_match(&headers)?;
+    let _permits = two_permits(&state).await?;
     let bytes = body(raw, MAX_MARKDOWN_BYTES).await?;
-    let markdown = String::from_utf8(bytes.to_vec())
-        .map_err(|_| ApiError::validation("body", "the body is not UTF-8"))?;
+    let (markdown, body_sha256) = blocking(move || {
+        let sha: [u8; 32] = Sha256::digest(&bytes).into();
+        let markdown = String::from_utf8(Vec::from(bytes))
+            .map_err(|_| ApiError::validation("body", "the body is not UTF-8"))?;
+        Ok((markdown, sha))
+    })
+    .await?;
     let title_from_h1 = q.title == Some(MarkdownPutTitle::FromH1);
     let query = format!(
         "merge={}&title={}",
@@ -375,7 +426,7 @@ async fn put_markdown(
     );
     let req = ContentWrite {
         item_id: id,
-        body_sha256: Sha256::digest(&bytes).into(),
+        body_sha256,
         input: ContentInput::Markdown(markdown),
         if_match,
         merge: q.merge,
@@ -388,14 +439,22 @@ async fn put_markdown(
     write(&state, req, &actor).await
 }
 
-/// Two of the three `doc_work` permits, from parsing to commit (D25).
-async fn write(state: &AppState, req: ContentWrite, actor: &Actor) -> Result<Response, ApiError> {
-    let _permits = state
+/// Two of the three `doc_work` permits, taken at once (D25) before the body is read, held until the commit.
+async fn two_permits(state: &AppState) -> Result<SemaphorePermit<'_>, ApiError> {
+    state
         .doc_work
         .acquire_many(2)
         .await
-        .map_err(ApiError::internal)?;
-    let result = docs::write_content(&state.db, req, author(actor), now_ms()).await?;
+        .map_err(ApiError::internal)
+}
+
+/// The §6.4 write, under the caller's two permits.
+async fn write(state: &AppState, req: ContentWrite, actor: &Actor) -> Result<Response, ApiError> {
+    let by = WriteBy {
+        user_id: &actor.user_id,
+        token_id: actor.token_id(),
+    };
+    let result = docs::write_content(&state.db, req, &by, now_ms()).await?;
     let (k, v) = etag_header(&result.etag);
     Ok(([(k, v)], Json(result)).into_response())
 }
@@ -496,8 +555,14 @@ async fn put_prosemirror(
     authz::require(&actor, Action::Write, Resource::Item(&id))?;
     require_media(&headers, "application/json")?;
     let if_match = if_match(&headers)?;
+    let _permits = two_permits(&state).await?;
     let bytes = body(raw, MAX_JSON_BYTES).await?;
-    let put: DocJsonPut = json_body(&bytes)?;
+    let (put, body_sha256) = blocking(move || {
+        let sha: [u8; 32] = Sha256::digest(&bytes).into();
+        let put: DocJsonPut = json_body(&bytes)?;
+        Ok((put, sha))
+    })
+    .await?;
     if put.schema_version.is_some_and(|v| v != SCHEMA_VERSION) {
         return Err(ApiError::validation(
             "schema_version",
@@ -506,7 +571,7 @@ async fn put_prosemirror(
     }
     let req = ContentWrite {
         item_id: id,
-        body_sha256: Sha256::digest(&bytes).into(),
+        body_sha256,
         input: ContentInput::Json(put.doc),
         if_match,
         merge: q.merge,
