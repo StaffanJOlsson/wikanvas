@@ -6,8 +6,8 @@
 
 use std::path::Path;
 
-use quire_core::api::{Collection, ItemKind, ItemSummary, NewCollection, NewItem};
-use quire_store::{BlobStore, Db, DbOptions, migrate};
+use quire_core::api::{Collection, ItemKind, ItemSummary, NewCollection, NewItem, Role};
+use quire_store::{BlobStore, Db, DbOptions, ItemRow, Viewer, migrate};
 use uuid::Uuid;
 
 /// A fixed "now": 2026-10-28T09:30:00Z.
@@ -103,6 +103,62 @@ impl TestDb {
         f: impl FnOnce(&rusqlite::Connection) -> rusqlite::Result<T> + Send + 'static,
     ) -> T {
         self.db.read(move |c| Ok(f(c)?)).await.expect("read query")
+    }
+}
+
+impl TestDb {
+    /// Runs `f` in a writer transaction.
+    pub async fn w<T: Send + 'static>(
+        &self,
+        f: impl FnOnce(&rusqlite::Transaction<'_>) -> quire_store::Result<T> + Send + 'static,
+    ) -> quire_store::Result<T> {
+        self.db.write(f).await
+    }
+
+    /// Runs `f` on a reader.
+    pub async fn r<T: Send + 'static>(
+        &self,
+        f: impl FnOnce(&rusqlite::Connection) -> quire_store::Result<T> + Send + 'static,
+    ) -> quire_store::Result<T> {
+        self.db.read(f).await
+    }
+
+    /// The `items` row of `id`.
+    pub async fn row(&self, id: Uuid) -> ItemRow {
+        let id = id.to_string();
+        self.r(move |c| quire_store::shared::item_row(c, &id))
+            .await
+            .expect("item row")
+    }
+
+    /// The titles of a collection's tree, in tree order.
+    pub async fn tree_titles(&self, owner: &str, collection: Uuid) -> Vec<String> {
+        let (v, c) = (viewer(owner), collection.to_string());
+        self.r(move |conn| quire_store::tree::collection_tree(conn, &v, &c))
+            .await
+            .expect("tree")
+            .items
+            .into_iter()
+            .map(|i| i.title)
+            .collect()
+    }
+
+    /// The collection's `tree_version`.
+    pub async fn tree_version(&self, collection: Uuid) -> i64 {
+        count(
+            self,
+            "SELECT tree_version FROM collections WHERE id = ?1",
+            collection.to_string(),
+        )
+        .await
+    }
+}
+
+/// The owner as a viewer.
+pub fn viewer(user: &str) -> Viewer {
+    Viewer {
+        user_id: user.to_owned(),
+        role: Role::Owner,
     }
 }
 
