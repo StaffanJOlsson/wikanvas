@@ -134,14 +134,15 @@ async fn get_put_round_trip_with_etags() {
     assert_eq!(res.header("cache-control"), "no-store");
     let doc = serial::from_json(&res.text()).unwrap();
     assert_eq!((doc.name.as_str(), doc.pages.len()), ("Plan", 1));
-    // 304 for the current tag, also weak.
+    // Never 304, even for the current tag: the body holds the live title (D45).
     let res = app
         .server
         .get(&board_url(&id))
         .add_header("if-none-match", "W/\"r1\"")
         .await;
-    assert_eq!(res.status_code(), 304);
+    res.assert_status_ok();
     assert_eq!(res.header("etag"), "\"r1\"");
+    assert_eq!(serial::from_json(&res.text()).unwrap().name, "Plan");
 
     let body = board("Plan", "Hello board");
     let saved = put_ok(&app.server, &id, &body, "\"r1\"").await;
@@ -256,6 +257,14 @@ async fn get_sets_document_name_to_title() {
     let res = app.server.get(&board_url(&id)).await;
     assert_eq!(name(&res), "Renamed \"plan\"");
     assert_eq!(res.header("etag"), "\"r2\"");
+    // A client that revalidates with the tag it holds still gets the new name: the rename did not change the tag.
+    let res = app
+        .server
+        .get(&board_url(&id))
+        .add_header("if-none-match", "\"r2\"")
+        .await;
+    res.assert_status_ok();
+    assert_eq!(name(&res), "Renamed \"plan\"");
 }
 
 #[tokio::test]
@@ -641,4 +650,193 @@ async fn preview_worker_renders_enqueued_boards() {
         }
         other => panic!("no stored preview: {other:?}"),
     }
+}
+
+#[tokio::test]
+async fn streamed_body_over_limit_413_without_content_length() {
+    use axum::body::Body;
+    use tower::ServiceExt as _;
+    let mut app = TestApp::with_config(|c| c.max_board_mb = 1).await;
+    let owner = app.insert_owner().await;
+    let session = app.insert_session(&owner).await;
+    app.owner_id = Some(owner);
+    let id = new_board(&app, "Streamed").await;
+    // 2 MiB in 64 KiB chunks, with no Content-Length: only the streaming check can refuse it.
+    let chunks =
+        (0..32).map(|_| Ok::<_, std::io::Error>(bytes::Bytes::from(vec![b' '; 64 * 1024])));
+    let request = axum::http::Request::put(board_url(&id))
+        .header("host", "localhost")
+        .header("sec-fetch-site", "same-origin")
+        .header("cookie", format!("quire_session={session}"))
+        .header("if-match", "*")
+        .header("content-type", "application/json")
+        .body(Body::from_stream(futures_util::stream::iter(chunks)))
+        .unwrap();
+    assert!(request.headers().get("content-length").is_none());
+    let res = quire_server::app(app.state.clone())
+        .oneshot(request)
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 413);
+    let body = axum::body::to_bytes(res.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let body: quire_api::ErrorBody = serde_json::from_slice(&body).unwrap();
+    assert_eq!(body.error.code, ErrorCode::PayloadTooLarge);
+    assert_eq!(body.error.details, Some(json!({"limit_bytes": 1048576})));
+    // Nothing was written.
+    assert_eq!(
+        app.cookie_client(&session)
+            .get(&board_url(&id))
+            .await
+            .header("etag"),
+        "\"r1\""
+    );
+}
+
+#[tokio::test]
+async fn put_refuses_json_nested_deeper_than_the_limit() {
+    let app = TestApp::with_owner().await;
+    let id = new_board(&app, "Deep").await;
+    let deep = |levels: usize| {
+        let mut v: Value = serde_json::from_str(&board("Deep", "x")).unwrap();
+        // The envelope is one level; the arrays under `x_future` add the rest.
+        let mut inner = json!(0);
+        for _ in 0..levels - 1 {
+            inner = json!([inner]);
+        }
+        v["x_future"] = inner;
+        serde_json::to_string(&v).unwrap()
+    };
+    let res = put(&app.server, &id, &deep(101), "*").await;
+    let body = assert_error(&res, 422, ErrorCode::InvalidBoard);
+    assert!(
+        body.error.message.contains("101 levels"),
+        "{}",
+        body.error.message
+    );
+    // At the limit (and below serde_json's own 128): accepted, and kept.
+    put_ok(&app.server, &id, &deep(100), "*").await;
+    assert_eq!(
+        app.server
+            .get(&board_url(&id))
+            .await
+            .text()
+            .matches('[')
+            .count(),
+        99 + board("Deep", "x").matches('[').count()
+    );
+}
+
+#[tokio::test]
+async fn repeated_image_preview_is_bounded() {
+    let app = TestApp::with_owner().await;
+    let id = new_board(&app, "Repeated").await;
+    // One 1 MiB image drawn 300 times: a 1.4 MB envelope that would inline 400 MB of base64.
+    let mut d = Document::new("Repeated");
+    let big: Vec<u8> = PNG
+        .iter()
+        .copied()
+        .chain((0..1 << 20).map(|i| (i % 251) as u8))
+        .collect();
+    let asset = d.add_asset("image/png", big);
+    for k in 0..300 {
+        d.pages[0].objects.push(Object::new(
+            Kind::Image(ImageObj {
+                frame: Frame::new(f64::from(k) * 50.0, 0.0, 40.0, 40.0),
+                asset: asset.clone(),
+                latex: None,
+                mono: false,
+                recolor: Vec::new(),
+            }),
+            Style::default(),
+        ));
+    }
+    d.pages[0].objects.push(label_box("Still drawn"));
+    let body = serial::to_json(&d, false);
+    assert!(body.len() < 2 << 20);
+    put_ok(&app.server, &id, &body, "*").await;
+    let res = app
+        .server
+        .get(&format!("/api/v1/items/{id}/board/pages/0"))
+        .await;
+    res.assert_status_ok();
+    let svg = res.text();
+    assert!(svg.len() < 1 << 20, "{} bytes", svg.len());
+    assert!(svg.contains("Still drawn"));
+    assert_eq!(
+        svg.matches("<image ").count(),
+        300,
+        "each copy is a placeholder"
+    );
+    // The large envelope itself comes back whole (a streamed body under the body budget).
+    let res = app.server.get(&board_url(&id)).await;
+    res.assert_status_ok();
+    assert_eq!(
+        res.header("content-length"),
+        body.len().to_string().as_str()
+    );
+    assert_eq!(res.text(), body);
+}
+
+#[tokio::test]
+async fn page_request_that_waited_for_a_render_serves_the_stored_page() {
+    let app = TestApp::with_owner().await;
+    let id = new_board(&app, "Waiting").await;
+    let mut d = Document::new("Waiting");
+    d.pages[0].objects.push(label_box("Rendered by the worker"));
+    put_ok(&app.server, &id, &serial::to_json(&d, false), "*").await;
+    // The worker holds the permit; a GET comes in, finds no preview, and waits for the permit.
+    let permit = app.state.board_work.clone().acquire_owned().await.unwrap();
+    let client = app.cookie_client(app.session.as_deref().unwrap());
+    let url = format!("/api/v1/items/{id}/board/pages/0");
+    let waiting = tokio::spawn(async move { client.get(&url).await.text() });
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    // Meanwhile the worker stores the previews of the current revision.
+    let item = id.clone();
+    app.state
+        .db
+        .write(move |tx| {
+            quire_store::previews::replace(tx, &item, 2, &[Some("<svg>stored</svg>".to_owned())])
+        })
+        .await
+        .unwrap();
+    drop(permit);
+    // The GET serves what was stored instead of rendering again.
+    assert_eq!(waiting.await.unwrap(), "<svg>stored</svg>");
+}
+
+#[tokio::test]
+async fn page_after_the_preview_budget_is_a_card() {
+    let app = TestApp::with_owner().await;
+    let id = new_board(&app, "Budget").await;
+    let mut d = Document::new("Budget");
+    d.pages[0].objects.push(label_box("first"));
+    let mut second = Page::new("Second");
+    second.objects.push(label_box("second"));
+    d.pages.push(second);
+    put_ok(&app.server, &id, &serial::to_json(&d, false), "*").await;
+    // A render that stopped after page 0 (the board's budget was spent).
+    let item = id.clone();
+    app.state
+        .db
+        .write(move |tx| {
+            quire_store::previews::replace(tx, &item, 2, &[Some("<svg>zero</svg>".to_owned())])
+        })
+        .await
+        .unwrap();
+    let res = app
+        .server
+        .get(&format!("/api/v1/items/{id}/board/pages/1?rev=2"))
+        .await;
+    res.assert_status_ok();
+    assert_eq!(res.content_type(), "image/svg+xml");
+    assert_eq!(
+        res.header("cache-control"),
+        "private, max-age=31536000, immutable"
+    );
+    assert_eq!(
+        res.text(),
+        quire_core::board::card_svg("#ffffff", quire_core::board::TOO_LARGE)
+    );
 }

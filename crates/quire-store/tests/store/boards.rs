@@ -954,3 +954,131 @@ async fn previews_are_stored_per_page_and_revision() {
     let state = t.db.read(move |c| boards::state(c, &id)).await.unwrap();
     assert_eq!((state.rev, state.pages, state.updated_at), (3, 1, NOW));
 }
+
+#[tokio::test]
+async fn asset_bytes_count_in_the_noop_test() {
+    use std::collections::HashMap;
+    let t = TestDb::new();
+    let owner = t.owner().await;
+    let id = new_board(&t, &owner, "Board").await;
+    let (_, first) = board_with_image(PNG, "Same");
+    assert_eq!(
+        put(&t, &id, &owner, None, &first, IfMatch::Any)
+            .await
+            .unwrap()
+            .rev,
+        2
+    );
+    // The same envelope with other bytes under the same asset id: a change, not a no-op.
+    let split = quire_core::board::split(&first).unwrap();
+    let asset = split.assets[0].id.clone();
+    let other = quire_core::board::splice(
+        &split.stripped,
+        &HashMap::from([(asset.clone(), GIF.to_vec())]),
+        "client name",
+    )
+    .unwrap();
+    let saved = put(&t, &id, &owner, None, &other, IfMatch::Revs(vec![2]))
+        .await
+        .unwrap();
+    assert!(saved.changed);
+    assert_eq!(saved.rev, 3);
+    let back = serial::from_json(&get(&t, &id).await).unwrap();
+    assert_eq!(back.assets[&Id::from(asset.as_str())].data.as_slice(), GIF);
+    // The same bytes again: a no-op.
+    let again = put(&t, &id, &owner, None, &other, IfMatch::Revs(vec![1]))
+        .await
+        .unwrap();
+    assert!(!again.changed);
+    assert_eq!(again.rev, 3);
+    // The GET's length is reserved before the envelope is assembled: the estimate covers it.
+    let (i, full) = (id.clone(), get(&t, &id).await);
+    let estimate =
+        t.db.read(move |c| boards::envelope_len(c, &i))
+            .await
+            .unwrap();
+    assert!(
+        estimate as usize >= full.len() && estimate as usize <= full.len() + 64,
+        "{estimate} for {}",
+        full.len()
+    );
+
+    // An asset stored without data, sent again with its bytes: saved.
+    let empty = new_board(&t, &owner, "Empty").await;
+    put(&t, &empty, &owner, None, &split.stripped, IfMatch::Any)
+        .await
+        .unwrap();
+    let saved = put(&t, &empty, &owner, None, &first, IfMatch::Any)
+        .await
+        .unwrap();
+    assert!(saved.changed);
+    assert_eq!(saved.rev, 3);
+    let back = serial::from_json(&get(&t, &empty).await).unwrap();
+    assert_eq!(back.assets[&Id::from(asset.as_str())].data.as_slice(), PNG);
+    // A blob file that went missing: sending the bytes again restores it.
+    let file = t.blobs.path(&quire_store::blobs::Sha256::of(PNG));
+    std::fs::remove_file(&file).unwrap();
+    let saved = put(&t, &empty, &owner, None, &first, IfMatch::Any)
+        .await
+        .unwrap();
+    assert!(saved.changed);
+    assert_eq!(saved.rev, 4);
+    assert!(file.exists());
+}
+
+#[tokio::test]
+async fn pages_after_the_preview_budget_are_omitted() {
+    let t = TestDb::new();
+    let owner = t.owner().await;
+    let id = new_board(&t, &owner, "Board").await;
+    let mut d = Document::new("");
+    d.pages[0].objects.push(label_box("first"));
+    for name in ["Second", "Third"] {
+        let mut page = inkboard_core::model::Page::new(name);
+        page.objects.push(label_box(name));
+        d.pages.push(page);
+    }
+    put(
+        &t,
+        &id,
+        &owner,
+        None,
+        &serial::to_json(&d, false),
+        IfMatch::Any,
+    )
+    .await
+    .unwrap();
+    let svg = quire_core::board::preview(&get(&t, &id).await, 0)
+        .unwrap()
+        .unwrap();
+    let pages = vec![Some(previews::PageSvg::new(&svg).unwrap())];
+    let i = id.clone();
+    assert!(
+        t.db.write(move |tx| previews::store(tx, &i, 2, &pages))
+            .await
+            .unwrap()
+    );
+    let i = id.clone();
+    let (rendered, first, second, third, stale, meta) =
+        t.db.read(move |c| {
+            Ok((
+                previews::rendered(c, &i, 2)?,
+                previews::state(c, &i, 0, 2)?,
+                previews::state(c, &i, 1, 2)?,
+                previews::get(c, &i, 2, 2)?,
+                previews::state(c, &i, 1, 1)?,
+                boards::board_meta(c, &i)?,
+            ))
+        })
+        .await
+        .unwrap();
+    assert!(rendered);
+    assert_eq!(first, Some(previews::PageState::Svg { len: svg.len() }));
+    assert_eq!(second, Some(previews::PageState::Omitted));
+    assert_eq!(third, Some(previews::Preview::Omitted));
+    assert_eq!(stale, None, "rev 1 was never rendered");
+    assert_eq!(meta.pages[0].svg_len, Some(svg.len() as u64));
+    assert_eq!(meta.pages[1].svg_len, None);
+    let state = t.db.read(move |c| boards::state(c, &id)).await.unwrap();
+    assert_eq!(state.background, "#ffffff");
+}

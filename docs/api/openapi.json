@@ -177,7 +177,7 @@
         "tags": [
           "boards"
         ],
-        "summary": "The board's native Inkboard envelope `{\"format\":\"inkboard\",\"version\":2,\"document\":…}` (D8, D51): its images\ninline as base64 and `document.name` set to the item's title (D31). Unknown fields a newer engine wrote are kept.",
+        "summary": "The board's native Inkboard envelope `{\"format\":\"inkboard\",\"version\":2,\"document\":…}` (D8, D51): its images\ninline as base64 and `document.name` set to the item's title (D31). Unknown fields a newer engine wrote are kept.\nNever answers 304: the body holds the live title, which the ETag does not version (D45).",
         "operationId": "get_board",
         "parameters": [
           {
@@ -188,18 +188,6 @@
             "schema": {
               "type": "string",
               "format": "uuid"
-            }
-          },
-          {
-            "name": "If-None-Match",
-            "in": "header",
-            "description": "A previous ETag (`\"r{rev}\"`): 304 when unchanged",
-            "required": false,
-            "schema": {
-              "type": [
-                "string",
-                "null"
-              ]
             }
           }
         ],
@@ -221,9 +209,6 @@
                 }
               }
             }
-          },
-          "304": {
-            "description": "Unchanged since the ETag in `If-None-Match`"
           },
           "401": {
             "description": "`unauthenticated`, `invalid_token`",
@@ -257,6 +242,16 @@
           },
           "409": {
             "description": "`setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`rate_limited` (`reason: \"busy\"`, `Retry-After`): too many large board bodies are being sent",
             "content": {
               "application/json": {
                 "schema": {
@@ -377,6 +372,16 @@
               }
             }
           },
+          "408": {
+            "description": "`request_timeout`: the body did not arrive within 120 s",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
           "409": {
             "description": "`setup_required`, `read_only` (trashed or archived)",
             "content": {
@@ -418,7 +423,7 @@
             }
           },
           "422": {
-            "description": "`invalid_board`, `board_too_new`, `validation` (`field`: `kind` for a document, `X-Quire-Engine`, `body`)",
+            "description": "`invalid_board` (also JSON nested deeper than `limits.json_depth`), `board_too_new`, `validation` (`field`: `kind` for a document, `X-Quire-Engine`, `body`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -543,6 +548,16 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "`rate_limited` (`reason: \"busy\"`, `Retry-After`): too many large board bodies are being sent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -563,7 +578,7 @@
           "boards"
         ],
         "summary": "One page of the board as SVG (`svg::export_approx`, D10), for thumbnails, the loading placeholder and the\nread-only view.",
-        "description": "Without `rev`: the current page, `Cache-Control: no-cache` with `ETag: \"r{rev}\"`. With the current `rev`:\n`Cache-Control: private, max-age=31536000, immutable`. With another `rev`: 307 to the current one. An empty page\nanswers 204. Sent gzip-encoded when the client accepts it.",
+        "description": "Without `rev`: the current page, `Cache-Control: no-cache` with `ETag: \"r{rev}\"`. With the current `rev`:\n`Cache-Control: private, max-age=31536000, immutable`. With another `rev`: 307 to the current one. An empty page\nanswers 204. Images that would make the SVG too large are drawn as grey boxes, and a page (or a page after the\nboard's preview budget) that is too large to preview is a small card that says so. Sent gzip-encoded when the\nclient accepts it.",
         "operationId": "get_board_page",
         "parameters": [
           {
@@ -694,6 +709,16 @@
           },
           "422": {
             "description": "`validation` (`field`: `query`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`rate_limited` (`reason: \"busy\"`, `Retry-After`): too many large board bodies are being sent",
             "content": {
               "application/json": {
                 "schema": {
@@ -1205,7 +1230,7 @@
               "null"
             ],
             "format": "int64",
-            "description": "Size of the page's SVG preview in bytes; `null` while there is none (list views show a placeholder when it is\nover 2 MB).",
+            "description": "Size of the page's SVG preview in bytes; `null` while there is none, and for a page after the board's preview\nbudget (its preview is a \"too large to preview\" card). List views show a placeholder when it is over 2 MB.",
             "minimum": 0
           }
         }

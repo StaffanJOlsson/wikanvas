@@ -1,9 +1,10 @@
 //! Board storage: the Inkboard envelope, its assets and revisions (owner: W6).
 //!
 //! `board_state.body` is the raw DEFLATE (RFC 1951) of the *stripped* envelope (`quire_core::board::split`: every
-//! `document.assets[*].data` is `""`), `body_sha256` the sha256 of the uncompressed stripped envelope (the no-op test),
-//! `raw_len` its length, and `meta` the §5 JSON ([`Meta`]). The asset bytes live in the blob store, one
-//! `board_assets` row per asset id (D8, D26); identical bytes are one blob, whatever board or asset id holds them.
+//! `document.assets[*].data` is `""`), `body_sha256` the sha256 of the uncompressed stripped envelope (the no-op test,
+//! together with the asset manifest), `raw_len` its length, and `meta` the §5 JSON ([`Meta`]). The asset bytes live in
+//! the blob store, one `board_assets` row per asset id (D8, D26); identical bytes are one blob, whatever board or asset
+//! id holds them.
 //!
 //! - Initializers (W1's create and duplicate, W2's seed): [`init_empty`], [`init_with`], [`copy`]. Each replaces
 //!   whatever state the item had and stores rev 1 with `engine_version = "server"`.
@@ -11,7 +12,7 @@
 //!   assets), then [`save`] inside it (the no-op test, If-Match, `revisions::pre_api` for a token, committing the
 //!   assets, the new rev, `board_assets`, meta, text, `content_at`, the revision policy).
 //! - Reads: [`stored`] (one reader query) then [`assemble`] (blob reads and the splice with the title), [`state`],
-//!   [`meta`] and [`board_meta`] (the API's `BoardMeta`, with the preview state of `previews`).
+//!   [`envelope_len`], [`meta`] and [`board_meta`] (the API's `BoardMeta`, with the preview state of `previews`).
 
 use std::collections::{BTreeMap, HashMap};
 use std::io::{Read, Write};
@@ -168,11 +169,13 @@ pub struct StoredBoard {
     pub updated_at: i64,
 }
 
-/// The cheap facts about a board: its revision, page count and last write.
+/// The cheap facts about a board: its revision, page count, background and last write.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BoardState {
     pub rev: i64,
     pub pages: usize,
+    /// `meta.background` (`#rrggbb`).
+    pub background: String,
     pub updated_at: i64,
 }
 
@@ -303,7 +306,7 @@ pub fn board_meta(conn: &Connection, item_id: &str) -> Result<BoardMeta> {
     })
 }
 
-/// The revision, page count and `updated_at` of a board; `not_found` when the item has no board.
+/// The revision, page count, background and `updated_at` of a board; `not_found` when the item has no board.
 pub fn state(conn: &Connection, item_id: &str) -> Result<BoardState> {
     let (rev, json, updated_at): (i64, String, i64) = conn
         .query_row(
@@ -317,8 +320,30 @@ pub fn state(conn: &Connection, item_id: &str) -> Result<BoardState> {
     Ok(BoardState {
         rev,
         pages: meta.pages.len(),
+        background: meta.background,
         updated_at,
     })
+}
+
+/// An upper estimate of the length of the full envelope a GET sends: the stored (stripped) body, the base64 of every
+/// asset's blob, and the title. Read before the envelope is assembled, to reserve memory for the response.
+/// `not_found` when the item has no board.
+pub fn envelope_len(conn: &Connection, item_id: &str) -> Result<u64> {
+    let (raw_len, title_len, assets): (i64, i64, i64) = conn
+        .query_row(
+            "SELECT s.raw_len, length(CAST(i.title AS BLOB)),
+               (SELECT coalesce(sum((b.size + 2) / 3 * 4), 0)
+                FROM board_assets a JOIN blobs b ON b.sha256 = a.sha256 WHERE a.item_id = s.item_id)
+             FROM board_state s JOIN items i ON i.id = s.item_id WHERE s.item_id = ?1",
+            [item_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .optional()?
+        .ok_or_else(no_board)?;
+    Ok([raw_len, title_len, assets]
+        .iter()
+        .map(|n| u64::try_from(*n).unwrap_or(0))
+        .sum())
 }
 
 /// The stored (stripped) envelope of a board, inflated.
@@ -425,8 +450,9 @@ pub fn prepare(blobs: &BlobStore, body: &str, min_free_mb: u64) -> Result<Prepar
 
 /// Steps 4 and 5 of the PUT pipeline (§6.2), inside the writer transaction:
 /// - `not_found`; 422 `validation` (`field: "kind"`) for a document; 409 `read_only` when trashed or archived;
-/// - when sha256(stripped) equals `body_sha256`, nothing is written (the staged files are dropped) and the current
-///   rev is returned with `changed: false`;
+/// - when sha256(stripped) equals `body_sha256` and every asset sent with data has the bytes the board already holds
+///   under its id (in a blob file that exists), nothing is written (the staged files are dropped) and the current rev
+///   is returned with `changed: false`;
 /// - otherwise `if_match` must allow the current rev (412 `rev_mismatch` with `details {etag, rev}`); a token's write
 ///   first runs [`revisions::pre_api`] (D53); the staged assets are committed, the body stored with `rev + 1`,
 ///   `engine_version` and `last_token_id` (NULL for a session); `board_assets`, `meta`, `item_text.body`,
@@ -454,7 +480,19 @@ pub fn save(
         )
         .optional()?
         .ok_or_else(no_board)?;
-    if sha == prepared.sha256 {
+    let previous: HashMap<String, String> = tx
+        .prepare_cached("SELECT asset_id, sha256 FROM board_assets WHERE item_id = ?1")?
+        .query_map([item_id], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+    // The stripped body has no asset bytes: an asset whose bytes changed under the same id, or that is sent again
+    // after it was stored without data (or with a lost blob file), is a change too.
+    let same_assets = || {
+        prepared.staged.iter().all(|a| {
+            previous.get(&a.id).map(String::as_str) == Some(a.staged.sha256().as_str())
+                && blobs.path(a.staged.sha256()).exists()
+        })
+    };
+    if sha == prepared.sha256 && same_assets() {
         drop(prepared);
         return Ok(Saved {
             rev,
@@ -468,10 +506,6 @@ pub fn save(
     }
     revisions::pre_api(tx, item_id, ItemKind::Board, by, now)?;
 
-    let previous: HashMap<String, String> = tx
-        .prepare_cached("SELECT asset_id, sha256 FROM board_assets WHERE item_id = ?1")?
-        .query_map([item_id], |r| Ok((r.get(0)?, r.get(1)?)))?
-        .collect::<rusqlite::Result<_>>()?;
     let Prepared {
         stripped,
         sha256,

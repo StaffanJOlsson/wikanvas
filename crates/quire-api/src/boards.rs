@@ -33,8 +33,8 @@ pub struct BoardPageMeta {
     /// Inkboard's page id.
     pub id: String,
     pub name: String,
-    /// Size of the page's SVG preview in bytes; `null` while there is none (list views show a placeholder when it is
-    /// over 2 MB).
+    /// Size of the page's SVG preview in bytes; `null` while there is none, and for a page after the board's preview
+    /// budget (its preview is a "too large to preview" card). List views show a placeholder when it is over 2 MB.
     pub svg_len: Option<u64>,
 }
 

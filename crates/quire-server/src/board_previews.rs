@@ -2,19 +2,25 @@
 //!
 //! §12, D10: board writes [`PreviewQueue::enqueue`] the item id; one worker task deduplicates the ids and debounces
 //! them (it renders an item [`DEBOUNCE`] after its last enqueue, and at most [`MAX_WAIT`] after its first, so steady
-//! saving cannot starve it). A render ([`render`]) holds the `board_work` permit (D25) for the whole job: it reads the
-//! stored board, splices its assets and renders every page with `inkboard_core::svg::export_approx` under
-//! `spawn_blocking`, then stores the SVGs for that revision (`quire_store::previews::replace`, which ignores a render
-//! that a newer save made stale). `GET …/board/pages/{n}` calls [`render`] directly when the current revision has no
-//! preview yet. The worker skips items whose previews are already current, and items that no longer exist.
+//! saving cannot starve it). A render ([`render`]) holds the `board_work` permit (D25) for the whole job. The permit is
+//! owned and moves into every blocking closure (the reader, `spawn_blocking`, the writer), so a request that is
+//! cancelled (the timeout layer, a client that goes away) cannot release it while the work still runs. Under it, the
+//! render first checks whether the current revision was rendered meanwhile (a GET that waited for the worker gets the
+//! stored page), then reads the stored board, splices its assets and renders the pages one at a time with
+//! `quire_core::board::Previewer`, within its per-page and per-board budgets, deflating each page outside the writer.
+//! The writer only stores them (`quire_store::previews::store`, which ignores a render that a newer save made stale).
+//! `GET …/board/pages/{n}` calls [`render`] directly when the current revision has no preview yet. The worker skips
+//! items whose previews are already current, and items that no longer exist.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+use quire_core::board::Previewer;
 use quire_store::blobs::BlobStore;
+use quire_store::boards::{self, StoredBoard};
 use quire_store::db::Db;
-use quire_store::{boards, previews};
+use quire_store::previews::{self, PageSvg, Preview};
 use tokio::sync::{Semaphore, mpsc};
 use tokio::time::Instant;
 
@@ -67,45 +73,99 @@ pub fn spawn_with(state: AppState, debounce: Duration, max_wait: Duration) -> Pr
     PreviewQueue { tx: Some(tx) }
 }
 
-/// The page SVGs of one board revision, as [`render`] made and stored them.
+/// One page of a board revision, as [`render`] made or found it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Rendered {
+    /// The revision the previews were made from.
     pub rev: i64,
-    /// One entry per page; `None` for an empty page.
-    pub pages: Vec<Option<String>>,
+    /// The page asked for; `None` when that revision has no such page.
+    pub page: Option<Preview>,
 }
 
-/// Renders and stores the previews of `item_id`'s current revision, under the `board_work` permit. `not_found` when
-/// the item has no board.
-pub async fn render(state: &AppState, item_id: &str) -> Result<Rendered, ApiError> {
-    render_with(&state.db, &state.blobs, &state.board_work, item_id).await
+/// Page `page` of `item_id`'s current revision: rendered and stored under the `board_work` permit, unless that
+/// revision was rendered while this call waited for the permit. `not_found` when the item has no board.
+pub async fn render(state: &AppState, item_id: &str, page: usize) -> Result<Rendered, ApiError> {
+    render_with(
+        &state.db,
+        &state.blobs,
+        &state.board_work,
+        item_id,
+        Some(page),
+    )
+    .await
+}
+
+/// What the reader found under the permit.
+enum Found {
+    /// The current revision is rendered: its page (if one was asked for and exists).
+    Done(i64, Option<Preview>),
+    /// It is not: the stored board to render.
+    Todo(StoredBoard),
 }
 
 async fn render_with(
     db: &Db,
     blobs: &Arc<BlobStore>,
-    permits: &Semaphore,
+    permits: &Arc<Semaphore>,
     item_id: &str,
+    want: Option<usize>,
 ) -> Result<Rendered, ApiError> {
-    let _permit = permits.acquire().await.map_err(ApiError::internal)?;
+    let permit = Arc::clone(permits)
+        .acquire_owned()
+        .await
+        .map_err(ApiError::internal)?;
     let id = item_id.to_owned();
-    let stored = db.read(move |c| boards::stored(c, &id)).await?;
+    let (permit, found) = db
+        .read(move |c| {
+            let state = boards::state(c, &id)?;
+            let found = if previews::rendered(c, &id, state.rev)? {
+                let page = match want {
+                    Some(p) if p < state.pages => previews::get(c, &id, p, state.rev)?,
+                    _ => None,
+                };
+                Found::Done(state.rev, page)
+            } else {
+                Found::Todo(boards::stored(c, &id)?)
+            };
+            Ok((permit, found))
+        })
+        .await?;
+    let stored = match found {
+        Found::Done(rev, page) => return Ok(Rendered { rev, page }),
+        Found::Todo(stored) => stored,
+    };
     let rev = stored.rev;
     let blobs = Arc::clone(blobs);
-    let pages = tokio::task::spawn_blocking(move || -> Result<_, ApiError> {
+    let (permit, pages, page) = tokio::task::spawn_blocking(move || -> Result<_, ApiError> {
         let full = boards::assemble(&blobs, &stored)?;
         drop(stored);
-        quire_core::board::previews(&full).map_err(ApiError::internal)
+        let mut previewer = Previewer::new(&full).map_err(ApiError::internal)?;
+        drop(full);
+        let count = previewer.pages();
+        // A page the budget leaves out is `Omitted`; a rendered one replaces it below.
+        let mut page = want.filter(|p| *p < count).map(|_| Preview::Omitted);
+        let mut pages = Vec::with_capacity(count);
+        for i in 0..count {
+            if previewer.spent() {
+                break;
+            }
+            let svg = previewer.render(i);
+            pages.push(svg.as_deref().map(PageSvg::new).transpose()?);
+            if want == Some(i) {
+                page = Some(svg.map_or(Preview::Empty, Preview::Svg));
+            }
+        }
+        Ok((permit, pages, page))
     })
     .await
     .map_err(ApiError::internal)??;
-    // Shared with the writer closure instead of copied: page SVGs embed their images and can be large.
-    let pages = Arc::new(pages);
-    let (id, svgs) = (item_id.to_owned(), Arc::clone(&pages));
-    db.write(move |tx| previews::replace(tx, &id, rev, &svgs))
-        .await?;
-    let pages = Arc::try_unwrap(pages).unwrap_or_else(|shared| (*shared).clone());
-    Ok(Rendered { rev, pages })
+    let id = item_id.to_owned();
+    db.write(move |tx| {
+        let _permit = permit;
+        previews::store(tx, &id, rev, &pages)
+    })
+    .await?;
+    Ok(Rendered { rev, page })
 }
 
 struct Worker {
@@ -170,18 +230,13 @@ impl Worker {
                     Err(e) if e.is(quire_api::ErrorCode::NotFound) => return Ok(true),
                     Err(e) => return Err(e),
                 };
-                let rows: i64 = c.query_row(
-                    "SELECT count(*) FROM board_previews WHERE item_id = ?1 AND rev = ?2",
-                    rusqlite::params![id, state.rev],
-                    |r| r.get(0),
-                )?;
-                Ok(rows as usize == state.pages)
+                previews::rendered(c, &id, state.rev)
             })
             .await?;
         if current {
             return Ok(());
         }
-        match render_with(&self.db, &self.blobs, &self.permits, item_id).await {
+        match render_with(&self.db, &self.blobs, &self.permits, item_id, None).await {
             Err(e) if e.code == quire_api::ErrorCode::NotFound => Ok(()),
             other => other.map(drop),
         }
