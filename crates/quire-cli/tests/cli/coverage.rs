@@ -152,13 +152,22 @@ fn agents_md_examples() -> Vec<Vec<String>> {
         }
         let full = std::mem::take(&mut pending) + line;
         let full = full.strip_prefix("$ ").unwrap_or(&full).to_owned();
+        // A command substitution `X=$(quire …)` is a command of its own.
+        let substituted = full.contains("$(");
+        let full = full.replace("$(", ";");
         for segment in full.split(['|', ';']).flat_map(|s| s.split("&&")) {
             let mut words = shell_words(segment);
-            if let Some(i) = words
-                .iter()
-                .position(|w| w.starts_with('>') || w.starts_with('<') || w == "2>&1")
-            {
+            // Up to the first redirection: `>`, `<`, `2>`, `2>&1`.
+            if let Some(i) = words.iter().position(|w| {
+                w.trim_start_matches(|c: char| c.is_ascii_digit())
+                    .starts_with(['>', '<'])
+            }) {
                 words.truncate(i);
+            }
+            if substituted && let Some(last) = words.last_mut() {
+                while last.ends_with(')') {
+                    last.pop();
+                }
             }
             let mut rest: &[String] = &words;
             while rest
@@ -207,8 +216,26 @@ fn agents_md_examples_parse() {
         {
             panic!("docs/AGENTS.md: `{}` does not parse:\n{e}", words.join(" "));
         }
-        if let Some(g) = words.get(1) {
-            groups.insert(g.clone());
+        // The command group: the first word that is neither a flag nor a global flag's value.
+        let mut i = 1;
+        while let Some(w) = words.get(i) {
+            if [
+                "--url",
+                "--profile",
+                "--token-file",
+                "--timeout",
+                "--retries",
+                "--ca-file",
+            ]
+            .contains(&w.as_str())
+            {
+                i += 2;
+            } else if w.starts_with('-') {
+                i += 1;
+            } else {
+                groups.insert(w.clone());
+                break;
+            }
         }
     }
     // The cheat sheet shows every command group of §7.6.
@@ -246,4 +273,19 @@ fn shell_words_split_like_bash() {
         ["quire", "search", "quok -zebra", "--json"]
     );
     assert_eq!(shell_words("a 'b c' d\\ e"), ["a", "b c", "d e"]);
+}
+
+#[test]
+fn examples_are_found_in_substitutions_and_before_redirections() {
+    let found = agents_md_examples();
+    assert!(
+        found
+            .iter()
+            .any(|w| w.len() > 3 && w[1] == "--json" && w[2] == "collection" && w[3] == "create")
+    );
+    assert!(
+        found
+            .iter()
+            .all(|w| w.iter().all(|x| !x.starts_with('>') && !x.ends_with(')')))
+    );
 }
