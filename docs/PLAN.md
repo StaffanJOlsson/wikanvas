@@ -1645,7 +1645,7 @@ New frame tests (`e2e/tests/frame.spec.ts`, real engine, `fixtures/boards/embed.
 
 | Test | Checks |
 |---|---|
-| `embeds: the layout of the fixture` | One `onEmbedLayout` after `open()`: two embeds with the fixture's object ids, items, frames and labels, the plain box left out; `items` sorted; `editing` null; `canvas` the whole canvas; `occluders` non-empty and inside `canvas`; a screenshot of the 80 × 24 px region centred at `origin + centre × zoom` of each card holds pixels darker than `#808080` (the engine's centred title snapshot; the fixture's background and the card's fill are both white, so a fill probe would prove nothing), while the same region 120 world units above a card's centre (inside the card, its white fill) holds none |
+| `embeds: the layout of the fixture` | One `onEmbedLayout` after `open()` (as built: the engine sends the forced first frame's report and the settled one a frame later, E1-D12, so the test waits until the reports settle and checks the last, and that at least one came): two embeds with the fixture's object ids, items, frames and labels, the plain box left out; `items` sorted; `editing` null; `canvas` the whole canvas; `occluders` non-empty and inside `canvas`; a screenshot of the 80 × 24 px region centred at `origin + centre × zoom` of each card holds pixels darker than `#808080` (the engine's centred title snapshot; the fixture's background and the card's fill are both white, so a fill probe would prove nothing), while the same region 120 world units above a card's centre (inside the card, its white fill) holds none |
 | `embeds: pan and zoom report at most once per frame` | A wheel zoom and a Hand-tool drag change `zoom` and `origin`; reports ≤ the animation frames during the gesture plus 2 (eframe also runs an engine frame inside `pointerdown` and `pointerup`, §18.3); no report in 1 s of idling; none for a pan on a board without cards (`frame-test.inkboard`) |
 | `embeds: open instead of label editing` | A double-click on a card gives `onEmbedOpen` with its `objectId`, `item` and `point` within 2 px of the click, the card selected, no `onChange` and the snapshot unchanged; Enter on the selected card gives `point: null`; the plain box still edits its label (positive control) |
 | `embeds: the editing state` | `setEmbedEditing(id)` → `layout.editing === id`; with the canvas still focused, `r`, `Delete` and Ctrl+V change neither the tool nor the board (no `onChange`, the card still there); a click on empty canvas → `onEmbedEditEnd {reason: 'press'}`, no marquee and the selection unchanged; again, then a click on an engine toolbar button → `press` and the tool changes; focusing the canvas after focusing another element → `focus`; `open()` of another board while editing → `gone` |
@@ -1654,7 +1654,8 @@ New frame tests (`e2e/tests/frame.spec.ts`, real engine, `fixtures/boards/embed.
 | `embeds: round trip and lenient model` | The fixture round-trips byte for byte (without views); a box with `"embed": 5` opens without a `load` error and its snapshot has no `embed`; an ellipse with an `embed` keeps it in the snapshot and is not in the layout |
 | `embeds: drop of a sidebar document` | A synthetic `dragover` with `application/x-quire-item` is accepted (`defaultPrevented`); the `drop` gives `onDropItem` with the `DraggedItem` and the drop point; a drop without the type, with JSON that does not parse, with `v: 2` or `kind: 'board'` gives nothing; read-only: the `dragover` is not accepted and no event |
 | `embeds: no rotation handle for a single card` | Dragging from where the rotation handle of a selected card would be leaves its `angle` 0; the same gesture on the plain box rotates it (positive control) |
-| `embeds: read-only` | A double-click on a card gives no `onEmbedOpen`; neither do Enter nor the context menu's "Edit text" on a card selected with a right-click |
+| `embeds: read-only` | A double-click on a card gives no `onEmbedOpen`; neither do Enter nor the context menu's "Edit text" on a card selected with a right-click (as built: after a positive control on a writable board, where the same right-click and menu row give `onEmbedOpen` with `point: null`, so the row is known to be "Edit text"; the menu is found as the new occluder whose left edge is at the click, E1-D12) |
+| `embeds: frame pixels when the canvas is not at the frame origin` (added by E1's review, R1) | With the canvas moved to 100, 80 before `open()`: `canvas` is `{100, 80, 1180, 640}`, the occluders lie inside it, the title's dark pixels are at `origin + centre × zoom`, the double-click point is within 2 px of the mouse, and a 40 × 40 card inserted at a frame point is the card a double-click there opens (each direction of the conversion checked against something absolute) |
 
 The M1 frame tests keep passing, and every new test also checks that no CSP violation was recorded.
 
@@ -1741,6 +1742,8 @@ Agent scenario `12-board-embeds.sh` (CLI only, against the image, like 04):
 10. AGENTS.md's `jq` recipe, verbatim with the scenario's ids, appends a card for the shared page: `board put` exits 0,
     and `board get`'s page 0 ends with that card (`kind.embed.item` the shared page's id) while every earlier object is
     unchanged.
+    10b. (Added by E2's review, R-3.) The recipe for a page titled `"  Padded  title  "` gives the label
+    `"Padded  title"` (trimmed like the web client's snapshot). The scenario has 13 TAP steps (step 11 has two).
 11. A new empty, untitled document `$SPARE` (`item create --kind doc` with neither `--title` nor `--md`), then a card
     for it appended to the board (`board put`): `item trash "$SPARE" --discard-empty` exits 8 with `not_empty`; after a
     `board put` without that card it exits 0 and `item get "$SPARE"` exits 7.
@@ -1774,7 +1777,8 @@ the board page needs them.
 `GET /search/titles`, the doc session's routes).
 
 **Key behaviours** (§18.5–§18.7): the overlay shares the iframe's rect, applies each layout synchronously to the DOM, and
-re-renders only when the set of drawn cards changes; `overflow: clip` (never `hidden`) on the overlay and the card
+re-renders only when the set of drawn cards changes (as built, also on a card's label or selection change: ARCHITECTURE
+D86; the merge folded E3-D1 to D15 into §18.5–§18.6 and D86–D92); `overflow: clip` (never `hidden`) on the overlay and the card
 boxes, only the editing body scrolls, and no `will-change`; at most 24 static cards at zoom ≥ 0.5 and ≥ 120 × 80 px
 with hysteresis, inset 12 world units, inner sizes clamped at 0; clipped to the canvas minus the occluders (disjoint
 holes); static cards are read-only TipTap viewers of `DocJson` (200 blocks, `If-None-Match`, `injectCSS: false`), with
@@ -1855,6 +1859,13 @@ file, each as its own commit with a test.
    ten times and a click on empty canvas leave the text as it was (step 8's reload refits the view).
 8. Reload: once the engine is ready, the three cards are `static` and show "wombat", "quokka numbat" and A's text;
    open C: its body holds "quokka numbat".
+
+As written at the merge (`e2e/tests/smoke.spec.ts`, `docs/handoff/E-merge.md`): the step runs in a 1600 × 1000 window
+(three cards at zoom 1 need empty canvas around them) and restores the window after; the sidebar drag of item 5 is a
+real mouse drag, which Playwright carries into the frame, so the synthetic fallback is not used; item 2's "Untitled"
+child shows because "Text doc" expands the board's row (ARCHITECTURE D92); item 7 starts with a single click on C's card,
+which selects it ("Double-click to edit") without editing; "leave the text as it was" compares C's stored text with the
+text saved before the ten Enters; "A's text" is the title of the board A embeds ("Sketch", step 11).
 
 ### Acceptance (the M1.1 gate)
 

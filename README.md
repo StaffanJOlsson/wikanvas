@@ -2,8 +2,9 @@
 
 A self-hosted wiki: a sidebar of collections holding documents and
 [Inkboard](https://github.com/VictorLetirand/inkboard) whiteboards, nested to any depth. The server is Rust (axum) on
-SQLite; the frontend is React with the TipTap editor; boards run Inkboard compiled to WebAssembly. It has a versioned
-HTTP API (`/api/v1`, with personal access tokens and an OpenAPI 3.1 spec) and a command-line client, `quire`.
+SQLite; the frontend is React with the TipTap editor; boards run Inkboard compiled to WebAssembly. A board can hold
+documents as cards: each is a real page of the tree, edited in place on the board with a double-click (§18). It has a
+versioned HTTP API (`/api/v1`, with personal access tokens and an OpenAPI 3.1 spec) and a command-line client, `quire`.
 
 **Status:** milestone 1, single owner, not released yet. The design is in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 (cited below as §n) and the implementation plan in [`docs/PLAN.md`](docs/PLAN.md).
