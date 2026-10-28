@@ -1,5 +1,6 @@
 // The Playwright smoke of docs/PLAN.md W7 ("Smoke spec", steps 1-15), plus the real-browser board host check of
-// docs/handoff/merge.md (the item menu and the Nested popover render above the board canvas). Quire runs from the
+// docs/handoff/merge.md (the item menu and the Nested popover render above the board canvas), W7's review step 16 and
+// M1.1's step 17 (board document embeds, PLAN "M1.1" "Smoke step 17"). Quire runs from the
 // production image in the compose e2e project with an empty /data and is reached directly at http://quire:8080 over
 // plain HTTP (docs/ARCHITECTURE.md §13.3, §14), so the session cookie is `quire_session`. Run it only through
 // `scripts/e2e.sh smoke`, after `scripts/image.sh`.
@@ -16,12 +17,21 @@
 // - Step 13: the export is fetched by the page itself, as the browser sends it (cookie and `Sec-Fetch-Site`); the same
 //   GET without fetch metadata is refused (`csrf_rejected`), which the step checks too.
 // - Every page of the run must log no CSP violation (the production headers of §11, which happy-dom never applies).
+// Step 17's choices (recorded in docs/handoff/E-merge.md):
+// - It runs in a 1600 × 1000 window, so that three 480 × 360 cards at zoom 1 leave empty canvas around them (the default
+//   1280 × 720 leaves almost none beside the two cards that "Text doc" and "Embed page…" both centre on the view).
+// - The sidebar drag is real (mouse down on A's row, moves, up over the canvas); Playwright carries it into the frame,
+//   so the synthetic drop PLAN allows as a fallback is not used.
+// - Before the double-click, a single click on C's card checks that it selects ("Double-click to edit") without editing.
+// - "Ctrl+Z ten times … leave the text as it was": C's stored text equals the text saved before the ten Enters.
 import { expect, test, type Locator, type Page, type Response } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 
 const SETUP_CODE = 'e2e-setup-code';
 const OWNER = { workspace: 'Smoke workspace', name: 'Smoke Owner', email: 'owner@example.com', password: 'smoke-password-123' };
 const BOARD_TITLE = 'Sketch';
+/** Step 17's board (PLAN M1.1 "Smoke step 17"). */
+const EMBED_BOARD = 'Embed board';
 /** The engine download and start under SwiftShader. */
 const ENGINE_TIMEOUT = 120_000;
 /** A save: the doc session's 1 s debounce, the board loop's 1.5 s quiet time, and the request. */
@@ -188,6 +198,53 @@ async function drawRectangle(page: Page, area: [number, number, number, number],
   return put;
 }
 
+/** A board card of the embeds overlay (docs/ARCHITECTURE.md §18.5 test contract), by its target. */
+function cardOf(page: Page, item: string): Locator {
+  return page.locator(`.board-embeds .board-embed-card[data-object-id][data-item-id="${item}"][data-state]`);
+}
+
+function isDocUpdateOf(r: Response, id: string): boolean {
+  return isDocUpdate(r) && new URL(r.url()).pathname === `/api/v1/items/${id}/doc/updates`;
+}
+
+/** The centre of `el`'s box is within 40 px of `at`. */
+async function expectCentredOn(el: Locator, at: { x: number; y: number }, what: string): Promise<void> {
+  const b = await el.boundingBox();
+  if (!b) throw new Error(`${what} has no box`);
+  expect(Math.abs(b.x + b.width / 2 - at.x), `${what}: x of its centre`).toBeLessThanOrEqual(40);
+  expect(Math.abs(b.y + b.height / 2 - at.y), `${what}: y of its centre`).toBeLessThanOrEqual(40);
+}
+
+/** The cards of a stored board, in drawing order: their target and the plain text of their label. */
+async function embedCards(page: Page, board: string): Promise<{ item: string; label: string }[]> {
+  const r = await page.request.get(`/api/v1/items/${board}/board`);
+  expect(r.status()).toBe(200);
+  const stored = await r.json();
+  return (stored.document.pages as Json[])
+    .flatMap((p) => p.objects as Json[])
+    .filter((o) => o.kind?.type === 'box' && typeof o.kind.embed?.item === 'string')
+    .map((o) => ({ item: o.kind.embed.item, label: (o.kind.label?.text ?? []).map((s: Json) => s.text).join('') }));
+}
+
+/** The viewport centre of the first occurrence of `word` in `root`'s text. */
+async function wordBox(root: Locator, word: string): Promise<{ x: number; y: number }> {
+  const at = await root.evaluate((el, w) => {
+    const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+      const i = n.textContent?.indexOf(w) ?? -1;
+      if (i < 0) continue;
+      const range = document.createRange();
+      range.setStart(n, i);
+      range.setEnd(n, i + w.length);
+      const r = range.getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    }
+    return null;
+  }, word);
+  if (!at) throw new Error(`"${word}" is not in the card`);
+  return at;
+}
+
 /** The overlay paints above the board iframe where both overlap: the topmost element there is inside the overlay. */
 async function expectAboveCanvas(page: Page, overlay: Locator, what: string): Promise<void> {
   await expect(overlay).toBeVisible();
@@ -208,7 +265,7 @@ async function expectAboveCanvas(page: Page, overlay: Locator, what: string): Pr
   expect(inside, `${what} is the topmost element at (${point.x}, ${point.y}), over the board iframe`).toBe(true);
 }
 
-test('smoke: setup to export (PLAN W7 steps 1-15, and the review fixes)', async ({ page, context, request }, testInfo) => {
+test('smoke: setup to export (PLAN W7 steps 1-15, the review fixes, M1.1 board embeds)', async ({ page, context, request }, testInfo) => {
   test.setTimeout(15 * 60_000);
   const pageErrors: string[] = [];
   page.on('pageerror', (e) => pageErrors.push(e.message));
@@ -750,6 +807,186 @@ test('smoke: setup to export (PLAN W7 steps 1-15, and the review fixes)', async 
     expect(delBox.y + delBox.height).toBeLessThanOrEqual(height);
     await page.keyboard.press('Escape');
     await page.setViewportSize(viewport);
+  });
+
+  await test.step('17. Board document embeds: Text doc, Embed page…, a sidebar drop, double-click editing, autosave, reload', async (step) => {
+    step.skip(!engine, 'WebGL 2 is unavailable (step 9)');
+    // A larger window than the default 1280 × 720, so that three 480 × 360 cards at zoom 1 leave empty canvas around them
+    // (docs/handoff/E-merge.md); restored at the end.
+    const viewport = page.viewportSize();
+    if (!viewport) throw new Error('no viewport');
+    await page.setViewportSize({ width: 1600, height: 1000 });
+    const aRef = /\/doc\/(?:[^/]*-)?([0-9A-Za-z]{10})\/?$/.exec(new URL(aUrl).pathname)?.[1] ?? '';
+    const aId = (await detail(page, aRef)).item.id as string;
+
+    // 1. A new board "Embed board" under A, its engine ready.
+    await page.goto(aUrl);
+    await expect(page.locator('#item-title')).toHaveValue('A');
+    await newNested(page, 'board');
+    await setTitle(page, page.getByRole('navigation', { name: 'Breadcrumbs' }).getByRole('textbox', { name: 'Title' }), EMBED_BOARD);
+    const embedBoardUrl = page.url();
+    const embedBoardId = (await detail(page, urlIdOf(page))).item.id as string;
+    await waitForEngine(page);
+    const textDoc = page.getByRole('button', { name: 'Text doc', exact: true });
+    const embedPage = page.getByRole('button', { name: 'Embed page…', exact: true });
+    await expect(textDoc).toBeEnabled();
+    await expect(embedPage).toBeEnabled();
+    const frameBox = async () => {
+      const b = await boardFrame(page).boundingBox();
+      if (!b) throw new Error('the board frame has no box');
+      return b;
+    };
+    const frame = await frameBox();
+    const centre = { x: frame.x + frame.width / 2, y: frame.y + frame.height / 2 };
+
+    // 2. "Text doc": a child of the board, a card editing at the centre, typing autosaves, the title input renames it.
+    const created = page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname === '/api/v1/items');
+    await textDoc.click();
+    const post = await created;
+    expect(post.status()).toBe(201);
+    expect(post.request().postDataJSON()).toMatchObject({ parent_id: embedBoardId, kind: 'doc' });
+    const docId = (await post.json()).id as string;
+    const boardRow = treeItem(page, EMBED_BOARD);
+    await expect(boardRow).toHaveAttribute('aria-expanded', 'true');
+    const boardLevel = Number(await boardRow.getAttribute('aria-level'));
+    const child = (name: string) => treeItem(page, name).and(page.locator(`[aria-level="${boardLevel + 1}"]`));
+    await expect(child('Untitled')).toBeVisible();
+    const docCard = cardOf(page, docId);
+    await expect(docCard).toHaveAttribute('data-state', 'editing');
+    await expectCentredOn(docCard, centre, 'the Text doc card');
+    const docEditor = docCard.locator('.board-embed-editor .ProseMirror[contenteditable="true"]');
+    await expect(docEditor).toBeFocused();
+    let saved = page.waitForResponse((r) => isDocUpdateOf(r, docId) && r.ok(), { timeout: SAVE_TIMEOUT });
+    await page.keyboard.type('wombat');
+    await saved;
+    await expect(docCard.locator('.board-embed-status')).toHaveText('Saved', { timeout: SAVE_TIMEOUT });
+    expect((await (await page.request.get(`/api/v1/items/${docId}/text`)).json()).body).toContain('wombat');
+    const titleInput = docCard.getByRole('textbox', { name: 'Page title' });
+    await expect(titleInput).toHaveValue('');
+    await expect(titleInput).toHaveAttribute('placeholder', 'Untitled');
+    const renamed = page.waitForResponse((r) => isItemPatch(r) && r.ok());
+    await titleInput.click();
+    await page.keyboard.type('Wombat notes');
+    await renamed;
+    await expect(child('Wombat notes')).toBeVisible();
+
+    // 3. Esc in the title input: the card is static and still shows "wombat", under its new title.
+    await page.keyboard.press('Escape');
+    await expect(docCard).toHaveAttribute('data-state', 'static');
+    await expect(docCard.locator('.board-embed-static .ProseMirror')).toContainText('wombat');
+    await expect(docCard.locator('.board-embed-card-title')).toHaveText('Wombat notes');
+
+    // 4. "Embed page…": find C and choose it: a second card near the centre, static, showing "quokka".
+    await embedPage.click();
+    const picker = page.getByRole('dialog', { name: 'Embed a page' });
+    await picker.getByPlaceholder('Find a page').fill('C');
+    await picker.getByRole('button', { name: 'C', exact: true }).click();
+    await expect(picker).toHaveCount(0);
+    const cCard = cardOf(page, cId);
+    await expect(cCard).toHaveAttribute('data-state', 'static');
+    await expectCentredOn(cCard, centre, 'the card of C');
+    await expect(cCard.locator('.board-embed-static .ProseMirror')).toContainText('quokka');
+
+    // 5. A real drag of A's sidebar row onto empty canvas at P: a third card centred on P.
+    const p = { x: frame.x + frame.width * 0.86, y: centre.y };
+    const aRow = treeItem(page, 'A');
+    await expect(aRow).toBeVisible();
+    const rowBox = await aRow.locator('.row-label').boundingBox();
+    if (!rowBox) throw new Error('the sidebar row of A has no box');
+    await page.mouse.move(rowBox.x + Math.min(20, rowBox.width / 2), rowBox.y + rowBox.height / 2);
+    await page.mouse.down();
+    for (let i = 1; i <= 20; i++) {
+      const from = { x: rowBox.x + Math.min(20, rowBox.width / 2), y: rowBox.y + rowBox.height / 2 };
+      await page.mouse.move(from.x + ((p.x - from.x) * i) / 20, from.y + ((p.y - from.y) * i) / 20);
+      await page.waitForTimeout(30);
+    }
+    await page.mouse.up();
+    const aCard = cardOf(page, aId);
+    await expect(aCard).toHaveAttribute('data-state', 'static', { timeout: SAVE_TIMEOUT });
+    await expectCentredOn(aCard, p, 'the card of A');
+
+    // 6. After the board's save: three cards (the new document, C, A), the first labelled with its new title.
+    await expect(saveStatus(page)).toHaveText('Saved', { timeout: SAVE_TIMEOUT });
+    await expect.poll(async () => (await embedCards(page, embedBoardId)).map((c) => c.item), { timeout: SAVE_TIMEOUT }).toEqual([docId, cId, aId]);
+    expect((await embedCards(page, embedBoardId))[0].label).toBe('Wombat notes');
+
+    // 7. A single click selects C's card (no editing); a double-click on the word "quokka" edits it; End, " numbat",
+    //    saved; a click on empty canvas leaves it (no new object). Zoomed in until the card is taller than the canvas,
+    //    the caret at the end and ten Enters: nothing scrolls the overlay and the card stays on its box.
+    const word = await wordBox(cCard.locator('.board-embed-static .ProseMirror'), 'quokka');
+    await page.mouse.click(word.x, word.y);
+    await expect(cCard.locator('.board-embed-hint')).toHaveText('Double-click to edit');
+    await page.waitForTimeout(600);
+    await expect(cCard).toHaveAttribute('data-state', 'static');
+    await page.mouse.dblclick(word.x, word.y);
+    await expect(cCard).toHaveAttribute('data-state', 'editing');
+    const cEditor = cCard.locator('.board-embed-editor .ProseMirror[contenteditable="true"]');
+    await expect(cEditor).toBeFocused();
+    await settle(page);
+    await page.keyboard.press('End');
+    saved = page.waitForResponse((r) => isDocUpdateOf(r, cId) && r.ok(), { timeout: SAVE_TIMEOUT });
+    await page.keyboard.type(' numbat');
+    await saved;
+    await expect(cCard.locator('.board-embed-status')).toHaveText('Saved', { timeout: SAVE_TIMEOUT });
+    const cText = async () => (await (await page.request.get(`/api/v1/items/${cId}/text`)).json()).body as string;
+    const typed = await cText();
+    expect(typed).toContain('quokka numbat');
+    // Empty canvas: above the two cards at the centre, clear of the engine's floating cards at the top.
+    const cBox = await cCard.boundingBox();
+    if (!cBox) throw new Error("C's card has no box");
+    const empty = { x: cBox.x + cBox.width / 2, y: cBox.y - 40 };
+    await page.mouse.click(empty.x, empty.y);
+    await expect(cCard).toHaveAttribute('data-state', 'static');
+    await page.waitForTimeout(3000);
+    expect((await embedCards(page, embedBoardId)).length).toBe(3);
+    expect((await detail(page, embedBoardId)).board.objects).toBe(3);
+
+    await page.mouse.move(empty.x, empty.y);
+    for (let i = 0; i < 40; i++) {
+      const [card, f] = [await cCard.boundingBox(), await frameBox()];
+      if (card && card.height > f.height) break;
+      await page.mouse.wheel(0, -120);
+      await page.waitForTimeout(80);
+    }
+    const tall = await cCard.boundingBox();
+    if (!tall) throw new Error("C's card has no box");
+    expect(tall.height, "C's card is taller than the canvas").toBeGreaterThan((await frameBox()).height);
+    const header = await cCard.locator('.board-embed-header').boundingBox();
+    if (!header) throw new Error("C's card has no header box");
+    await page.mouse.dblclick(tall.x + tall.width / 2, header.y + header.height + 20);
+    await expect(cCard).toHaveAttribute('data-state', 'editing');
+    await expect(cEditor).toBeFocused();
+    await settle(page);
+    const before = await cCard.evaluate((el) => el.getBoundingClientRect().toJSON());
+    await page.keyboard.press('ControlOrMeta+End');
+    for (let i = 0; i < 10; i++) await page.keyboard.press('Enter');
+    await page.waitForTimeout(300);
+    const scrolled = await page.locator('.board-embeds').evaluate((el) => ({ top: el.scrollTop, left: el.scrollLeft }));
+    expect(scrolled, '.board-embeds never scrolls (overflow: clip)').toEqual({ top: 0, left: 0 });
+    const afterKeys = await cCard.evaluate((el) => el.getBoundingClientRect().toJSON());
+    for (const k of ['x', 'y', 'width', 'height'] as const) {
+      expect(Math.abs(afterKeys[k] - before[k]), `the card's ${k} after the keys`).toBeLessThanOrEqual(2);
+    }
+    for (let i = 0; i < 10; i++) await page.keyboard.press('ControlOrMeta+z');
+    await page.mouse.click(empty.x, empty.y);
+    await expect(cCard).toHaveAttribute('data-state', 'static');
+    await expect.poll(cText, { timeout: SAVE_TIMEOUT, message: 'ten undos took the ten Enters back' }).toBe(typed);
+    await expect(cCard.locator('.board-embed-static .ProseMirror')).toContainText('quokka numbat');
+
+    // 8. Reload: the three cards are static with their documents' text; C's page holds "quokka numbat".
+    expect(page.url()).toBe(embedBoardUrl);
+    await page.reload();
+    await waitForEngine(page);
+    for (const [id, text] of [[docId, 'wombat'], [cId, 'quokka numbat'], [aId, BOARD_TITLE]] as const) {
+      const card = cardOf(page, id);
+      await expect(card).toHaveAttribute('data-state', 'static', { timeout: SAVE_TIMEOUT });
+      await expect(card.locator('.board-embed-static')).toContainText(text);
+    }
+    await page.goto(cUrl);
+    await expect(page.locator('#item-title')).toHaveValue('C');
+    await expect(editor(page)).toContainText('quokka numbat');
+    await page.setViewportSize(viewport);
+    console.log('smoke: step 17 ran on the engine: Text doc, Embed page…, a real sidebar drag, double-click editing, reload');
   });
 
   if (pageErrors.length > 0) testInfo.annotations.push({ type: 'page errors', description: pageErrors.join('\n') });
