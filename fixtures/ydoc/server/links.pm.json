@@ -1,0 +1,255 @@
+{
+  "content": [
+    {
+      "attrs": {
+        "blockId": "fe5531c4-7f59-460f-a3c6-5795f5b09513"
+      },
+      "content": [
+        {
+          "text": "A ",
+          "type": "text"
+        },
+        {
+          "marks": [
+            {
+              "attrs": {
+                "href": "https://example.com/a?b=c#d",
+                "itemId": null
+              },
+              "type": "link"
+            }
+          ],
+          "text": "web link",
+          "type": "text"
+        },
+        {
+          "text": ", a ",
+          "type": "text"
+        },
+        {
+          "marks": [
+            {
+              "attrs": {
+                "href": "mailto:someone@example.com",
+                "itemId": null
+              },
+              "type": "link"
+            }
+          ],
+          "text": "mail link",
+          "type": "text"
+        },
+        {
+          "text": ", an autolink ",
+          "type": "text"
+        },
+        {
+          "marks": [
+            {
+              "attrs": {
+                "href": "https://example.org/x",
+                "itemId": null
+              },
+              "type": "link"
+            }
+          ],
+          "text": "https://example.org/x",
+          "type": "text"
+        },
+        {
+          "text": " and a bare one ",
+          "type": "text"
+        },
+        {
+          "marks": [
+            {
+              "attrs": {
+                "href": "https://example.net/y",
+                "itemId": null
+              },
+              "type": "link"
+            }
+          ],
+          "text": "https://example.net/y",
+          "type": "text"
+        },
+        {
+          "text": ".",
+          "type": "text"
+        }
+      ],
+      "type": "paragraph"
+    },
+    {
+      "attrs": {
+        "blockId": "12fe736c-c4dd-4ccf-8982-9b6c5191a232"
+      },
+      "content": [
+        {
+          "text": "Item links: ",
+          "type": "text"
+        },
+        {
+          "marks": [
+            {
+              "attrs": {
+                "href": "quire://item/0192f0a0-1111-7000-8000-00000000000a",
+                "itemId": "0192f0a0-1111-7000-8000-00000000000a"
+              },
+              "type": "link"
+            }
+          ],
+          "text": "by id",
+          "type": "text"
+        },
+        {
+          "text": ", ",
+          "type": "text"
+        },
+        {
+          "marks": [
+            {
+              "attrs": {
+                "href": "/doc/doc-a-DocA00000a",
+                "itemId": "0192f0a0-1111-7000-8000-00000000000a"
+              },
+              "type": "link"
+            }
+          ],
+          "text": "by path",
+          "type": "text"
+        },
+        {
+          "text": ", ",
+          "type": "text"
+        },
+        {
+          "marks": [
+            {
+              "attrs": {
+                "href": "https://wiki.example.com/board/Board0000c",
+                "itemId": "0192f0a0-3333-7000-8000-00000000000c"
+              },
+              "type": "link"
+            }
+          ],
+          "text": "by public URL",
+          "type": "text"
+        },
+        {
+          "text": " and ",
+          "type": "text"
+        },
+        {
+          "marks": [
+            {
+              "attrs": {
+                "href": "quire://item/0192f0a0-9999-7000-8000-000000000099",
+                "itemId": null
+              },
+              "type": "link"
+            }
+          ],
+          "text": "unknown",
+          "type": "text"
+        },
+        {
+          "text": ".",
+          "type": "text"
+        }
+      ],
+      "type": "paragraph"
+    },
+    {
+      "attrs": {
+        "blockId": "97ce956b-a56f-45f5-964a-e1e6e35a24e3"
+      },
+      "content": [
+        {
+          "text": "Mentions: ",
+          "type": "text"
+        },
+        {
+          "attrs": {
+            "itemId": "0192f0a0-2222-7000-8000-00000000000b"
+          },
+          "type": "mention"
+        },
+        {
+          "text": " and ",
+          "type": "text"
+        },
+        {
+          "attrs": {
+            "itemId": "0192f0a0-1111-7000-8000-00000000000a"
+          },
+          "type": "mention"
+        },
+        {
+          "text": ".",
+          "type": "text"
+        }
+      ],
+      "type": "paragraph"
+    },
+    {
+      "attrs": {
+        "blockId": "8bcede2f-5fd1-41e0-9869-4be2315c005f"
+      },
+      "content": [
+        {
+          "text": "Unsafe: click and data stay text.",
+          "type": "text"
+        }
+      ],
+      "type": "paragraph"
+    },
+    {
+      "attrs": {
+        "blockId": "7f40dc0a-210d-4d99-89c8-7b4f43876f82"
+      },
+      "content": [
+        {
+          "text": "Fragment ",
+          "type": "text"
+        },
+        {
+          "marks": [
+            {
+              "attrs": {
+                "href": "#h-section",
+                "itemId": null
+              },
+              "type": "link"
+            }
+          ],
+          "text": "link",
+          "type": "text"
+        },
+        {
+          "text": " and ",
+          "type": "text"
+        },
+        {
+          "marks": [
+            {
+              "attrs": {
+                "href": "/settings/account",
+                "itemId": null
+              },
+              "type": "link"
+            }
+          ],
+          "text": "path",
+          "type": "text"
+        },
+        {
+          "text": ".",
+          "type": "text"
+        }
+      ],
+      "type": "paragraph"
+    }
+  ],
+  "type": "doc"
+}

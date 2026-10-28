@@ -1,0 +1,12 @@
+[
+  {
+    "code": "table_alignment_dropped",
+    "path": "1:1",
+    "count": 1
+  },
+  {
+    "code": "hard_break_dropped",
+    "path": null,
+    "count": 1
+  }
+]

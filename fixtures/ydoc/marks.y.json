@@ -1,0 +1,291 @@
+{
+  "type": "doc",
+  "content": [
+    {
+      "type": "paragraph",
+      "attrs": {
+        "blockId": "00000000-0000-4000-8000-000000000002"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Plain, "
+        },
+        {
+          "type": "text",
+          "text": "bold",
+          "marks": [
+            {
+              "type": "bold",
+              "attrs": {}
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": ", "
+        },
+        {
+          "type": "text",
+          "text": "italic",
+          "marks": [
+            {
+              "type": "italic",
+              "attrs": {}
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": ", "
+        },
+        {
+          "type": "text",
+          "text": "underline",
+          "marks": [
+            {
+              "type": "underline",
+              "attrs": {}
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": ", "
+        },
+        {
+          "type": "text",
+          "text": "strike",
+          "marks": [
+            {
+              "type": "strike",
+              "attrs": {}
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": ", "
+        },
+        {
+          "type": "text",
+          "text": "code",
+          "marks": [
+            {
+              "type": "code",
+              "attrs": {}
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": " and "
+        },
+        {
+          "type": "text",
+          "text": "highlight",
+          "marks": [
+            {
+              "type": "highlight",
+              "attrs": {}
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": "."
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "blockId": "00000000-0000-4000-8000-000000000003"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "bold italic",
+          "marks": [
+            {
+              "type": "bold",
+              "attrs": {}
+            },
+            {
+              "type": "italic",
+              "attrs": {}
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": " bold only",
+          "marks": [
+            {
+              "type": "bold",
+              "attrs": {}
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": " "
+        },
+        {
+          "type": "text",
+          "text": "all",
+          "marks": [
+            {
+              "type": "bold",
+              "attrs": {}
+            },
+            {
+              "type": "italic",
+              "attrs": {}
+            },
+            {
+              "type": "strike",
+              "attrs": {}
+            },
+            {
+              "type": "underline",
+              "attrs": {}
+            },
+            {
+              "type": "highlight",
+              "attrs": {}
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "blockId": "00000000-0000-4000-8000-000000000004"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "A "
+        },
+        {
+          "type": "text",
+          "text": "web link",
+          "marks": [
+            {
+              "type": "link",
+              "attrs": {
+                "href": "https://example.com/a?b=c#d",
+                "itemId": null
+              }
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": ", a "
+        },
+        {
+          "type": "text",
+          "text": "mail",
+          "marks": [
+            {
+              "type": "link",
+              "attrs": {
+                "href": "mailto:someone@example.com",
+                "itemId": null
+              }
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": ", an "
+        },
+        {
+          "type": "text",
+          "text": "item link",
+          "marks": [
+            {
+              "type": "link",
+              "attrs": {
+                "href": "quire://item/0192f0a0-1111-7000-8000-00000000000a",
+                "itemId": "0192f0a0-1111-7000-8000-00000000000a"
+              }
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": " and a "
+        },
+        {
+          "type": "text",
+          "text": "bold link",
+          "marks": [
+            {
+              "type": "link",
+              "attrs": {
+                "href": "/doc/x-AbCdEfGh12",
+                "itemId": null
+              }
+            },
+            {
+              "type": "bold",
+              "attrs": {}
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": "."
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "blockId": "00000000-0000-4000-8000-000000000005"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": " spaced ",
+          "marks": [
+            {
+              "type": "italic",
+              "attrs": {}
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": "edges"
+        },
+        {
+          "type": "text",
+          "text": " ",
+          "marks": [
+            {
+              "type": "bold",
+              "attrs": {}
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "blockId": "00000000-0000-4000-8000-000000000006"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Escapes: *stars* _under_ `ticks` [brackets] <angle> # hash 1. one"
+        }
+      ]
+    }
+  ]
+}

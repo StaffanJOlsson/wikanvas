@@ -1,0 +1,17 @@
+[
+  {
+    "code": "image_hoisted",
+    "path": "7:1",
+    "count": 1
+  },
+  {
+    "code": "embed_not_board",
+    "path": "11:1",
+    "count": 1
+  },
+  {
+    "code": "unsafe_link",
+    "path": "13:1",
+    "count": 1
+  }
+]

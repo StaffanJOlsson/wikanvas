@@ -187,12 +187,15 @@ pub struct ProseMirrorPutQuery {
     pub merge: bool,
 }
 
-/// Response of `GET /schema/doc`: schema v1 as data (`quire-core::schema`, §6.4).
+/// Response of `GET /schema/doc`: schema v1 as data (`quire-core::schema`, §6.4), byte for byte
+/// `fixtures/schema/v1.json`, which the web fixture writer dumps from the live TipTap schema.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS, ToSchema)]
 #[ts(export)]
 pub struct DocSchema {
     pub schema_version: u32,
-    /// In schema order.
+    /// The root node type (`doc`).
+    pub top_node: String,
+    /// In schema order (ProseMirror's own `doc` and `text` included).
     pub nodes: Vec<NodeSpec>,
     /// In rank order.
     pub marks: Vec<MarkSpec>,
@@ -205,8 +208,11 @@ pub struct NodeSpec {
     pub name: String,
     /// e.g. `block`, `inline`.
     pub group: Option<String>,
-    /// The ProseMirror content expression, e.g. `inline*`.
+    /// The ProseMirror content expression, e.g. `inline*`; null for a leaf.
     pub content: Option<String>,
+    /// The marks allowed in this node's content: null for ProseMirror's default (every mark in inline content),
+    /// `""` for none, `"_"` for all, otherwise mark names.
+    pub marks: Option<String>,
     pub inline: bool,
     pub atom: bool,
     pub attrs: Vec<AttrSpec>,
@@ -219,8 +225,10 @@ pub struct MarkSpec {
     pub name: String,
     /// Position in the schema's mark order (marks are sorted by it).
     pub rank: u32,
-    /// The ProseMirror `excludes` expression, e.g. `_`.
+    /// The ProseMirror `excludes` expression: null excludes only the mark itself, `_` every mark.
     pub excludes: Option<String>,
+    /// Whether the mark extends to text typed at its end (null: ProseMirror's default, true).
+    pub inclusive: Option<bool>,
     pub attrs: Vec<AttrSpec>,
 }
 
@@ -229,7 +237,8 @@ pub struct MarkSpec {
 #[ts(export)]
 pub struct AttrSpec {
     pub name: String,
-    /// The JSON type, e.g. `string`, `number`, `boolean`, `string | null`.
+    /// The JSON type in TypeScript notation, e.g. `integer`, `boolean`, `string | null`, `integer[] | null`,
+    /// `"info" | "tip"`.
     #[serde(rename = "type")]
     pub value_type: String,
     /// The default value (`null` when the attr has none).

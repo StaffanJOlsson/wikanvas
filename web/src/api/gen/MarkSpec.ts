@@ -10,6 +10,10 @@ export type MarkSpec = { name: string,
  */
 rank: number, 
 /**
- * The ProseMirror `excludes` expression, e.g. `_`.
+ * The ProseMirror `excludes` expression: null excludes only the mark itself, `_` every mark.
  */
-excludes: string | null, attrs: Array<AttrSpec>, };
+excludes: string | null, 
+/**
+ * Whether the mark extends to text typed at its end (null: ProseMirror's default, true).
+ */
+inclusive: boolean | null, attrs: Array<AttrSpec>, };

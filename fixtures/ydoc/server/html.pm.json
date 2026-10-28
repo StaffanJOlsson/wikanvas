@@ -1,0 +1,56 @@
+{
+  "content": [
+    {
+      "attrs": {
+        "blockId": "192a4752-4a84-49b1-afcc-af66a7d03ad8"
+      },
+      "content": [
+        {
+          "text": "<div class=\"x\">",
+          "type": "text"
+        },
+        {
+          "type": "hardBreak"
+        },
+        {
+          "text": "an HTML block",
+          "type": "text"
+        },
+        {
+          "type": "hardBreak"
+        },
+        {
+          "text": "</div>",
+          "type": "text"
+        }
+      ],
+      "type": "paragraph"
+    },
+    {
+      "attrs": {
+        "blockId": "9f7d3358-9216-4c45-86bf-00316b7dcb73"
+      },
+      "content": [
+        {
+          "text": "Inline <span>html</span> stays text, ",
+          "type": "text"
+        },
+        {
+          "marks": [
+            {
+              "type": "underline"
+            }
+          ],
+          "text": "this is underlined",
+          "type": "text"
+        },
+        {
+          "text": ", a lone <u> stays and so does <br>.",
+          "type": "text"
+        }
+      ],
+      "type": "paragraph"
+    }
+  ],
+  "type": "doc"
+}

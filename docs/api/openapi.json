@@ -2692,6 +2692,757 @@
         ]
       }
     },
+    "/api/v1/items/{id}/doc": {
+      "get": {
+        "tags": [
+          "documents"
+        ],
+        "summary": "The document's Yjs state: the whole update, or with `since` only what that state vector lacks.",
+        "operationId": "get_doc",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The document's id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "description": "Base64 Yjs state vector: return only what the client is missing.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The Yjs state (base64 v1 update and state vector)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocState"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`validation` (`field`: `since` or `kind`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      }
+    },
+    "/api/v1/items/{id}/doc/markdown": {
+      "get": {
+        "tags": [
+          "documents"
+        ],
+        "summary": "The document as Quire Markdown 1 (§6.4). Never 304: it prints live titles. The lossy steps are listed in\n`Quire-Conversion-Warnings`.",
+        "operationId": "get_doc_markdown",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The document's id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "title",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/MarkdownTitle"
+            }
+          },
+          {
+            "name": "download",
+            "in": "query",
+            "description": "Add `Content-Disposition: attachment; filename=\"<slug>.md\"`.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Markdown, with `ETag: \"d{seq}\"` and `Quire-Conversion-Warnings`",
+            "content": {
+              "text/markdown": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "documents"
+        ],
+        "summary": "Writes the document from Markdown (§6.4): a diff against the `If-Match` base, stored as one Yjs update. A stale\n`If-Match` is 412 (`details.mergeable`), unless the document already equals the target (200 `changed: false`)\nor `?merge=true` merges it with the newer updates. Only `text/markdown` is accepted.",
+        "operationId": "put_doc_markdown",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The document's id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "`\"d{seq}\"` from a GET, or `*`",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "merge",
+            "in": "query",
+            "description": "Merge with newer updates when `If-Match` is stale but still reconstructible (D50).",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "title",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/MarkdownPutTitle"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Quire Markdown 1, up to 1 MiB",
+          "content": {
+            "text/markdown": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Written (or already equal), with the new `ETag`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocWriteResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`, `csrf_rejected`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`schema_too_new`, `read_only`, `setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "`rev_mismatch` (`details {etag, mergeable}`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "`payload_too_large`, `doc_too_large`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "`unsupported_media_type`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`invalid_document` (`details {path: \"line:column\", reason}`), `validation`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "`precondition_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "write"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      }
+    },
+    "/api/v1/items/{id}/doc/prosemirror": {
+      "get": {
+        "tags": [
+          "documents"
+        ],
+        "summary": "The document as normalized ProseMirror JSON (`editor.getJSON()`, §6.4), `ETag: \"d{seq}\"`; 304 for a matching\n`If-None-Match`.",
+        "operationId": "get_doc_prosemirror",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The document's id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "If-None-Match",
+            "in": "header",
+            "description": "A previous `ETag`",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The document",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocJson"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Not modified"
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "documents"
+        ],
+        "summary": "Writes the document from ProseMirror JSON (§6.4): validated against schema v1 (422 `invalid_document` with a\nJSON pointer), then diffed against the `If-Match` base by `blockId` and content, and stored as one Yjs update.",
+        "operationId": "put_doc_prosemirror",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The document's id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "`\"d{seq}\"` from a GET, or `*`",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "merge",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Up to 4 MiB",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocJsonPut"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Written (or already equal), with the new `ETag`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocWriteResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`, `csrf_rejected`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`schema_too_new`, `read_only`, `setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "`rev_mismatch` (`details {etag, mergeable}`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "`payload_too_large`, `doc_too_large`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "`unsupported_media_type`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`invalid_document` (`details {path, reason}`), `validation`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "428": {
+            "description": "`precondition_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "write"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      }
+    },
+    "/api/v1/items/{id}/doc/updates": {
+      "post": {
+        "tags": [
+          "documents"
+        ],
+        "summary": "Saves one Yjs update (§6.1): 409 `missing_deps` with the server's state vector when it depends on structs the\nserver lacks; a re-sent update is a no-op. A token's first write after someone else's stores a `pre-api`\nrevision (D53).",
+        "operationId": "post_doc_updates",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The document's id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "A base64 Yjs v1 update (up to 16 MiB), and the editor's JSON",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Saved (or nothing new)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocUpdateResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`, `csrf_rejected`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`missing_deps` (`details.state_vector`), `read_only`, `setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "`payload_too_large`, `doc_too_large`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "`unsupported_media_type`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`invalid_update`, `validation`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "write"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      }
+    },
     "/api/v1/items/{id}/duplicate": {
       "post": {
         "tags": [
@@ -3719,6 +4470,67 @@
           },
           "422": {
             "description": "`validation` (`field`: `cursor`, `limit` or `query`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      }
+    },
+    "/api/v1/schema/doc": {
+      "get": {
+        "tags": [
+          "documents"
+        ],
+        "summary": "Document schema v1 as data: every node and mark with its attrs, types, defaults and content rules (§6.4); the\nnodes and marks a ProseMirror PUT may use.",
+        "operationId": "get_doc_schema",
+        "responses": {
+          "200": {
+            "description": "Schema v1",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocSchema"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`setup_required`",
             "content": {
               "application/json": {
                 "schema": {
@@ -5197,6 +6009,27 @@
           }
         }
       },
+      "AttrSpec": {
+        "type": "object",
+        "description": "An attribute of a node or mark.",
+        "required": [
+          "name",
+          "type",
+          "default"
+        ],
+        "properties": {
+          "default": {
+            "description": "The default value (`null` when the attr has none)."
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "description": "The JSON type in TypeScript notation, e.g. `integer`, `boolean`, `string | null`, `integer[] | null`,\n`\"info\" | \"tip\"`."
+          }
+        }
+      },
       "AuthMethodKind": {
         "type": "string",
         "description": "How the current request was authenticated.",
@@ -5494,6 +6327,53 @@
           }
         }
       },
+      "ConversionWarning": {
+        "type": "object",
+        "description": "One kind of lossy step, with where it first happened and how often.",
+        "required": [
+          "code",
+          "count"
+        ],
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/ConversionWarningCode"
+          },
+          "count": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "path": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A JSON pointer, or `line:column` for Markdown input."
+          }
+        }
+      },
+      "ConversionWarningCode": {
+        "type": "string",
+        "description": "A lossy step of a conversion (§6.4 table). New codes may be added within v1.",
+        "enum": [
+          "empty_paragraph_dropped",
+          "hard_break_dropped",
+          "task_list_mixed",
+          "alert_mapped",
+          "marks_in_code_dropped",
+          "html_as_text",
+          "unsafe_link",
+          "unknown_item",
+          "embed_not_board",
+          "image_width_dropped",
+          "image_hoisted",
+          "table_cell_flattened",
+          "table_span_dropped",
+          "table_alignment_dropped",
+          "unknown_node",
+          "unsupported_markdown"
+        ]
+      },
       "CreatedToken": {
         "type": "object",
         "description": "Response of `POST /tokens`: the only response that ever contains the secret.",
@@ -5542,6 +6422,203 @@
           },
           "url_id": {
             "type": "string"
+          }
+        }
+      },
+      "DocJson": {
+        "type": "object",
+        "description": "Response of `GET /items/{id}/doc/prosemirror`, with `ETag: \"d{seq}\"`.",
+        "required": [
+          "schema_version",
+          "seq",
+          "doc"
+        ],
+        "properties": {
+          "doc": {
+            "type": "object",
+            "description": "Normalized ProseMirror JSON `{type: \"doc\", content}` (the shape of `editor.getJSON()`, §6.4)."
+          },
+          "schema_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "DocJsonPut": {
+        "type": "object",
+        "description": "Body of `PUT /items/{id}/doc/prosemirror` (up to 4 MiB, `If-Match` required).",
+        "required": [
+          "doc"
+        ],
+        "properties": {
+          "doc": {
+            "type": "object",
+            "description": "ProseMirror JSON `{type: \"doc\", content}`; missing attrs get their defaults."
+          },
+          "schema_version": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "`1` when present.",
+            "minimum": 0
+          }
+        }
+      },
+      "DocSchema": {
+        "type": "object",
+        "description": "Response of `GET /schema/doc`: schema v1 as data (`quire-core::schema`, §6.4), byte for byte\n`fixtures/schema/v1.json`, which the web fixture writer dumps from the live TipTap schema.",
+        "required": [
+          "schema_version",
+          "top_node",
+          "nodes",
+          "marks"
+        ],
+        "properties": {
+          "marks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MarkSpec"
+            },
+            "description": "In rank order."
+          },
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NodeSpec"
+            },
+            "description": "In schema order (ProseMirror's own `doc` and `text` included)."
+          },
+          "schema_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "top_node": {
+            "type": "string",
+            "description": "The root node type (`doc`)."
+          }
+        }
+      },
+      "DocState": {
+        "type": "object",
+        "description": "Response of `GET /items/{id}/doc`.",
+        "required": [
+          "update",
+          "state_vector",
+          "seq",
+          "field",
+          "schema_version"
+        ],
+        "properties": {
+          "field": {
+            "type": "string",
+            "description": "Always `default`."
+          },
+          "schema_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "seq": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The newest stored update (the document ETag is `\"d{seq}\"`)."
+          },
+          "state_vector": {
+            "type": "string",
+            "description": "Base64 Yjs state vector of the server's document."
+          },
+          "update": {
+            "type": "string",
+            "description": "Base64 Yjs v1 update."
+          }
+        }
+      },
+      "DocUpdate": {
+        "type": "object",
+        "description": "Body of `POST /items/{id}/doc/updates` (up to 16 MiB).",
+        "required": [
+          "update"
+        ],
+        "properties": {
+          "pm_json": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "The editor's ProseMirror JSON after the update (a cache; rebuildable)."
+          },
+          "update": {
+            "type": "string",
+            "description": "Base64 Yjs v1 update."
+          }
+        }
+      },
+      "DocUpdateResult": {
+        "type": "object",
+        "description": "Response of `POST /items/{id}/doc/updates`.",
+        "required": [
+          "seq",
+          "state_vector",
+          "updated_at"
+        ],
+        "properties": {
+          "seq": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "state_vector": {
+            "type": "string",
+            "description": "Base64 Yjs state vector after the update."
+          },
+          "updated_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          }
+        }
+      },
+      "DocWriteResult": {
+        "type": "object",
+        "description": "Response of the Markdown and ProseMirror PUTs, with the new `ETag`.",
+        "required": [
+          "seq",
+          "etag",
+          "updated_at",
+          "changed",
+          "merged",
+          "warnings"
+        ],
+        "properties": {
+          "changed": {
+            "type": "boolean",
+            "description": "`false` when the document already equalled the target (nothing was written)."
+          },
+          "etag": {
+            "type": "string",
+            "description": "`\"d{seq}\"`."
+          },
+          "merged": {
+            "type": "boolean",
+            "description": "`true` when the write was merged with newer updates (`?merge=true` or `If-Match: *`)."
+          },
+          "seq": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "updated_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConversionWarning"
+            }
           }
         }
       },
@@ -6055,6 +7132,46 @@
           }
         }
       },
+      "MarkSpec": {
+        "type": "object",
+        "description": "A mark type of the document schema.",
+        "required": [
+          "name",
+          "rank",
+          "attrs"
+        ],
+        "properties": {
+          "attrs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AttrSpec"
+            }
+          },
+          "excludes": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The ProseMirror `excludes` expression: null excludes only the mark itself, `_` every mark."
+          },
+          "inclusive": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether the mark extends to text typed at its end (null: ProseMirror's default, true)."
+          },
+          "name": {
+            "type": "string"
+          },
+          "rank": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Position in the schema's mark order (marks are sorted by it).",
+            "minimum": 0
+          }
+        }
+      },
       "Me": {
         "type": "object",
         "description": "Response of `GET /auth/me`.",
@@ -6297,6 +7414,54 @@
               "$ref": "#/components/schemas/Scope"
             },
             "description": "At most the caller's scopes; a calling token can never grant `admin`."
+          }
+        }
+      },
+      "NodeSpec": {
+        "type": "object",
+        "description": "A node type of the document schema.",
+        "required": [
+          "name",
+          "inline",
+          "atom",
+          "attrs"
+        ],
+        "properties": {
+          "atom": {
+            "type": "boolean"
+          },
+          "attrs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AttrSpec"
+            }
+          },
+          "content": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The ProseMirror content expression, e.g. `inline*`; null for a leaf."
+          },
+          "group": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "e.g. `block`, `inline`."
+          },
+          "inline": {
+            "type": "boolean"
+          },
+          "marks": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The marks allowed in this node's content: null for ProseMirror's default (every mark in inline content),\n`\"\"` for none, `\"_\"` for all, otherwise mark names."
+          },
+          "name": {
+            "type": "string"
           }
         }
       },

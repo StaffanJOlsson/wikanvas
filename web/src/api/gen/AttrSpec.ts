@@ -6,7 +6,8 @@ import type { JsonValue } from "./serde_json/JsonValue";
  */
 export type AttrSpec = { name: string, 
 /**
- * The JSON type, e.g. `string`, `number`, `boolean`, `string | null`.
+ * The JSON type in TypeScript notation, e.g. `integer`, `boolean`, `string | null`, `integer[] | null`,
+ * `"info" | "tip"`.
  */
 type: string, 
 /**

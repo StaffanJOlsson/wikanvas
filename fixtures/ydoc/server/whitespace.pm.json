@@ -1,0 +1,41 @@
+{
+  "content": [
+    {
+      "attrs": {
+        "blockId": "40553150-effe-4edb-b821-39d96449bc52"
+      },
+      "content": [
+        {
+          "text": "Leading spaces and trailing spaces",
+          "type": "text"
+        }
+      ],
+      "type": "paragraph"
+    },
+    {
+      "attrs": {
+        "blockId": "8433256c-926c-435c-9b45-041a78f1f6fd"
+      },
+      "content": [
+        {
+          "text": "Tabs\tinside\tstay.",
+          "type": "text"
+        }
+      ],
+      "type": "paragraph"
+    },
+    {
+      "attrs": {
+        "blockId": "ba111bfc-cd54-4986-bea8-d8798186e801"
+      },
+      "content": [
+        {
+          "text": "Several   spaces   inside   stay.",
+          "type": "text"
+        }
+      ],
+      "type": "paragraph"
+    }
+  ],
+  "type": "doc"
+}

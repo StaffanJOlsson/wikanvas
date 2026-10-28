@@ -1,0 +1,191 @@
+{
+  "content": [
+    {
+      "attrs": {
+        "blockId": "b861aced-d76c-4633-9a3a-7cc160ef2473",
+        "variant": "info"
+      },
+      "content": [
+        {
+          "attrs": {
+            "blockId": "a62bba14-6749-4d50-874b-d0653b9812b0"
+          },
+          "content": [
+            {
+              "text": "An info callout.",
+              "type": "text"
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
+      "type": "callout"
+    },
+    {
+      "attrs": {
+        "blockId": "7a1a74fd-b30c-4fea-a9c3-9bcb03fc1790",
+        "variant": "tip"
+      },
+      "content": [
+        {
+          "attrs": {
+            "blockId": "d29a3749-dc55-42bb-994d-91ad3e8f429d"
+          },
+          "content": [
+            {
+              "text": "A tip, with ",
+              "type": "text"
+            },
+            {
+              "marks": [
+                {
+                  "type": "bold"
+                }
+              ],
+              "text": "bold",
+              "type": "text"
+            },
+            {
+              "text": ".",
+              "type": "text"
+            }
+          ],
+          "type": "paragraph"
+        },
+        {
+          "attrs": {
+            "blockId": "92ee667c-3c9b-4d52-bc83-5d75046ad1b4"
+          },
+          "content": [
+            {
+              "attrs": {
+                "blockId": "c5cf11ac-015f-4635-be17-92cd679fce37"
+              },
+              "content": [
+                {
+                  "attrs": {
+                    "blockId": "6f5c1bab-e473-4270-b5b5-55dcdfc6fb17"
+                  },
+                  "content": [
+                    {
+                      "text": "and a list",
+                      "type": "text"
+                    }
+                  ],
+                  "type": "paragraph"
+                }
+              ],
+              "type": "listItem"
+            }
+          ],
+          "type": "bulletList"
+        }
+      ],
+      "type": "callout"
+    },
+    {
+      "attrs": {
+        "blockId": "b71a4ee4-0fe9-4bcf-bf75-6cd606ce7c5e",
+        "variant": "warning"
+      },
+      "content": [
+        {
+          "attrs": {
+            "blockId": "dc4f00e5-cdbc-4307-941e-3e86ece917e1"
+          },
+          "content": [
+            {
+              "text": "Careful.",
+              "type": "text"
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
+      "type": "callout"
+    },
+    {
+      "attrs": {
+        "blockId": "c3b82240-5ba1-4d28-94c6-0845213398db",
+        "variant": "danger"
+      },
+      "content": [
+        {
+          "attrs": {
+            "blockId": "7e4592d0-2b8a-4100-9411-464ec7a4751c"
+          },
+          "content": [
+            {
+              "text": "Danger.",
+              "type": "text"
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
+      "type": "callout"
+    },
+    {
+      "attrs": {
+        "blockId": "8e105d9c-6de3-45b3-bd46-9d6c47d8ebba",
+        "variant": "info"
+      },
+      "content": [
+        {
+          "attrs": {
+            "blockId": "88b03be5-b14d-4a54-b975-24e5476aa406"
+          },
+          "content": [
+            {
+              "text": "Important becomes info.",
+              "type": "text"
+            }
+          ],
+          "type": "paragraph"
+        }
+      ],
+      "type": "callout"
+    },
+    {
+      "attrs": {
+        "blockId": "e5c00a35-a03f-45a8-8d38-243ab66eafd1"
+      },
+      "content": [
+        {
+          "attrs": {
+            "blockId": "35e15520-3a3d-45d3-8610-d78859e1ef6b"
+          },
+          "content": [
+            {
+              "text": "A plain quote.",
+              "type": "text"
+            }
+          ],
+          "type": "paragraph"
+        },
+        {
+          "attrs": {
+            "blockId": "ec06776c-7907-4653-937b-2285620d0bd8"
+          },
+          "content": [
+            {
+              "attrs": {
+                "blockId": "1502dfed-65d0-4cb6-a60f-bbd951af9379"
+              },
+              "content": [
+                {
+                  "text": "Nested quote.",
+                  "type": "text"
+                }
+              ],
+              "type": "paragraph"
+            }
+          ],
+          "type": "blockquote"
+        }
+      ],
+      "type": "blockquote"
+    }
+  ],
+  "type": "doc"
+}

@@ -1,0 +1,94 @@
+{
+  "content": [
+    {
+      "attrs": {
+        "alt": "A diagram",
+        "attachmentId": "0192f0a0-4444-7000-8000-000000000001",
+        "blockId": "074bce3b-efd0-491c-9b28-814a823e1a98",
+        "caption": "The caption",
+        "src": "/api/v1/attachments/0192f0a0-4444-7000-8000-000000000001",
+        "width": null
+      },
+      "type": "image"
+    },
+    {
+      "attrs": {
+        "alt": "Missing",
+        "attachmentId": null,
+        "blockId": "56a2e7ca-7927-4af3-80e1-25a7df16e49a",
+        "caption": null,
+        "src": "/api/v1/attachments/0192f0a0-4444-7000-8000-000000000099",
+        "width": null
+      },
+      "type": "image"
+    },
+    {
+      "attrs": {
+        "alt": "Remote",
+        "attachmentId": null,
+        "blockId": "71ef3e42-4063-4ac2-aaf7-5e31b3602538",
+        "caption": null,
+        "src": "https://example.com/remote.png",
+        "width": null
+      },
+      "type": "image"
+    },
+    {
+      "attrs": {
+        "blockId": "c3d8d86c-d92d-4225-b4cf-9f0f115b775f"
+      },
+      "content": [
+        {
+          "text": "Text before  and after.",
+          "type": "text"
+        }
+      ],
+      "type": "paragraph"
+    },
+    {
+      "attrs": {
+        "alt": "inline",
+        "attachmentId": null,
+        "blockId": "264ee5b8-d835-416d-88bd-aacc57a35ba1",
+        "caption": null,
+        "src": "https://example.com/inline.png",
+        "width": null
+      },
+      "type": "image"
+    },
+    {
+      "attrs": {
+        "blockId": "3d7d8d4d-c0b7-4d28-8900-093336c4a437",
+        "itemId": "0192f0a0-3333-7000-8000-00000000000c"
+      },
+      "type": "boardEmbed"
+    },
+    {
+      "attrs": {
+        "blockId": "7df8ed3d-d734-49d6-a69b-a6a771b818a3"
+      },
+      "content": [
+        {
+          "attrs": {
+            "itemId": "0192f0a0-1111-7000-8000-00000000000a"
+          },
+          "type": "mention"
+        }
+      ],
+      "type": "paragraph"
+    },
+    {
+      "attrs": {
+        "blockId": "1bf08eaf-81ea-4acd-ba1e-cd7ee617467f"
+      },
+      "content": [
+        {
+          "text": "Unsafe",
+          "type": "text"
+        }
+      ],
+      "type": "paragraph"
+    }
+  ],
+  "type": "doc"
+}

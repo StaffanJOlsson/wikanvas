@@ -1,0 +1,75 @@
+{
+  "type": "doc",
+  "content": [
+    {
+      "type": "paragraph",
+      "attrs": {
+        "blockId": "00000000-0000-4000-8000-000000000002"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "An uploaded image:"
+        }
+      ]
+    },
+    {
+      "type": "image",
+      "attrs": {
+        "blockId": "00000000-0000-4000-8000-000000000003",
+        "src": "/api/v1/attachments/0192f0a0-4444-7000-8000-000000000001",
+        "attachmentId": "0192f0a0-4444-7000-8000-000000000001",
+        "width": 50,
+        "alt": "A diagram",
+        "caption": "The caption"
+      }
+    },
+    {
+      "type": "image",
+      "attrs": {
+        "blockId": "00000000-0000-4000-8000-000000000004",
+        "src": "https://example.com/remote.png",
+        "alt": "Remote"
+      }
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "blockId": "00000000-0000-4000-8000-000000000005"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "See "
+        },
+        {
+          "type": "mention",
+          "attrs": {
+            "itemId": "0192f0a0-2222-7000-8000-00000000000b"
+          }
+        },
+        {
+          "type": "text",
+          "text": " and "
+        },
+        {
+          "type": "mention",
+          "attrs": {
+            "itemId": "0192f0a0-1111-7000-8000-00000000000a"
+          }
+        },
+        {
+          "type": "text",
+          "text": "."
+        }
+      ]
+    },
+    {
+      "type": "boardEmbed",
+      "attrs": {
+        "blockId": "00000000-0000-4000-8000-000000000006",
+        "itemId": "0192f0a0-3333-7000-8000-00000000000c"
+      }
+    }
+  ]
+}

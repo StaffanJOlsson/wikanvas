@@ -1,0 +1,14 @@
+{
+  "links": [
+    {
+      "target_id": "00000000-0000-7000-8000-000000000001",
+      "kind": "mention"
+    },
+    {
+      "target_id": "00000000-0000-7000-8000-000000000002",
+      "kind": "embed"
+    }
+  ],
+  "attachment_ids": [],
+  "is_empty": false
+}
