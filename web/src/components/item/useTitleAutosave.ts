@@ -94,7 +94,8 @@ export function useTitleAutosave(item: ItemDetail): TitleAutosave {
     s.timer = setTimeout(() => void send(), TITLE_DEBOUNCE_MS);
   }, [send]);
 
-  // Registered per item; leaving the item (or unmounting) sends what is still unsaved.
+  // Registered per item; leaving the item (or unmounting) sends what is still unsaved, and the entry stays registered
+  // until that PATCH ends, so a page that flushes the item after it (the discard of a new empty item) waits for it.
   useEffect(() => {
     const s = ref.current;
     const unregister = registerPending(id, {
@@ -102,8 +103,8 @@ export function useTitleAutosave(item: ItemDetail): TitleAutosave {
       flush: send,
     });
     return () => {
-      unregister();
-      if (s.dirty) void send();
+      if (s.dirty || s.inFlight !== null) void send().finally(unregister);
+      else unregister();
     };
   }, [id, send]);
 

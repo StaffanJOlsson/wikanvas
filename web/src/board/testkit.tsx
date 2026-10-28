@@ -118,6 +118,8 @@ export function putResult(rev: number): BoardPutResult {
 export interface Recorded {
   method: string;
   path: string;
+  /** The query string, `?…` or empty. */
+  search: string;
   headers: Headers;
   body: string | null;
 }
@@ -143,10 +145,11 @@ export function mockFetch(routes: Record<string, Handler | Reply>) {
   const fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     const method = (init?.method ?? 'GET').toUpperCase();
-    const path = new URL(url, 'http://localhost').pathname;
+    const { pathname: path, search } = new URL(url, 'http://localhost');
     const req: Recorded = {
       method,
       path,
+      search,
       headers: new Headers(init?.headers),
       body: typeof init?.body === 'string' ? init.body : null,
     };

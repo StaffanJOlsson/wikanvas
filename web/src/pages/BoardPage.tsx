@@ -2,12 +2,13 @@
 // the editable title crumb, the star, the Nested popover, the Focus (full screen) button and the item menu (exports:
 // .inkboard and SVG), then either BoardSurface over the frame host or the read-only BoardPreview (fallback.ts).
 import { FileText, ListTree, Maximize2, Presentation } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router';
-import { API_BASE, isApiError } from '../api/client';
+import { Link, useLocation, useNavigate, useParams } from 'react-router';
+import { api, API_BASE, isApiError } from '../api/client';
 import type { ItemDetail } from '../api/gen/ItemDetail';
 import { boardDownloadUrl, useChildren } from '../api/queries/boards';
-import { useConfig, useCreateItem, useItem } from '../api/queries/items';
+import { useConfig, useCreateItem, useItem, useRecordView } from '../api/queries/items';
 import { BoardPreview } from '../board/BoardPreview';
 import { BoardSurface } from '../board/BoardSurface';
 import { useBoardFrame, type BoardFrameContext } from '../board/BoardFrameHost';
@@ -54,6 +55,35 @@ export function BoardView({ item }: { item: ItemDetail }) {
   const phone = useMediaQuery(PHONE_QUERY);
   const [editorOnPhone, setEditorOnPhone] = useState(false);
   const id = item.item.id;
+  const qc = useQueryClient();
+  const location = useLocation();
+  useRecordView(id);
+  // As on the document page (§9.6.4): only a board this page session created (navigated to with
+  // `{ state: { created: true } }`) is discarded when it is left untitled and empty. BoardView stays mounted from one
+  // board to the next, so the flag is taken once per board, before the canonical-path replace drops the state.
+  const created = useRef<{ id: string; created: boolean } | null>(null);
+  if (created.current?.id !== id) {
+    created.current = { id, created: (location.state as { created?: boolean } | null)?.created === true };
+  }
+  const { collection_id: collectionId, parent_id: parentId } = item.item;
+  useEffect(() => {
+    const discard = created.current?.id === id && created.current.created;
+    return () => {
+      if (!discard) return;
+      // The save loop and the title input save first; the server decides (409 `not_empty` once the board has a
+      // title, an object or a child, which is ignored).
+      void flushPending(id).then(() =>
+        api('DELETE', `/items/${encodeURIComponent(id)}?discard_empty=true`).then(
+          () => {
+            void qc.invalidateQueries({ queryKey: ['tree', collectionId] });
+            void qc.invalidateQueries({ queryKey: ['sidebar'] });
+            if (parentId) void qc.invalidateQueries({ queryKey: ['children', parentId] });
+          },
+          () => undefined,
+        ),
+      );
+    };
+  }, [id, qc, collectionId, parentId]);
   const reason = fallbackReason({
     config: config.isError ? null : config.data,
     failure: host?.failure ?? null,

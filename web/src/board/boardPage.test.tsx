@@ -143,6 +143,62 @@ describe('board page', () => {
     expect(JSON.parse(post?.body ?? '{}')).toEqual({ collection_id: 'col-1', parent_id: 'board-1', kind: 'doc' });
   });
 
+  it('records one view when the board opens (Recently viewed, §7.2)', async () => {
+    const a = boardItem(1);
+    const { fetch, requests } = mockFetch({ ...boardRoutes(a), 'POST /api/v1/items/board-1/view': [204] });
+    vi.stubGlobal('fetch', fetch);
+    const r = (app = renderBoardApp(boardPath(a)));
+    await waitFor(() => expect(r.fake.api.current()).toBe('board-1'));
+    const views = requests.filter((q) => q.method === 'POST' && q.path === '/api/v1/items/board-1/view');
+    expect(views).toHaveLength(1);
+  });
+
+  it('discards a board this page session created and left empty, and only that one (§9.6.4)', async () => {
+    const a = boardItem(1, { title: '' });
+    const b = boardItem(2, { title: '' });
+    const { fetch, requests } = mockFetch({
+      ...boardRoutes(a),
+      ...boardRoutes(b),
+      'DELETE /api/v1/items/board-1': [204],
+      'DELETE /api/v1/items/board-2': [204],
+    });
+    vi.stubGlobal('fetch', fetch);
+    const deletes = () => requests.filter((q) => q.method === 'DELETE');
+    const r = (app = renderBoardApp('/home'));
+    // Created here (every "new item" action navigates with state.created), then left untouched.
+    await act(() => r.router.navigate(boardPath(a), { state: { created: true } }));
+    await waitFor(() => expect(r.fake.api.current()).toBe('board-1'));
+    // Opening another board leaves the new one: it goes. The other board was not created here and stays.
+    await act(() => r.router.navigate(boardPath(b)));
+    await waitFor(() => expect(r.fake.api.current()).toBe('board-2'));
+    await waitFor(() => expect(deletes()).toHaveLength(1));
+    expect(deletes()[0]).toMatchObject({ path: '/api/v1/items/board-1', search: '?discard_empty=true' });
+    await act(() => r.router.navigate('/home'));
+    await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+    expect(deletes()).toHaveLength(1);
+  });
+
+  it('a created board that was drawn on saves first; the server then refuses the discard', async () => {
+    const a = boardItem(1, { title: '' });
+    const { fetch, requests } = mockFetch({
+      ...boardRoutes(a),
+      'PUT /api/v1/items/board-1/board': [200, putResult(2)],
+      'DELETE /api/v1/items/board-1': [409, { error: { code: 'not_empty', message: 'not empty' }, request_id: 'r' }],
+    });
+    vi.stubGlobal('fetch', fetch);
+    const r = (app = renderBoardApp('/home'));
+    await act(() => r.router.navigate(boardPath(a), { state: { created: true } }));
+    await waitFor(() => expect(r.fake.api.current()).toBe('board-1'));
+    act(() => {
+      r.fake.edit(envelope('a rectangle'));
+    });
+    await act(() => r.router.navigate('/home'));
+    await waitFor(() => expect(requests.some((q) => q.method === 'DELETE')).toBe(true));
+    const order = requests.filter((q) => q.method === 'PUT' || q.method === 'DELETE').map((q) => q.method);
+    expect(order).toEqual(['PUT', 'DELETE']);
+    expect(puts(requests)[0].body).toBe(envelope('a rectangle'));
+  });
+
   it('Focus shows the frame full screen; the board text is listed for screen readers', async () => {
     const a = boardItem(1);
     vi.stubGlobal('fetch', mockFetch(boardRoutes(a)).fetch);
