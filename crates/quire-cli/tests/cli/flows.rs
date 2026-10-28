@@ -121,6 +121,9 @@ fn doc_markdown_roundtrip_and_stale_etag_exit_9() {
         ],
     );
     assert_eq!(put["changed"], true);
+    // A stale ETag with a body that differs from the current state: 412. Re-sending the current content would be
+    // 200 `changed: false` (ARCHITECTURE D50).
+    let f3 = h.sandbox.file("v3.md", b"Third version.\n", 0o600);
     let (code, _, err) = h.json(
         Scope::Write,
         &[
@@ -128,7 +131,7 @@ fn doc_markdown_roundtrip_and_stale_etag_exit_9() {
             "put",
             &id,
             "--md",
-            f.to_str().unwrap(),
+            f3.to_str().unwrap(),
             "--if-match",
             &etag,
         ],
@@ -420,12 +423,22 @@ fn board_put_get_preserves_unknown_fields() {
     assert_eq!(content["document"]["x_future"]["note"], "kept");
     assert_eq!(content["document"]["pages"][0]["x_future"], 42);
     assert_eq!(content["document"]["name"], "Plan");
+    // A stale If-Match with a changed board: 412. Re-sending the stored board would be a no-op (§6.2 step 4).
+    let changed = std::fs::read_to_string(fixture)
+        .unwrap()
+        .replace(r#""note":"kept""#, r#""note":"changed""#);
+    let changed = h
+        .sandbox
+        .file("changed.inkboard", changed.as_bytes(), 0o600);
+    let changed = changed.to_str().unwrap();
     let (code, _, err) = h.json(
         Scope::Write,
-        &["board", "put", &id, fixture, "--if-match", "r1"],
+        &["board", "put", &id, changed, "--if-match", "r1"],
     );
     assert_eq!(code, 9, "{err}");
-    ok(&h, Scope::Write, &["board", "put", &id, fixture, "--force"]);
+    ok(&h, Scope::Write, &["board", "put", &id, changed, "--force"]);
+    let got = ok(&h, Scope::Read, &["board", "get", &id]);
+    assert_eq!(got["content"]["document"]["x_future"]["note"], "changed");
 }
 
 #[test]
