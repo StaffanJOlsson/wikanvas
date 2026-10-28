@@ -102,8 +102,9 @@ describe('contract components', () => {
     const run = vi.fn();
     render(<ItemMenu item={detail} extraExports={[{ label: 'HTML', run }]} />);
     fireEvent.click(screen.getByRole('button', { name: 'Item menu' }));
-    const items = screen.getAllByRole('menuitem').map((b) => b.textContent);
-    expect(items).toEqual(['Star', 'Duplicate', 'Archive', 'Export HTML', 'Delete']);
+    const items = [...document.querySelectorAll('[role^="menuitem"]')].map((b) => b.textContent);
+    expect(items).toEqual(['Star', 'Full width', 'Duplicate', 'Move…', 'Archive', 'Export HTML', 'Delete']);
+    expect(screen.getByRole('menuitemcheckbox', { name: 'Full width' }).getAttribute('aria-checked')).toBe('false');
     await act(async () => {
       fireEvent.click(screen.getByRole('menuitem', { name: 'Export HTML' }));
     });

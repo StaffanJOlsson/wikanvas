@@ -30,6 +30,11 @@ function isMac(): boolean {
   return typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent);
 }
 
+/** Whether Mod (Cmd on macOS, Ctrl elsewhere) is held during a keyboard or mouse event. */
+export function modPressed(e: { ctrlKey: boolean; metaKey: boolean }): boolean {
+  return isMac() ? e.metaKey : e.ctrlKey;
+}
+
 /** The HostKey of a keyboard event (Mod is Cmd on macOS and Ctrl elsewhere). */
 export function hostKeyOf(e: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'shiftKey' | 'altKey'>): HostKey {
   return { key: e.key, mod: isMac() ? e.metaKey : e.ctrlKey, shift: e.shiftKey, alt: e.altKey };

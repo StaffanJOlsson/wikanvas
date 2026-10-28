@@ -6,6 +6,7 @@ import {
   inkboardBase,
   inkboardFrameUrl,
   itemPath,
+  safeNext,
   slugify,
   urlIdFromSlugId,
 } from './urls';
@@ -56,5 +57,31 @@ describe('urls', () => {
     expect(inkboardFrameUrl({ inkboard })).toBe('/inkboard/0123456789ab/frame.html');
     expect(inkboardBase({ inkboard: null })).toBeNull();
     expect(inkboardFrameUrl(undefined)).toBeNull();
+  });
+
+  it('safeNext keeps same-origin paths only', () => {
+    expect(safeNext('/doc/x-AbCdEfGh12?a=1#h')).toBe('/doc/x-AbCdEfGh12?a=1#h');
+    expect(safeNext(null)).toBe('/home');
+    expect(safeNext('https://evil.example/')).toBe('/home');
+    expect(safeNext('//evil.example/')).toBe('/home');
+    expect(safeNext('/\\evil.example')).toBe('/home');
+    expect(safeNext('/login?next=/x')).toBe('/home');
+    expect(safeNext('/login#x')).toBe('/home');
+    expect(safeNext('/setup')).toBe('/home');
+  });
+
+  it('safeNext refuses control characters the URL parser would drop (no open redirect)', () => {
+    // `?next=/%09/evil.example` decodes to "/\t/evil.example", which `new URL` reads as //evil.example.
+    expect(new URL('/\t/evil.example', 'http://x.invalid').host).toBe('evil.example');
+    expect(safeNext('/\t/evil.example')).toBe('/home');
+    expect(safeNext('/\n/evil.example')).toBe('/home');
+    expect(safeNext('/\r/evil.example')).toBe('/home');
+    expect(safeNext('/\u0000x')).toBe('/home');
+    // Dot segments that collapse to `//host` after parsing.
+    expect(safeNext('/a/..//evil.example')).toBe('/home');
+    expect(safeNext('/.//evil.example')).toBe('/home');
+    // Ordinary targets come back parsed, the same path.
+    expect(safeNext('/search?q=a%20b&kind=doc')).toBe('/search?q=a%20b&kind=doc');
+    expect(safeNext('/settings/tokens')).toBe('/settings/tokens');
   });
 });

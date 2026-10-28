@@ -5,8 +5,22 @@ import type { Config } from '../gen/Config';
 
 export const configKey = ['config'] as const;
 
-export function fetchConfig(signal?: AbortSignal): Promise<Config> {
-  return api<Config>('GET', '/config', { signal });
+/** The config this page loaded first: the build the running SPA belongs to (the update check compares with it). */
+let baseline: Config | null = null;
+
+export function configBaseline(): Config | null {
+  return baseline;
+}
+
+/** Forgets the baseline (tests). */
+export function resetConfigBaseline(): void {
+  baseline = null;
+}
+
+export async function fetchConfig(signal?: AbortSignal): Promise<Config> {
+  const config = await api<Config>('GET', '/config', { signal });
+  baseline ??= config;
+  return config;
 }
 
 /**

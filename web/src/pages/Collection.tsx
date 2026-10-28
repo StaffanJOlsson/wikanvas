@@ -1,8 +1,16 @@
-// Placeholder page (W0b); W3 implements it: description, sort and the top-level items (docs/ARCHITECTURE.md §9.6.6).
-import { useQuery } from '@tanstack/react-query';
+// A collection (docs/ARCHITECTURE.md §9.6.6): its description, sort, and the top-level items, with New document /
+// New board and Edit.
+import { Ellipsis, Plus } from 'lucide-react';
 import { useParams } from 'react-router';
-import { api, isApiError, type ApiError } from '../api/client';
-import type { Collection as CollectionDto } from '../api/gen/Collection';
+import { isApiError } from '../api/client';
+import { useCollection, useTree } from '../api/queries/tree';
+import { CollectionIcon } from '../components/collection/CollectionIcon';
+import { CHILD_ORDERS, useCollectionActions } from '../components/collection/useCollectionActions';
+import { useItemActions } from '../components/item/useItemActions';
+import { ItemList } from '../components/list/ItemList';
+import { SidebarToggle } from '../components/topbar/SidebarToggle';
+import { buildTree } from '../components/tree/buildTree';
+import { Menu } from '../components/ui/Menu';
 import { collectionPath, urlIdFromSlugId } from '../lib/urls';
 import { useCanonicalPath } from '../lib/useCanonicalPath';
 import NotFound from './NotFound';
@@ -11,15 +19,72 @@ import { PlaceholderPage } from './PlaceholderPage';
 export default function Collection() {
   const { slugId } = useParams();
   const ref = urlIdFromSlugId(slugId);
-  const collection = useQuery<CollectionDto, ApiError>({
-    queryKey: ['collection', ref],
-    queryFn: ({ signal }) => api<CollectionDto>('GET', `/collections/${encodeURIComponent(ref ?? '')}`, { signal }),
-    enabled: ref !== null,
-  });
-  useCanonicalPath(collection.data ? collectionPath(collection.data) : null);
+  const collection = useCollection(ref);
+  const c = collection.data;
+  const tree = useTree(c?.id);
+  const actions = useItemActions();
+  const cactions = useCollectionActions();
+  useCanonicalPath(c ? collectionPath(c) : null);
 
   if (ref === null || isApiError(collection.error, 'not_found')) return <NotFound />;
   if (collection.isPending) return null;
-  if (collection.isError) return <PlaceholderPage title="Collection">{collection.error.message}</PlaceholderPage>;
-  return <PlaceholderPage title={collection.data.name}>{collection.data.description}</PlaceholderPage>;
+  if (!c) return <PlaceholderPage title="Collection">{collection.error?.message}</PlaceholderPage>;
+
+  const roots = tree.data ? buildTree(c.id, tree.data.items, c.child_order).roots : [];
+  return (
+    <div className="page collection-page">
+      <header className="page-header">
+        <div className="page-header-row">
+          <SidebarToggle />
+          <CollectionIcon collection={c} size={24} />
+          <h1>{c.name}</h1>
+          <div className="page-actions">
+            <button type="button" className="button" onClick={() => void actions.create(c.id, null, 'doc')}>
+              <Plus size={16} aria-hidden /> New document
+            </button>
+            <button type="button" className="button" onClick={() => void actions.create(c.id, null, 'board')}>
+              <Plus size={16} aria-hidden /> New board
+            </button>
+            <Menu
+              label="Collection menu"
+              align="end"
+              entries={[
+                { label: 'Edit…', onSelect: () => cactions.edit(c) },
+                { heading: 'Sort' },
+                ...CHILD_ORDERS.map(({ order, label }) => ({
+                  label,
+                  checked: c.child_order === order,
+                  onSelect: () => void cactions.setOrder(c, order),
+                })),
+                { separator: true },
+                { label: 'Delete…', danger: true, onSelect: () => void cactions.remove(c) },
+              ]}
+            >
+              <Ellipsis size={16} aria-hidden />
+            </Menu>
+          </div>
+        </div>
+        {c.description && <p className="collection-description">{c.description}</p>}
+      </header>
+      <div className="list-toolbar">
+        <label>
+          <span>Sort </span>
+          <select value={c.child_order} onChange={(e) => void cactions.setOrder(c, e.target.value as typeof c.child_order)}>
+            {CHILD_ORDERS.map(({ order, label }) => <option key={order} value={order}>{label}</option>)}
+          </select>
+        </label>
+      </div>
+      {tree.isError && <p className="form-error" role="alert">{tree.error.message}</p>}
+      {tree.isSuccess && (
+        <ItemList
+          label={`Top-level items of ${c.name}`}
+          empty="This collection is empty. Create a document or a board to start."
+          entries={roots.map((n) => ({
+            item: n.item,
+            meta: n.children.length > 0 ? `${n.children.length} nested` : undefined,
+          }))}
+        />
+      )}
+    </div>
+  );
 }
