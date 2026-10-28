@@ -168,6 +168,42 @@ async fn seed_creates_getting_started() {
     )
     .await;
     assert_eq!(children, 2);
+    // The welcome document's mention and board embed name the seeded items, not the fixture's placeholder ids.
+    let links: Vec<(String, String)> = t
+        .query(|c| {
+            c.prepare(
+                "SELECT t.title, l.kind FROM item_links l JOIN items s ON s.id = l.source_id
+                 JOIN items t ON t.id = l.target_id WHERE s.title = 'Welcome to Quire' ORDER BY l.kind",
+            )?
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect()
+        })
+        .await;
+    assert_eq!(
+        links,
+        [
+            (seed::BOARD.to_owned(), "embed".to_owned()),
+            (seed::WRITING.to_owned(), "mention".to_owned()),
+        ]
+    );
+    let placeholders = count(
+        &t,
+        "SELECT count(*) FROM item_links WHERE target_id IN (?1, '00000000-0000-7000-8000-000000000002')",
+        quire_store::docs::SEED_WRITING_ID.into(),
+    )
+    .await;
+    assert_eq!(placeholders, 0);
+    // "Writing in Quire" has its fixture's text.
+    let writing_body: String = t
+        .query(|c| {
+            c.query_row(
+                "SELECT x.body FROM item_text x JOIN items i ON i.id = x.item_id WHERE i.title = 'Writing in Quire'",
+                [],
+                |r| r.get(0),
+            )
+        })
+        .await;
+    assert!(writing_body.contains("The slash menu"), "{writing_body:?}");
 }
 
 fn new_session(user: &str, persistent: bool) -> NewSession {

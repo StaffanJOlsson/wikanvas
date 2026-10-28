@@ -2,9 +2,11 @@
 //!
 //! §9.6.7: the collection "Getting started" (colour `#3E63DD`, icon `rocket`) with "Welcome to Quire" (a document),
 //! and under it "Writing in Quire" (a document) and "Example board" (a board). Every item is published on create, like
-//! every item (D23). The content comes from the fixtures W4 and W6 write: `fixtures/ydoc/getting-started.bin` (the
-//! welcome document, a Yjs v1 update) and `fixtures/boards/getting-started.inkboard` (the board envelope), both
-//! embedded at build time. "Writing in Quire" starts empty until a fixture for it exists.
+//! every item (D23). The content comes from the fixtures W4 and W6 write, embedded at build time:
+//! `fixtures/ydoc/getting-started.bin` (the welcome document, a Yjs v1 update whose mention and board embed name the
+//! placeholder ids [`crate::docs::SEED_WRITING_ID`] and [`crate::docs::SEED_BOARD_ID`], replaced with the seeded
+//! items' ids by `docs::init_seed`), `fixtures/ydoc/writing-in-quire.bin` ("Writing in Quire") and
+//! `fixtures/boards/getting-started.inkboard` (the board envelope).
 
 use quire_core::api::{Collection, ItemKind, NewCollection, NewItem};
 use rusqlite::Transaction;
@@ -14,6 +16,8 @@ use crate::error::Result;
 
 /// The welcome document (Yjs v1 update).
 pub const WELCOME_YDOC: &[u8] = include_bytes!("../../../fixtures/ydoc/getting-started.bin");
+/// "Writing in Quire" (Yjs v1 update).
+pub const WRITING_YDOC: &[u8] = include_bytes!("../../../fixtures/ydoc/writing-in-quire.bin");
 /// The example board (an Inkboard envelope).
 pub const EXAMPLE_BOARD: &str = include_str!("../../../fixtures/boards/getting-started.inkboard");
 
@@ -63,9 +67,20 @@ pub fn getting_started(
         )
     };
     let welcome = item(None, ItemKind::Doc, WELCOME)?;
-    crate::docs::init_with(tx, &welcome.id.to_string(), WELCOME_YDOC, now)?;
-    item(Some(welcome.id), ItemKind::Doc, WRITING)?;
+    let writing = item(Some(welcome.id), ItemKind::Doc, WRITING)?;
     let board = item(Some(welcome.id), ItemKind::Board, BOARD)?;
-    crate::boards::init_with(tx, blobs, &board.id.to_string(), EXAMPLE_BOARD, now)?;
+    let (writing_id, board_id) = (writing.id.to_string(), board.id.to_string());
+    crate::docs::init_seed(
+        tx,
+        &welcome.id.to_string(),
+        WELCOME_YDOC,
+        &[
+            (crate::docs::SEED_WRITING_ID, &writing_id),
+            (crate::docs::SEED_BOARD_ID, &board_id),
+        ],
+        now,
+    )?;
+    crate::docs::init_with(tx, &writing_id, WRITING_YDOC, now)?;
+    crate::boards::init_with(tx, blobs, &board_id, EXAMPLE_BOARD, now)?;
     crate::collections::get(tx, &collection.id.to_string())
 }
