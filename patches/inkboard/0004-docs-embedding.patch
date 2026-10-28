@@ -10,12 +10,12 @@ itself. The changelog lists the `embed` and `net` features and the theme fix.
 Kept apart so that the code patches review on their own.
 ---
  CHANGELOG.md   | 15 +++++++++++++
- docs/WEB.md    | 54 +++++++++++++++++++++++++++++++++++++++++++++++
+ docs/WEB.md    | 55 ++++++++++++++++++++++++++++++++++++++++++++++++
  docs/fr/WEB.md | 57 ++++++++++++++++++++++++++++++++++++++++++++++++++
- 3 files changed, 126 insertions(+)
+ 3 files changed, 127 insertions(+)
 
 diff --git a/CHANGELOG.md b/CHANGELOG.md
-index 969ad2c..36db7ea 100644
+index 969ad2c..30b35ce 100644
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
 @@ -1,3 +1,4 @@
@@ -33,8 +33,8 @@ index 969ad2c..36db7ea 100644
 +  `globalThis.inkboardEmbed` (see [Embedding](docs/WEB.md#embedding-feature-embed)): mount on a canvas, take and replace the board,
 +  change and save events, read-only, interface theme, no repaint while hidden. What the host page owns (New, Open, Save as, Join, the
 +  presentation, the tab title…) is hidden. One board per page.
-+- **Feature `net`** (on by default): a web build can leave out the network of shared sessions (`--no-default-features`), which makes the
-+  `.wasm` much smaller; such a page cannot join a session. The desktop application always has it.
++- **Feature `net`** (on by default): a web build can leave out the network of shared sessions (`--no-default-features`); such a page
++  cannot join a session. The desktop application always has it.
 +
 +### Fixed
 +
@@ -45,7 +45,7 @@ index 969ad2c..36db7ea 100644
  
  **Pre-release.** Four of the most requested whiteboard features, and live sharing moves to protocol v4: update every app that hosts or joins a session.
 diff --git a/docs/WEB.md b/docs/WEB.md
-index 711c35c..3db83e0 100644
+index 711c35c..52498be 100644
 --- a/docs/WEB.md
 +++ b/docs/WEB.md
 @@ -1,3 +1,4 @@
@@ -53,14 +53,15 @@ index 711c35c..3db83e0 100644
  # Inkboard in the browser
  
  *Version française : [fr/WEB.md](fr/WEB.md)*
-@@ -106,6 +107,59 @@ staying blank: no WebAssembly / WebSocket / `crypto.getRandomValues` ("this brow
+@@ -106,6 +107,60 @@ staying blank: no WebAssembly / WebSocket / `crypto.getRandomValues` ("this brow
  - The page is 18 MB uncompressed (4.7 MB Brotli, 7.7 MB gzip); the icon library (8 MB) is only fetched when opened.
  - A hidden tab does not draw, so it does not process the session until it is visible again (the browser decides; the session catches up on return).
  
 +## Embedding (feature `embed`)
 +
 +A page can show a board inside its own interface and keep the file itself (a wiki, a notes application). Build the engine with the
-+`embed` feature, and usually without the network of shared sessions (feature `net`, on by default), which makes the `.wasm` much smaller:
++`embed` feature, and usually without the network of shared sessions (feature `net`, on by default): an embedded board never joins a
++session, and the build then leaves the network out:
 +
 +```bash
 +cargo build --release -p inkboard-app --bin inkboard --target wasm32-unknown-unknown --no-default-features --features web-glow,embed
@@ -114,7 +115,7 @@ index 711c35c..3db83e0 100644
  
  Two scripts, both by hand (never `cargo test`): `page.mjs` (the local page) and `e2e.mjs` (**a real native host and browser guests through the public relay;
 diff --git a/docs/fr/WEB.md b/docs/fr/WEB.md
-index fbb6fef..5d24367 100644
+index fbb6fef..86fcba3 100644
 --- a/docs/fr/WEB.md
 +++ b/docs/fr/WEB.md
 @@ -1,3 +1,4 @@
@@ -129,8 +130,8 @@ index fbb6fef..5d24367 100644
 +## Intégrer un tableau (fonctionnalité `embed`)
 +
 +Une page peut montrer un tableau dans sa propre interface et garder elle-même le fichier (un wiki, une application de notes). Construisez le
-+moteur avec la fonctionnalité `embed`, et en général sans le réseau des sessions partagées (fonctionnalité `net`, active par défaut), ce qui
-+rend le `.wasm` bien plus léger :
++moteur avec la fonctionnalité `embed`, et en général sans le réseau des sessions partagées (fonctionnalité `net`, active par défaut) : un
++tableau intégré ne rejoint jamais de session, et la construction laisse alors le réseau de côté :
 +
 +```bash
 +cargo build --release -p inkboard-app --bin inkboard --target wasm32-unknown-unknown --no-default-features --features web-glow,embed

@@ -491,14 +491,24 @@ check_sets() {
   fi
 }
 
-# The warnings of a cargo --message-format=short log, as "<kind>\t<file>: <message>" (line and column dropped, so a
-# patch that moves code does not count as new warnings).
+# The warnings of one cargo --message-format=short log, counted: "<count>\t<kind>\t<file>: <message>" per distinct
+# warning. Line and column are dropped, so a patch that moves code adds nothing; the count keeps apart two warnings with
+# the same message in the same file, so a patch that adds one more of them is still caught.
 warnings_of() {
-  sed -n -E 's/^(crates\/[^:]+):[0-9]+:[0-9]+: warning: (.*)$/\1: \2/p' "$2" | sed "s/^/$1\t/" | LC_ALL=C sort -u
+  sed -n -E 's/^(crates\/[^:]+):[0-9]+:[0-9]+: warning: (.*)$/\1: \2/p' "$2" |
+    awk -v kind="$1" '{ n[kind "\t" $0]++ } END { for (k in n) print n[k] "\t" k }'
+}
+
+# Merges counted warning lists (warnings_of): per warning, the highest count of any one cargo run, sorted by warning.
+# The highest, not the sum: the feature sets the patches add compile mostly the same files again, which must not count
+# as new warnings, while a new warning still raises the count of the runs that compile it.
+max_counts() {
+  awk -F'\t' '{ k = $0; sub(/^[0-9]+\t/, "", k); if (!(k in m) || $1 + 0 > m[k]) m[k] = $1 + 0 }
+    END { for (k in m) print m[k] "\t" k }' "$@" | LC_ALL=C sort -t "$(printf '\t')" -k2
 }
 
 cmd_check() {
-  local record=0 kind args tool all new count=0
+  local record=0 kind args tool new count=0
   case "$#:${1:-}" in
     0:) ;;
     1:--record-baseline) record=1 ;;
@@ -514,7 +524,6 @@ cmd_check() {
   # Global, not local: the EXIT trap runs after this function has returned.
   log="$(mktemp -d "$root/.cache/inkboard-check.XXXXXX")"
   trap 'rm -rf "$log"' EXIT
-  : >"$log/all"
   while IFS= read -r line; do
     kind="${line%% *}"
     args="${line#* }"
@@ -527,29 +536,36 @@ cmd_check() {
         die "cargo $tool -p inkboard-app $args failed"
       fi
       grep -E '^(crates/[^:]+:[0-9]+:[0-9]+: )?warning' "$log/$count" | grep -v '^warning: .* generated [0-9]* warning' >&2 || true
-      warnings_of "$kind" "$log/$count" >>"$log/all"
+      warnings_of "$kind" "$log/$count" >"$log/$count.warnings"
     done
   done < <(check_sets)
-  LC_ALL=C sort -u -o "$log/all" "$log/all"
+  max_counts "$log"/*.warnings >"$log/all"
   if [ "$record" -eq 1 ]; then
     {
       echo "# Warnings of scripts/inkboard.sh check on the unpatched base ($INKBOARD_VERSION, rustc $(rustc --version | cut -d' ' -f2))."
-      echo "# One line per warning: <kind><TAB><file>: <message> (line numbers dropped). Rewrite only on the unpatched base:"
+      echo "# One line per distinct warning: <count><TAB><kind><TAB><file>: <message>, line and column dropped; <count> is the"
+      echo "# most times it appears in one cargo run. Rewrite only on the unpatched base:"
       echo "#   scripts/dev.sh scripts/inkboard.sh check --record-baseline   (with no patches applied)"
       cat "$log/all"
     } >"$baseline_file"
-    echo "recorded $(grep -vc '^#' "$baseline_file" || true) baseline warning(s) in $baseline_file" >&2
+    echo "recorded $(grep -vc '^#' "$baseline_file" || true) distinct baseline warning(s) in $baseline_file" >&2
     return
   fi
   [ -f "$baseline_file" ] || die "no baseline: run check --record-baseline on the unpatched base first"
-  all="$(grep -v '^#' "$baseline_file" | LC_ALL=C sort -u)"
-  new="$(LC_ALL=C comm -23 "$log/all" <(printf '%s\n' "$all" | sed '/^$/d'))"
+  if grep -v '^#' "$baseline_file" | grep -qvE "^[0-9]+$(printf '\t')(native|wasm)$(printf '\t')crates/"; then
+    die "$baseline_file has a line that is not '<count><TAB><kind><TAB><file>: <message>': record it again (check --record-baseline)"
+  fi
+  # Every warning whose count in one cargo run is above the baseline's (0 for a warning the baseline does not have).
+  new="$(awk -F'\t' '
+    FNR == NR { if ($0 !~ /^#/) { k = $0; sub(/^[0-9]+\t/, "", k); base[k] = $1 + 0 }; next }
+    { k = $0; sub(/^[0-9]+\t/, "", k); b = (k in base) ? base[k] : 0
+      if ($1 + 0 > b) print k " (" $1 " in one cargo run, baseline " b ")" }' "$baseline_file" "$log/all")"
   if [ -n "$new" ]; then
     echo "new warnings against $baseline_file:" >&2
     printf '%s\n' "$new" >&2
     exit 1
   fi
-  echo "check: $count cargo runs, no new warnings ($(wc -l <"$log/all") known)" >&2
+  echo "check: $count cargo runs, no new warnings ($(wc -l <"$log/all") distinct known)" >&2
 }
 
 case "${1:-}" in

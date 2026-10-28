@@ -8,15 +8,18 @@ Content-Transfer-Encoding: 8bit
 
 Feature `net` (on by default): the network of shared sessions (`inkboard-net`,
 iroh) becomes optional for the web build. A page that embeds a board (feature
-`embed`) has no use for it, and the .wasm is much smaller without it:
-`--no-default-features --features web-glow,embed`.
+`embed`) has no use for it: `--no-default-features --features web-glow,embed`
+leaves the session network out of the build, and the embedded board cannot
+open a network connection.
 
 Without `net` the web build uses `session_net_off.rs` (the settings stand-ins
 the "Join" window and the shutdown call), installs no guest factory, refuses
 every relay address (`platform::check_relay_url`) and does not offer "Join a
 session…". The desktop always needs the network: building it without `net` is
-a compile error. The public page keeps it (`web/Trunk.toml`), and so does the
-browser bench (`web-test` implies `net`).
+a compile error. The public page keeps it: `web/Trunk.toml` lists it, and the
+WebGPU build of `scripts/build_web.sh` and `build_web.ps1` names it too,
+because a `--features` list on trunk's command line replaces the one in
+Trunk.toml. So does the browser bench (`web-test` implies `net`).
 ---
  crates/inkboard-app/Cargo.toml             |  8 ++++--
  crates/inkboard-app/src/chrome.rs          |  3 +-
@@ -24,8 +27,10 @@ browser bench (`web-test` implies `net`).
  crates/inkboard-app/src/platform_web.rs    | 31 ++++++++++++++++++++
  crates/inkboard-app/src/session_net_off.rs | 33 ++++++++++++++++++++++
  crates/inkboard-app/src/web.rs             |  7 ++++-
- crates/inkboard-app/web/Trunk.toml         |  4 ++-
- 7 files changed, 88 insertions(+), 6 deletions(-)
+ crates/inkboard-app/web/Trunk.toml         |  6 ++--
+ scripts/build_web.ps1                      |  4 ++-
+ scripts/build_web.sh                       |  4 ++-
+ 9 files changed, 95 insertions(+), 9 deletions(-)
  create mode 100644 crates/inkboard-app/src/session_net_off.rs
 
 diff --git a/crates/inkboard-app/Cargo.toml b/crates/inkboard-app/Cargo.toml
@@ -203,7 +208,7 @@ index b2b734b..208ee92 100644
                      crate::web_test::install(&cc.egui_ctx);
                      Ok(Box::new(app))
 diff --git a/crates/inkboard-app/web/Trunk.toml b/crates/inkboard-app/web/Trunk.toml
-index 6f39927..de9cd51 100644
+index 6f39927..2c5aef5 100644
 --- a/crates/inkboard-app/web/Trunk.toml
 +++ b/crates/inkboard-app/web/Trunk.toml
 @@ -1,3 +1,4 @@
@@ -211,13 +216,55 @@ index 6f39927..de9cd51 100644
  # Web build of Inkboard. Run `trunk build --release` (or `trunk serve`) from this folder, or use scripts/build_web.ps1 / build_web.sh.
  # Needs: rustup target add wasm32-unknown-unknown, cargo install trunk wasm-bindgen-cli --locked (trunk 0.22 needs a recent Rust).
  [build]
-@@ -7,7 +8,8 @@ dist = "dist"
+@@ -5,9 +6,10 @@ target = "index.html"
+ dist = "dist"
+ # relative links: the page works from any folder of a static host
  public_url = "./"
- # WebGL (`glow`) is the light renderer. For WebGPU with a WebGL fallback: `trunk build --release --features web-wgpu`.
+-# WebGL (`glow`) is the light renderer. For WebGPU with a WebGL fallback: `trunk build --release --features web-wgpu`.
++# WebGL (`glow`) is the light renderer. For WebGPU with a WebGL fallback: `trunk build --release --features web-wgpu,net`.
  no_default_features = true
 -features = ["web-glow"]
-+# `net`: the public page joins shared sessions
++# `net`: the public page joins shared sessions. A `--features` list on trunk's command line replaces this one: name `net` there too.
 +features = ["web-glow", "net"]
  
  [serve]
  addresses = ["127.0.0.1"]
+diff --git a/scripts/build_web.ps1 b/scripts/build_web.ps1
+index 0b5a466..8254f1b 100644
+--- a/scripts/build_web.ps1
++++ b/scripts/build_web.ps1
+@@ -1,3 +1,4 @@
++# Changed for Quire (embed feature): see patches/inkboard/README.md
+ # Builds the web version of Inkboard: a static page in crates/inkboard-app/web/dist (index.html, .js, .wasm, icons.bin).
+ #   .\scripts\build_web.ps1                      # WebGL renderer (light, default)
+ #   .\scripts\build_web.ps1 -Renderer wgpu       # WebGPU with a WebGL fallback
+@@ -12,7 +13,8 @@ if ($Toolchain) { $env:RUSTUP_TOOLCHAIN = $Toolchain }
+ Push-Location (Join-Path $PSScriptRoot '..\crates\inkboard-app\web')
+ try {
+     $trunkArgs = @('build', '--release')
+-    if ($Renderer -eq 'wgpu') { $trunkArgs += @('--features', 'web-wgpu') }
++    # a --features list replaces the one of web\Trunk.toml, so it names `net` (shared sessions) too
++    if ($Renderer -eq 'wgpu') { $trunkArgs += @('--features', 'web-wgpu,net') }
+     Write-Host "trunk $($trunkArgs -join ' ')"
+     trunk @trunkArgs
+     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+diff --git a/scripts/build_web.sh b/scripts/build_web.sh
+index b2d641d..831f132 100755
+--- a/scripts/build_web.sh
++++ b/scripts/build_web.sh
+@@ -1,4 +1,5 @@
+ #!/usr/bin/env bash
++# Changed for Quire (embed feature): see patches/inkboard/README.md
+ # Builds the web version of Inkboard: a static page in crates/inkboard-app/web/dist (index.html, .js, .wasm, icons.bin).
+ #   scripts/build_web.sh                  # WebGL renderer (light, default)
+ #   scripts/build_web.sh wgpu             # WebGPU with a WebGL fallback
+@@ -7,7 +8,8 @@
+ set -euo pipefail
+ cd "$(dirname "$0")/../crates/inkboard-app/web"
+ args=(build --release)
+-if [ "${1:-glow}" = "wgpu" ]; then args+=(--features web-wgpu); fi
++# a --features list replaces the one of web/Trunk.toml, so it names `net` (shared sessions) too
++if [ "${1:-glow}" = "wgpu" ]; then args+=(--features web-wgpu,net); fi
+ echo "trunk ${args[*]}"
+ trunk "${args[@]}"
+ ls -l dist

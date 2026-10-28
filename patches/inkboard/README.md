@@ -13,7 +13,7 @@ patch series, applied to a self-contained copy in `.cache/inkboard-src` by `scri
 | Commit | `41e0295d50433faa5d05b2ff48f85eac079a981d` (tag `v0.2.0-beta.3`, merge of PR #31, 2026-10-27) |
 | Workspace version | `0.2.0-beta.3` (`vendor/inkboard/Cargo.toml`; `scripts/inkboard.sh src` refuses any other) |
 | Board format | `inkboard_core::serial::VERSION = 2` (`crates/inkboard-core/src/serial.rs`) |
-| Patchset | `1` (bump it with every change to the series: the dist's `engine_version` is `0.2.0-beta.3+embed.quire.<patchset>`) |
+| Patchset | `2` (bump it with every change to the series: the dist's `engine_version` is `0.2.0-beta.3+embed.quire.<patchset>`) |
 
 `scripts/check-pins.sh` (on the host) checks that the submodule is at this commit and clean, and that the crates Quire
 shares with `inkboard-core` (serde, serde_json, base64, thiserror) have the same versions in both lockfiles.
@@ -28,15 +28,19 @@ unpatched from the same commit as the wasm.
 |---|---|---|
 | `0001-theme-sync-egui-theme.patch` | `theme::apply` syncs egui's theme, so the OS light/dark switch no longer reverts the visuals; with a regression test | not opened yet |
 | `0002-embed-js-api.patch` | feature `embed`: the JS API on `globalThis.inkboardEmbed` (§10.3, `src/embed.rs`), host mode (`App::host`), `host_load` resets, pause, single mount, Present and the host-owned menu entries hidden when hosted, `platform::init` split | not opened yet |
-| `0003-optional-net.patch` | feature `net` (default): `inkboard-net` optional for the wasm build, `session_net_off.rs`; droppable | not opened yet |
+| `0003-optional-net.patch` | feature `net` (default): `inkboard-net` optional for the wasm build, `session_net_off.rs`; the public page keeps `net` (`web/Trunk.toml`, and the WebGPU build of `scripts/build_web.sh` / `build_web.ps1`, whose `--features` list replaces Trunk.toml's); droppable | not opened yet |
 | `0004-docs-embedding.patch` | "Embedding (feature `embed`)" in `docs/WEB.md`, `docs/fr/WEB.md`, and the `CHANGELOG.md` entries | not opened yet |
 
 The engine Quire ships is built with `--no-default-features --features web-glow,embed` (no `net`). 0003 stays
-droppable: without it the same build compiles `inkboard-net` in (a larger `.wasm`), and host mode still hides the Join
-entry.
+droppable: without it the same build compiles `inkboard-net` in (a slightly larger `.wasm`, see Sizes), and host mode
+still hides the Join entry.
 
 `check-baseline.txt` holds the warnings of `check` on the unpatched base (rustc 1.99.1: clippy pedantic on the wasm
-target, in files the series does not change, plus `inkboard-net`); `check` fails on any warning not in it.
+target, in `live_web.rs`, `platform_web.rs`, `session_net_web.rs`, `watch_web.rs` and `inkboard-net`; 0002 and 0003
+change `platform_web.rs`). Each line is `<count><TAB><kind><TAB><file>: <message>`, without line and column, where
+`<count>` is the most times that warning appears in one cargo run. `check` fails when a warning appears more often in
+one of its cargo runs than the baseline's count (0 for a warning the baseline does not have), so a patch that moves code
+adds nothing, and one more cast in `platform_web.rs` is still a new warning.
 
 ## Notices (Apache-2.0 §4(b))
 
@@ -45,6 +49,7 @@ Every file a patch changes gets one notice line near the top, in the file's comm
 - `.rs`: `// Changed for Quire (embed feature): see patches/inkboard/README.md`
 - `.toml`: `# Changed for Quire (embed feature): see patches/inkboard/README.md`
 - `.md`: `<!-- Changed for Quire (embed feature): see patches/inkboard/README.md -->`
+- `.sh`, `.ps1`: `# Changed for Quire (embed feature): see patches/inkboard/README.md` (after the `#!` line)
 
 Inkboard's `LICENSE-MIT`, `LICENSE-APACHE` and `THIRD_PARTY_LICENSES.md` stay untouched and ship with the dist and the
 image. The patches add no new `t()` strings (Inkboard's tests require a French entry for every string), so hiding UI
@@ -74,8 +79,9 @@ scripts/dev.sh scripts/inkboard.sh stub      # placeholder dist (engine_version 
   patch files changed since the last `src` or `export`, and otherwise use the tree as it is (unexported commits
   included, which is how the series is iterated on).
 - Subjects of the commits give the patch names (`format-patch`), and no commit message may contain the notice text.
-- `check --record-baseline` rewrites `check-baseline.txt`; it runs only on the unpatched base (`HEAD` = `base`, for
-  example after moving the patch files away and running `src --force`).
+- `check --record-baseline` rewrites `check-baseline.txt`; it runs only on the unpatched base (`HEAD` = `base`): for
+  example `git -C .cache/inkboard-src checkout -q base`, the command, then `git -C .cache/inkboard-src checkout -q main`;
+  or move the patch files away and run `src --force`.
 - The feature sets of `check`: native default (`--all-targets`) and wasm `web-glow` always; wasm `web-glow,embed` with
   0002; wasm `--no-default-features --features web-glow,embed` and `--no-default-features --features web-glow,net`
   (the public page) with 0003.
@@ -95,9 +101,9 @@ A flat directory that `quire-assets` embeds and the server serves under `/inkboa
 ```json
 {
   "build": "0123456789ab",
-  "engine_version": "0.2.0-beta.3+embed.quire.1",
+  "engine_version": "0.2.0-beta.3+embed.quire.2",
   "format_version": 2,
-  "patchset": "1",
+  "patchset": "2",
   "files": {
     "inkboard_bg.wasm": { "raw": 0, "br": 0, "gz": 0 },
     "icons.bin": { "raw": 0, "br": null, "gz": null }
