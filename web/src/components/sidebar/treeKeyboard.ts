@@ -8,6 +8,17 @@ export interface TreeKey {
   mod: boolean;
   shift: boolean;
   alt: boolean;
+  /** AltGr is held (Windows reports it as Ctrl+Alt); its characters still type ahead. */
+  altGraph?: boolean;
+}
+
+/** `?` opens the shortcuts dialog (AppShell), so it never types ahead (W3-D5). */
+const SHORTCUTS_KEY = '?';
+
+/** The character a key types for type-ahead, or null: one printable character, Shift and AltGr allowed. */
+export function typedChar(k: TreeKey): string | null {
+  if ([...k.key].length !== 1 || k.key.trim() === '' || k.key === SHORTCUTS_KEY) return null;
+  return k.altGraph || (!k.mod && !k.alt) ? k.key : null;
 }
 
 export type TreeKeyAction =
@@ -83,6 +94,18 @@ export function treeKeyAction(
 
   if (k.key === 'Enter' && !k.shift && !k.alt) return { type: 'open', index, newTab: k.mod };
   if ((k.key === 'F10' && k.shift && !k.mod && !k.alt) || (k.key === 'ContextMenu' && plain)) return { type: 'menu', index };
+
+  // Type-ahead (§9.6.3 "Printable characters"): capitals, Shift digits and punctuation, and AltGr characters too.
+  const char = typedChar(k);
+  if (char !== null) {
+    let prefix = typeAhead.push(char, now);
+    let hit = findByPrefix(rows, index, prefix, prefix.length > 1);
+    if (hit < 0 && prefix.length > 1) {
+      prefix = typeAhead.restart(char, now);
+      hit = findByPrefix(rows, index, prefix, false);
+    }
+    return hit >= 0 ? { type: 'focus', index: hit } : null;
+  }
   if (!plain) return null;
 
   switch (k.key) {
@@ -109,16 +132,6 @@ export function treeKeyAction(
       return row.kind === 'item' ? { type: 'delete', index } : null;
     case 'Escape':
       return { type: 'focus-main' };
-  }
-
-  if (k.key.length === 1 && k.key !== ' ') {
-    let prefix = typeAhead.push(k.key, now);
-    let hit = findByPrefix(rows, index, prefix, prefix.length > 1);
-    if (hit < 0 && prefix.length > 1) {
-      prefix = typeAhead.restart(k.key, now);
-      hit = findByPrefix(rows, index, prefix, false);
-    }
-    return hit >= 0 ? { type: 'focus', index: hit } : null;
   }
   return null;
 }

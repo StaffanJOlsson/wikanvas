@@ -180,7 +180,9 @@ export function CollectionsTree({ collections, starredIds, scrollRef, labelledBy
     if (target.getAttribute('role') !== 'treeitem') return;
     const index = rows.findIndex((r) => r.key === target.dataset.key);
     if (index < 0) return;
-    const action = treeKeyAction(rows, index, hostKeyOf(e.nativeEvent), typeAhead.current);
+    const native = e.nativeEvent;
+    const altGraph = typeof native.getModifierState === 'function' && native.getModifierState('AltGraph');
+    const action = treeKeyAction(rows, index, { ...hostKeyOf(native), altGraph }, typeAhead.current);
     if (!action) return;
     e.preventDefault();
     e.stopPropagation();

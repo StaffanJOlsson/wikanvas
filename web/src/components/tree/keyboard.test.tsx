@@ -8,7 +8,8 @@ import { collectionPath, itemPath } from '../../lib/urls';
 import { isExpanded } from '../../state/expanded';
 import { makeCollection, mockApi, treeReply } from '../../test/mockApi';
 import { findRow, renderSidebar, rowNames, waitForRows } from '../../test/sidebarHarness';
-import { items } from '../../test/treeFixtures';
+import { items, rowIndex, treeCase } from '../../test/treeFixtures';
+import { TypeAhead, treeKeyAction, typedChar, type TreeKey } from '../sidebar/treeKeyboard';
 
 const mac = /Mac|iPhone|iPad/.test(navigator.userAgent);
 const mod = mac ? { metaKey: true } : { ctrlKey: true };
@@ -196,6 +197,42 @@ describe('tree keyboard', () => {
     key(document.activeElement!, 'b');
     key(document.activeElement!, 'r');
     expect(focused()).toBe('Bravo');
+  });
+
+  it('type-ahead also takes Shift characters; `?` is left to the shortcuts dialog', async () => {
+    setup();
+    await findRow('Gamma');
+    const docs = screen.getByRole('treeitem', { name: 'Docs' });
+    docs.focus();
+    key(docs, 'G', { shiftKey: true });
+    expect(focused()).toBe('Gamma');
+    key(document.activeElement!, 'B', { shiftKey: true });
+    expect(focused()).toBe('Beta');
+    // `?` is not consumed (not prevented, focus stays), so AppShell's listener opens the shortcuts dialog.
+    let passed = false;
+    act(() => {
+      passed = fireEvent.keyDown(document.activeElement!, { key: '?', shiftKey: true });
+    });
+    expect(passed).toBe(true);
+    expect(focused()).toBe('Beta');
+  });
+
+  it('type-ahead characters: digits and punctuation with Shift, AltGr (Ctrl+Alt on Windows); not Mod or Alt chords', () => {
+    const { rows } = treeCase(items('c1', '2026 plan', '(draft)', '@home', 'zeta'), []);
+    const ta = new TypeAhead();
+    const k = (char: string, mods: Partial<TreeKey> = {}): TreeKey => ({ key: char, mod: false, shift: false, alt: false, ...mods });
+    let now = 0;
+    const press = (tk: TreeKey) => treeKeyAction(rows, 0, tk, ta, (now += 1000));
+    expect(press(k('2', { shift: true }))).toEqual({ type: 'focus', index: rowIndex(rows, '2026 plan') });
+    expect(press(k('(', { shift: true }))).toEqual({ type: 'focus', index: rowIndex(rows, '(draft)') });
+    expect(press(k('@', { mod: true, alt: true, altGraph: true }))).toEqual({ type: 'focus', index: rowIndex(rows, '@home') });
+    expect(press(k('Z', { shift: true }))).toEqual({ type: 'focus', index: rowIndex(rows, 'zeta') });
+    expect(press(k('@', { mod: true, alt: true }))).toBeNull(); // Ctrl+Alt without AltGr: a chord
+    expect(press(k('z', { mod: true }))).toBeNull();
+    expect(press(k('z', { alt: true }))).toBeNull();
+    expect(press(k('?', { shift: true }))).toBeNull();
+    expect(typedChar(k(' '))).toBeNull();
+    expect(typedChar(k('é'))).toBe('é');
   });
 
   it('Esc focuses the main region', async () => {
