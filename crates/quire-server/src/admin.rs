@@ -1,30 +1,35 @@
 //! The admin commands of ARCHITECTURE §7.8 (owner: W2)
 //!
 //! They open the database in `QUIRE_DATA_DIR` the way `serve` does ([`AppState::open`]: pending migrations included,
-//! with the pre-migration backup) and may run while the server is up (WAL; the writer waits on `busy_timeout`). Every
-//! command takes `--json`, uses the exit codes of §7.7, and prints secrets only to stdout or `--token-out`.
-//!
-//! W0b: `create-owner` (owner row and workspace settings; the "Getting started" seed arrives with W2's
-//! `seed::getting_started`) and `create-token`. The other commands exit 1 with "not implemented (W2)".
+//! with the pre-migration backup) and may run while the server is up (WAL; the writer waits on `busy_timeout`, and the
+//! server's owner-exists cache sees a new owner on its next request). Every command takes `--json`, uses the exit
+//! codes of §7.7, and prints secrets only to stdout or `--token-out`:
+//! - `create-owner`: the `POST /setup` transaction without the code (owner, workspace settings, the "Getting started"
+//!   seed unless `--no-seed`); exit 8 when an owner exists;
+//! - `create-token`, `list-tokens`, `revoke-token (<id> | --all --yes)`: as the API, for the owner;
+//! - `reset-password --email E [--revoke-tokens]`: a random temporary password (printed once, must be changed), every
+//!   session revoked, and with `--revoke-tokens` every API token too (D35);
+//! - `backup [--out PATH]`: `VACUUM INTO` on the maintenance connection and `quick_check` (§12); without `--out` it is
+//!   counted against `QUIRE_BACKUP_KEEP`;
+//! - `check`: `quick_check`, `foreign_key_check`, a bounded cycle scan, the FTS `integrity-check`, and blob rows whose
+//!   file is missing (§5); exit 1 when anything is wrong.
 
 use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
 
 use quire_api::cli::ExitCode;
 use quire_api::tokens::{MAX_EXPIRY_DAYS, NewToken};
-use quire_api::{CreatedToken, ErrorCode, Scope, User, Workspace};
+use quire_api::{ApiToken, BackupResult, CreatedToken, ErrorCode, Scope, User, Workspace};
 use quire_store::tokens::CreatedVia;
-use rusqlite::OptionalExtension;
 use serde::Serialize;
-use uuid::Uuid;
 
 use crate::cli::{AdminArgs, AdminCommand, CreateOwnerArgs, CreateTokenArgs};
 use crate::config::Config;
 use crate::error::ApiError;
-use crate::routes::auth::{load_user, load_workspace};
-use crate::state::{self, AppState, now_ms};
+use crate::routes::auth::load_workspace;
+use crate::state::{self, AppState};
 
-/// The owner to create (`create-owner`, `TestServer`).
+/// The owner to create (`create-owner`, `POST /setup`, `TestServer`).
 #[derive(Clone, Debug)]
 pub struct NewOwner {
     pub email: String,
@@ -33,6 +38,8 @@ pub struct NewOwner {
     /// The argon2id PHC string.
     pub password_hash: String,
     pub must_change_password: bool,
+    /// Seed "Getting started" in the same transaction (`--no-seed` turns it off).
+    pub seed: bool,
 }
 
 /// `create-owner --json` on stdout.
@@ -51,17 +58,42 @@ pub struct TokenWritten {
     pub api_token: quire_api::ApiToken,
 }
 
+/// `revoke-token --json` on stdout.
+#[derive(Clone, Debug, Serialize)]
+pub struct Revoked {
+    /// Tokens revoked, children included.
+    pub revoked: u64,
+}
+
+/// `reset-password --json` on stdout.
+#[derive(Clone, Debug, Serialize)]
+pub struct PasswordReset {
+    pub user: User,
+    /// The temporary password, shown once; it must be changed at the next sign-in.
+    pub password: String,
+    pub sessions_revoked: u64,
+    pub tokens_revoked: u64,
+}
+
+/// `check --json` on stdout.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct CheckReport {
+    pub ok: bool,
+    /// `ok`, or SQLite's findings.
+    pub quick_check: Vec<String>,
+    pub foreign_key_violations: u64,
+    /// Items whose ancestor chain leads back to themselves (at most 100).
+    pub cycles: Vec<String>,
+    /// `ok`, or the error of the FTS `integrity-check`.
+    pub fts: String,
+    /// Blob rows whose file is missing.
+    pub missing_blobs: Vec<String>,
+}
+
 /// Checks the owner's fields: an email with `@` (at most 254 bytes), a name of 1–200 characters, a workspace name
 /// of 1–100 characters.
 pub fn validate_owner(email: &str, name: &str, workspace: &str) -> Result<(), ApiError> {
-    let email_ok = email.len() <= 254
-        && !email.contains(char::is_whitespace)
-        && email
-            .split_once('@')
-            .is_some_and(|(local, domain)| !local.is_empty() && !domain.is_empty());
-    if !email_ok {
-        return Err(ApiError::validation("email", "not an email address"));
-    }
+    quire_store::users::check_email(email.trim())?;
     let chars = |s: &str| s.trim().chars().count();
     if !(1..=200).contains(&chars(name)) {
         return Err(ApiError::validation(
@@ -78,49 +110,29 @@ pub fn validate_owner(email: &str, name: &str, workspace: &str) -> Result<(), Ap
     Ok(())
 }
 
-/// Creates the owner and the workspace settings in one writer transaction: 409 `already_setup` when an owner exists.
+/// Creates the owner, the workspace settings and (with `owner.seed`) the "Getting started" seed in one writer
+/// transaction: 409 `already_setup` when an owner exists. The server's owner-exists cache flips at once.
 pub async fn create_owner(state: &AppState, owner: NewOwner, now: i64) -> Result<User, ApiError> {
     validate_owner(&owner.email, &owner.name, &owner.workspace)?;
-    let id = Uuid::now_v7().to_string();
+    let blobs = state.blobs.clone();
     let user = state
         .db
         .write(move |tx| {
-            let exists: bool = tx.query_row(
-                "SELECT EXISTS (SELECT 1 FROM users WHERE role = 'owner')",
-                [],
-                |r| r.get(0),
+            let row = quire_store::users::create_owner(
+                tx,
+                &quire_store::users::NewOwner {
+                    email: owner.email.clone(),
+                    name: owner.name.clone(),
+                    password_hash: owner.password_hash.clone(),
+                    must_change_password: owner.must_change_password,
+                },
+                now,
             )?;
-            if exists {
-                return Err(quire_store::Error::new(
-                    ErrorCode::AlreadySetup,
-                    "an owner already exists",
-                ));
+            quire_store::settings::init_workspace(tx, owner.workspace.trim(), now)?;
+            if owner.seed {
+                quire_store::seed::getting_started(tx, &blobs, &row.id, now)?;
             }
-            tx.execute(
-                "INSERT INTO users (id, email, name, password_hash, role, theme, must_change_password, created_at,
-                                    updated_at)
-                 VALUES (?1, ?2, ?3, ?4, 'owner', 'system', ?5, ?6, ?6)",
-                rusqlite::params![
-                    id,
-                    owner.email.trim(),
-                    owner.name.trim(),
-                    owner.password_hash,
-                    owner.must_change_password,
-                    now
-                ],
-            )?;
-            let name = serde_json::to_string(owner.workspace.trim())?;
-            tx.execute(
-                "INSERT INTO settings (key, value) VALUES ('workspace.name', ?1)
-                 ON CONFLICT (key) DO UPDATE SET value = excluded.value",
-                [name],
-            )?;
-            let instance = serde_json::to_string(&Uuid::now_v7().to_string())?;
-            tx.execute(
-                "INSERT OR IGNORE INTO settings (key, value) VALUES ('instance.id', ?1), ('instance.created_at', ?2)",
-                rusqlite::params![instance, now.to_string()],
-            )?;
-            Ok(load_user(tx, &id)?.0)
+            row.to_api()
         })
         .await?;
     state.owner_exists().await?;
@@ -135,16 +147,8 @@ pub async fn find_user(state: &AppState, email: Option<String>) -> Result<String
         .db
         .read(move |conn| {
             Ok(match &email {
-                Some(e) => conn
-                    .query_row("SELECT id FROM users WHERE email = ?1", [e.trim()], |r| {
-                        r.get(0)
-                    })
-                    .optional()?,
-                None => conn
-                    .query_row("SELECT id FROM users WHERE role = 'owner'", [], |r| {
-                        r.get(0)
-                    })
-                    .optional()?,
+                Some(e) => quire_store::users::by_email(conn, e)?.map(|u| u.id),
+                None => quire_store::users::owner(conn)?.map(|u| u.id),
             })
         })
         .await?;
@@ -291,14 +295,16 @@ async fn dispatch(command: AdminCommand, json: bool) -> Result<(), Failure> {
     match command {
         AdminCommand::CreateOwner(args) => create_owner_command(args, json).await,
         AdminCommand::CreateToken(args) => create_token_command(args, json).await,
-        AdminCommand::ListTokens
-        | AdminCommand::RevokeToken { .. }
-        | AdminCommand::ResetPassword { .. }
-        | AdminCommand::Backup { .. }
-        | AdminCommand::Check => Err(Failure {
-            error: ApiError::new(ErrorCode::Internal, "not implemented (W2)"),
-            exit: ExitCode::Unexpected,
-        }),
+        AdminCommand::ListTokens => list_tokens_command(json).await,
+        AdminCommand::RevokeToken { id, all, yes } => {
+            revoke_token_command(id, all && yes, json).await
+        }
+        AdminCommand::ResetPassword {
+            email,
+            revoke_tokens,
+        } => reset_password_command(email, revoke_tokens, json).await,
+        AdminCommand::Backup { out } => backup_command(out, json).await,
+        AdminCommand::Check => check_command(json).await,
     }
 }
 
@@ -322,6 +328,7 @@ async fn create_owner_command(args: CreateOwnerArgs, json: bool) -> Result<(), F
     state::check_password(&password)?;
     let state = open().await?;
     let password_hash = state.hash_password(password).await?;
+    let now = state.now();
     let user = create_owner(
         &state,
         NewOwner {
@@ -330,8 +337,9 @@ async fn create_owner_command(args: CreateOwnerArgs, json: bool) -> Result<(), F
             workspace: args.workspace,
             password_hash,
             must_change_password: generated.is_some(),
+            seed: !args.no_seed,
         },
-        now_ms(),
+        now,
     )
     .await?;
     let workspace = state
@@ -371,7 +379,7 @@ async fn create_token_command(args: CreateTokenArgs, json: bool) -> Result<(), F
         expires_in_days: Some(expires),
         password: None,
     };
-    let created = create_token(&state, user_id, new, now_ms()).await?;
+    let created = create_token(&state, user_id, new, state.now()).await?;
     match args.token_out {
         Some(path) => {
             write_secret(&path, &created.token).map_err(|e| Failure {
@@ -400,6 +408,223 @@ async fn create_token_command(args: CreateTokenArgs, json: bool) -> Result<(), F
             println!("{}", created.token);
             Ok(())
         }
+    }
+}
+
+async fn list_tokens_command(json: bool) -> Result<(), Failure> {
+    let state = open().await?;
+    let user_id = find_user(&state, None).await?;
+    let now = state.now();
+    let tokens: Vec<ApiToken> = state
+        .db
+        .read(move |conn| quire_store::tokens::list(conn, &user_id, now))
+        .await
+        .map_err(ApiError::from)?;
+    if json {
+        return print_json(&tokens);
+    }
+    for t in &tokens {
+        let scopes: Vec<&str> = t.scopes.iter().map(|s| s.as_str()).collect();
+        let expires = t
+            .expires_at
+            .map_or_else(|| "never".to_owned(), |e| e.to_rfc3339());
+        println!(
+            "{}  {}  {}  {}  expires {}",
+            t.id,
+            t.prefix,
+            t.name,
+            scopes.join(","),
+            expires
+        );
+    }
+    Ok(())
+}
+
+async fn revoke_token_command(id: Option<String>, all: bool, json: bool) -> Result<(), Failure> {
+    let state = open().await?;
+    let user_id = find_user(&state, None).await?;
+    let now = state.now();
+    let revoked = match id {
+        Some(id) if !all => {
+            let id = uuid::Uuid::parse_str(id.trim())
+                .map_err(|_| ApiError::not_found("no such token"))?
+                .to_string();
+            let n = state
+                .db
+                .write(move |tx| quire_store::tokens::revoke(tx, &user_id, &id, now))
+                .await
+                .map_err(ApiError::from)?;
+            if n == 0 {
+                return Err(ApiError::not_found("no such token (or it is revoked already)").into());
+            }
+            n
+        }
+        _ => state
+            .db
+            .write(move |tx| quire_store::tokens::revoke_all(tx, &user_id, now))
+            .await
+            .map_err(ApiError::from)?,
+    };
+    if json {
+        print_json(&Revoked { revoked })
+    } else {
+        println!("Revoked {revoked} token(s).");
+        Ok(())
+    }
+}
+
+async fn reset_password_command(
+    email: String,
+    revoke_tokens: bool,
+    json: bool,
+) -> Result<(), Failure> {
+    let state = open().await?;
+    let user_id = find_user(&state, Some(email)).await?;
+    let password = generate_password()?;
+    let hash = state.hash_password(password.clone()).await?;
+    let now = state.now();
+    let (user, sessions_revoked, tokens_revoked) = state
+        .db
+        .write(move |tx| {
+            quire_store::users::set_password(tx, &user_id, &hash, true, now)?;
+            let sessions = quire_store::sessions::delete_others(tx, &user_id, None)?;
+            let tokens = if revoke_tokens {
+                quire_store::tokens::revoke_all(tx, &user_id, now)?
+            } else {
+                0
+            };
+            Ok((
+                quire_store::users::get(tx, &user_id)?.to_api()?,
+                sessions,
+                tokens,
+            ))
+        })
+        .await
+        .map_err(ApiError::from)?;
+    if json {
+        print_json(&PasswordReset {
+            user,
+            password,
+            sessions_revoked,
+            tokens_revoked,
+        })
+    } else {
+        println!(
+            "Temporary password for {} (shown once; it must be changed at the next sign-in): {password}",
+            user.email
+        );
+        println!("Signed out {sessions_revoked} session(s); revoked {tokens_revoked} token(s).");
+        Ok(())
+    }
+}
+
+async fn backup_command(out: Option<PathBuf>, json: bool) -> Result<(), Failure> {
+    let state = open().await?;
+    let (path, size) = match out {
+        None => crate::jobs::backup_now(&state).await?,
+        Some(path) => {
+            state.check_free_space()?;
+            let db = state.db.clone();
+            let target = path.clone();
+            tokio::task::spawn_blocking(move || quire_store::backup::to_path(&db, &target))
+                .await
+                .map_err(ApiError::internal)?
+                .map_err(ApiError::from)?;
+            let size = std::fs::metadata(&path).map_err(ApiError::internal)?.len();
+            (path, size)
+        }
+    };
+    let result = BackupResult {
+        path: path.display().to_string(),
+        size,
+    };
+    if json {
+        print_json(&result)
+    } else {
+        println!("Backed up to {} ({size} bytes).", result.path);
+        Ok(())
+    }
+}
+
+/// The checks of `quire-server admin check` (§5), on a maintenance connection.
+pub fn check_database(
+    db: &quire_store::Db,
+    blobs: &quire_store::BlobStore,
+) -> quire_store::Result<CheckReport> {
+    let conn = db.maintenance()?;
+    let quick_check: Vec<String> = conn
+        .prepare("PRAGMA quick_check")?
+        .query_map([], |r| r.get(0))?
+        .collect::<rusqlite::Result<_>>()?;
+    let foreign_key_violations: i64 =
+        conn.query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |r| {
+            r.get(0)
+        })?;
+    let cycles: Vec<String> = conn
+        .prepare(
+            "WITH RECURSIVE walk(start, id, depth) AS (
+               SELECT id, parent_id, 1 FROM items WHERE parent_id IS NOT NULL
+               UNION ALL
+               SELECT w.start, i.parent_id, w.depth + 1 FROM walk w JOIN items i ON i.id = w.id
+               WHERE i.parent_id IS NOT NULL AND w.id <> w.start AND w.depth < 10000
+             )
+             SELECT DISTINCT start FROM walk WHERE id = start LIMIT 100",
+        )?
+        .query_map([], |r| r.get(0))?
+        .collect::<rusqlite::Result<_>>()?;
+    let fts = match conn.execute(
+        "INSERT INTO item_fts(item_fts, rank) VALUES ('integrity-check', 1)",
+        [],
+    ) {
+        Ok(_) => "ok".to_owned(),
+        Err(e) => e.to_string(),
+    };
+    let shas: Vec<String> = conn
+        .prepare("SELECT sha256 FROM blobs ORDER BY sha256")?
+        .query_map([], |r| r.get(0))?
+        .collect::<rusqlite::Result<_>>()?;
+    let missing_blobs: Vec<String> = shas
+        .into_iter()
+        .filter(|s| quire_store::Sha256::parse(s).map_or(true, |sha| !blobs.path(&sha).is_file()))
+        .collect();
+    let ok = quick_check == ["ok"]
+        && foreign_key_violations == 0
+        && cycles.is_empty()
+        && fts == "ok"
+        && missing_blobs.is_empty();
+    Ok(CheckReport {
+        ok,
+        quick_check,
+        foreign_key_violations: foreign_key_violations as u64,
+        cycles,
+        fts,
+        missing_blobs,
+    })
+}
+
+async fn check_command(json: bool) -> Result<(), Failure> {
+    let state = open().await?;
+    let (db, blobs) = (state.db.clone(), state.blobs.clone());
+    let report = tokio::task::spawn_blocking(move || check_database(&db, &blobs))
+        .await
+        .map_err(ApiError::internal)?
+        .map_err(ApiError::from)?;
+    if json {
+        print_json(&report)?;
+    } else {
+        println!("quick_check: {}", report.quick_check.join("; "));
+        println!("foreign key violations: {}", report.foreign_key_violations);
+        println!("cycles: {}", report.cycles.len());
+        println!("search index: {}", report.fts);
+        println!("missing blob files: {}", report.missing_blobs.len());
+    }
+    if report.ok {
+        Ok(())
+    } else {
+        Err(Failure {
+            error: ApiError::new(ErrorCode::Internal, "the database check found problems"),
+            exit: ExitCode::Unexpected,
+        })
     }
 }
 

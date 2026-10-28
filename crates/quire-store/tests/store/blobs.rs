@@ -1,6 +1,7 @@
 //! Blob store and garbage collection tests (owner: W2)
 //!
-//! W0b: staging and commit (D26), streamed staging with its limit, dedupe, sniffing, and the free-space floor (D33).
+//! Staging and commit (D26), streamed staging with its limit, dedupe, sniffing, the free-space floor (D33), and the
+//! attachment and blob GC with the orphan sweep (§5, D26, D36).
 
 use bytes::Bytes;
 use quire_core::api::ErrorCode;
@@ -181,4 +182,241 @@ async fn free_space_floor() {
     shared::check_free_space(t.data_dir(), 0).unwrap();
     let e = shared::check_free_space(&t.data_dir().join("missing"), 0).unwrap_err();
     assert!(e.is(ErrorCode::Internal));
+}
+
+/// Commits `bytes` as a blob and returns its sha256.
+async fn put(t: &TestDb, bytes: &'static [u8]) -> Sha256 {
+    let blobs = t.blobs.clone();
+    t.db.write(move |tx| Ok(blobs.put(tx, bytes, NOW)?.sha256))
+        .await
+        .unwrap()
+}
+
+async fn blob_rows(t: &TestDb) -> Vec<String> {
+    t.query(|c| {
+        c.prepare("SELECT sha256 FROM blobs ORDER BY sha256")?
+            .query_map([], |r| r.get(0))?
+            .collect()
+    })
+    .await
+}
+
+/// Backdates a file's mtime by `secs`.
+fn age(path: &std::path::Path, secs: u64) {
+    let file = std::fs::File::options().append(true).open(path).unwrap();
+    file.set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(secs))
+        .unwrap();
+}
+
+#[tokio::test]
+async fn gc_keeps_referenced_blobs_including_revision_assets() {
+    let t = TestDb::new();
+    let owner = t.owner().await;
+    let c = t.collection(&owner, "Notes").await;
+    let doc = t
+        .item(&owner, c.id, None, quire_core::api::ItemKind::Doc, "d")
+        .await;
+    let board = t
+        .item(&owner, c.id, None, quire_core::api::ItemKind::Board, "b")
+        .await;
+    let attached = put(&t, b"attachment bytes").await;
+    let asset = put(&t, b"board asset bytes").await;
+    let avatar = put(&t, b"avatar bytes").await;
+    let revision = put(&t, b"revision-only asset").await;
+    let orphan = put(&t, b"nobody refers to me").await;
+    let (a, s, v, r) = (
+        attached.to_string(),
+        asset.to_string(),
+        avatar.to_string(),
+        revision.to_string(),
+    );
+    let (doc_id, board_id, owner_id) = (doc.id.to_string(), board.id.to_string(), owner.clone());
+    t.db.write(move |tx| {
+        tx.execute(
+            "INSERT INTO attachments (id, item_id, sha256, filename, mime, created_by, created_at)
+             VALUES ('att-1', ?1, ?2, 'a.png', 'image/png', ?3, ?4)",
+            rusqlite::params![doc_id, a, owner_id, NOW],
+        )?;
+        tx.execute(
+            "INSERT INTO board_assets (item_id, asset_id, sha256, mime) VALUES (?1, 'asset-1', ?2, 'image/png')",
+            rusqlite::params![board_id, s],
+        )?;
+        tx.execute("UPDATE users SET avatar_sha256 = ?1", [&v])?;
+        tx.execute(
+            "INSERT INTO revisions (id, item_id, reason, format, format_version, data, assets, title, byte_size,
+                                    created_at)
+             VALUES ('rev-1', ?1, 'manual', 'inkboard', 2, x'00', json_object('gone-asset', ?2), 'b', 1, ?3)",
+            rusqlite::params![board_id, r, NOW],
+        )?;
+        Ok(())
+    })
+    .await
+    .unwrap();
+    let report = quire_store::gc::blobs(&t.db, &t.blobs).await.unwrap();
+    assert_eq!(report.blobs, 1);
+    let mut expect: Vec<String> = [&attached, &asset, &avatar, &revision]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    expect.sort();
+    assert_eq!(blob_rows(&t).await, expect);
+    assert!(
+        !t.blobs.path(&orphan).exists(),
+        "the unreferenced file is unlinked"
+    );
+    for kept in [&attached, &asset, &avatar, &revision] {
+        assert!(t.blobs.path(kept).exists());
+    }
+    // A file with no row is swept once it is older than an hour; a young one stays.
+    let stray = Sha256::of(b"stray");
+    let stray_path = t.blobs.path(&stray);
+    std::fs::create_dir_all(stray_path.parent().unwrap()).unwrap();
+    std::fs::write(&stray_path, b"stray").unwrap();
+    assert_eq!(
+        quire_store::gc::blobs(&t.db, &t.blobs)
+            .await
+            .unwrap()
+            .orphan_files,
+        0
+    );
+    age(&stray_path, 3601);
+    age(&t.blobs.path(&attached), 7200);
+    let report = quire_store::gc::blobs(&t.db, &t.blobs).await.unwrap();
+    assert_eq!((report.blobs, report.orphan_files), (0, 1));
+    assert!(!stray_path.exists() && t.blobs.path(&attached).exists());
+    // Stale staging files go after a day.
+    let tmp = t.blobs.tmp_dir().join("blob-stale.tmp");
+    std::fs::create_dir_all(t.blobs.tmp_dir()).unwrap();
+    std::fs::write(&tmp, b"x").unwrap();
+    age(&tmp, 25 * 3600);
+    assert_eq!(
+        quire_store::gc::blobs(&t.db, &t.blobs)
+            .await
+            .unwrap()
+            .stale_tmp,
+        1
+    );
+}
+
+#[tokio::test]
+async fn gc_between_stage_and_commit_never_leaves_row_without_file() {
+    let t = TestDb::new();
+    // An unreferenced blob with its file, and the same bytes staged for a new save.
+    let sha = put(&t, b"shared bytes").await;
+    let staged = t.blobs.stage(b"shared bytes").unwrap();
+    assert_eq!(staged.sha256(), &sha);
+    // GC runs between stage and commit: the row and the file go, the staged file stays.
+    assert_eq!(
+        quire_store::gc::blobs(&t.db, &t.blobs).await.unwrap().blobs,
+        1
+    );
+    assert!(!t.blobs.path(&sha).exists());
+    assert!(staged.path().exists());
+    // The commit (inside the writer, with the referencing row) puts the file back.
+    let blobs = t.blobs.clone();
+    t.db.write(move |tx| {
+        let blob = blobs.commit(tx, staged, NOW)?;
+        tx.execute(
+            "INSERT INTO attachments (id, sha256, filename, mime, created_at) VALUES ('a', ?1, 'f', 'text/plain', ?2)",
+            rusqlite::params![blob.sha256.as_str(), NOW],
+        )?;
+        Ok(())
+    })
+    .await
+    .unwrap();
+    assert!(t.blobs.path(&sha).exists());
+    assert_eq!(blob_rows(&t).await, [sha.to_string()]);
+    // The other order: a commit that dedupes onto an existing file is never undone by a later GC.
+    let staged = t.blobs.stage(b"shared bytes").unwrap();
+    let blobs = t.blobs.clone();
+    t.db.write(move |tx| {
+        blobs.commit(tx, staged, NOW)?;
+        tx.execute(
+            "INSERT INTO attachments (id, sha256, filename, mime, created_at) VALUES ('b', ?1, 'f', 'text/plain', ?2)",
+            rusqlite::params![sha.as_str(), NOW],
+        )?;
+        Ok(())
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        quire_store::gc::blobs(&t.db, &t.blobs).await.unwrap().blobs,
+        0
+    );
+    for row in blob_rows(&t).await {
+        assert!(
+            t.blobs.path(&Sha256::parse(&row).unwrap()).exists(),
+            "a row without its file"
+        );
+    }
+}
+
+#[tokio::test]
+async fn attachment_gc_respects_refs_and_24h_grace() {
+    let t = TestDb::new();
+    let owner = t.owner().await;
+    let c = t.collection(&owner, "Notes").await;
+    let doc = t
+        .item(&owner, c.id, None, quire_core::api::ItemKind::Doc, "d")
+        .await;
+    let sha = put(&t, b"image").await.to_string();
+    let hour = 3_600_000;
+    let doc_id = doc.id.to_string();
+    t.db.write(move |tx| {
+        for (id, created) in [
+            ("in-doc", NOW - 48 * hour),
+            ("in-revision", NOW - 48 * hour),
+            ("logo", NOW - 48 * hour),
+            ("young", NOW - 23 * hour),
+            ("old", NOW - 25 * hour),
+        ] {
+            tx.execute(
+                "INSERT INTO attachments (id, sha256, filename, mime, created_at) VALUES (?1, ?2, 'f', 'image/png', ?3)",
+                rusqlite::params![id, sha, created],
+            )?;
+        }
+        tx.execute(
+            "INSERT INTO item_attachments (item_id, attachment_id) VALUES (?1, 'in-doc')",
+            [&doc_id],
+        )?;
+        tx.execute(
+            "INSERT INTO revisions (id, item_id, reason, format, format_version, data, attachment_ids, title,
+                                    byte_size, created_at)
+             VALUES ('rev-1', ?1, 'manual', 'yjs', 1, x'00', '[\"in-revision\"]', 'd', 1, ?2)",
+            rusqlite::params![doc_id, NOW],
+        )?;
+        quire_store::settings::set(tx, quire_store::settings::WORKSPACE_LOGO, &serde_json::json!("logo"))?;
+        Ok(())
+    })
+    .await
+    .unwrap();
+    let deleted =
+        t.db.write(|tx| quire_store::gc::attachments(tx, NOW))
+            .await
+            .unwrap();
+    assert_eq!(deleted, 1);
+    let mut left: Vec<String> = t
+        .query(|c| {
+            c.prepare("SELECT id FROM attachments")?
+                .query_map([], |r| r.get(0))?
+                .collect()
+        })
+        .await;
+    left.sort();
+    assert_eq!(left, ["in-doc", "in-revision", "logo", "young"]);
+    // The blob stays while any attachment refers to it.
+    assert_eq!(
+        quire_store::gc::blobs(&t.db, &t.blobs).await.unwrap().blobs,
+        0
+    );
+    t.db.write(|tx| {
+        tx.execute("DELETE FROM attachments", [])?;
+        Ok(())
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        quire_store::gc::blobs(&t.db, &t.blobs).await.unwrap().blobs,
+        1
+    );
 }

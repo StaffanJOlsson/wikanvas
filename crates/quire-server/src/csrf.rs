@@ -61,41 +61,71 @@ pub fn host_allowed(config: &Config, host: &str, port: Option<u16>) -> bool {
         || config.allowed_hosts.iter().any(|p| p.matches(host, port))
 }
 
-/// Whether a non-bearer mutation passes the Fetch-Metadata / Origin rule.
-pub fn origin_allowed(config: &Config, headers: &HeaderMap, host: &(String, Option<u16>)) -> bool {
-    // Every Sec-Fetch-Site value must be same-origin or none (a browser sends one; a forged second never helps).
+/// Whether every `Sec-Fetch-Site` value is `same-origin` or `none`; `None` when the request has none.
+fn fetch_site_ok(headers: &HeaderMap) -> Option<bool> {
     let mut sites = headers.get_all("sec-fetch-site").iter().peekable();
-    if sites.peek().is_some()
-        && sites.all(|v| {
-            v.to_str().is_ok_and(|site| {
-                site.eq_ignore_ascii_case("same-origin") || site.eq_ignore_ascii_case("none")
-            })
+    sites.peek()?;
+    // Every value must pass (a browser sends one; a forged second never helps).
+    Some(sites.all(|v| {
+        v.to_str().is_ok_and(|site| {
+            site.eq_ignore_ascii_case("same-origin") || site.eq_ignore_ascii_case("none")
         })
-    {
-        return true;
-    }
-    let Some(origin) = headers.get(header::ORIGIN).and_then(|v| v.to_str().ok()) else {
-        return false;
-    };
-    let (scheme, authority) = if let Some(rest) = origin.strip_prefix("https://") {
+    }))
+}
+
+/// Whether `url` (an `Origin` or a `Referer`: `scheme://host[:port]` and anything after) names this server: its
+/// host[:port] equals the public URL's or the request's `Host`. The scheme is not compared (§8): host[:port] already
+/// pins the origin to Quire. Default ports are normalized with the URL's own scheme.
+fn same_authority(config: &Config, url: &str, host: &(String, Option<u16>)) -> bool {
+    let (scheme, rest) = if let Some(rest) = url.strip_prefix("https://") {
         (Scheme::Https, rest)
-    } else if let Some(rest) = origin.strip_prefix("http://") {
+    } else if let Some(rest) = url.strip_prefix("http://") {
         (Scheme::Http, rest)
     } else {
         return false; // "null" and anything else
     };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    if authority.contains('@') {
+        return false;
+    }
     let Some((o_host, o_port)) = split_host_port(authority) else {
         return false;
     };
     let o_port = o_port.unwrap_or(scheme.default_port());
-    // The scheme is not compared (§8): host[:port] already pins the origin to Quire. Default ports are normalized
-    // with the origin's own scheme, and the request's Host with the public URL's.
     let public = &config.public_url;
     if public.host == o_host && public.port_or_default() == o_port {
         return true;
     }
     let (r_host, r_port) = host;
     *r_host == o_host && r_port.unwrap_or(scheme.default_port()) == o_port
+}
+
+/// Whether a non-bearer mutation passes the Fetch-Metadata / Origin rule.
+pub fn origin_allowed(config: &Config, headers: &HeaderMap, host: &(String, Option<u16>)) -> bool {
+    if fetch_site_ok(headers) == Some(true) {
+        return true;
+    }
+    headers
+        .get(header::ORIGIN)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|origin| same_authority(config, origin, host))
+}
+
+/// The cookie rule of `GET /api/v1/export` (§7.2): `Sec-Fetch-Site` `same-origin` or `none`, or, without fetch
+/// metadata, a same-origin `Referer`. SameSite=Lax sends the cookie on cross-site navigations, so this one expensive
+/// GET checks where it came from.
+pub fn navigation_allowed(
+    config: &Config,
+    headers: &HeaderMap,
+    host: &(String, Option<u16>),
+) -> bool {
+    match fetch_site_ok(headers) {
+        Some(ok) => ok,
+        None => headers
+            .get(header::REFERER)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|referer| same_authority(config, referer, host)),
+    }
 }
 
 fn is_mutation(method: &Method) -> bool {
@@ -225,5 +255,27 @@ mod tests {
             ("sec-fetch-site", "same-origin"),
             ("sec-fetch-site", "cross-site")
         ]));
+        assert!(!ok(&[("origin", "http://localhost:8080@evil.example")]));
+    }
+
+    #[test]
+    fn navigation_rule() {
+        let c = config(&[("QUIRE_PUBLIC_URL", "https://wiki.example.org")]);
+        let host = ("wiki.example.org".to_owned(), None);
+        let ok =
+            |pairs: &[(&'static str, &'static str)]| navigation_allowed(&c, &headers(pairs), &host);
+        assert!(ok(&[("sec-fetch-site", "same-origin")]));
+        assert!(ok(&[("sec-fetch-site", "none")]));
+        assert!(!ok(&[("sec-fetch-site", "cross-site")]));
+        assert!(!ok(&[
+            ("sec-fetch-site", "cross-site"),
+            ("referer", "https://wiki.example.org/settings")
+        ]));
+        assert!(ok(&[(
+            "referer",
+            "https://wiki.example.org/settings/export"
+        )]));
+        assert!(!ok(&[("referer", "https://evil.example/")]));
+        assert!(!ok(&[]));
     }
 }

@@ -1,7 +1,7 @@
 //! Personal access token tests (owner: W2)
 //!
-//! W0b: creation (format, stored hash and prefix, expanded scopes, parent caps, the 100 limit), lookup with
-//! classification (live, expired, rejected), list, and revoke with children.
+//! Creation (format, stored hash and prefix, expanded scopes, parent caps, the 100 limit), lookup with
+//! classification (live, expired, rejected), list, revoke with children, the last-use write, and the 30-day purge.
 
 use quire_core::api::token;
 use quire_core::api::{ApiToken, CreatedToken, ErrorCode, NewToken, Role, Scope};
@@ -490,5 +490,121 @@ async fn at_most_100_live_tokens() {
         list(&t, &owner).await.len(),
         100,
         "the list is capped at 100"
+    );
+}
+
+#[tokio::test]
+async fn purged_30_days_after_revocation() {
+    let t = TestDb::new();
+    let user = t.owner().await;
+    let revoked = create(
+        &t,
+        &user,
+        new_token("revoked", &[Scope::Read], Some(None)),
+        None,
+        NOW,
+    )
+    .await
+    .unwrap();
+    let expiring = create(
+        &t,
+        &user,
+        new_token("expiring", &[Scope::Admin], Some(Some(1))),
+        None,
+        NOW,
+    )
+    .await
+    .unwrap();
+    let parent = live(&t, &expiring.token).await;
+    let child = create(
+        &t,
+        &user,
+        new_token("child", &[Scope::Read], Some(Some(1))),
+        Some(parent),
+        NOW,
+    )
+    .await
+    .unwrap();
+    let kept = create(
+        &t,
+        &user,
+        new_token("kept", &[Scope::Write], Some(None)),
+        None,
+        NOW,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        revoke(&t, &user, &revoked.api_token.id.to_string()).await,
+        1
+    );
+    let db = t.db.clone();
+    let purge = |now: i64| {
+        let db = db.clone();
+        async move { db.write(move |tx| tokens::purge(tx, now)).await.unwrap() }
+    };
+    // 30 days after revocation (and after the 1-day expiry) nothing is deleted yet...
+    assert_eq!(purge(NOW + 30 * DAY - 1).await, 0);
+    assert_eq!(purge(NOW + 30 * DAY).await, 1, "the revoked token");
+    // ...the expired parent and child go a day later, with their scopes; the live token stays.
+    assert_eq!(purge(NOW + 31 * DAY).await, 2);
+    let rows: Vec<String> = t
+        .query(|c| {
+            c.prepare("SELECT name FROM api_tokens")?
+                .query_map([], |r| r.get(0))?
+                .collect()
+        })
+        .await;
+    assert_eq!(rows, ["kept"]);
+    let scopes: i64 = t
+        .query(|c| c.query_row("SELECT count(*) FROM api_token_scopes", [], |r| r.get(0)))
+        .await;
+    assert_eq!(scopes, 2, "read and write of the kept token");
+    let _ = (child, kept);
+}
+
+#[tokio::test]
+async fn touch_last_used_and_revoke_all() {
+    let t = TestDb::new();
+    let user = t.owner().await;
+    let a = create(&t, &user, new_token("a", &[Scope::Read], None), None, NOW)
+        .await
+        .unwrap();
+    let b = create(&t, &user, new_token("b", &[Scope::Read], None), None, NOW)
+        .await
+        .unwrap();
+    let id = a.api_token.id.to_string();
+    t.db.write(move |tx| tokens::touch_last_used(tx, &id, NOW + 5, Some("192.0.2.9")))
+        .await
+        .unwrap();
+    let id = a.api_token.id.to_string();
+    t.db.write(move |tx| tokens::touch_last_used(tx, &id, NOW + 9, None))
+        .await
+        .unwrap();
+    let listed = list(&t, &user).await;
+    let a_row = listed.iter().find(|x| x.name == "a").unwrap();
+    assert_eq!(a_row.last_used_at.map(|ts| ts.millis()), Some(NOW + 9));
+    assert_eq!(a_row.last_used_ip.as_deref(), Some("192.0.2.9"));
+    let row = live(&t, &a.token).await;
+    let id = row.id.clone();
+    let again =
+        t.db.read(move |c| tokens::live_row(c, &id, NOW))
+            .await
+            .unwrap();
+    assert_eq!(again, Some(row));
+    let u = user.clone();
+    assert_eq!(
+        t.db.write(move |tx| tokens::revoke_all(tx, &u, NOW))
+            .await
+            .unwrap(),
+        2
+    );
+    assert_eq!(lookup(&t, &b.token, NOW).await, TokenLookup::Rejected);
+    let id = a.api_token.id.to_string();
+    assert_eq!(
+        t.db.read(move |c| tokens::live_row(c, &id, NOW))
+            .await
+            .unwrap(),
+        None
     );
 }

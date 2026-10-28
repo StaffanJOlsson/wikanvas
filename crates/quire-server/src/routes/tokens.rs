@@ -1,8 +1,9 @@
 //! Routes /api/v1/tokens: personal access tokens (owner: W2)
 //!
-//! §7.2, §7.3, D42. W0b: list, create (with the caller's scope ceiling, no `admin` from a token, the calling token's
-//! expiry as a cap, and the password for a session's `admin` or never-expiring token), revoke (with the tokens it
-//! created) and revoke-current. W2 adds the last-use writes and the limiters.
+//! §7.2, §7.3, D42: list, create (with the caller's scope ceiling, no `admin` from a token, the calling token's
+//! expiry as a cap, the 100-live-token limit, and the password for a session's `admin` or never-expiring token),
+//! revoke (with the tokens it created) and revoke-current. The last-use writes and the per-token limiters run in
+//! `Auth<S>` (`crate::extract`).
 
 use axum::Json;
 use axum::extract::State;
@@ -10,13 +11,12 @@ use axum::http::StatusCode;
 use quire_api::tokens::{MAX_EXPIRY_DAYS, NewToken};
 use quire_api::{ApiToken, CreatedToken, ErrorBody, ErrorCode, Scope};
 use quire_store::tokens::{CreatedVia, TokenRow};
-use rusqlite::OptionalExtension;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use crate::error::ApiError;
 use crate::extract::{Actor, Admin, AnyToken, Auth, AuthMethod, IdPath};
-use crate::state::{AppState, now_ms};
+use crate::state::AppState;
 
 /// One day in milliseconds.
 const DAY_MS: i64 = 86_400_000;
@@ -49,7 +49,7 @@ async fn list_tokens(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<ApiToken>>, ApiError> {
     let user_id = auth.into_actor().user_id;
-    let now = now_ms();
+    let now = state.now();
     let tokens = state
         .db
         .read(move |conn| quire_store::tokens::list(conn, &user_id, now))
@@ -87,7 +87,7 @@ async fn create_token(
 ) -> Result<(StatusCode, Json<CreatedToken>), ApiError> {
     let actor = auth.into_actor();
     validate(&new)?;
-    let now = now_ms();
+    let now = state.now();
     let requested = Scope::highest(&new.scopes).expect("validated: not empty");
     let parent = match &actor.method {
         AuthMethod::Token { token_id, scopes } => {
@@ -103,7 +103,7 @@ async fn create_token(
                     "a token cannot grant a scope it does not have",
                 ));
             }
-            let row = caller_row(&state, &actor, token_id.clone(), scopes.clone()).await?;
+            let row = caller_row(&state, token_id.clone(), now).await?;
             let expires = new.expiry_days().map(|d| now + i64::from(d) * DAY_MS);
             if let Some(cap) = row.expires_at
                 && expires.is_none_or(|e| e > cap)
@@ -159,30 +159,12 @@ fn validate(new: &NewToken) -> Result<(), ApiError> {
 }
 
 /// The calling token's row (for the expiry cap and `parent_token_id`).
-async fn caller_row(
-    state: &AppState,
-    actor: &Actor,
-    token_id: String,
-    scopes: Vec<Scope>,
-) -> Result<TokenRow, ApiError> {
-    let id = token_id.clone();
-    let expires_at: Option<i64> = state
+async fn caller_row(state: &AppState, token_id: String, now: i64) -> Result<TokenRow, ApiError> {
+    state
         .db
-        .read(move |conn| {
-            Ok(conn.query_row(
-                "SELECT expires_at FROM api_tokens WHERE id = ?1",
-                [&id],
-                |r| r.get(0),
-            )?)
-        })
-        .await?;
-    Ok(TokenRow {
-        id: token_id,
-        user_id: actor.user_id.clone(),
-        role: actor.role,
-        scopes,
-        expires_at,
-    })
+        .read(move |conn| quire_store::tokens::live_row(conn, &token_id, now))
+        .await?
+        .ok_or_else(|| ApiError::invalid_token(false))
 }
 
 /// A session's re-entered password (D42): missing or wrong is 422 `validation` on `password`, never 401.
@@ -199,18 +181,9 @@ async fn check_password(
     };
     let password = password.ok_or_else(missing)?;
     let user_id = actor.user_id.clone();
-    let hash: Option<String> = state
+    let hash = state
         .db
-        .read(move |conn| {
-            Ok(conn
-                .query_row(
-                    "SELECT password_hash FROM users WHERE id = ?1",
-                    [&user_id],
-                    |r| r.get::<_, Option<String>>(0),
-                )
-                .optional()?
-                .flatten())
-        })
+        .read(move |conn| Ok(quire_store::users::get(conn, &user_id)?.password_hash))
         .await?;
     let Some(hash) = hash else {
         return Err(missing());
@@ -274,7 +247,7 @@ async fn revoke(
     user_id: String,
     token_id: String,
 ) -> Result<StatusCode, ApiError> {
-    let now = now_ms();
+    let now = state.now();
     let revoked = state
         .db
         .write(move |tx| quire_store::tokens::revoke(tx, &user_id, &token_id, now))
