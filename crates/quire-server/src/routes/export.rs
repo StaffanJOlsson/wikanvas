@@ -138,7 +138,8 @@ async fn export(
     let stream = futures_util::stream::unfold((rx, guard), |(mut rx, guard)| async move {
         rx.recv().await.map(|item| (item, (rx, guard)))
     });
-    let mut res = Response::new(Body::from_stream(stream));
+    // Fused, as the board route's stream: `unfold` panics when a consumer polls it again after its end.
+    let mut res = Response::new(Body::from_stream(futures_util::StreamExt::fuse(stream)));
     let h = res.headers_mut();
     h.insert(
         header::CONTENT_TYPE,

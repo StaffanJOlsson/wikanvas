@@ -624,6 +624,8 @@ fn send(body: Vec<u8>, slot: BodySlot) -> Response {
                 }
             }
         });
+        // Fused: a consumer may poll again after the end (the compression layer's encoder does, for a gzip client),
+        // and `unfold` panics when polled after it returned `None`.
         let stream = futures_util::stream::unfold((rx, 0usize), move |(mut rx, sent)| async move {
             match rx.recv().await {
                 Some(chunk) => {
@@ -642,7 +644,7 @@ fn send(body: Vec<u8>, slot: BodySlot) -> Response {
                 )),
             }
         });
-        Body::from_stream(stream).into_response()
+        Body::from_stream(futures_util::StreamExt::fuse(stream)).into_response()
     };
     set(&mut res, header::CONTENT_LENGTH, &len.to_string());
     res

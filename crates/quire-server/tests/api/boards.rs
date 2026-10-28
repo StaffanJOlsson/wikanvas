@@ -635,6 +635,40 @@ async fn preview_route_headers_immutable_307_and_current_without_rev() {
     assert!(res.text().contains("Second label"));
 }
 
+/// A page with no stored preview is rendered on demand and sent as a stream (its size is not known when the body
+/// budget is taken); the compression layer then gzips that stream for a gzip client. Found by the W7 review fix of the
+/// board embed card (the seeded board's preview is first rendered this way): the stream must stay ended once it has
+/// ended, or the encoder's last poll panics the connection task.
+#[tokio::test]
+async fn on_demand_preview_gzipped_for_a_gzip_client() {
+    let app = TestApp::with_owner().await;
+    let id = new_board(&app, "On demand").await;
+    let mut d = Document::new("On demand");
+    for i in 0..6 {
+        d.pages[0]
+            .objects
+            .push(label_box(&format!("On-demand label {i}")));
+    }
+    put_ok(&app.server, &id, &serial::to_json(&d, false), "*").await;
+    let url = format!("/api/v1/items/{id}/board/pages/0");
+    // No preview stored yet (the job does not run in tests): rendered now, streamed, gzipped by the layer.
+    let res = app
+        .server
+        .get(&url)
+        .add_header("accept-encoding", "gzip")
+        .await;
+    res.assert_status_ok();
+    assert_eq!(res.content_type(), "image/svg+xml");
+    assert_eq!(res.header("content-encoding"), "gzip");
+    let svg = gunzip(&res.as_bytes()[..]);
+    assert!(
+        svg.len() > 1024 && svg.contains("On-demand label 5"),
+        "{svg}"
+    );
+    // Stored now: the next GET is the same SVG, from the store.
+    assert_eq!(app.server.get(&url).await.text(), svg);
+}
+
 /// A minimal gunzip (the server crate has no gzip decoder): the 10-byte header without optional fields that the
 /// encoder writes, the raw DEFLATE stream, and the 8-byte trailer.
 fn gunzip(bytes: &[u8]) -> String {
