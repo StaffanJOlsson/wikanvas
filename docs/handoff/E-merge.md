@@ -65,6 +65,23 @@ Checked by reading both sides and by smoke step 17 against the real image (engin
    the canvas) gave the card centred on the drop point, so the synthetic `DataTransfer` fallback of PLAN smoke item 5
    is not used and no reason needed recording. Firefox and Safari stay manual (§16 item 31).
 
+## Found by the gate
+
+5. **A full image could embed an earlier build's engine or web app (fixed, `2886079`).** Gate pass 1 (HEAD `437089b`)
+   built the E2 block's stub image and then, at the same commit, the full image of gate step 3: that image served
+   the stub engine ("Whiteboard engine not installed"), so smoke step 9 and the full image smoke failed (gate lines
+   32, 55 and 56; the other 58 lines passed). The server stage compiles into a cache mount that every image build
+   shares, and cargo judges by mtime whether `quire-assets` (the rust-embed of `web/dist` and `web/dist-inkboard`) is
+   stale. The two dists are copied from other stages, whose cached outputs keep the mtimes of the build that made
+   them, which were older than the stub build's compile; cargo kept the stub's expansion and `quire-server`, which
+   recompiles for every new `QUIRE_COMMIT`, linked it. A reverted web change or an older commit does the same, so a
+   production image could have shipped another build's files. The step now touches both dists before `cargo build`
+   (so `quire-assets` embeds them again, about 2 s) and then checks that the binary embeds every file name of both
+   dists and the engine's build id, failing the build otherwise. With the check alone, the stub-then-full sequence
+   failed the build ("quire-server does not embed web/dist-inkboard/inkboard.js.br"; only `quire-server` had
+   recompiled); with the touch it builds, and `QUIRE_SMOKE_LEVEL=full scripts/image-smoke.sh` passes on the result.
+   ARCHITECTURE §13.2 quotes the new stage.
+
 ## Smoke step 17: decisions (within PLAN M1.1 "Smoke step 17")
 
 - **Window.** 1600 × 1000 for the step, restored after it. In the default 1280 × 720, the two cards that "Text doc"
