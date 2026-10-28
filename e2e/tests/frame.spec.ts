@@ -1,7 +1,8 @@
 // The Inkboard frame test (docs/ARCHITECTURE.md §14 "Inkboard patch", PLAN W5): web/dist-inkboard served by
 // e2e/serve-static.mjs, frame.html opened directly, and window.quireBoardFrame (§10.4) driven like BoardFrameHost does.
-// Run it only through `scripts/e2e.sh frame`, after `scripts/dev.sh scripts/inkboard.sh build` (the stub dist has no
-// engine: every test but the first then fails by design).
+// Run it only through `scripts/e2e.sh frame`, after `scripts/dev.sh scripts/inkboard.sh build` (or `build --quick`).
+// The stub dist (`scripts/inkboard.sh stub`) has no engine: the beforeAll hook then fails once with that message, and no
+// test runs.
 //
 // Coordinates are CSS pixels of the 1280x720 page. The fixture's single 240x120 rectangle is fitted at zoom 2 around
 // the canvas centre (640, 360), so it covers x 400-880, y 240-480; EMPTY is a free area right of it, clear of Inkboard's
@@ -132,7 +133,32 @@ async function lastRevision(page: Page): Promise<number> {
   return changes.length === 0 ? -1 : changes[changes.length - 1].revision;
 }
 
+/** What connect() rejects with, and the onError events it sent, for a page opened without the helper above. */
+async function connectOnce(page: Page): Promise<{ result: unknown; errors: unknown[] }> {
+  return page.evaluate(async () => {
+    const errors: unknown[] = [];
+    const result = await (window as any).quireBoardFrame
+      .connect({ onError: (e: unknown) => errors.push(e) })
+      .then((api: { engineVersion: string }) => ({ engineVersion: api.engineVersion }), (e: unknown) => ({ rejected: e }));
+    return { result, errors };
+  });
+}
+
 test.describe('Inkboard frame', () => {
+  // One clear failure instead of a failure per test when web/dist-inkboard is not a real engine build.
+  test.beforeAll(async ({ playwright }, testInfo) => {
+    const build = 'run scripts/dev.sh scripts/inkboard.sh build first';
+    const request = await playwright.request.newContext({ baseURL: testInfo.project.use.baseURL });
+    try {
+      const response = await request.get('/manifest.json');
+      if (response.status() !== 200) throw new Error(`web/dist-inkboard has no manifest.json (HTTP ${response.status()}): ${build}`);
+      const manifest = await response.json();
+      if (manifest.engine_version === 'stub') throw new Error(`web/dist-inkboard is the stub: ${build}`);
+    } finally {
+      await request.dispose();
+    }
+  });
+
   test('serves the dist and loads the engine', async ({ page, request }) => {
     const manifest = await (await request.get('/manifest.json')).json();
     expect(manifest.format_version).toBe(2);
@@ -231,8 +257,16 @@ test.describe('Inkboard frame', () => {
   test('setBoard swaps the board and resets undo', async ({ page }) => {
     await connect(page);
     await open(page, 'item-a', FIXTURE);
+    const count = async () => objectCount((await snapshot(page)).board);
     await drawRectangle(page);
-    await expect.poll(async () => objectCount((await snapshot(page)).board)).toBe(2);
+    await expect.poll(count).toBe(2);
+    // the control: in this setup Ctrl+Z reaches the engine and takes the rectangle back
+    await page.locator('#board').focus();
+    await press(page, 'Control+z');
+    await expect.poll(count).toBe(1);
+    // drawn again, so item-a's history has a step to undo when the board is swapped
+    await drawRectangle(page);
+    await expect.poll(count).toBe(2);
 
     const other = otherBoard();
     await open(page, 'item-b', other, { name: 'Other board' });
@@ -250,7 +284,120 @@ test.describe('Inkboard frame', () => {
     const undone = await snapshot(page);
     expect(undone.revision).toBe(swapped.revision);
     expect(withoutViews(undone.board)).toEqual(withoutViews(other));
+    // and the keys still reach the engine after the swap
+    await press(page, 'Control+s');
+    await expect.poll(async () => (await log(page)).save).toEqual(['item-b']);
     await expectClean(page);
+  });
+
+  test('a later open() with an unreadable board keeps the previous board', async ({ page }) => {
+    await connect(page);
+    await open(page, 'item-a', FIXTURE);
+    await drawRectangle(page);
+    await expect.poll(async () => objectCount((await snapshot(page)).board)).toBe(2);
+    const before = await snapshot(page);
+
+    const rejected = await page.evaluate(() =>
+      (window as any).__api
+        .open({ itemId: 'item-b', board: '{"document": ', name: 'Broken', readOnly: true, theme: 'dark' })
+        .then(() => null, (e: { kind: string }) => e.kind),
+    );
+    expect(rejected).toBe('load');
+    const errors = (await log(page)).error;
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({ itemId: 'item-b', kind: 'load' });
+    expect(await call(page, 'current')).toBe('item-a');
+    const after = await snapshot(page);
+    expect(after.itemId).toBe('item-a');
+    expect(after.revision).toBe(before.revision);
+    expect(withoutViews(after.board)).toEqual(withoutViews(before.board));
+    expect(await call(page, 'isDirty')).toBe(true);
+    expect((await log(page)).ready).toEqual(['item-a']);
+
+    // the open() calls after a failed one still run
+    await open(page, 'item-c', FIXTURE);
+    expect(await call(page, 'current')).toBe('item-c');
+    expect((await log(page)).ready).toEqual(['item-a', 'item-c']);
+    expect(await page.evaluate(() => (window as any).__csp)).toEqual([]);
+  });
+
+  test('a WebAssembly.RuntimeError reaching the page is reported as one panic', async ({ page }) => {
+    await connect(page);
+    await open(page, 'item-a', FIXTURE);
+    const seen = () => page.evaluate(() => (window as any).__seen);
+    // the backup listeners (window `error` and `unhandledrejection`), for a trap the engine's panic hook did not report
+    await page.evaluate(() => {
+      const w = window as any;
+      w.__seen = 0;
+      window.addEventListener('error', () => w.__seen++);
+      window.addEventListener('unhandledrejection', () => w.__seen++);
+      setTimeout(() => {
+        throw new Error('not a trap');
+      });
+      setTimeout(() => {
+        throw new WebAssembly.RuntimeError('unreachable executed');
+      });
+    });
+    await expect.poll(seen).toBe(2);
+    expect((await log(page)).error).toEqual([{ itemId: 'item-a', kind: 'panic', message: 'unreachable executed' }]);
+
+    // later traps, thrown or rejected, add nothing
+    await page.evaluate(() => {
+      setTimeout(() => {
+        throw new WebAssembly.RuntimeError('a second trap');
+      });
+      void Promise.reject(new WebAssembly.RuntimeError('a trap in a promise'));
+    });
+    await expect.poll(seen).toBe(4);
+    await page.waitForTimeout(200);
+    expect((await log(page)).error).toHaveLength(1);
+
+    // a stopped engine opens nothing more, and says so without another onError
+    const rejected = await page.evaluate(() =>
+      (window as any).__api
+        .open({ itemId: 'item-b', board: null, name: 'After', readOnly: false, theme: 'light' })
+        .then(() => null, (e: unknown) => e),
+    );
+    expect(rejected).toEqual({ kind: 'panic', message: 'the whiteboard engine stopped' });
+    expect((await log(page)).error).toHaveLength(1);
+    expect(await call(page, 'current')).toBe('item-a');
+  });
+
+  test('connect() may be retried after a failed download', async ({ page }) => {
+    let requests = 0;
+    await page.route('**/manifest.json', async (route) => {
+      requests++;
+      if (requests === 1) await route.fulfill({ status: 500, contentType: 'text/plain', body: 'unavailable' });
+      else await route.continue();
+    });
+    await page.goto('/frame.html');
+    const manifest = await (await page.request.get('/manifest.json')).json();
+
+    const first = await connectOnce(page);
+    const failure = { kind: 'download', message: 'manifest.json: HTTP 500' };
+    expect(first).toEqual({ result: { rejected: failure }, errors: [{ itemId: null, ...failure }] });
+    const second = await connectOnce(page);
+    expect(second).toEqual({ result: { engineVersion: manifest.engine_version }, errors: [] });
+    expect(requests).toBe(2);
+    // a connected frame answers every later connect() with the same API
+    expect(
+      await page.evaluate(async () => {
+        const frame = (window as any).quireBoardFrame;
+        return (await frame.connect({})) === (await frame.connect({}));
+      }),
+    ).toBe(true);
+  });
+
+  test('connect() refuses an engine whose format differs from the manifest, for good', async ({ page }) => {
+    await page.route('**/manifest.json', async (route) => {
+      const manifest = await (await route.fetch()).json();
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...manifest, format_version: 3 }) });
+    });
+    await page.goto('/frame.html');
+    const failure = { kind: 'start', message: 'the engine writes format 2, the manifest says 3' };
+    expect(await connectOnce(page)).toEqual({ result: { rejected: failure }, errors: [{ itemId: null, ...failure }] });
+    // not a download failure: connecting again gives the same rejection, without trying again
+    expect(await connectOnce(page)).toEqual({ result: { rejected: failure }, errors: [] });
   });
 
   test('setBoard while a label is being edited', async ({ page }) => {
