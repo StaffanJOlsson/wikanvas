@@ -7,7 +7,7 @@ Press Ctrl+K (⌘K on a Mac) to jump to any page by its title.
 Search looks through the text of every document and board.
 Star a page to keep it at the top of the sidebar.
 Archive and Trash
-Archive a page you no longer need day to day: it leaves the sidebar but stays searchable, and you can bring it back from the Archive. Deleted pages go to the Trash, where they stay for 30 days before they are removed for good.
+Archive a page you no longer need day to day: it leaves the sidebar and the search results (tick Include archived in Search to find it), and you can bring it back from the Archive. Deleted pages go to the Trash, where they stay for 30 days before they are removed for good.
 Backups
 Quire backs up its database on a schedule into the backups folder of its data directory (/data/backups in the Docker image). Settings → Data exports everything as one file.
 Next

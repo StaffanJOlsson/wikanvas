@@ -194,7 +194,7 @@
       "content": [
         {
           "type": "text",
-          "text": "Archive a page you no longer need day to day: it leaves the sidebar but stays searchable, and you can bring it back from the Archive. Deleted pages go to the Trash, where they stay for 30 days before they are removed for good."
+          "text": "Archive a page you no longer need day to day: it leaves the sidebar and the search results (tick Include archived in Search to find it), and you can bring it back from the Archive. Deleted pages go to the Trash, where they stay for 30 days before they are removed for good."
         }
       ]
     },

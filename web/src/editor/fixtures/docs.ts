@@ -138,9 +138,9 @@ export const FIXTURE_DOCS: Record<string, JSONContent[]> = {
       li(p('Star a page to keep it at the top of the sidebar.')),
     ),
     h(2, 'Archive and Trash'),
-    p('Archive a page you no longer need day to day: it leaves the sidebar but stays searchable, and you can bring it '
-      + 'back from the Archive. Deleted pages go to the Trash, where they stay for 30 days before they are removed '
-      + 'for good.'),
+    p('Archive a page you no longer need day to day: it leaves the sidebar and the search results (tick Include '
+      + 'archived in Search to find it), and you can bring it back from the Archive. Deleted pages go to the Trash, '
+      + 'where they stay for 30 days before they are removed for good.'),
     h(2, 'Backups'),
     p('Quire backs up its database on a schedule into the ', t('backups', 'code'), ' folder of its data directory ('
       + '', t('/data/backups', 'code'), ' in the Docker image). Settings → Data exports everything as one file.'),
