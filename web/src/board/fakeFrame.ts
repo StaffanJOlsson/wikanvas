@@ -143,14 +143,16 @@ export function createFakeFrame(opts: FakeFrameOptions = {}): FakeFrame {
     formatVersion: 2,
     async open(a: OpenArgs) {
       log('open', a);
-      // host_load_doc: any embed editing ends ('gone'), the title map is cleared.
+      // host_load_doc: any embed editing ends ('gone'), the title map is cleared. Like frame.js, the 'gone' carries
+      // the board being left (the engine reports it after setBoard, `leaving`), not the one being opened.
       const was = editing;
+      const leaving = current;
       editing = null;
       titles = {};
       last = null;
       current = a.itemId;
-      if (was !== null && opts.embeds !== false) {
-        events?.onEmbedEditEnd?.({ itemId: a.itemId, objectId: was, reason: 'gone' });
+      if (was !== null && leaving !== null && opts.embeds !== false) {
+        events?.onEmbedEditEnd?.({ itemId: leaving, objectId: was, reason: 'gone' });
       }
       board = a.board;
       readOnly = a.readOnly;
