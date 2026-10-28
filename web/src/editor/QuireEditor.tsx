@@ -50,6 +50,8 @@ export function QuireEditor({ itemId, session, readOnly, onHeadings, onEditor, p
       editable: !readOnly,
       immediatelyRender: true,
       shouldRerenderOnTransaction: false,
+      // TipTap's base CSS is in editor.css: its inline <style> would break the SPA CSP (§11).
+      injectCSS: false,
       editorProps: {
         attributes: { class: 'quire-editor', 'aria-label': 'Document body', spellcheck: 'true' },
       },

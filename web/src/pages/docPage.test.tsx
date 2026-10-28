@@ -27,6 +27,13 @@ describe('DocPage', () => {
     await waitFor(() => expect(container.querySelector('.doc-page')?.hasAttribute('data-full-width')).toBe(true));
   });
 
+  it('mounts the editor without an inline <style> (the SPA CSP blocks it; editor.css has the base rules)', async () => {
+    const { container } = renderDoc(false);
+    await waitFor(() => expect(container.querySelector('.quire-editor')).not.toBeNull());
+    expect(document.querySelector('style[data-tiptap-style]')).toBeNull();
+    expect(document.querySelectorAll('style')).toHaveLength(0);
+  });
+
   it('keeps the 720 px column otherwise', async () => {
     const { container } = renderDoc(false);
     await screen.findByDisplayValue('Plan');
