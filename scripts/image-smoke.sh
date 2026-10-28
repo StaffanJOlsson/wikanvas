@@ -10,8 +10,9 @@
 #          (Caddy only 127.0.0.1:18443); Caddy's local root CA, read from its tmpfs, verifies
 #          https://localhost:18443/healthz (200), which fails without it; NanoCpus, Memory and MemorySwap of both
 #          containers are the compose caps (and their cgroup parent the build slice when it is installed).
-#   full:  basic, plus through Caddy: the SPA CSP on /; the engine's .wasm sent as br, application/wasm, with exactly
-#          the manifest's br byte count; setup with smoke-setup-code sets __Host-quire_session with Secure; no
+#   full:  basic, plus through Caddy: the SPA CSP on /; the frame CSP on frame.html; the engine's .wasm sent as br,
+#          application/wasm, with exactly the manifest's br byte count and byte for byte (its sha256 is Quire's ETag);
+#          manifest.json; setup with smoke-setup-code sets __Host-quire_session with Secure; no
 #          Strict-Transport-Security; docker stats memory stays under both limits for the whole run.
 # Takes the build lock and calls quire_slice: the app joins quire-build.slice when it is installed. The project is
 # removed on exit (down -v), also after a failure, after printing the last log lines.
@@ -23,7 +24,7 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 . "$root/scripts/lib/slice.sh"
 
 usage() {
-  sed -n '2,20s/^# \{0,1\}//p' "$root/scripts/image-smoke.sh"
+  sed -n '2,21s/^# \{0,1\}//p' "$root/scripts/image-smoke.sh"
 }
 case "$#:${1:-}" in
   0:) ;;
@@ -252,6 +253,25 @@ if [ "$level" = full ]; then
       pass "${base}inkboard_bg.wasm: br, application/wasm, $want_br bytes as in the manifest"
     else
       fail "${base}inkboard_bg.wasm: HTTP and bytes '$code' (want '200 $want_br'), Content-Encoding '$enc', Content-Type '$type'"
+    fi
+    # Byte for byte: Quire's ETag is the first 16 bytes of the sha256 of the embedded variant it sends (§11), so the
+    # bytes that came through Caddy must hash to it.
+    etag="$(header "$work/wasm.h" etag)"
+    got_sha="$(sha256sum "$work/wasm.br" 2>/dev/null | cut -c1-32)"
+    if [[ "$etag" =~ ^\"[0-9a-f]{32}\"$ ]] && [ "\"$got_sha\"" = "$etag" ]; then
+      pass "${base}inkboard_bg.wasm through Caddy byte for byte: sha256 ${got_sha}… is the ETag of Quire's embedded .br"
+    else
+      fail "${base}inkboard_bg.wasm through Caddy: sha256 '${got_sha}…' does not match Quire's ETag '$etag'"
+    fi
+    # The frame page has its own CSP: wasm allowed, framed only by Quire's own pages (§11).
+    code="$(hcurl -o /dev/null -D "$work/frame.h" -w '%{http_code}' "$url${base}frame.html" 2>/dev/null)" || code=000
+    csp="$(header "$work/frame.h" content-security-policy)"
+    xfo="$(header "$work/frame.h" x-frame-options)"
+    if [ "$code" = 200 ] && [[ "$csp" == *"script-src 'self' 'wasm-unsafe-eval'"* ]] &&
+      [[ "$csp" == *"frame-ancestors 'self'"* ]] && [ "$xfo" = SAMEORIGIN ]; then
+      pass "${base}frame.html has the frame CSP and X-Frame-Options: SAMEORIGIN"
+    else
+      fail "${base}frame.html: HTTP $code, Content-Security-Policy '$csp', X-Frame-Options '$xfo'"
     fi
     # The frame page reads manifest.json next to frame.html before it downloads the engine (§11).
     build="${base#/inkboard/}"
