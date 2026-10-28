@@ -38,16 +38,47 @@ function isItem(e: MenuEntry): e is MenuItemDef {
   return 'label' in e;
 }
 
-interface Pos {
-  top: number;
+export interface MenuPos {
+  top?: number;
+  bottom?: number;
   left?: number;
   right?: number;
+  maxHeight?: number;
+}
+
+/** The gap between the button and the menu, and the margin the menu keeps from the viewport's edges. */
+const GAP = 4;
+const MARGIN = 8;
+
+/**
+ * Where the menu goes: below the button when it fits, else above it when it fits there (a row near the bottom of the
+ * window), else on the roomier side with its height capped to that side, so every item stays reachable by mouse.
+ * `button` is the button's viewport rect, `height` the menu's rendered height (already capped by `.popover`).
+ */
+export function placeMenu(
+  button: Pick<DOMRect, 'top' | 'bottom' | 'left' | 'right'>,
+  height: number,
+  viewport: { width: number; height: number },
+  align: 'start' | 'end',
+): MenuPos {
+  const x = align === 'end'
+    ? { right: Math.max(GAP, viewport.width - button.right) }
+    : { left: Math.max(GAP, button.left) };
+  const below = viewport.height - button.bottom - GAP - MARGIN;
+  const above = button.top - GAP - MARGIN;
+  const down = { top: button.bottom + GAP };
+  const up = { bottom: viewport.height - button.top + GAP };
+  if (height <= below) return { ...down, ...x };
+  if (height <= above) return { ...up, ...x };
+  return below >= above
+    ? { ...down, ...x, maxHeight: Math.max(0, below) }
+    : { ...up, ...x, maxHeight: Math.max(0, above) };
 }
 
 export function Menu({ label, entries, children, buttonClassName, align = 'start', title, onOpenChange, open: forced }: MenuProps) {
   const [openState, setOpenState] = useState(false);
   const open = forced ?? openState;
-  const [pos, setPos] = useState<Pos | null>(null);
+  const [pos, setPos] = useState<MenuPos | null>(null);
   const button = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   const menuId = useId();
@@ -62,12 +93,12 @@ export function Menu({ label, entries, children, buttonClassName, align = 'start
     if (focusButton) button.current?.focus();
   }, [setOpen]);
 
+  // The menu is in the DOM (unplaced) by now, so its height can be measured before the first paint.
   useLayoutEffect(() => {
     if (!open || !button.current) return;
     const r = button.current.getBoundingClientRect();
-    setPos(align === 'end'
-      ? { top: r.bottom + 4, right: Math.max(4, window.innerWidth - r.right) }
-      : { top: r.bottom + 4, left: Math.max(4, r.left) });
+    const height = menu.current?.offsetHeight ?? 0;
+    setPos(placeMenu(r, height, { width: window.innerWidth, height: window.innerHeight }, align));
   }, [open, align]);
 
   useEffect(() => {
@@ -159,7 +190,7 @@ export function Menu({ label, entries, children, buttonClassName, align = 'start
           id={menuId}
           aria-label={label}
           className="popover menu-popover"
-          style={pos ? { top: pos.top, left: pos.left, right: pos.right } : undefined}
+          style={pos ? { top: pos.top, bottom: pos.bottom, left: pos.left, right: pos.right, maxHeight: pos.maxHeight } : undefined}
           onKeyDown={onKeyDown}
           onClick={(e) => e.stopPropagation()}
         >
