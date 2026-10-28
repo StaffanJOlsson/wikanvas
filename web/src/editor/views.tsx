@@ -3,7 +3,7 @@
 // caption; external ones as a placeholder that is never loaded), callouts, and code blocks with a language select.
 import { NodeViewContent, NodeViewWrapper, type NodeViewProps } from '@tiptap/react';
 import { AlertTriangle, ExternalLink, Info, Lightbulb, OctagonAlert, PenTool } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import { isApiError } from '../api/client';
 import { useItem } from '../api/queries/items';
@@ -47,9 +47,15 @@ export function MentionView({ node }: NodeViewProps) {
   );
 }
 
-/** A board card: the page-0 preview `<img>` and the title, linking to the board. Never loads `/inkboard/`. */
+/**
+ * A board card: the page-0 preview `<img>` and the title, linking to the board. Never loads `/inkboard/`. The preview
+ * is requested whenever the board has a page, also before any preview was stored (`preview_rev` null: a seeded or
+ * duplicated board), because the page route renders a missing preview on demand (§12); an empty page (204) or an
+ * error shows the placeholder.
+ */
 export function BoardEmbedCard({ itemId }: { itemId: string | null }) {
   const q = useItem(itemId ?? null);
+  const [failed, setFailed] = useState<string | null>(null);
   if (!itemId || isApiError(q.error, 'not_found')) {
     return <div className="board-embed board-embed-missing">Deleted board</div>;
   }
@@ -58,12 +64,18 @@ export function BoardEmbedCard({ itemId }: { itemId: string | null }) {
   const d = q.data;
   const board = d.board;
   const title = d.item.title || 'Untitled board';
-  const preview =
-    board && board.pages.length > 0 && board.preview_rev !== null ? boardPreviewUrl(d.item.id, board.rev, 0) : null;
+  const url = board && board.pages.length > 0 ? boardPreviewUrl(d.item.id, board.rev, 0) : null;
+  const preview = url !== null && failed !== url ? url : null;
   return (
     <Link to={itemPath(d.item)} className="board-embed" data-trashed={d.trashed_at !== null || undefined}>
       {preview ? (
-        <img className="board-embed-preview" src={preview} alt={board?.text_excerpt || title} loading="lazy" />
+        <img
+          className="board-embed-preview"
+          src={preview}
+          alt={board?.text_excerpt || title}
+          loading="lazy"
+          onError={() => setFailed(preview)}
+        />
       ) : (
         <span className="board-embed-empty" aria-hidden>
           <PenTool size={24} />

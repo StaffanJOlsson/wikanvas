@@ -1,5 +1,5 @@
 // The board embed card (docs/ARCHITECTURE.md §9.6.5): the page-0 SVG preview as an <img>, never the engine.
-import { screen } from '@testing-library/react';
+import { fireEvent, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { ItemDetail } from '../api/gen/ItemDetail';
 import { boardPreviewUrl } from '../lib/urls';
@@ -30,5 +30,25 @@ describe('BoardEmbedCard', () => {
       expect(String(call[0])).not.toContain('/inkboard/');
     }
     expect(screen.getByRole('link').getAttribute('href')).toBe('/board/plan-BbBbBbBbBb');
+  });
+
+  it('asks for the preview before any was stored (a seeded board), and shows the placeholder when none comes', () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 200 })));
+    const qc = createTestQueryClient();
+    qc.setQueryData(['item', ID], {
+      item: { id: ID, url_id: 'BbBbBbBbBb', kind: 'board', title: 'Example board', collection_id: 'c', parent_id: null },
+      board: { rev: 1, pages: [{ id: 'p', name: 'Page 1', svg_len: null }], objects: 7, background: '#ffffff', bytes: 10,
+        preview_rev: null, text_excerpt: '' },
+      trashed_at: null,
+    } as unknown as ItemDetail);
+    const { container } = render(<BoardEmbedCard itemId={ID} />, { queryClient: qc });
+    // The page route renders a missing preview on demand (§12).
+    const img = screen.getByRole('img');
+    expect(img.getAttribute('src')).toBe(boardPreviewUrl(ID, 1, 0));
+    // An empty page answers 204, which the <img> reports as an error: the placeholder replaces it.
+    fireEvent.error(img);
+    expect(screen.queryByRole('img')).toBeNull();
+    expect(container.querySelector('.board-embed-empty')).not.toBeNull();
+    expect(screen.getByText('Example board')).toBeTruthy();
   });
 });
