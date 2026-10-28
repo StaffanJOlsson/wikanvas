@@ -10,7 +10,11 @@
 //!   whatever state the item had and stores rev 1 with `engine_version = "server"`.
 //! - The PUT pipeline (§6.2, D51): [`prepare`] outside the writer (inspect, split, the free-space check, staging the
 //!   assets), then [`save`] inside it (the no-op test, If-Match, `revisions::pre_api` for a token, committing the
-//!   assets, the new rev, `board_assets`, meta, text, `content_at`, the revision policy).
+//!   assets, the new rev, `board_assets`, meta, text, the `embed` links, `content_at`, the revision policy).
+//! - Cards (§18.2, §18.8): every write of a body replaces the board's `item_links` of kind `embed`, one
+//!   `(board, target, 'embed')` row per target that `quire_core::board::inspect` found (canonical UUIDs, distinct, at
+//!   most `EMBED_LINKS_MAX`), never the board itself. Nothing checks that a target exists; a purged board's rows go
+//!   with it (`source_id` cascades), a purged target's stay (`target_id` is no foreign key).
 //! - Reads: [`stored`] (one reader query) then [`assemble`] (blob reads and the splice with the title), [`state`],
 //!   [`envelope_len`], [`meta`] and [`board_meta`] (the API's `BoardMeta`, with the preview state of `previews`).
 
@@ -109,6 +113,8 @@ pub struct Prepared {
     format_version: u32,
     meta: Meta,
     text: String,
+    /// The targets of the board's cards (§18.8).
+    embeds: Vec<String>,
     staged: Vec<StagedAsset>,
     /// Asset ids whose `data` was already `""`, with their mime.
     empty: Vec<(String, String)>,
@@ -128,6 +134,11 @@ impl Prepared {
     /// The stripped envelope that [`save`] stores.
     pub fn stripped(&self) -> &str {
         &self.stripped
+    }
+
+    /// The targets of the board's cards, which [`save`] records as `embed` links (§18.8).
+    pub fn embeds(&self) -> &[String] {
+        &self.embeds
     }
 
     /// How many assets were staged (one file each).
@@ -191,7 +202,7 @@ pub fn init_empty(tx: &Transaction<'_>, item_id: &str, dark: bool, now: i64) -> 
 /// Stores `envelope` (the seed's `fixtures/boards/getting-started.inkboard`, or any full envelope) for `item_id`,
 /// replacing any earlier state: validated with `serial::from_json` (422 `invalid_board`, or `board_too_new` for a
 /// newer version), its inline assets split into `blobs` (written inside the writer: meant for small seeds), stored
-/// with `engine_version = "server"` and rev 1.
+/// with `engine_version = "server"` and rev 1, with the `embed` links of its cards (§18.8).
 pub fn init_with(
     tx: &Transaction<'_>,
     blobs: &BlobStore,
@@ -206,7 +217,8 @@ pub fn init_with(
 }
 
 /// Copies the board of `from_id` to `to_id` (duplicate): the stored body, its hash, meta, format and engine version,
-/// the asset manifest (the blobs are shared, not copied) and the indexed body text; rev 1, no previews. Replaces any
+/// the asset manifest (the blobs are shared, not copied), the indexed body text and the `embed` links (the copy's
+/// cards show the same documents, §18.9; a link to `to_id` itself is left out); rev 1, no previews. Replaces any
 /// earlier state of `to_id`.
 pub fn copy(tx: &Transaction<'_>, from_id: &str, to_id: &str, now: i64) -> Result<()> {
     ensure_board(tx, from_id)?;
@@ -232,6 +244,11 @@ pub fn copy(tx: &Transaction<'_>, from_id: &str, to_id: &str, now: i64) -> Resul
     tx.execute(
         "INSERT INTO board_assets (item_id, asset_id, sha256, mime)
          SELECT ?2, asset_id, sha256, mime FROM board_assets WHERE item_id = ?1",
+        params![from_id, to_id],
+    )?;
+    tx.execute(
+        "INSERT OR IGNORE INTO item_links (source_id, target_id, kind)
+         SELECT ?2, target_id, kind FROM item_links WHERE source_id = ?1 AND kind = 'embed' AND target_id <> ?2",
         params![from_id, to_id],
     )?;
     let body: String = tx.query_row(
@@ -452,6 +469,7 @@ pub fn prepare_with(
         format_version: split.format_version,
         meta: inspected.meta,
         text: inspected.text,
+        embeds: inspected.embeds,
         staged,
         empty,
     })
@@ -464,8 +482,10 @@ pub fn prepare_with(
 ///   is returned with `changed: false`;
 /// - otherwise `if_match` must allow the current rev (412 `rev_mismatch` with `details {etag, rev}`); a token's write
 ///   first runs [`revisions::pre_api`] (D53); the staged assets are committed, the body stored with `rev + 1`,
-///   `engine_version` and `last_token_id` (NULL for a session); `board_assets`, `meta`, `item_text.body`,
-///   `content_at`, `updated_at` and `updated_by` are replaced; and the revision policy runs.
+///   `engine_version` and `last_token_id` (NULL for a session); `board_assets`, `meta`, `item_text.body`, the `embed`
+///   links (§18.8), `content_at`, `updated_at` and `updated_by` are replaced; and the revision policy runs.
+///
+/// A no-op save leaves the links as they are: they derive from the body, which did not change.
 ///
 /// An asset sent with `data: ""` keeps the blob the board already had under that id, if any (an API client may
 /// resend a body without re-sending its images).
@@ -521,6 +541,7 @@ pub fn save(
         format_version,
         meta,
         text,
+        embeds,
         staged,
         empty,
     } = prepared;
@@ -565,6 +586,7 @@ pub fn save(
         }
     }
     set_body_text(tx, item_id, &text)?;
+    set_embed_links(tx, item_id, &embeds)?;
     touch_content(tx, item_id, by.user_id, now)?;
     let assets: BTreeMap<String, String> =
         rows.into_iter().map(|(id, (sha, _))| (id, sha)).collect();
@@ -650,8 +672,26 @@ fn clear(tx: &Transaction<'_>, item_id: &str) -> Result<()> {
         "DELETE FROM board_assets WHERE item_id = ?1",
         "DELETE FROM board_previews WHERE item_id = ?1",
         "DELETE FROM board_state WHERE item_id = ?1",
+        "DELETE FROM item_links WHERE source_id = ?1 AND kind = 'embed'",
     ] {
         tx.execute(sql, [item_id])?;
+    }
+    Ok(())
+}
+
+/// Replaces the board's `embed` links (§18.8): one `(board, target, 'embed')` row per target of its cards, the
+/// board's own id left out. The targets come from [`board::inspect`] (canonical UUIDs, distinct, at most
+/// `EMBED_LINKS_MAX`); whether they exist is not checked.
+fn set_embed_links(tx: &Transaction<'_>, item_id: &str, targets: &[String]) -> Result<()> {
+    tx.execute(
+        "DELETE FROM item_links WHERE source_id = ?1 AND kind = 'embed'",
+        [item_id],
+    )?;
+    let mut insert = tx.prepare_cached(
+        "INSERT OR IGNORE INTO item_links (source_id, target_id, kind) VALUES (?1, ?2, 'embed')",
+    )?;
+    for target in targets.iter().filter(|t| t.as_str() != item_id) {
+        insert.execute(params![item_id, target])?;
     }
     Ok(())
 }
@@ -699,7 +739,8 @@ fn store_initial(
             params![item_id, a.id, blob.sha256.as_str(), a.mime],
         )?;
     }
-    set_body_text(tx, item_id, &inspected.text)
+    set_body_text(tx, item_id, &inspected.text)?;
+    set_embed_links(tx, item_id, &inspected.embeds)
 }
 
 #[cfg(test)]
