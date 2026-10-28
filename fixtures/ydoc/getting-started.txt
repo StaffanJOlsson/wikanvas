@@ -1,0 +1,14 @@
+Quire keeps your documents and whiteboards in one place. This page is a short tour; delete it whenever you like.
+Collections and pages
+Everything lives in collections, listed in the sidebar on the left. A collection holds documents and boards, and every page can hold more pages inside it, nested as deep as you need. Use the + next to a collection or a page to add one, and drag pages in the sidebar to reorder or nest them.
+Pages are saved as you type. There is nothing to publish: what you write is there for you right away.
+Finding things
+Press Ctrl+K (⌘K on a Mac) to jump to any page by its title.
+Search looks through the text of every document and board.
+Star a page to keep it at the top of the sidebar.
+Archive and Trash
+Archive a page you no longer need day to day: it leaves the sidebar but stays searchable, and you can bring it back from the Archive. Deleted pages go to the Trash, where they stay for 30 days before they are removed for good.
+Backups
+Quire backs up its database on a schedule into the backups folder of its data directory (/data/backups in the Docker image). Settings → Data exports everything as one file.
+Next
+Read  for the editor, or open the example board below.

@@ -1,0 +1,51 @@
+{
+  "type": "doc",
+  "content": [
+    {"type": "paragraph"},
+    {"type": "paragraph", "content": [
+      {"type": "text", "text": "Edge "},
+      {"type": "text", "text": " bold ", "marks": [{"type": "bold"}]},
+      {"type": "text", "text": "whitespace"},
+      {"type": "hardBreak"}
+    ]},
+    {"type": "heading", "attrs": {"level": 2}, "content": [
+      {"type": "text", "text": "Line"}, {"type": "hardBreak"}, {"type": "text", "text": "break"}
+    ]},
+    {"type": "paragraph", "content": [
+      {"type": "text", "text": "code and bold", "marks": [{"type": "bold"}, {"type": "code"}]},
+      {"type": "text", "text": " and "},
+      {"type": "text", "text": "a bad link", "marks": [{"type": "link", "attrs": {"href": "javascript:alert(1)"}}]}
+    ]},
+    {"type": "image", "attrs": {"src": "/api/v1/attachments/0192f0a0-4444-7000-8000-000000000001",
+      "attachmentId": "0192f0a0-4444-7000-8000-000000000001", "width": 50, "alt": "Wide"}},
+    {"type": "table", "content": [
+      {"type": "tableRow", "content": [
+        {"type": "tableCell", "attrs": {"colspan": 2}, "content": [{"type": "paragraph", "content": [{"type": "text", "text": "spans two"}]}]},
+        {"type": "tableCell", "content": [
+          {"type": "paragraph", "content": [{"type": "text", "text": "two"}]},
+          {"type": "paragraph", "content": [{"type": "text", "text": "paragraphs"}]}
+        ]}
+      ]},
+      {"type": "tableRow", "content": [
+        {"type": "tableCell", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "a"}]}]},
+        {"type": "tableCell", "content": [{"type": "paragraph"}]},
+        {"type": "tableCell", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "c"}]}]}
+      ]}
+    ]},
+    {"type": "futureNode", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "unknown"}]}]},
+    {"type": "bulletList", "content": [{"type": "listItem", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "list one"}]}]}]},
+    {"type": "bulletList", "content": [{"type": "listItem", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "list two"}]}]}]},
+    {"type": "taskList", "content": [{"type": "taskItem", "attrs": {"checked": true}, "content": [{"type": "paragraph", "content": [{"type": "text", "text": "task after a list"}]}]}]},
+    {"type": "orderedList", "attrs": {"start": 1}, "content": [{"type": "listItem", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "ordered one"}]}]}]},
+    {"type": "orderedList", "attrs": {"start": 5}, "content": [{"type": "listItem", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "ordered two"}]}]}]},
+    {"type": "paragraph", "content": [
+      {"type": "text", "text": "Mentions "},
+      {"type": "mention", "attrs": {"itemId": "0192f0a0-1111-7000-8000-00000000000a"}},
+      {"type": "text", "text": " and links "},
+      {"type": "text", "text": "to a doc", "marks": [{"type": "link", "attrs": {"href": "/doc/x-DocA00000a", "itemId": "0192f0a0-1111-7000-8000-00000000000a"}}]}
+    ]},
+    {"type": "boardEmbed", "attrs": {"itemId": "0192f0a0-3333-7000-8000-00000000000c"}},
+    {"type": "callout", "attrs": {"variant": "tip"}, "content": [{"type": "paragraph"}]},
+    {"type": "paragraph", "content": [{"type": "text", "text": "End."}]}
+  ]
+}

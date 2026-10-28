@@ -1,0 +1,89 @@
+{
+  "content": [
+    {
+      "attrs": {
+        "blockId": "8219b755-ea2c-44ed-8902-6c498b9e96d7",
+        "language": "rust"
+      },
+      "content": [
+        {
+          "text": "fn main() {\n    println!(\"```\");\n}",
+          "type": "text"
+        }
+      ],
+      "type": "codeBlock"
+    },
+    {
+      "attrs": {
+        "blockId": "c1e2808e-98cd-4f87-855b-2f1f17d45160",
+        "language": null
+      },
+      "content": [
+        {
+          "text": "a fence with ``` inside",
+          "type": "text"
+        }
+      ],
+      "type": "codeBlock"
+    },
+    {
+      "attrs": {
+        "blockId": "916235ee-c5fa-4ad4-91ec-ea4d2f7bc12a",
+        "language": null
+      },
+      "content": [
+        {
+          "text": "tilde fence",
+          "type": "text"
+        }
+      ],
+      "type": "codeBlock"
+    },
+    {
+      "attrs": {
+        "blockId": "50bc39c0-dcf8-4c5a-b3f8-ae52de1baa5a",
+        "language": null
+      },
+      "type": "codeBlock"
+    },
+    {
+      "attrs": {
+        "blockId": "d2adb48e-8d84-433c-87ed-10078f8edbdb"
+      },
+      "content": [
+        {
+          "text": "Marks in code: ",
+          "type": "text"
+        },
+        {
+          "marks": [
+            {
+              "type": "code"
+            }
+          ],
+          "text": "bold code",
+          "type": "text"
+        },
+        {
+          "text": " and ",
+          "type": "text"
+        },
+        {
+          "marks": [
+            {
+              "type": "code"
+            }
+          ],
+          "text": "italic code",
+          "type": "text"
+        },
+        {
+          "text": ".",
+          "type": "text"
+        }
+      ],
+      "type": "paragraph"
+    }
+  ],
+  "type": "doc"
+}

@@ -1,0 +1,693 @@
+{
+  "type": "doc",
+  "content": [
+    {
+      "type": "paragraph",
+      "attrs": {
+        "blockId": "00000000-0000-4000-8000-000000000002"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "The editor turns a few keystrokes into structure."
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "attrs": {
+        "blockId": "00000000-0000-4000-8000-000000000003",
+        "level": 2
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "The slash menu"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "blockId": "00000000-0000-4000-8000-000000000004"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Type "
+        },
+        {
+          "type": "text",
+          "text": "/",
+          "marks": [
+            {
+              "type": "code",
+              "attrs": {}
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": " at the start of a line to insert headings, lists, to-dos, quotes, code, callouts, tables, images, mentions and boards. Keep typing to filter the list."
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "attrs": {
+        "blockId": "00000000-0000-4000-8000-000000000005",
+        "level": 2
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Markdown shortcuts"
+        }
+      ]
+    },
+    {
+      "type": "bulletList",
+      "attrs": {
+        "blockId": "00000000-0000-4000-8000-000000000006"
+      },
+      "content": [
+        {
+          "type": "listItem",
+          "attrs": {
+            "blockId": "00000000-0000-4000-8000-000000000007"
+          },
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": {
+                "blockId": "00000000-0000-4000-8000-000000000008"
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "# ",
+                  "marks": [
+                    {
+                      "type": "code",
+                      "attrs": {}
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "text": " to "
+                },
+                {
+                  "type": "text",
+                  "text": "### ",
+                  "marks": [
+                    {
+                      "type": "code",
+                      "attrs": {}
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "text": " start a heading."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "listItem",
+          "attrs": {
+            "blockId": "00000000-0000-4000-8000-000000000009"
+          },
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": {
+                "blockId": "00000000-0000-4000-8000-00000000000a"
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "- ",
+                  "marks": [
+                    {
+                      "type": "code",
+                      "attrs": {}
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "text": " or "
+                },
+                {
+                  "type": "text",
+                  "text": "1. ",
+                  "marks": [
+                    {
+                      "type": "code",
+                      "attrs": {}
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "text": " start a list, "
+                },
+                {
+                  "type": "text",
+                  "text": "[] ",
+                  "marks": [
+                    {
+                      "type": "code",
+                      "attrs": {}
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "text": " a to-do."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "listItem",
+          "attrs": {
+            "blockId": "00000000-0000-4000-8000-00000000000b"
+          },
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": {
+                "blockId": "00000000-0000-4000-8000-00000000000c"
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "> ",
+                  "marks": [
+                    {
+                      "type": "code",
+                      "attrs": {}
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "text": " starts a quote and "
+                },
+                {
+                  "type": "text",
+                  "text": "```",
+                  "marks": [
+                    {
+                      "type": "code",
+                      "attrs": {}
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "text": " a code block."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "listItem",
+          "attrs": {
+            "blockId": "00000000-0000-4000-8000-00000000000d"
+          },
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": {
+                "blockId": "00000000-0000-4000-8000-00000000000e"
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "**bold**",
+                  "marks": [
+                    {
+                      "type": "code",
+                      "attrs": {}
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "text": ", "
+                },
+                {
+                  "type": "text",
+                  "text": "*italic*",
+                  "marks": [
+                    {
+                      "type": "code",
+                      "attrs": {}
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "text": ", "
+                },
+                {
+                  "type": "text",
+                  "text": "`code`",
+                  "marks": [
+                    {
+                      "type": "code",
+                      "attrs": {}
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "text": ", "
+                },
+                {
+                  "type": "text",
+                  "text": "~~strike~~",
+                  "marks": [
+                    {
+                      "type": "code",
+                      "attrs": {}
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "text": " and "
+                },
+                {
+                  "type": "text",
+                  "text": "==highlight==",
+                  "marks": [
+                    {
+                      "type": "code",
+                      "attrs": {}
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "text": " format text as you type."
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "taskList",
+      "attrs": {
+        "blockId": "00000000-0000-4000-8000-00000000000f"
+      },
+      "content": [
+        {
+          "type": "taskItem",
+          "attrs": {
+            "blockId": "00000000-0000-4000-8000-000000000010",
+            "checked": true
+          },
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": {
+                "blockId": "00000000-0000-4000-8000-000000000011"
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Try a to-do"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "taskItem",
+          "attrs": {
+            "blockId": "00000000-0000-4000-8000-000000000012",
+            "checked": false
+          },
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": {
+                "blockId": "00000000-0000-4000-8000-000000000013"
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Tick it off"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "attrs": {
+        "blockId": "00000000-0000-4000-8000-000000000014",
+        "level": 2
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Mentions and links"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "blockId": "00000000-0000-4000-8000-000000000015"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Type "
+        },
+        {
+          "type": "text",
+          "text": "@",
+          "marks": [
+            {
+              "type": "code",
+              "attrs": {}
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": " and a few letters to mention another page. Mentions always show the page's current title. Paste a link to a Quire page and it stays a link to that page, even after a rename."
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "attrs": {
+        "blockId": "00000000-0000-4000-8000-000000000016",
+        "level": 2
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Images"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "blockId": "00000000-0000-4000-8000-000000000017"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Paste or drop an image, or choose Image in the slash menu. Drag the handles to resize it and add a caption."
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "attrs": {
+        "blockId": "00000000-0000-4000-8000-000000000018",
+        "level": 2
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Callouts"
+        }
+      ]
+    },
+    {
+      "type": "callout",
+      "attrs": {
+        "blockId": "00000000-0000-4000-8000-000000000019",
+        "variant": "info"
+      },
+      "content": [
+        {
+          "type": "paragraph",
+          "attrs": {
+            "blockId": "00000000-0000-4000-8000-00000000001a"
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Start a line with "
+            },
+            {
+              "type": "text",
+              "text": ":::info",
+              "marks": [
+                {
+                  "type": "code",
+                  "attrs": {}
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "text": " and a space for a box like this one."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "callout",
+      "attrs": {
+        "blockId": "00000000-0000-4000-8000-00000000001b",
+        "variant": "tip"
+      },
+      "content": [
+        {
+          "type": "paragraph",
+          "attrs": {
+            "blockId": "00000000-0000-4000-8000-00000000001c"
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "There are tip, warning and danger boxes too."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "attrs": {
+        "blockId": "00000000-0000-4000-8000-00000000001d",
+        "level": 2
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Tables"
+        }
+      ]
+    },
+    {
+      "type": "table",
+      "attrs": {
+        "blockId": "00000000-0000-4000-8000-00000000001e"
+      },
+      "content": [
+        {
+          "type": "tableRow",
+          "attrs": {
+            "blockId": "00000000-0000-4000-8000-00000000001f"
+          },
+          "content": [
+            {
+              "type": "tableHeader",
+              "attrs": {
+                "blockId": "00000000-0000-4000-8000-000000000020",
+                "colspan": 1,
+                "rowspan": 1
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "blockId": "00000000-0000-4000-8000-000000000021"
+                  },
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Key"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "tableHeader",
+              "attrs": {
+                "blockId": "00000000-0000-4000-8000-000000000022",
+                "colspan": 1,
+                "rowspan": 1
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "blockId": "00000000-0000-4000-8000-000000000023"
+                  },
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "In a table"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "tableRow",
+          "attrs": {
+            "blockId": "00000000-0000-4000-8000-000000000024"
+          },
+          "content": [
+            {
+              "type": "tableCell",
+              "attrs": {
+                "blockId": "00000000-0000-4000-8000-000000000025",
+                "colspan": 1,
+                "rowspan": 1
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "blockId": "00000000-0000-4000-8000-000000000026"
+                  },
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Tab",
+                      "marks": [
+                        {
+                          "type": "code",
+                          "attrs": {}
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "tableCell",
+              "attrs": {
+                "blockId": "00000000-0000-4000-8000-000000000027",
+                "colspan": 1,
+                "rowspan": 1
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "blockId": "00000000-0000-4000-8000-000000000028"
+                  },
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Moves to the next cell"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "tableRow",
+          "attrs": {
+            "blockId": "00000000-0000-4000-8000-000000000029"
+          },
+          "content": [
+            {
+              "type": "tableCell",
+              "attrs": {
+                "blockId": "00000000-0000-4000-8000-00000000002a",
+                "colspan": 1,
+                "rowspan": 1
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "blockId": "00000000-0000-4000-8000-00000000002b"
+                  },
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Shift+Tab",
+                      "marks": [
+                        {
+                          "type": "code",
+                          "attrs": {}
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "tableCell",
+              "attrs": {
+                "blockId": "00000000-0000-4000-8000-00000000002c",
+                "colspan": 1,
+                "rowspan": 1
+              },
+              "content": [
+                {
+                  "type": "paragraph",
+                  "attrs": {
+                    "blockId": "00000000-0000-4000-8000-00000000002d"
+                  },
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "Moves back"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "blockId": "00000000-0000-4000-8000-00000000002e"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Use the cell menu to add or remove rows and columns."
+        }
+      ]
+    }
+  ]
+}

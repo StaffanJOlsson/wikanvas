@@ -1,0 +1,412 @@
+{
+  "content": [
+    {
+      "attrs": {
+        "blockId": "98bce920-10f7-4702-bc33-02df2a49a6bd",
+        "level": 1
+      },
+      "content": [
+        {
+          "text": "Basics",
+          "type": "text"
+        }
+      ],
+      "type": "heading"
+    },
+    {
+      "attrs": {
+        "blockId": "c4446dc4-1edd-4018-b1e3-1769f0ecc0b2",
+        "level": 1
+      },
+      "content": [
+        {
+          "text": "Setext heading",
+          "type": "text"
+        }
+      ],
+      "type": "heading"
+    },
+    {
+      "attrs": {
+        "blockId": "2282d8d8-384e-4ce2-9ada-9487c37fdd47",
+        "level": 2
+      },
+      "content": [
+        {
+          "text": "Second level",
+          "type": "text"
+        }
+      ],
+      "type": "heading"
+    },
+    {
+      "attrs": {
+        "blockId": "11a5785d-bf1c-428b-9cc2-0d395519a62d"
+      },
+      "content": [
+        {
+          "text": "A paragraph with ",
+          "type": "text"
+        },
+        {
+          "marks": [
+            {
+              "type": "italic"
+            }
+          ],
+          "text": "italic",
+          "type": "text"
+        },
+        {
+          "text": ", ",
+          "type": "text"
+        },
+        {
+          "marks": [
+            {
+              "type": "italic"
+            }
+          ],
+          "text": "also italic",
+          "type": "text"
+        },
+        {
+          "text": ", ",
+          "type": "text"
+        },
+        {
+          "marks": [
+            {
+              "type": "bold"
+            }
+          ],
+          "text": "bold",
+          "type": "text"
+        },
+        {
+          "text": ", ",
+          "type": "text"
+        },
+        {
+          "marks": [
+            {
+              "type": "bold"
+            }
+          ],
+          "text": "also bold",
+          "type": "text"
+        },
+        {
+          "text": ", ",
+          "type": "text"
+        },
+        {
+          "marks": [
+            {
+              "type": "bold"
+            },
+            {
+              "type": "italic"
+            }
+          ],
+          "text": "both",
+          "type": "text"
+        },
+        {
+          "text": ", ",
+          "type": "text"
+        },
+        {
+          "marks": [
+            {
+              "type": "strike"
+            }
+          ],
+          "text": "strike",
+          "type": "text"
+        },
+        {
+          "text": ", ",
+          "type": "text"
+        },
+        {
+          "marks": [
+            {
+              "type": "highlight"
+            }
+          ],
+          "text": "highlight",
+          "type": "text"
+        },
+        {
+          "text": ", ",
+          "type": "text"
+        },
+        {
+          "marks": [
+            {
+              "type": "code"
+            }
+          ],
+          "text": "code",
+          "type": "text"
+        },
+        {
+          "text": " and ",
+          "type": "text"
+        },
+        {
+          "marks": [
+            {
+              "type": "underline"
+            }
+          ],
+          "text": "underline",
+          "type": "text"
+        },
+        {
+          "text": ". A soft line break becomes a space.",
+          "type": "text"
+        }
+      ],
+      "type": "paragraph"
+    },
+    {
+      "attrs": {
+        "blockId": "7bcb3731-ed58-4e5e-aa35-5e6d44bf24d7"
+      },
+      "content": [
+        {
+          "text": "Hard break with a backslash",
+          "type": "text"
+        },
+        {
+          "type": "hardBreak"
+        },
+        {
+          "text": "and with two spaces",
+          "type": "text"
+        },
+        {
+          "type": "hardBreak"
+        },
+        {
+          "text": "done.",
+          "type": "text"
+        }
+      ],
+      "type": "paragraph"
+    },
+    {
+      "attrs": {
+        "blockId": "b1a2d5c2-e29c-4640-88c7-d6215eb2e83c"
+      },
+      "content": [
+        {
+          "text": "Escaped: *not italic*, _not_, 1. not a list, # not a heading, <not html>, a | pipe, snake_case stays.",
+          "type": "text"
+        }
+      ],
+      "type": "paragraph"
+    },
+    {
+      "attrs": {
+        "blockId": "a64b146e-0395-44e0-af1e-8f45cf1b6be4",
+        "level": 3
+      },
+      "content": [
+        {
+          "text": "Heading with ",
+          "type": "text"
+        },
+        {
+          "marks": [
+            {
+              "type": "code"
+            }
+          ],
+          "text": "code",
+          "type": "text"
+        },
+        {
+          "text": " and ",
+          "type": "text"
+        },
+        {
+          "marks": [
+            {
+              "type": "bold"
+            }
+          ],
+          "text": "bold",
+          "type": "text"
+        }
+      ],
+      "type": "heading"
+    },
+    {
+      "attrs": {
+        "blockId": "d16c253a-7d8d-4dc5-b71c-03f2b323b5bf"
+      },
+      "type": "horizontalRule"
+    },
+    {
+      "attrs": {
+        "blockId": "7115db3d-70e3-4155-88ec-4deab1b05a0b"
+      },
+      "type": "horizontalRule"
+    },
+    {
+      "attrs": {
+        "blockId": "43c98407-c1c9-4d64-b608-9c6911b3a7c4"
+      },
+      "content": [
+        {
+          "attrs": {
+            "blockId": "66b53a11-c8f0-4b99-8a27-dda96baac15e"
+          },
+          "content": [
+            {
+              "attrs": {
+                "blockId": "9fc08ceb-10f4-4efc-9467-799cd8a88b04"
+              },
+              "content": [
+                {
+                  "text": "star bullet",
+                  "type": "text"
+                }
+              ],
+              "type": "paragraph"
+            }
+          ],
+          "type": "listItem"
+        },
+        {
+          "attrs": {
+            "blockId": "0de27055-ed72-4f2e-9e9a-d5faa244b0e2"
+          },
+          "content": [
+            {
+              "attrs": {
+                "blockId": "e89af533-6b03-4b6a-9ef7-43bebdec17e7"
+              },
+              "content": [
+                {
+                  "text": "another",
+                  "type": "text"
+                }
+              ],
+              "type": "paragraph"
+            }
+          ],
+          "type": "listItem"
+        }
+      ],
+      "type": "bulletList"
+    },
+    {
+      "attrs": {
+        "blockId": "747c7c47-c7d0-431b-bdaa-85c216d0ac28"
+      },
+      "content": [
+        {
+          "attrs": {
+            "blockId": "95937324-08cf-4096-ace5-7f962d2a93a0"
+          },
+          "content": [
+            {
+              "attrs": {
+                "blockId": "14a2a3ca-d266-4c6b-be50-4888c5fc0358"
+              },
+              "content": [
+                {
+                  "text": "plus bullet",
+                  "type": "text"
+                }
+              ],
+              "type": "paragraph"
+            }
+          ],
+          "type": "listItem"
+        }
+      ],
+      "type": "bulletList"
+    },
+    {
+      "attrs": {
+        "blockId": "ef30ba69-b629-4d52-8f03-945e113a591b",
+        "start": 1,
+        "type": null
+      },
+      "content": [
+        {
+          "attrs": {
+            "blockId": "21c71354-4882-4973-a25a-b96f117d4602"
+          },
+          "content": [
+            {
+              "attrs": {
+                "blockId": "97950ea7-38dc-4f7a-bdb9-537da2aca7b3"
+              },
+              "content": [
+                {
+                  "text": "paren ordered",
+                  "type": "text"
+                }
+              ],
+              "type": "paragraph"
+            }
+          ],
+          "type": "listItem"
+        },
+        {
+          "attrs": {
+            "blockId": "8ed81819-9698-40e7-ac6c-c94b19f08ab3"
+          },
+          "content": [
+            {
+              "attrs": {
+                "blockId": "467f3953-ee0b-42c9-b882-55c78c11b526"
+              },
+              "content": [
+                {
+                  "text": "second",
+                  "type": "text"
+                }
+              ],
+              "type": "paragraph"
+            }
+          ],
+          "type": "listItem"
+        }
+      ],
+      "type": "orderedList"
+    },
+    {
+      "attrs": {
+        "blockId": "4b1779bf-2bdf-4edb-b2e7-fdb8ec24d686"
+      },
+      "content": [
+        {
+          "text": "A paragraph before indented code:",
+          "type": "text"
+        }
+      ],
+      "type": "paragraph"
+    },
+    {
+      "attrs": {
+        "blockId": "561c210a-d1df-4dd6-9443-ecf135ac16a0",
+        "language": null
+      },
+      "content": [
+        {
+          "text": "indented code\nblock",
+          "type": "text"
+        }
+      ],
+      "type": "codeBlock"
+    }
+  ],
+  "type": "doc"
+}

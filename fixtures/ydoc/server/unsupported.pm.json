@@ -1,0 +1,60 @@
+{
+  "content": [
+    {
+      "attrs": {
+        "blockId": "5dc63d0e-56da-4e04-899e-b267231c00f3"
+      },
+      "type": "horizontalRule"
+    },
+    {
+      "attrs": {
+        "blockId": "3b919f7b-1b51-4dd5-b462-94432ca2a2b2",
+        "level": 2
+      },
+      "content": [
+        {
+          "text": "title: front matter",
+          "type": "text"
+        }
+      ],
+      "type": "heading"
+    },
+    {
+      "attrs": {
+        "blockId": "3969c6f5-0dd1-463c-8997-9a1340c23f34"
+      },
+      "content": [
+        {
+          "text": "A footnote reference[^1] and math $$x^2$$.",
+          "type": "text"
+        }
+      ],
+      "type": "paragraph"
+    },
+    {
+      "attrs": {
+        "blockId": "40e9e624-e67c-4e5f-8816-9ba2dca43d80"
+      },
+      "content": [
+        {
+          "text": "[^1]: The footnote.",
+          "type": "text"
+        }
+      ],
+      "type": "paragraph"
+    },
+    {
+      "attrs": {
+        "blockId": "b40f0b50-4238-4503-84a8-d9997476dfaf"
+      },
+      "content": [
+        {
+          "text": "Term : definition",
+          "type": "text"
+        }
+      ],
+      "type": "paragraph"
+    }
+  ],
+  "type": "doc"
+}

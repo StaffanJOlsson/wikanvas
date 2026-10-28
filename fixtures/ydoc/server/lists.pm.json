@@ -1,0 +1,538 @@
+{
+  "content": [
+    {
+      "attrs": {
+        "blockId": "24ecc9b0-cfd1-42c9-bf0a-b2175b883777"
+      },
+      "content": [
+        {
+          "attrs": {
+            "blockId": "a5effd9a-12a0-40e1-a5e7-b57f97a79282"
+          },
+          "content": [
+            {
+              "attrs": {
+                "blockId": "068bd14f-24e2-4bc0-9c50-74fcbca84207"
+              },
+              "content": [
+                {
+                  "text": "one",
+                  "type": "text"
+                }
+              ],
+              "type": "paragraph"
+            }
+          ],
+          "type": "listItem"
+        },
+        {
+          "attrs": {
+            "blockId": "900b322f-0896-4e8b-935b-d1a30de03c15"
+          },
+          "content": [
+            {
+              "attrs": {
+                "blockId": "533b6908-79aa-4963-98b9-7ae40945cb1e"
+              },
+              "content": [
+                {
+                  "text": "two",
+                  "type": "text"
+                }
+              ],
+              "type": "paragraph"
+            },
+            {
+              "attrs": {
+                "blockId": "a20f868d-7e2c-4ffc-bee5-2efaeef390d5"
+              },
+              "content": [
+                {
+                  "attrs": {
+                    "blockId": "3cdb56bb-e484-4d34-96f6-86d2ce3718f4"
+                  },
+                  "content": [
+                    {
+                      "attrs": {
+                        "blockId": "acf76fc7-1339-4dee-b8a0-28ef9bc57871"
+                      },
+                      "content": [
+                        {
+                          "text": "nested a",
+                          "type": "text"
+                        }
+                      ],
+                      "type": "paragraph"
+                    }
+                  ],
+                  "type": "listItem"
+                },
+                {
+                  "attrs": {
+                    "blockId": "acb2bdf8-1005-452a-a986-0f0bbedcb6d1"
+                  },
+                  "content": [
+                    {
+                      "attrs": {
+                        "blockId": "cd19261d-ba5b-469d-93fe-f5235814e1d7"
+                      },
+                      "content": [
+                        {
+                          "text": "nested b",
+                          "type": "text"
+                        }
+                      ],
+                      "type": "paragraph"
+                    }
+                  ],
+                  "type": "listItem"
+                }
+              ],
+              "type": "bulletList"
+            }
+          ],
+          "type": "listItem"
+        },
+        {
+          "attrs": {
+            "blockId": "70491097-fa2d-4ad5-8e74-748ca729a65a"
+          },
+          "content": [
+            {
+              "attrs": {
+                "blockId": "4b229832-e424-46df-aa75-04faf4d74104"
+              },
+              "content": [
+                {
+                  "text": "three",
+                  "type": "text"
+                }
+              ],
+              "type": "paragraph"
+            }
+          ],
+          "type": "listItem"
+        }
+      ],
+      "type": "bulletList"
+    },
+    {
+      "attrs": {
+        "blockId": "02411693-feb5-4d65-b688-87692c4283c9"
+      },
+      "content": [
+        {
+          "text": "Ordered from three:",
+          "type": "text"
+        }
+      ],
+      "type": "paragraph"
+    },
+    {
+      "attrs": {
+        "blockId": "33b17421-ab8b-4a9b-baef-5e8708454a7d",
+        "start": 3,
+        "type": null
+      },
+      "content": [
+        {
+          "attrs": {
+            "blockId": "be12b554-fe93-4455-aa2c-6297ad928042"
+          },
+          "content": [
+            {
+              "attrs": {
+                "blockId": "f97a4cf4-ed2f-4b5e-aba6-19d839564b11"
+              },
+              "content": [
+                {
+                  "text": "third",
+                  "type": "text"
+                }
+              ],
+              "type": "paragraph"
+            }
+          ],
+          "type": "listItem"
+        },
+        {
+          "attrs": {
+            "blockId": "ad82dabd-8948-4abc-9a31-55de40350298"
+          },
+          "content": [
+            {
+              "attrs": {
+                "blockId": "d14e4d33-fce5-416b-b7a1-2c8cd76f35f2"
+              },
+              "content": [
+                {
+                  "text": "fourth",
+                  "type": "text"
+                }
+              ],
+              "type": "paragraph"
+            },
+            {
+              "attrs": {
+                "blockId": "5f89e8f0-bbcf-4ac9-b7be-bf48084b78f6"
+              },
+              "content": [
+                {
+                  "text": "A second paragraph in the item.",
+                  "type": "text"
+                }
+              ],
+              "type": "paragraph"
+            }
+          ],
+          "type": "listItem"
+        }
+      ],
+      "type": "orderedList"
+    },
+    {
+      "attrs": {
+        "blockId": "d57f037f-0c8f-454c-b13a-d04786853c58"
+      },
+      "content": [
+        {
+          "text": "Tasks:",
+          "type": "text"
+        }
+      ],
+      "type": "paragraph"
+    },
+    {
+      "attrs": {
+        "blockId": "410d6e14-251e-4000-a38b-42b9475e20fb"
+      },
+      "content": [
+        {
+          "attrs": {
+            "blockId": "888bb9dc-2fa3-4ebc-a266-fd0c4864ce78",
+            "checked": false
+          },
+          "content": [
+            {
+              "attrs": {
+                "blockId": "66f97657-bd53-487c-a2d3-ab8f585e53e7"
+              },
+              "content": [
+                {
+                  "text": "open task",
+                  "type": "text"
+                }
+              ],
+              "type": "paragraph"
+            }
+          ],
+          "type": "taskItem"
+        },
+        {
+          "attrs": {
+            "blockId": "d5476fa9-215f-4e0e-95db-d44aacaa4340",
+            "checked": true
+          },
+          "content": [
+            {
+              "attrs": {
+                "blockId": "31f39861-78f3-4926-aa5d-dfcedd1260a4"
+              },
+              "content": [
+                {
+                  "text": "done task",
+                  "type": "text"
+                }
+              ],
+              "type": "paragraph"
+            },
+            {
+              "attrs": {
+                "blockId": "c266e4b8-e60d-4db7-a12f-87f5cdebbd59"
+              },
+              "content": [
+                {
+                  "attrs": {
+                    "blockId": "666fb191-bd05-456e-96c2-5b22ef8212ad",
+                    "checked": false
+                  },
+                  "content": [
+                    {
+                      "attrs": {
+                        "blockId": "e5b7830a-a003-4474-8d43-85943206a1c4"
+                      },
+                      "content": [
+                        {
+                          "text": "nested task",
+                          "type": "text"
+                        }
+                      ],
+                      "type": "paragraph"
+                    }
+                  ],
+                  "type": "taskItem"
+                }
+              ],
+              "type": "taskList"
+            }
+          ],
+          "type": "taskItem"
+        }
+      ],
+      "type": "taskList"
+    },
+    {
+      "attrs": {
+        "blockId": "02458c47-e746-4916-8856-87465aa2b479"
+      },
+      "content": [
+        {
+          "text": "Mixed:",
+          "type": "text"
+        }
+      ],
+      "type": "paragraph"
+    },
+    {
+      "attrs": {
+        "blockId": "7e6595cf-8a0d-494f-91f1-71ec5d86e7e7"
+      },
+      "content": [
+        {
+          "attrs": {
+            "blockId": "24d7d0a7-cb4d-44b5-b4d4-defe9e05ecb7",
+            "checked": false
+          },
+          "content": [
+            {
+              "attrs": {
+                "blockId": "7310d5d5-c18a-4590-96c4-5ea36922f267"
+              },
+              "content": [
+                {
+                  "text": "first has a box",
+                  "type": "text"
+                }
+              ],
+              "type": "paragraph"
+            }
+          ],
+          "type": "taskItem"
+        },
+        {
+          "attrs": {
+            "blockId": "c164423a-c1f3-4038-84fa-12fa640078c3",
+            "checked": false
+          },
+          "content": [
+            {
+              "attrs": {
+                "blockId": "f9f22ccd-8a8a-4a82-b9f6-28b56d12f218"
+              },
+              "content": [
+                {
+                  "text": "second has none",
+                  "type": "text"
+                }
+              ],
+              "type": "paragraph"
+            }
+          ],
+          "type": "taskItem"
+        }
+      ],
+      "type": "taskList"
+    },
+    {
+      "attrs": {
+        "blockId": "10292b52-93e2-4084-9e0d-b9fecfd1ab9f"
+      },
+      "content": [
+        {
+          "text": "Adjacent lists with different markers stay separate:",
+          "type": "text"
+        }
+      ],
+      "type": "paragraph"
+    },
+    {
+      "attrs": {
+        "blockId": "8eaa7216-d741-49c9-983a-3a242120ca2b"
+      },
+      "content": [
+        {
+          "attrs": {
+            "blockId": "75b39816-9921-4fa5-beec-d25461297efc"
+          },
+          "content": [
+            {
+              "attrs": {
+                "blockId": "80811137-1811-45d6-905e-eaf69f7803db"
+              },
+              "content": [
+                {
+                  "text": "list A",
+                  "type": "text"
+                }
+              ],
+              "type": "paragraph"
+            }
+          ],
+          "type": "listItem"
+        }
+      ],
+      "type": "bulletList"
+    },
+    {
+      "attrs": {
+        "blockId": "a74063b1-3592-49af-9536-4e4f860f21c4"
+      },
+      "content": [
+        {
+          "attrs": {
+            "blockId": "15d57837-e713-48d5-99b1-c39d7c6b3be3"
+          },
+          "content": [
+            {
+              "attrs": {
+                "blockId": "8cfa16de-ae70-4050-8651-5af9b41bc441"
+              },
+              "content": [
+                {
+                  "text": "list B",
+                  "type": "text"
+                }
+              ],
+              "type": "paragraph"
+            }
+          ],
+          "type": "listItem"
+        }
+      ],
+      "type": "bulletList"
+    },
+    {
+      "attrs": {
+        "blockId": "9223fb0a-1037-449b-98c0-cd79114cb287"
+      },
+      "content": [
+        {
+          "text": "With the same marker they are one list:",
+          "type": "text"
+        }
+      ],
+      "type": "paragraph"
+    },
+    {
+      "attrs": {
+        "blockId": "c73417f6-8d91-4bf1-8120-6e90b31ad51c"
+      },
+      "content": [
+        {
+          "attrs": {
+            "blockId": "9da755ea-d5ca-4a18-9aa1-cbb3af4a6351"
+          },
+          "content": [
+            {
+              "attrs": {
+                "blockId": "d09c9f1f-b1e0-46f7-8b00-6b3da269de25"
+              },
+              "content": [
+                {
+                  "text": "item A",
+                  "type": "text"
+                }
+              ],
+              "type": "paragraph"
+            }
+          ],
+          "type": "listItem"
+        },
+        {
+          "attrs": {
+            "blockId": "14f01a9c-865b-4917-8796-28b448e00c5b"
+          },
+          "content": [
+            {
+              "attrs": {
+                "blockId": "ac5c74a0-c2ef-45ad-8424-1f5f46ead3ea"
+              },
+              "content": [
+                {
+                  "text": "item B",
+                  "type": "text"
+                }
+              ],
+              "type": "paragraph"
+            }
+          ],
+          "type": "listItem"
+        }
+      ],
+      "type": "bulletList"
+    },
+    {
+      "attrs": {
+        "blockId": "438a8f0f-3201-4024-a905-b54f8faf29fb"
+      },
+      "content": [
+        {
+          "text": "An item that starts with a list:",
+          "type": "text"
+        }
+      ],
+      "type": "paragraph"
+    },
+    {
+      "attrs": {
+        "blockId": "35840a81-f894-42c4-8033-33f5e5db8df1"
+      },
+      "content": [
+        {
+          "attrs": {
+            "blockId": "96292b7a-6657-403d-be8f-690fb31788d1"
+          },
+          "content": [
+            {
+              "attrs": {
+                "blockId": "6e1ac86e-0220-4281-8dd4-bbd5cdd30aaf"
+              },
+              "type": "paragraph"
+            },
+            {
+              "attrs": {
+                "blockId": "fb15a56c-7d30-4813-b710-da033841f09c"
+              },
+              "content": [
+                {
+                  "attrs": {
+                    "blockId": "32d7794d-f01d-4cbe-a0c8-97d65ff6be30"
+                  },
+                  "content": [
+                    {
+                      "attrs": {
+                        "blockId": "49394cc5-40a5-42b4-bba8-cb9a587bb620"
+                      },
+                      "content": [
+                        {
+                          "text": "nested first",
+                          "type": "text"
+                        }
+                      ],
+                      "type": "paragraph"
+                    }
+                  ],
+                  "type": "listItem"
+                }
+              ],
+              "type": "bulletList"
+            }
+          ],
+          "type": "listItem"
+        }
+      ],
+      "type": "bulletList"
+    }
+  ],
+  "type": "doc"
+}

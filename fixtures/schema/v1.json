@@ -1,0 +1,465 @@
+{
+  "schema_version": 1,
+  "top_node": "doc",
+  "nodes": [
+    {
+      "name": "paragraph",
+      "group": "block",
+      "content": "inline*",
+      "marks": null,
+      "inline": false,
+      "atom": false,
+      "attrs": [
+        {
+          "name": "blockId",
+          "type": "string | null",
+          "default": null
+        }
+      ]
+    },
+    {
+      "name": "mention",
+      "group": "inline",
+      "content": null,
+      "marks": null,
+      "inline": true,
+      "atom": true,
+      "attrs": [
+        {
+          "name": "itemId",
+          "type": "string | null",
+          "default": null
+        }
+      ]
+    },
+    {
+      "name": "blockquote",
+      "group": "block",
+      "content": "block+",
+      "marks": null,
+      "inline": false,
+      "atom": false,
+      "attrs": [
+        {
+          "name": "blockId",
+          "type": "string | null",
+          "default": null
+        }
+      ]
+    },
+    {
+      "name": "bulletList",
+      "group": "block list",
+      "content": "listItem+",
+      "marks": null,
+      "inline": false,
+      "atom": false,
+      "attrs": [
+        {
+          "name": "blockId",
+          "type": "string | null",
+          "default": null
+        }
+      ]
+    },
+    {
+      "name": "doc",
+      "group": null,
+      "content": "block+",
+      "marks": null,
+      "inline": false,
+      "atom": false,
+      "attrs": []
+    },
+    {
+      "name": "hardBreak",
+      "group": "inline",
+      "content": null,
+      "marks": null,
+      "inline": true,
+      "atom": true,
+      "attrs": []
+    },
+    {
+      "name": "heading",
+      "group": "block",
+      "content": "inline*",
+      "marks": null,
+      "inline": false,
+      "atom": false,
+      "attrs": [
+        {
+          "name": "blockId",
+          "type": "string | null",
+          "default": null
+        },
+        {
+          "name": "level",
+          "type": "integer",
+          "default": 1
+        }
+      ]
+    },
+    {
+      "name": "horizontalRule",
+      "group": "block",
+      "content": null,
+      "marks": null,
+      "inline": false,
+      "atom": true,
+      "attrs": [
+        {
+          "name": "blockId",
+          "type": "string | null",
+          "default": null
+        }
+      ]
+    },
+    {
+      "name": "listItem",
+      "group": null,
+      "content": "paragraph block*",
+      "marks": null,
+      "inline": false,
+      "atom": false,
+      "attrs": [
+        {
+          "name": "blockId",
+          "type": "string | null",
+          "default": null
+        }
+      ]
+    },
+    {
+      "name": "orderedList",
+      "group": "block list",
+      "content": "listItem+",
+      "marks": null,
+      "inline": false,
+      "atom": false,
+      "attrs": [
+        {
+          "name": "blockId",
+          "type": "string | null",
+          "default": null
+        },
+        {
+          "name": "start",
+          "type": "integer",
+          "default": 1
+        },
+        {
+          "name": "type",
+          "type": "string | null",
+          "default": null
+        }
+      ]
+    },
+    {
+      "name": "text",
+      "group": "inline",
+      "content": null,
+      "marks": null,
+      "inline": true,
+      "atom": true,
+      "attrs": []
+    },
+    {
+      "name": "codeBlock",
+      "group": "block",
+      "content": "text*",
+      "marks": "",
+      "inline": false,
+      "atom": false,
+      "attrs": [
+        {
+          "name": "blockId",
+          "type": "string | null",
+          "default": null
+        },
+        {
+          "name": "language",
+          "type": "string | null",
+          "default": null
+        }
+      ]
+    },
+    {
+      "name": "taskList",
+      "group": "block list",
+      "content": "taskItem+",
+      "marks": null,
+      "inline": false,
+      "atom": false,
+      "attrs": [
+        {
+          "name": "blockId",
+          "type": "string | null",
+          "default": null
+        }
+      ]
+    },
+    {
+      "name": "taskItem",
+      "group": null,
+      "content": "paragraph block*",
+      "marks": null,
+      "inline": false,
+      "atom": false,
+      "attrs": [
+        {
+          "name": "blockId",
+          "type": "string | null",
+          "default": null
+        },
+        {
+          "name": "checked",
+          "type": "boolean",
+          "default": false
+        }
+      ]
+    },
+    {
+      "name": "table",
+      "group": "block",
+      "content": "tableRow+",
+      "marks": null,
+      "inline": false,
+      "atom": false,
+      "attrs": [
+        {
+          "name": "blockId",
+          "type": "string | null",
+          "default": null
+        }
+      ]
+    },
+    {
+      "name": "tableRow",
+      "group": null,
+      "content": "(tableCell | tableHeader)*",
+      "marks": null,
+      "inline": false,
+      "atom": false,
+      "attrs": [
+        {
+          "name": "blockId",
+          "type": "string | null",
+          "default": null
+        }
+      ]
+    },
+    {
+      "name": "tableHeader",
+      "group": null,
+      "content": "block+",
+      "marks": null,
+      "inline": false,
+      "atom": false,
+      "attrs": [
+        {
+          "name": "blockId",
+          "type": "string | null",
+          "default": null
+        },
+        {
+          "name": "colspan",
+          "type": "integer",
+          "default": 1
+        },
+        {
+          "name": "rowspan",
+          "type": "integer",
+          "default": 1
+        },
+        {
+          "name": "colwidth",
+          "type": "integer[] | null",
+          "default": null
+        },
+        {
+          "name": "align",
+          "type": "\"left\" | \"center\" | \"right\" | null",
+          "default": null
+        }
+      ]
+    },
+    {
+      "name": "tableCell",
+      "group": null,
+      "content": "block+",
+      "marks": null,
+      "inline": false,
+      "atom": false,
+      "attrs": [
+        {
+          "name": "blockId",
+          "type": "string | null",
+          "default": null
+        },
+        {
+          "name": "colspan",
+          "type": "integer",
+          "default": 1
+        },
+        {
+          "name": "rowspan",
+          "type": "integer",
+          "default": 1
+        },
+        {
+          "name": "colwidth",
+          "type": "integer[] | null",
+          "default": null
+        },
+        {
+          "name": "align",
+          "type": "\"left\" | \"center\" | \"right\" | null",
+          "default": null
+        }
+      ]
+    },
+    {
+      "name": "image",
+      "group": "block",
+      "content": null,
+      "marks": null,
+      "inline": false,
+      "atom": true,
+      "attrs": [
+        {
+          "name": "blockId",
+          "type": "string | null",
+          "default": null
+        },
+        {
+          "name": "src",
+          "type": "string | null",
+          "default": null
+        },
+        {
+          "name": "attachmentId",
+          "type": "string | null",
+          "default": null
+        },
+        {
+          "name": "width",
+          "type": "number | null",
+          "default": null
+        },
+        {
+          "name": "alt",
+          "type": "string | null",
+          "default": null
+        },
+        {
+          "name": "caption",
+          "type": "string | null",
+          "default": null
+        }
+      ]
+    },
+    {
+      "name": "callout",
+      "group": "block",
+      "content": "block+",
+      "marks": null,
+      "inline": false,
+      "atom": false,
+      "attrs": [
+        {
+          "name": "blockId",
+          "type": "string | null",
+          "default": null
+        },
+        {
+          "name": "variant",
+          "type": "\"info\" | \"tip\" | \"warning\" | \"danger\"",
+          "default": "info"
+        }
+      ]
+    },
+    {
+      "name": "boardEmbed",
+      "group": "block",
+      "content": null,
+      "marks": null,
+      "inline": false,
+      "atom": true,
+      "attrs": [
+        {
+          "name": "blockId",
+          "type": "string | null",
+          "default": null
+        },
+        {
+          "name": "itemId",
+          "type": "string | null",
+          "default": null
+        }
+      ]
+    }
+  ],
+  "marks": [
+    {
+      "name": "link",
+      "rank": 0,
+      "excludes": null,
+      "inclusive": true,
+      "attrs": [
+        {
+          "name": "href",
+          "type": "string | null",
+          "default": null
+        },
+        {
+          "name": "itemId",
+          "type": "string | null",
+          "default": null
+        }
+      ]
+    },
+    {
+      "name": "bold",
+      "rank": 1,
+      "excludes": null,
+      "inclusive": null,
+      "attrs": []
+    },
+    {
+      "name": "code",
+      "rank": 2,
+      "excludes": "_",
+      "inclusive": null,
+      "attrs": []
+    },
+    {
+      "name": "italic",
+      "rank": 3,
+      "excludes": null,
+      "inclusive": null,
+      "attrs": []
+    },
+    {
+      "name": "strike",
+      "rank": 4,
+      "excludes": null,
+      "inclusive": null,
+      "attrs": []
+    },
+    {
+      "name": "underline",
+      "rank": 5,
+      "excludes": null,
+      "inclusive": null,
+      "attrs": []
+    },
+    {
+      "name": "highlight",
+      "rank": 6,
+      "excludes": null,
+      "inclusive": null,
+      "attrs": []
+    }
+  ]
+}

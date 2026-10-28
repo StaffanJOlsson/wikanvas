@@ -1,0 +1,297 @@
+{
+  "type": "doc",
+  "content": [
+    {
+      "type": "paragraph",
+      "attrs": {
+        "blockId": "00000000-0000-4000-8000-000000000002"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Quire keeps your documents and whiteboards in one place. This page is a short tour; delete it whenever you like."
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "attrs": {
+        "blockId": "00000000-0000-4000-8000-000000000003",
+        "level": 2
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Collections and pages"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "blockId": "00000000-0000-4000-8000-000000000004"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Everything lives in "
+        },
+        {
+          "type": "text",
+          "text": "collections",
+          "marks": [
+            {
+              "type": "bold",
+              "attrs": {}
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": ", listed in the sidebar on the left. A collection holds documents and boards, and every page can hold more pages inside it, nested as deep as you need. Use the + next to a collection or a page to add one, and drag pages in the sidebar to reorder or nest them."
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "blockId": "00000000-0000-4000-8000-000000000005"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Pages are saved as you type. There is nothing to publish: what you write is there for you right away."
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "attrs": {
+        "blockId": "00000000-0000-4000-8000-000000000006",
+        "level": 2
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Finding things"
+        }
+      ]
+    },
+    {
+      "type": "bulletList",
+      "attrs": {
+        "blockId": "00000000-0000-4000-8000-000000000007"
+      },
+      "content": [
+        {
+          "type": "listItem",
+          "attrs": {
+            "blockId": "00000000-0000-4000-8000-000000000008"
+          },
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": {
+                "blockId": "00000000-0000-4000-8000-000000000009"
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Press "
+                },
+                {
+                  "type": "text",
+                  "text": "Ctrl+K",
+                  "marks": [
+                    {
+                      "type": "code",
+                      "attrs": {}
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "text": " ("
+                },
+                {
+                  "type": "text",
+                  "text": "⌘K",
+                  "marks": [
+                    {
+                      "type": "code",
+                      "attrs": {}
+                    }
+                  ]
+                },
+                {
+                  "type": "text",
+                  "text": " on a Mac) to jump to any page by its title."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "listItem",
+          "attrs": {
+            "blockId": "00000000-0000-4000-8000-00000000000a"
+          },
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": {
+                "blockId": "00000000-0000-4000-8000-00000000000b"
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Search looks through the text of every document and board."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "listItem",
+          "attrs": {
+            "blockId": "00000000-0000-4000-8000-00000000000c"
+          },
+          "content": [
+            {
+              "type": "paragraph",
+              "attrs": {
+                "blockId": "00000000-0000-4000-8000-00000000000d"
+              },
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Star a page to keep it at the top of the sidebar."
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "attrs": {
+        "blockId": "00000000-0000-4000-8000-00000000000e",
+        "level": 2
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Archive and Trash"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "blockId": "00000000-0000-4000-8000-00000000000f"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Archive a page you no longer need day to day: it leaves the sidebar but stays searchable, and you can bring it back from the Archive. Deleted pages go to the Trash, where they stay for 30 days before they are removed for good."
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "attrs": {
+        "blockId": "00000000-0000-4000-8000-000000000010",
+        "level": 2
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Backups"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "blockId": "00000000-0000-4000-8000-000000000011"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Quire backs up its database on a schedule into the "
+        },
+        {
+          "type": "text",
+          "text": "backups",
+          "marks": [
+            {
+              "type": "code",
+              "attrs": {}
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": " folder of its data directory ("
+        },
+        {
+          "type": "text",
+          "text": "/data/backups",
+          "marks": [
+            {
+              "type": "code",
+              "attrs": {}
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": " in the Docker image). Settings → Data exports everything as one file."
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "attrs": {
+        "blockId": "00000000-0000-4000-8000-000000000012",
+        "level": 2
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Next"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "attrs": {
+        "blockId": "00000000-0000-4000-8000-000000000013"
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Read "
+        },
+        {
+          "type": "mention",
+          "attrs": {
+            "itemId": "00000000-0000-7000-8000-000000000001"
+          }
+        },
+        {
+          "type": "text",
+          "text": " for the editor, or open the example board below."
+        }
+      ]
+    },
+    {
+      "type": "boardEmbed",
+      "attrs": {
+        "blockId": "00000000-0000-4000-8000-000000000014",
+        "itemId": "00000000-0000-7000-8000-000000000002"
+      }
+    }
+  ]
+}

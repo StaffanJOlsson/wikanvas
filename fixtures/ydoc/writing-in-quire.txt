@@ -1,0 +1,22 @@
+The editor turns a few keystrokes into structure.
+The slash menu
+Type / at the start of a line to insert headings, lists, to-dos, quotes, code, callouts, tables, images, mentions and boards. Keep typing to filter the list.
+Markdown shortcuts
+#  to ###  start a heading.
+-  or 1.  start a list, []  a to-do.
+>  starts a quote and ``` a code block.
+**bold**, *italic*, `code`, ~~strike~~ and ==highlight== format text as you type.
+Try a to-do
+Tick it off
+Mentions and links
+Type @ and a few letters to mention another page. Mentions always show the page's current title. Paste a link to a Quire page and it stays a link to that page, even after a rename.
+Images
+Paste or drop an image, or choose Image in the slash menu. Drag the handles to resize it and add a caption.
+Callouts
+Start a line with :::info and a space for a box like this one.
+There are tip, warning and danger boxes too.
+Tables
+Key	In a table
+Tab	Moves to the next cell
+Shift+Tab	Moves back
+Use the cell menu to add or remove rows and columns.

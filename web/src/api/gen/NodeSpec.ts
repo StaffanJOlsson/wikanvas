@@ -10,6 +10,11 @@ export type NodeSpec = { name: string,
  */
 group: string | null, 
 /**
- * The ProseMirror content expression, e.g. `inline*`.
+ * The ProseMirror content expression, e.g. `inline*`; null for a leaf.
  */
-content: string | null, inline: boolean, atom: boolean, attrs: Array<AttrSpec>, };
+content: string | null, 
+/**
+ * The marks allowed in this node's content: null for ProseMirror's default (every mark in inline content),
+ * `""` for none, `"_"` for all, otherwise mark names.
+ */
+marks: string | null, inline: boolean, atom: boolean, attrs: Array<AttrSpec>, };

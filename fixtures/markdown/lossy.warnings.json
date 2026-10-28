@@ -1,0 +1,42 @@
+[
+  {
+    "code": "empty_paragraph_dropped",
+    "path": null,
+    "count": 1
+  },
+  {
+    "code": "hard_break_dropped",
+    "path": null,
+    "count": 2
+  },
+  {
+    "code": "marks_in_code_dropped",
+    "path": null,
+    "count": 1
+  },
+  {
+    "code": "unsafe_link",
+    "path": null,
+    "count": 1
+  },
+  {
+    "code": "image_width_dropped",
+    "path": null,
+    "count": 1
+  },
+  {
+    "code": "table_span_dropped",
+    "path": null,
+    "count": 1
+  },
+  {
+    "code": "table_cell_flattened",
+    "path": null,
+    "count": 1
+  },
+  {
+    "code": "unknown_node",
+    "path": null,
+    "count": 1
+  }
+]

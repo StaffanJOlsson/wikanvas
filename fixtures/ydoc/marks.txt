@@ -1,0 +1,5 @@
+Plain, bold, italic, underline, strike, code and highlight.
+bold italic bold only all
+A web link, a mail, an item link and a bold link.
+ spaced edges 
+Escapes: *stars* _under_ `ticks` [brackets] <angle> # hash 1. one
