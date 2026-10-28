@@ -205,6 +205,58 @@ describe('DocSession', () => {
     expect(typeof statuses.at(-1)?.retry).toBe('function');
     s.destroy();
   });
+
+  it('opening an empty document writes nothing: the editor\'s own empty paragraph waits for real content', async () => {
+    const { d, posts } = deps();
+    const s = await DocSession.open('doc-1', d);
+    const fragment = s.ydoc.getXmlFragment(EMPTY.field);
+    const paragraph = new Y.XmlElement('paragraph');
+    // What the editor writes when it opens an empty document: the paragraph, then its block id.
+    s.ydoc.transact(() => fragment.insert(0, [paragraph]), 'editor');
+    s.ydoc.transact(() => paragraph.setAttribute('id', 'b1'), 'editor');
+    await vi.advanceTimersByTimeAsync(6000);
+    await s.flush();
+    expect(posts).toHaveLength(0);
+    expect(s.hasPending()).toBe(false);
+    // The first keystroke sends everything, the paragraph first.
+    s.ydoc.transact(() => paragraph.insert(0, [new Y.XmlText('q')]), 'editor');
+    expect(s.hasPending()).toBe(true);
+    await s.flush();
+    expect(posts).toHaveLength(1);
+    const check = new Y.Doc();
+    Y.applyUpdate(check, posts[0]);
+    expect(check.getXmlFragment(EMPTY.field).toString()).toBe('<paragraph id="b1">q</paragraph>');
+    s.destroy();
+  });
+
+  it('a server update that gives the blank document content releases what was held', async () => {
+    const { d, posts } = deps();
+    const s = await DocSession.open('doc-1', d);
+    const fragment = s.ydoc.getXmlFragment(EMPTY.field);
+    s.ydoc.transact(() => fragment.insert(0, [new Y.XmlElement('paragraph')]), 'editor');
+    // An agent's write arrives (applied with origin 'server', as sync() does).
+    const agent = new Y.Doc();
+    agent.getXmlFragment(EMPTY.field).insert(0, [new Y.XmlElement('heading')]);
+    Y.applyUpdate(s.ydoc, Y.encodeStateAsUpdate(agent), 'server');
+    expect(s.hasPending()).toBe(true);
+    await vi.advanceTimersByTimeAsync(1100);
+    expect(posts).toHaveLength(1);
+    s.destroy();
+  });
+
+  it('a document with content queues the editor\'s updates as before', async () => {
+    const author = new Y.Doc();
+    const p = new Y.XmlElement('paragraph');
+    author.getXmlFragment(EMPTY.field).insert(0, [p]);
+    p.insert(0, [new Y.XmlText('hello')]);
+    const { d, posts } = deps({ fetchDoc: vi.fn(async () => ({ ...EMPTY, update: toBase64(Y.encodeStateAsUpdate(author)) })) });
+    const s = await DocSession.open('doc-1', d);
+    s.ydoc.transact(() => (s.ydoc.getXmlFragment(EMPTY.field).get(0) as Y.XmlElement).setAttribute('id', 'b1'), 'editor');
+    expect(s.hasPending()).toBe(true);
+    await s.flush();
+    expect(posts).toHaveLength(1);
+    s.destroy();
+  });
 });
 
 describe('DocSession outbox replay (IndexedDB)', () => {

@@ -31,6 +31,20 @@ export const BACKOFF_MS = [1000, 2000, 5000, 10_000, 30_000];
 /** The origin the session applies server state with (UniqueID and the queue ignore it). */
 export const SERVER_ORIGIN = 'server';
 
+/**
+ * Whether `ydoc` holds no content: nothing but the document fragment `field`, which is empty or holds one empty
+ * paragraph (with any attributes, such as its block id). That is what the editor writes on its own when it opens an
+ * empty document.
+ */
+export function isBlankDoc(ydoc: Y.Doc, field: string): boolean {
+  for (const name of ydoc.share.keys()) if (name !== field) return false;
+  const fragment = ydoc.getXmlFragment(field);
+  if (fragment.length === 0) return true;
+  if (fragment.length > 1) return false;
+  const first = fragment.get(0);
+  return first instanceof Y.XmlElement && first.nodeName === 'paragraph' && first.length === 0;
+}
+
 /** Where unsent updates wait: IndexedDB `quire.outbox`, one entry per item. */
 export interface Outbox {
   get(itemId: string): Promise<Uint8Array | undefined>;
@@ -73,6 +87,15 @@ export class DocSession {
   seq = 0;
   private deps: DocSessionDeps;
   private queue: Uint8Array[] = [];
+  /**
+   * Opening an empty document makes the editor write its empty paragraph (and its block id). Those updates are held
+   * here, not queued, while the document stays blank, so that only opening a document never writes to it (its
+   * `content_at` stays NULL, §9.6.4, and leaving never prompts). The first update that leaves the document non-blank
+   * (typing, a server update) queues them ahead of itself.
+   */
+  private held: Uint8Array[] = [];
+  private holding = false;
+  private field = 'default';
   private debounce: ReturnType<typeof setTimeout> | null = null;
   private maxWait: ReturnType<typeof setTimeout> | null = null;
   private retry: ReturnType<typeof setTimeout> | null = null;
@@ -99,6 +122,8 @@ export class DocSession {
     Y.applyUpdate(ydoc, fromBase64(state.update), SERVER_ORIGIN);
     const s = new DocSession(itemId, ydoc, d);
     s.seq = state.seq;
+    s.field = state.field;
+    s.holding = isBlankDoc(ydoc, state.field);
     ydoc.on('update', s.onUpdate);
     const pending = await d.outbox.get(itemId).catch(() => undefined);
     if (pending && pending.length > 0) Y.applyUpdate(ydoc, pending, 'outbox');
@@ -116,8 +141,23 @@ export class DocSession {
   }
 
   private onUpdate = (update: Uint8Array, origin: unknown) => {
-    if (origin === SERVER_ORIGIN || this.destroyed) return;
-    this.queue.push(update);
+    if (this.destroyed) return;
+    let released = false;
+    if (this.holding) {
+      if (origin !== SERVER_ORIGIN && isBlankDoc(this.ydoc, this.field)) {
+        this.held.push(update);
+        return;
+      }
+      // The document has content now: what was held goes first (later updates may build on it).
+      this.holding = false;
+      released = this.held.length > 0;
+      this.queue.push(...this.held.splice(0));
+    }
+    if (origin === SERVER_ORIGIN) {
+      if (!released) return;
+    } else {
+      this.queue.push(update);
+    }
     this.writeOutboxThrottled();
     this.schedule();
   };
