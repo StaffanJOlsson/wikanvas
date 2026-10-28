@@ -6,6 +6,8 @@
 // - `frameEvents` are the FrameEvents the host connects with. Each event carries an itemId; events for any board but
 //   the current one are ignored (§10.4: "the host ignores events whose id is not current"). Host keys go to
 //   `runHostShortcut`.
+// - `flushPrevious(session)` waits for the board shown before (or the same board's earlier session, whose last PUT may
+//   still be running) to save; a page calls it before its GET (§9.5 "Open": 1. flush, 2. GET, then open).
 // - `openBoard(session, args)` flushes the previous board's session before it opens the next one (§9.5 "Open").
 import { create } from 'zustand';
 import { runHostShortcut } from '../app/hotkeys';
@@ -96,18 +98,26 @@ export const frameEvents: FrameEvents = {
 };
 
 /**
+ * §9.5 "Open", step 1: waits until the session the frame showed before `session` has saved. That session stays
+ * active until its page's last flush is done (`releaseBoard`), so this also waits for a PUT still running when the
+ * same board is opened again: the GET that follows then sees that save.
+ */
+export async function flushPrevious(session: BoardSession): Promise<void> {
+  const prev = active;
+  if (!prev || prev === session) return;
+  try {
+    await prev.flush();
+  } catch (e) {
+    console.warn('saving the previous board failed', e);
+  }
+}
+
+/**
  * Opens a board in the frame for `session`: first flushes the session of the board shown before (so its last
  * changes are saved before `setBoard` replaces them), then makes `session` the current one and calls `frame.open`.
  */
 export async function openBoard(session: BoardSession, args: OpenArgs): Promise<void> {
-  const prev = active;
-  if (prev && prev !== session) {
-    try {
-      await prev.flush();
-    } catch (e) {
-      console.warn('saving the previous board failed', e);
-    }
-  }
+  await flushPrevious(session);
   const frame = useHostStore.getState().frame;
   if (!frame) throw new Error('the board frame is not connected');
   active = session;

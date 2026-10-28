@@ -23,12 +23,13 @@
   background: var(--bg);
 }
 
-/* The iframe never moves in the DOM; it is positioned over the surface's rect. */
+/* The iframe never moves in the DOM; it is positioned over the surface's rect. z-index 1 paints it over the in-flow
+   canvas but under menus (10), popovers and dialogs, which may hang over the canvas. */
 .board-frame-layer {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  z-index: 10;
+  z-index: 1;
 }
 
 .board-frame {

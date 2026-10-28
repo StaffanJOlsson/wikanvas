@@ -14,7 +14,16 @@ import { BoardLoading } from './BoardLoading';
 import type { BoardFrameContext } from './BoardFrameHost';
 import type { BoardFrameApi } from './bridge';
 import { ConflictBanner } from './ConflictBanner';
-import { attachSurface, noteSaved, openBoard, releaseBoard, showBoard, useHostStore, type BoardSession } from './host';
+import {
+  attachSurface,
+  flushPrevious,
+  noteSaved,
+  openBoard,
+  releaseBoard,
+  showBoard,
+  useHostStore,
+  type BoardSession,
+} from './host';
 import { BoardSaveLoop, LARGE_BOARD_BYTES, type BoardConflict } from './saveLoop';
 import { useResolvedTheme } from './theme';
 import { clearUnsaved, isNewerThan, readUnsaved, snapshotTime, type UnsavedSnapshot } from './unsaved';
@@ -100,6 +109,10 @@ export function BoardSurface({ item, host }: BoardSurfaceProps) {
     loop.attach();
     setS(fresh);
     void (async () => {
+      // §9.5 Open: the board shown before saves first (it may be this board, left a moment ago with a PUT running),
+      // so the GET below sees its last save.
+      await flushPrevious(session);
+      if (!alive) return;
       const loaded = await fetchBoard(itemId);
       if (!alive) return;
       const snap = await readUnsaved(itemId);
