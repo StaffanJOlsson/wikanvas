@@ -1,14 +1,15 @@
-//! Item tests: trash, restore, archive, collection delete, publication, rebalance (owner: W1).
-//!
-//! W0b: create (published on create, content initialized, positions, parent rules), rename (meta and tree versions),
-//! purge of expired trash roots, the shared write helpers, and the revision rules (auto, pre-api).
+//! Item tests: create, rename, trash, restore, archive, collection delete, publication, duplicate, discard,
+//! rebalance, and the revision rules (auto, pre-api, prune) (owner: W1).
 
-use quire_core::api::{ErrorCode, ItemKind, NewCollection, NewItem, Position};
+use quire_core::api::{
+    ErrorCode, ItemKind, ItemPatch, NewCollection, NewItem, Position, SearchQuery,
+};
 use quire_store::revisions::{self, RevisionDraft};
-use quire_store::{WriteBy, collections, items, shared};
+use quire_store::{WriteBy, collections, items, lists, search, shared};
 use rusqlite::params;
+use uuid::Uuid;
 
-use crate::common::{DAY, MINUTE, NOW, TestDb, count};
+use crate::common::{DAY, MINUTE, NOW, TestDb, count, viewer};
 
 async fn tree_version(t: &TestDb, collection: String) -> i64 {
     count(
@@ -544,11 +545,12 @@ async fn maybe_auto_writes_at_most_every_10_minutes() {
             ("auto".into(), 4, "Doc".into(), "yjs".into())
         ]
     );
+    // A year later both fall into one weekly bucket: the newer one stays.
     assert_eq!(
         t.db.write(|tx| revisions::prune(tx, NOW + 365 * DAY))
             .await
             .unwrap(),
-        0
+        1
     );
 }
 
@@ -799,4 +801,856 @@ async fn effectively_published_needs_published_ancestors() {
     assert!(!check(a.id).await.unwrap());
     let e = check(uuid::Uuid::now_v7()).await.unwrap_err();
     assert!(e.is(ErrorCode::NotFound));
+}
+
+// ---------------------------------------------------------------- W1: trash, restore, archive, collections
+
+async fn trash(t: &TestDb, owner: &str, id: Uuid) -> quire_store::Result<u64> {
+    let (id, o) = (id.to_string(), owner.to_owned());
+    t.w(move |tx| items::trash(tx, &id, &o, NOW)).await
+}
+
+async fn restore(t: &TestDb, id: Uuid) -> quire_store::Result<quire_core::api::RestoredItem> {
+    let id = id.to_string();
+    t.w(move |tx| items::restore(tx, &id)).await
+}
+
+#[tokio::test]
+async fn trash_restore_subtree_roundtrip() {
+    let t = TestDb::new();
+    let owner = t.owner().await;
+    let c = t.collection(&owner, "Notes").await;
+    let a = t.item(&owner, c.id, None, ItemKind::Doc, "a").await;
+    let b = t.item(&owner, c.id, Some(a.id), ItemKind::Doc, "b").await;
+    let cc = t.item(&owner, c.id, Some(b.id), ItemKind::Board, "c").await;
+    let early = t
+        .item(&owner, c.id, Some(b.id), ItemKind::Doc, "early")
+        .await;
+    t.item(&owner, c.id, None, ItemKind::Doc, "d").await;
+    // `early` goes first, as its own root; then a takes the rest of the subtree.
+    assert_eq!(trash(&t, &owner, early.id).await.unwrap(), 1);
+    let tv = t.tree_version(c.id).await;
+    let meta = t.row(b.id).await.meta_version;
+    assert_eq!(trash(&t, &owner, a.id).await.unwrap(), 3);
+    assert!(t.tree_version(c.id).await > tv);
+    assert_eq!(t.tree_titles(&owner, c.id).await, ["d"]);
+    for (id, root) in [
+        (a.id, a.id),
+        (b.id, a.id),
+        (cc.id, a.id),
+        (early.id, early.id),
+    ] {
+        let row = t.row(id).await;
+        assert_eq!(row.trash_root_id, Some(root.to_string()), "{id}");
+        assert_eq!(
+            (row.deleted_at, row.deleted_by.as_deref()),
+            (Some(NOW), Some(owner.as_str()))
+        );
+    }
+    assert_eq!(t.row(b.id).await.meta_version, meta + 1);
+    // Trashing again is read-only.
+    assert!(
+        trash(&t, &owner, b.id)
+            .await
+            .unwrap_err()
+            .is(ErrorCode::ReadOnly)
+    );
+    // Restoring a descendant restores its whole unit (root a), in place.
+    let restored = restore(&t, cc.id).await.unwrap();
+    assert_eq!((restored.item.id, restored.moved_to_top), (a.id, false));
+    assert_eq!(t.tree_titles(&owner, c.id).await, ["a", "b", "c", "d"]);
+    // `early` keeps its own root and stays in the trash.
+    assert_eq!(
+        t.row(early.id).await.trash_root_id,
+        Some(early.id.to_string())
+    );
+    let back = restore(&t, early.id).await.unwrap();
+    assert_eq!(
+        (back.item.parent_id, back.moved_to_top),
+        (Some(b.id), false)
+    );
+    // Restoring a live item is a conflict.
+    assert!(restore(&t, a.id).await.unwrap_err().is(ErrorCode::Conflict));
+    assert_eq!(t.row(a.id).await.deleted_by, None);
+}
+
+#[tokio::test]
+async fn restore_with_trashed_parent_goes_top() {
+    let t = TestDb::new();
+    let owner = t.owner().await;
+    let c = t.collection(&owner, "Notes").await;
+    let top = t.item(&owner, c.id, None, ItemKind::Doc, "top").await;
+    let a = t.item(&owner, c.id, None, ItemKind::Doc, "a").await;
+    let b = t.item(&owner, c.id, Some(a.id), ItemKind::Doc, "b").await;
+    let b1 = t.item(&owner, c.id, Some(b.id), ItemKind::Doc, "b1").await;
+    trash(&t, &owner, b.id).await.unwrap();
+    trash(&t, &owner, a.id).await.unwrap();
+    let r = restore(&t, b1.id).await.unwrap();
+    assert_eq!(
+        (r.item.id, r.item.parent_id, r.moved_to_top),
+        (b.id, None, true)
+    );
+    assert!(
+        r.item.sort_key > top.sort_key && r.item.sort_key > a.sort_key,
+        "goes last"
+    );
+    assert_eq!(t.tree_titles(&owner, c.id).await, ["top", "b", "b1"]);
+    // An archived parent: an unarchived root restored under it goes to the top as well.
+    let p = t.item(&owner, c.id, None, ItemKind::Doc, "p").await;
+    let q = t.item(&owner, c.id, Some(p.id), ItemKind::Doc, "q").await;
+    trash(&t, &owner, q.id).await.unwrap();
+    let pid = p.id.to_string();
+    t.w(move |tx| items::archive(tx, &pid, NOW)).await.unwrap();
+    let r = restore(&t, q.id).await.unwrap();
+    assert!(r.moved_to_top && !r.item.archived);
+    // Unarchive under an archived parent (archived after the child, as its own root): to the top.
+    let u = t.item(&owner, c.id, None, ItemKind::Doc, "u").await;
+    let v = t.item(&owner, c.id, Some(u.id), ItemKind::Doc, "v").await;
+    let (vid, uid) = (v.id.to_string(), u.id.to_string());
+    t.w(move |tx| {
+        items::archive(tx, &vid, NOW)?;
+        items::archive(tx, &uid, NOW)
+    })
+    .await
+    .unwrap();
+    let vid = v.id.to_string();
+    let r = t.w(move |tx| items::unarchive(tx, &vid)).await.unwrap();
+    assert!(r.moved_to_top, "{r:?}");
+    assert_eq!(r.item.parent_id, None);
+}
+
+#[tokio::test]
+async fn restored_archived_child_becomes_its_own_archive_root() {
+    // Archive a, trash its child r (it stays archived, D5), trash a, restore r: r leaves a's subtree for the top
+    // level, so its part of a's archive unit becomes a unit of its own, listed in /archive and unarchived by itself,
+    // also after a is purged.
+    let t = TestDb::new();
+    let owner = t.owner().await;
+    let c = t.collection(&owner, "Notes").await;
+    let a = t.item(&owner, c.id, None, ItemKind::Doc, "a").await;
+    let r = t.item(&owner, c.id, Some(a.id), ItemKind::Doc, "r").await;
+    let d = t.item(&owner, c.id, Some(r.id), ItemKind::Doc, "d").await;
+    let s = t.item(&owner, c.id, Some(a.id), ItemKind::Doc, "s").await;
+    let aid = a.id.to_string();
+    assert_eq!(
+        t.w(move |tx| items::archive(tx, &aid, NOW)).await.unwrap(),
+        4
+    );
+    assert_eq!(trash(&t, &owner, r.id).await.unwrap(), 2);
+    assert_eq!(trash(&t, &owner, a.id).await.unwrap(), 2);
+    let back = restore(&t, d.id).await.unwrap();
+    assert_eq!(
+        (
+            back.item.id,
+            back.item.parent_id,
+            back.moved_to_top,
+            back.item.archived
+        ),
+        (r.id, None, true, true)
+    );
+    for x in [r.id, d.id] {
+        assert_eq!(t.row(x).await.archive_root_id, Some(r.id.to_string()));
+    }
+    assert_eq!(t.row(s.id).await.archive_root_id, Some(a.id.to_string()));
+    assert_eq!(archive_list(&t, &owner).await, [r.id]);
+    assert!(t.tree_titles(&owner, c.id).await.is_empty());
+    let aid = a.id.to_string();
+    assert_eq!(t.w(move |tx| items::purge(tx, &aid)).await.unwrap(), 2);
+    let did = d.id.to_string();
+    let back = t.w(move |tx| items::unarchive(tx, &did)).await.unwrap();
+    assert_eq!((back.item.id, back.moved_to_top), (r.id, false));
+    assert_eq!(t.tree_titles(&owner, c.id).await, ["r", "d"]);
+    assert!(archive_list(&t, &owner).await.is_empty());
+}
+
+/// The ids `/archive` lists.
+async fn archive_list(t: &TestDb, owner: &str) -> Vec<Uuid> {
+    let v = viewer(owner);
+    t.r(move |conn| lists::archive(conn, &v, &lists::PageRequest::new("archive", None, None)))
+        .await
+        .unwrap()
+        .items
+        .into_iter()
+        .map(|i| i.item.id)
+        .collect()
+}
+
+#[tokio::test]
+async fn collection_delete_restore_roundtrip() {
+    let t = TestDb::new();
+    let owner = t.owner().await;
+    let c = t.collection(&owner, "Notes").await;
+    let a = t.item(&owner, c.id, None, ItemKind::Doc, "a").await;
+    let b = t.item(&owner, c.id, Some(a.id), ItemKind::Doc, "b").await;
+    let arch = t.item(&owner, c.id, None, ItemKind::Board, "arch").await;
+    let early = t.item(&owner, c.id, None, ItemKind::Doc, "early").await;
+    trash(&t, &owner, early.id).await.unwrap();
+    let aid = arch.id.to_string();
+    t.w(move |tx| items::archive(tx, &aid, NOW)).await.unwrap();
+    let (cid, o) = (c.id.to_string(), owner.clone());
+    let trashed = t
+        .w(move |tx| collections::delete(tx, &cid, &o, NOW + MINUTE))
+        .await
+        .unwrap();
+    assert_eq!(
+        trashed, 3,
+        "a, b and the archived item; not the item trashed earlier"
+    );
+    for id in [a.id, b.id, arch.id] {
+        assert_eq!(t.row(id).await.trash_root_id, Some(c.id.to_string()));
+    }
+    let cid = c.id.to_string();
+    let (deleted, at) = t
+        .r(move |conn| collections::get_with_state(conn, &cid))
+        .await
+        .unwrap();
+    assert_eq!((deleted.item_count, at), (3, Some(NOW + MINUTE)));
+    let cid = c.id.to_string();
+    assert!(
+        t.r(move |conn| collections::get_live(conn, &cid))
+            .await
+            .unwrap_err()
+            .is(ErrorCode::NotFound)
+    );
+    let sidebar = {
+        let v = viewer(&owner);
+        t.r(move |conn| lists::sidebar(conn, &v)).await.unwrap()
+    };
+    assert!(sidebar.collections.is_empty());
+    // An item of the deleted collection cannot be restored on its own.
+    assert!(
+        restore(&t, a.id)
+            .await
+            .unwrap_err()
+            .is(ErrorCode::ParentInvalid)
+    );
+    // Deleting it again: not found (it is only in the trash).
+    let (cid, o) = (c.id.to_string(), owner.clone());
+    assert!(
+        t.w(move |tx| collections::delete(tx, &cid, &o, NOW))
+            .await
+            .unwrap_err()
+            .is(ErrorCode::NotFound)
+    );
+    let (cid, o) = (c.id.to_string(), owner.clone());
+    let back = t
+        .w(move |tx| collections::restore(tx, &cid, &o, NOW + 2 * MINUTE))
+        .await
+        .unwrap();
+    assert_eq!(back.item_count, 2, "a and b; arch is archived");
+    assert_eq!(t.tree_titles(&owner, c.id).await, ["a", "b"]);
+    assert!(
+        t.row(arch.id).await.archived_at.is_some() && t.row(arch.id).await.deleted_at.is_none()
+    );
+    assert_eq!(
+        t.row(early.id).await.trash_root_id,
+        Some(early.id.to_string()),
+        "trashed earlier: stays"
+    );
+    let (cid, o) = (c.id.to_string(), owner.clone());
+    assert!(
+        t.w(move |tx| collections::restore(tx, &cid, &o, NOW))
+            .await
+            .unwrap_err()
+            .is(ErrorCode::Conflict)
+    );
+    // Purge needs the collection in the trash; then everything in it goes, leaves first.
+    let cid = c.id.to_string();
+    assert!(
+        t.w(move |tx| collections::purge(tx, &cid))
+            .await
+            .unwrap_err()
+            .is(ErrorCode::Conflict)
+    );
+    let (cid, o) = (c.id.to_string(), owner.clone());
+    t.w(move |tx| collections::delete(tx, &cid, &o, NOW))
+        .await
+        .unwrap();
+    let cid = c.id.to_string();
+    assert_eq!(
+        t.w(move |tx| collections::purge(tx, &cid)).await.unwrap(),
+        4
+    );
+    assert_eq!(
+        count(
+            &t,
+            "SELECT count(*) FROM collections WHERE id = ?1",
+            c.id.to_string()
+        )
+        .await,
+        0
+    );
+}
+
+#[tokio::test]
+async fn create_restore_or_move_into_deleted_collection_409() {
+    let t = TestDb::new();
+    let owner = t.owner().await;
+    let x = t.collection(&owner, "X").await;
+    let y = t.collection(&owner, "Y").await;
+    let earlier = t.item(&owner, x.id, None, ItemKind::Doc, "earlier").await;
+    let elsewhere = t.item(&owner, y.id, None, ItemKind::Doc, "elsewhere").await;
+    trash(&t, &owner, earlier.id).await.unwrap();
+    let (xid, o) = (x.id.to_string(), owner.clone());
+    t.w(move |tx| collections::delete(tx, &xid, &o, NOW))
+        .await
+        .unwrap();
+    let o = owner.clone();
+    let e = t
+        .w(move |tx| {
+            items::create(
+                tx,
+                &o,
+                &NewItem {
+                    collection_id: x.id,
+                    parent_id: None,
+                    kind: ItemKind::Doc,
+                    title: None,
+                    position: None,
+                },
+                false,
+                NOW,
+            )
+        })
+        .await
+        .unwrap_err();
+    assert!(e.is(ErrorCode::ParentInvalid), "create: {e:?}");
+    let e = restore(&t, earlier.id).await.unwrap_err();
+    assert!(e.is(ErrorCode::ParentInvalid), "restore: {e:?}");
+    let (eid, o) = (elsewhere.id.to_string(), owner.clone());
+    let e = t
+        .w(move |tx| {
+            items::move_item(
+                tx,
+                &eid,
+                &quire_core::api::MoveItem {
+                    collection_id: Some(x.id),
+                    parent_id: None,
+                    position: None,
+                },
+                &o,
+                NOW,
+            )
+        })
+        .await
+        .unwrap_err();
+    assert!(e.is(ErrorCode::ParentInvalid), "move: {e:?}");
+    // After the collection is restored, the earlier item restores too.
+    let (xid, o) = (x.id.to_string(), owner.clone());
+    t.w(move |tx| collections::restore(tx, &xid, &o, NOW))
+        .await
+        .unwrap();
+    assert!(!restore(&t, earlier.id).await.unwrap().moved_to_top);
+}
+
+#[tokio::test]
+async fn archive_hides_subtree_from_tree_and_default_search() {
+    let t = TestDb::new();
+    let owner = t.owner().await;
+    let c = t.collection(&owner, "Notes").await;
+    let a = t.item(&owner, c.id, None, ItemKind::Doc, "alpha").await;
+    let b = t
+        .item(&owner, c.id, Some(a.id), ItemKind::Doc, "quokka habits")
+        .await;
+    let gone = t
+        .item(&owner, c.id, Some(a.id), ItemKind::Doc, "trashed child")
+        .await;
+    t.item(&owner, c.id, None, ItemKind::Doc, "other").await;
+    trash(&t, &owner, gone.id).await.unwrap();
+    let aid = a.id.to_string();
+    assert_eq!(
+        t.w(move |tx| items::archive(tx, &aid, NOW)).await.unwrap(),
+        2,
+        "not the trashed child"
+    );
+    assert_eq!(t.tree_titles(&owner, c.id).await, ["other"]);
+    assert_eq!(t.row(b.id).await.archive_root_id, Some(a.id.to_string()));
+    assert_eq!(t.row(gone.id).await.archived_at, None);
+    let find = |include_archived: bool| {
+        let v = viewer(&owner);
+        t.r(move |conn| {
+            search::search(
+                conn,
+                &v,
+                &SearchQuery {
+                    q: "quokka".into(),
+                    include_archived,
+                    ..Default::default()
+                },
+            )
+        })
+    };
+    assert!(find(false).await.unwrap().items.is_empty());
+    assert_eq!(find(true).await.unwrap().items[0].item.id, b.id);
+    let v = viewer(&owner);
+    let archived = t
+        .r(move |conn| lists::archive(conn, &v, &lists::PageRequest::new("archive", None, None)))
+        .await
+        .unwrap();
+    assert_eq!(archived.items.len(), 1, "roots only");
+    assert_eq!(archived.items[0].item.id, a.id);
+    assert_eq!(archived.items[0].archived_at.map(|t| t.millis()), Some(NOW));
+    // Archived items are read-only.
+    let (bid, o) = (b.id.to_string(), owner.clone());
+    assert!(
+        t.w(move |tx| items::rename(tx, &bid, "x", &o, NOW))
+            .await
+            .unwrap_err()
+            .is(ErrorCode::ReadOnly)
+    );
+    let aid = a.id.to_string();
+    assert!(
+        t.w(move |tx| items::archive(tx, &aid, NOW))
+            .await
+            .unwrap_err()
+            .is(ErrorCode::ReadOnly)
+    );
+    // Unarchiving a descendant unarchives the unit.
+    let bid = b.id.to_string();
+    let r = t.w(move |tx| items::unarchive(tx, &bid)).await.unwrap();
+    assert_eq!((r.item.id, r.moved_to_top), (a.id, false));
+    assert_eq!(
+        t.tree_titles(&owner, c.id).await,
+        ["alpha", "quokka habits", "other"]
+    );
+    let bid = b.id.to_string();
+    assert!(
+        t.w(move |tx| items::unarchive(tx, &bid))
+            .await
+            .unwrap_err()
+            .is(ErrorCode::Conflict)
+    );
+}
+
+#[tokio::test]
+async fn publish_and_unpublish() {
+    let t = TestDb::new();
+    let owner = t.owner().await;
+    let c = t.collection(&owner, "Notes").await;
+    let a = t.item(&owner, c.id, None, ItemKind::Doc, "a").await;
+    let b = t.item(&owner, c.id, Some(a.id), ItemKind::Doc, "b").await;
+    let leaf = t
+        .item(&owner, c.id, Some(b.id), ItemKind::Doc, "leaf")
+        .await;
+    let set = |id: Uuid, publish: Option<bool>| {
+        let (id, o) = (id.to_string(), owner.clone());
+        t.w(move |tx| match publish {
+            None => items::unpublish(tx, &id, &o, NOW + MINUTE),
+            Some(with_ancestors) => items::publish(tx, &id, with_ancestors, &o, NOW + 2 * MINUTE),
+        })
+    };
+    // Unpublish works whatever the children are, and twice.
+    assert!(!set(a.id, None).await.unwrap().published);
+    assert!(!set(b.id, None).await.unwrap().published);
+    assert!(!set(b.id, None).await.unwrap().published);
+    let check = |id: Uuid| {
+        let id = id.to_string();
+        t.r(move |c| shared::effectively_published(c, &id))
+    };
+    assert!(!check(leaf.id).await.unwrap() && t.row(leaf.id).await.published_at.is_some());
+    let v = viewer(&owner);
+    assert_eq!(
+        t.r(move |conn| lists::drafts_count(conn, &v))
+            .await
+            .unwrap(),
+        2
+    );
+    // Publishing the leaf alone leaves the drafts; with ancestors, all are published.
+    set(leaf.id, Some(false)).await.unwrap();
+    assert!(!check(leaf.id).await.unwrap());
+    set(leaf.id, Some(true)).await.unwrap();
+    assert!(check(leaf.id).await.unwrap());
+    assert_eq!(t.row(a.id).await.published_at, Some(NOW + 2 * MINUTE));
+    assert_eq!(
+        t.row(leaf.id).await.published_at,
+        Some(NOW),
+        "an already published item keeps its date"
+    );
+}
+
+#[tokio::test]
+async fn duplicate_copies_content_after_the_original() {
+    let t = TestDb::new();
+    let owner = t.owner().await;
+    let c = t.collection(&owner, "Notes").await;
+    let a = t.item(&owner, c.id, None, ItemKind::Doc, "Plan").await;
+    let after = t.item(&owner, c.id, None, ItemKind::Doc, "After").await;
+    t.item(&owner, c.id, Some(a.id), ItemKind::Doc, "child")
+        .await;
+    let board = t.item(&owner, c.id, None, ItemKind::Board, "").await;
+    let aid = a.id.to_string();
+    t.w(move |tx| shared::set_body_text(tx, &aid, "the body"))
+        .await
+        .unwrap();
+    let (aid, o) = (a.id.to_string(), owner.clone());
+    let copy = t
+        .w(move |tx| items::duplicate(tx, &aid, &o, NOW + MINUTE))
+        .await
+        .unwrap();
+    assert_eq!(
+        (copy.title.as_str(), copy.child_count, copy.published),
+        ("Plan (copy)", 0, true)
+    );
+    assert!(a.sort_key < copy.sort_key && copy.sort_key < after.sort_key);
+    assert_eq!(
+        count(
+            &t,
+            "SELECT count(*) FROM item_text WHERE item_id = ?1 AND body = 'the body'",
+            copy.id.to_string()
+        )
+        .await,
+        1
+    );
+    let (bid, o) = (board.id.to_string(), owner.clone());
+    let bcopy = t
+        .w(move |tx| items::duplicate(tx, &bid, &o, NOW))
+        .await
+        .unwrap();
+    assert_eq!((bcopy.title.as_str(), bcopy.kind), ("", ItemKind::Board));
+    assert_eq!(
+        count(
+            &t,
+            "SELECT rev FROM board_state WHERE item_id = ?1",
+            bcopy.id.to_string()
+        )
+        .await,
+        1
+    );
+    trash(&t, &owner, a.id).await.unwrap();
+    let (aid, o) = (a.id.to_string(), owner.clone());
+    assert!(
+        t.w(move |tx| items::duplicate(tx, &aid, &o, NOW))
+            .await
+            .unwrap_err()
+            .is(ErrorCode::ReadOnly)
+    );
+}
+
+#[tokio::test]
+async fn discard_empty_rules() {
+    let t = TestDb::new();
+    let owner = t.owner().await;
+    let c = t.collection(&owner, "Notes").await;
+    let discard = |id: Uuid, now: i64| {
+        let id = id.to_string();
+        t.w(move |tx| items::discard_empty(tx, &id, now))
+    };
+    let fresh = t.item(&owner, c.id, None, ItemKind::Doc, "").await;
+    let titled = t.item(&owner, c.id, None, ItemKind::Doc, "Title").await;
+    let parent = t.item(&owner, c.id, None, ItemKind::Board, " ").await;
+    t.item(&owner, c.id, Some(parent.id), ItemKind::Doc, "")
+        .await;
+    let old = t.item(&owner, c.id, None, ItemKind::Doc, "").await;
+    // A board with one object has a body.
+    let body = t.item(&owner, c.id, None, ItemKind::Board, "").await;
+    let bid = body.id.to_string();
+    t.w(move |tx| {
+        tx.execute(
+            "UPDATE board_state SET meta = json_set(meta, '$.objects', 1) WHERE item_id = ?1",
+            [bid],
+        )?;
+        Ok(())
+    })
+    .await
+    .unwrap();
+    for (id, now) in [
+        (titled.id, NOW),
+        (parent.id, NOW),
+        (old.id, NOW + DAY),
+        (body.id, NOW),
+    ] {
+        let e = discard(id, now).await.unwrap_err();
+        assert!(e.is(ErrorCode::NotEmpty), "{id}: {e:?}");
+    }
+    assert_eq!(discard(fresh.id, NOW + DAY - 1).await.unwrap(), 1);
+    assert_eq!(
+        count(
+            &t,
+            "SELECT count(*) FROM items WHERE id = ?1",
+            fresh.id.to_string()
+        )
+        .await,
+        0
+    );
+    assert_eq!(
+        count(
+            &t,
+            "SELECT count(*) FROM doc_state WHERE item_id = ?1",
+            fresh.id.to_string()
+        )
+        .await,
+        0
+    );
+    // An unpublished one is discarded as well.
+    let draft = t.item(&owner, c.id, None, ItemKind::Board, "").await;
+    let (did, o) = (draft.id.to_string(), owner.clone());
+    t.w(move |tx| items::unpublish(tx, &did, &o, NOW))
+        .await
+        .unwrap();
+    assert_eq!(discard(draft.id, NOW).await.unwrap(), 1);
+}
+
+#[tokio::test]
+async fn rebalance_when_key_over_64() {
+    let t = TestDb::new();
+    let owner = t.owner().await;
+    let c = t.collection(&owner, "Notes").await;
+    let a = t.item(&owner, c.id, None, ItemKind::Doc, "a").await;
+    let b = t.item(&owner, c.id, None, ItemKind::Doc, "b").await;
+    let z = t.item(&owner, c.id, None, ItemKind::Doc, "z").await;
+    // b sits so close after a that the key between them is 66 characters long.
+    let long = format!("a0{}1", "0".repeat(62));
+    let (aid, bid, l) = (a.id.to_string(), b.id.to_string(), long.clone());
+    t.w(move |tx| {
+        tx.execute("UPDATE items SET sort_key = 'a0' WHERE id = ?1", [&aid])?;
+        tx.execute(
+            "UPDATE items SET sort_key = ?2 WHERE id = ?1",
+            params![bid, l],
+        )?;
+        Ok(())
+    })
+    .await
+    .unwrap();
+    assert!(
+        quire_core::rank::key_between(Some("a0"), Some(&long))
+            .unwrap()
+            .len()
+            > 64
+    );
+    let tv = t.tree_version(c.id).await;
+    let o = owner.clone();
+    let mid = t
+        .w(move |tx| {
+            items::create(
+                tx,
+                &o,
+                &NewItem {
+                    collection_id: c.id,
+                    parent_id: None,
+                    kind: ItemKind::Doc,
+                    title: Some("mid".into()),
+                    position: Some(Position {
+                        after_id: Some(a.id),
+                        before_id: Some(b.id),
+                    }),
+                },
+                false,
+                NOW,
+            )
+        })
+        .await
+        .unwrap();
+    assert!(mid.sort_key.len() <= 4, "{}", mid.sort_key);
+    for id in [a.id, b.id, z.id] {
+        assert!(t.row(id).await.sort_key.len() <= 4);
+    }
+    assert!(t.tree_version(c.id).await > tv);
+    assert_eq!(t.tree_titles(&owner, c.id).await, ["a", "mid", "b", "z"]);
+    // Collections rebalance the same way.
+    let first = t.collection(&owner, "first").await;
+    let (fid, cid) = (first.id.to_string(), c.id.to_string());
+    t.w(move |tx| {
+        tx.execute(
+            "UPDATE collections SET sort_key = 'a0' WHERE id = ?1",
+            [&fid],
+        )?;
+        tx.execute(
+            "UPDATE collections SET sort_key = ?2 WHERE id = ?1",
+            params![cid, long],
+        )?;
+        Ok(())
+    })
+    .await
+    .unwrap();
+    let (tv_first, tv_notes) = (t.tree_version(first.id).await, t.tree_version(c.id).await);
+    let o = owner.clone();
+    let between = t
+        .w(move |tx| {
+            collections::create(
+                tx,
+                &o,
+                &NewCollection {
+                    name: "between".into(),
+                    position: Some(Position {
+                        after_id: Some(first.id),
+                        before_id: Some(c.id),
+                    }),
+                    ..Default::default()
+                },
+                NOW,
+            )
+        })
+        .await
+        .unwrap();
+    let v = viewer(&owner);
+    let all = t.r(move |conn| collections::list(conn, &v)).await.unwrap();
+    let names: Vec<&str> = all.iter().map(|c| c.name.as_str()).collect();
+    assert_eq!(names, ["first", "between", "Notes"]);
+    assert!(all.iter().all(|c| c.sort_key.len() <= 4), "{all:?}");
+    assert!(between.sort_key.len() <= 4);
+    // Each tree response holds its collection's sort_key, so a collection whose key the rebalance rewrote gets a new
+    // tree ETag (and one whose key stayed does not).
+    assert_eq!(
+        t.tree_version(first.id).await > tv_first,
+        all[0].sort_key != "a0"
+    );
+    assert!(
+        t.tree_version(c.id).await > tv_notes,
+        "Notes got a short key"
+    );
+}
+
+#[tokio::test]
+async fn patch_with_if_match() {
+    let t = TestDb::new();
+    let owner = t.owner().await;
+    let c = t.collection(&owner, "Notes").await;
+    let a = t.item(&owner, c.id, None, ItemKind::Doc, "a").await;
+    let patch = |p: ItemPatch, if_match: Option<i64>| {
+        let (id, o) = (a.id.to_string(), owner.clone());
+        t.w(move |tx| items::update(tx, &id, &p, if_match, &o, NOW))
+    };
+    let tv = t.tree_version(c.id).await;
+    let s = patch(
+        ItemPatch {
+            title: None,
+            full_width: Some(true),
+        },
+        Some(1),
+    )
+    .await
+    .unwrap();
+    assert_eq!(s.title, "a");
+    assert_eq!(t.row(a.id).await.meta_version, 2);
+    assert_eq!(
+        t.tree_version(c.id).await,
+        tv + 1,
+        "full_width alone changes updated_at, which the tree shows and the `updated` order sorts by"
+    );
+    let e = patch(
+        ItemPatch {
+            title: Some("b".into()),
+            full_width: None,
+        },
+        Some(1),
+    )
+    .await
+    .unwrap_err();
+    assert!(e.is(ErrorCode::RevMismatch));
+    assert_eq!(e.details, Some(serde_json::json!({"etag": "\"m2\""})));
+    patch(
+        ItemPatch {
+            title: Some("b".into()),
+            full_width: Some(false),
+        },
+        Some(2),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        t.row(a.id).await.meta_version,
+        3,
+        "one bump for both fields"
+    );
+    // An empty patch, or one that sets the current values, changes nothing.
+    let tv = t.tree_version(c.id).await;
+    patch(ItemPatch::default(), None).await.unwrap();
+    patch(
+        ItemPatch {
+            title: Some("b".into()),
+            full_width: Some(false),
+        },
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(t.row(a.id).await.meta_version, 3);
+    assert_eq!(t.tree_version(c.id).await, tv);
+}
+
+#[tokio::test]
+async fn prune_thins_by_age() {
+    let t = TestDb::new();
+    let owner = t.owner().await;
+    let c = t.collection(&owner, "Notes").await;
+    let doc = t.item(&owner, c.id, None, ItemKind::Doc, "Doc").await;
+    let d = doc.id.to_string();
+    let hour = 60 * MINUTE;
+    t.w(move |tx| {
+        let at = |age: i64| NOW - age;
+        // Under 24 h: all four stay.
+        for m in [1, 2, 3, 4] {
+            revisions::write(
+                tx,
+                &d,
+                revisions::RevisionReason::Auto,
+                yjs_draft(m),
+                at(m * MINUTE),
+            )?;
+        }
+        // Two days old: three in one hour bucket → one, plus one in the next hour.
+        let base = (NOW - 2 * DAY).div_euclid(hour) * hour;
+        for m in [5, 10, 20] {
+            revisions::write(
+                tx,
+                &d,
+                revisions::RevisionReason::PreApi,
+                yjs_draft(m),
+                base + m * MINUTE,
+            )?;
+        }
+        revisions::write(
+            tx,
+            &d,
+            revisions::RevisionReason::Auto,
+            yjs_draft(99),
+            base + hour + MINUTE,
+        )?;
+        // Ten days old: two in one day → one; a manual one in the same day is never pruned.
+        let day = (NOW - 10 * DAY).div_euclid(DAY) * DAY;
+        revisions::write(
+            tx,
+            &d,
+            revisions::RevisionReason::Auto,
+            yjs_draft(100),
+            day + hour,
+        )?;
+        revisions::write(
+            tx,
+            &d,
+            revisions::RevisionReason::Auto,
+            yjs_draft(101),
+            day + 2 * hour,
+        )?;
+        revisions::write(
+            tx,
+            &d,
+            revisions::RevisionReason::Manual,
+            yjs_draft(102),
+            day + 3 * hour,
+        )?;
+        Ok(())
+    })
+    .await
+    .unwrap();
+    assert_eq!(t.w(|tx| revisions::prune(tx, NOW)).await.unwrap(), 3);
+    let d = doc.id.to_string();
+    let mut left: Vec<i64> = t
+        .query(move |c| {
+            c.prepare("SELECT source_seq FROM revisions WHERE item_id = ?1")?
+                .query_map([d], |r| r.get(0))?
+                .collect()
+        })
+        .await;
+    left.sort();
+    assert_eq!(
+        left,
+        [1, 2, 3, 4, 20, 99, 101, 102],
+        "the newest of each bucket"
+    );
+    assert_eq!(
+        t.w(|tx| revisions::prune(tx, NOW)).await.unwrap(),
+        0,
+        "stable"
+    );
 }

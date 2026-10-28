@@ -2,7 +2,8 @@
 //!
 //! Wire rules (ARCHITECTURE §7.1, D5): snake_case JSON fields; UUIDs as strings; times as RFC 3339 UTC strings
 //! ([`Timestamp`]); response fields that have no value are sent as `null`, never omitted; optional request fields may
-//! be omitted (and, where `null` means something, a `null` is kept apart from an omitted field: [`double_option`]).
+//! be omitted (and, where `null` means something, a `null` is kept apart from an omitted field: [`double_option`]);
+//! a request field that must be sent but may be `null` uses [`required_option`].
 
 use std::fmt;
 use std::str::FromStr;
@@ -365,6 +366,27 @@ pub mod double_option {
     }
 }
 
+/// `#[serde(with = "required_option")]` for a request field that must be sent but may be `null` (§7.2 writes it
+/// `field: T|null`, without `?`): a missing field is a deserialization error (422 `validation`), `null` → `None`, a
+/// value → `Some(v)`. It always serializes, `None` as `null`. Pair it with `#[ts(as = "Option<T>")]` and
+/// `#[schema(required = true)]`; never with `#[serde(default)]`, which would make the field optional again.
+pub mod required_option {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<T: Serialize, S: Serializer>(
+        value: &Option<T>,
+        s: S,
+    ) -> Result<S::Ok, S::Error> {
+        value.serialize(s)
+    }
+
+    pub fn deserialize<'de, T: Deserialize<'de>, D: Deserializer<'de>>(
+        d: D,
+    ) -> Result<Option<T>, D::Error> {
+        Option::<T>::deserialize(d)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -464,5 +486,31 @@ mod tests {
             r#"{"icon":null}"#
         );
         assert_eq!(serde_json::to_string(&Patch::default()).unwrap(), "{}");
+    }
+
+    #[test]
+    fn required_option_refuses_a_missing_field() {
+        #[derive(Deserialize, Serialize, Debug, PartialEq)]
+        struct Body {
+            #[serde(with = "required_option")]
+            parent_id: Option<u32>,
+        }
+        let err = serde_json::from_str::<Body>("{}").unwrap_err();
+        assert!(
+            err.to_string().contains("missing field `parent_id`"),
+            "{err}"
+        );
+        assert_eq!(
+            serde_json::from_str::<Body>(r#"{"parent_id":null}"#).unwrap(),
+            Body { parent_id: None }
+        );
+        assert_eq!(
+            serde_json::from_str::<Body>(r#"{"parent_id":7}"#).unwrap(),
+            Body { parent_id: Some(7) }
+        );
+        assert_eq!(
+            serde_json::to_string(&Body { parent_id: None }).unwrap(),
+            r#"{"parent_id":null}"#
+        );
     }
 }

@@ -10,7 +10,8 @@ export type MoveItem = {
  */
 collection_id?: string | null, 
 /**
- * The new parent; `null` for the top level.
+ * The new parent; `null` for the top level. Required (§7.2): a body without it is 422 `validation`, so a
+ * reorder that leaves it out never moves the item to the top level by accident.
  */
 parent_id: string | null, 
 /**

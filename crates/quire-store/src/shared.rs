@@ -60,39 +60,68 @@ impl ItemRow {
         i.content_at, i.published_at, i.archived_at, i.archive_root_id, i.deleted_at, i.deleted_by, \
         i.trash_root_id, i.meta_version";
 
+    /// The number of columns in [`ItemRow::COLUMNS`].
+    pub const COLUMN_COUNT: usize = 22;
+
     /// Reads a row selected with [`ItemRow::COLUMNS`] (from column 0).
     pub fn from_row(row: &Row<'_>) -> rusqlite::Result<ItemRow> {
-        let kind: String = row.get(4)?;
+        ItemRow::from_row_at(row, 0)
+    }
+
+    /// Reads [`ItemRow::COLUMNS`] starting at column `at` (for queries that select something before them).
+    pub fn from_row_at(row: &Row<'_>, at: usize) -> rusqlite::Result<ItemRow> {
+        let kind: String = row.get(at + 4)?;
         Ok(ItemRow {
-            id: row.get(0)?,
-            url_id: row.get(1)?,
-            collection_id: row.get(2)?,
-            parent_id: row.get(3)?,
+            id: row.get(at)?,
+            url_id: row.get(at + 1)?,
+            collection_id: row.get(at + 2)?,
+            parent_id: row.get(at + 3)?,
             kind: kind.parse().map_err(|e| {
                 rusqlite::Error::FromSqlConversionFailure(
-                    4,
+                    at + 4,
                     rusqlite::types::Type::Text,
                     Box::new(e),
                 )
             })?,
-            title: row.get(5)?,
-            icon: row.get(6)?,
-            sort_key: row.get(7)?,
-            is_template: row.get(8)?,
-            full_width: row.get(9)?,
-            created_by: row.get(10)?,
-            updated_by: row.get(11)?,
-            created_at: row.get(12)?,
-            updated_at: row.get(13)?,
-            content_at: row.get(14)?,
-            published_at: row.get(15)?,
-            archived_at: row.get(16)?,
-            archive_root_id: row.get(17)?,
-            deleted_at: row.get(18)?,
-            deleted_by: row.get(19)?,
-            trash_root_id: row.get(20)?,
-            meta_version: row.get(21)?,
+            title: row.get(at + 5)?,
+            icon: row.get(at + 6)?,
+            sort_key: row.get(at + 7)?,
+            is_template: row.get(at + 8)?,
+            full_width: row.get(at + 9)?,
+            created_by: row.get(at + 10)?,
+            updated_by: row.get(at + 11)?,
+            created_at: row.get(at + 12)?,
+            updated_at: row.get(at + 13)?,
+            content_at: row.get(at + 14)?,
+            published_at: row.get(at + 15)?,
+            archived_at: row.get(at + 16)?,
+            archive_root_id: row.get(at + 17)?,
+            deleted_at: row.get(at + 18)?,
+            deleted_by: row.get(at + 19)?,
+            trash_root_id: row.get(at + 20)?,
+            meta_version: row.get(at + 21)?,
         })
+    }
+
+    /// Whether the row is in the trash.
+    pub fn trashed(&self) -> bool {
+        self.deleted_at.is_some()
+    }
+
+    /// Whether the row is archived.
+    pub fn archived(&self) -> bool {
+        self.archived_at.is_some()
+    }
+
+    /// 409 `read_only` unless the item is live and unarchived (§7.1).
+    pub fn ensure_live(&self) -> Result<()> {
+        if self.trashed() || self.archived() {
+            return Err(Error::new(
+                ErrorCode::ReadOnly,
+                "the item is in the trash or archived",
+            ));
+        }
+        Ok(())
     }
 
     /// The API shape, with the number of visible children the caller counted.
@@ -116,6 +145,9 @@ impl ItemRow {
 }
 
 /// Sets `content_at`, `updated_at` and `updated_by` after a body save. `not_found` when the item does not exist.
+/// When the item's collection sorts its tree by `updated`, the save reorders the tree, so its `tree_version` (the
+/// `/tree` ETag) is bumped too; other orders leave it, and the tree's `updated_at` fields may lag until the next
+/// structural change.
 pub fn touch_content(tx: &Transaction<'_>, item_id: &str, actor_id: &str, now: i64) -> Result<()> {
     let n = tx.execute(
         "UPDATE items SET content_at = ?2, updated_at = ?2, updated_by = ?3 WHERE id = ?1",
@@ -124,6 +156,11 @@ pub fn touch_content(tx: &Transaction<'_>, item_id: &str, actor_id: &str, now: i
     if n == 0 {
         return Err(Error::not_found("no such item"));
     }
+    tx.execute(
+        "UPDATE collections SET tree_version = tree_version + 1
+         WHERE child_order = 'updated' AND id = (SELECT collection_id FROM items WHERE id = ?1)",
+        [item_id],
+    )?;
     Ok(())
 }
 
@@ -146,12 +183,7 @@ pub fn ensure_writable(tx: &Transaction<'_>, item_id: &str, kind: ItemKind) -> R
             format!("the item is a {}, not a {kind}", row.kind),
         ));
     }
-    if row.deleted_at.is_some() || row.archived_at.is_some() {
-        return Err(Error::new(
-            ErrorCode::ReadOnly,
-            "the item is in the trash or archived",
-        ));
-    }
+    row.ensure_live()?;
     Ok(row)
 }
 
@@ -225,39 +257,29 @@ pub(crate) fn parse_uuid(s: &str) -> Result<Uuid> {
     Uuid::parse_str(s).map_err(|e| Error::internal(format!("stored id {s:?} is not a UUID"), e))
 }
 
-/// A new UUIDv7 primary key (D4).
+/// A new UUIDv7 primary key (D4), as stored.
 pub(crate) fn new_id() -> String {
-    Uuid::now_v7().to_string()
+    quire_core::ids::new_uuid().to_string()
 }
 
-const BASE62: &[u8; 62] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-
-/// `n` random base62 characters (uniform: bytes ≥ 248 are redrawn).
+/// `n` random base62 characters ([`quire_core::ids::random_base62`]).
 pub(crate) fn random_base62(n: usize) -> Result<String> {
-    let mut out = String::with_capacity(n);
-    let mut buf = [0u8; 64];
-    while out.len() < n {
-        getrandom::fill(&mut buf)
-            .map_err(|e| Error::new(ErrorCode::Internal, format!("getrandom: {e}")))?;
-        for &b in &buf {
-            if out.len() == n {
-                break;
-            }
-            if b < 248 {
-                out.push(char::from(BASE62[usize::from(b % 62)]));
-            }
-        }
-    }
-    Ok(out)
+    quire_core::ids::random_base62(n).map_err(|e| Error::internal("getrandom", e))
 }
 
 /// A new `url_id`: 10 random base62 characters (D4).
 pub(crate) fn new_url_id() -> Result<String> {
-    random_base62(10)
+    quire_core::ids::new_url_id().map_err(|e| Error::internal("getrandom", e))
+}
+
+/// A JSON array of ids, for `… IN (SELECT value FROM json_each(?))`.
+pub(crate) fn json_ids(ids: &[String]) -> Result<String> {
+    Ok(serde_json::to_string(ids)?)
 }
 
 /// The sort key for a new row among `siblings` (`(id, sort_key)` in key order), at `position` (both ids omitted:
-/// last). An id that is not a sibling gives 422 `validation` (`field: "position"`).
+/// last). An id that is not a sibling gives 422 `validation` (`field: "position"`). The caller rebalances the group
+/// when the key is too long ([`quire_core::rank::needs_rebalance`]).
 pub(crate) fn place(
     siblings: &[(String, String)],
     position: Option<&quire_core::api::Position>,
@@ -297,298 +319,29 @@ pub(crate) fn place(
             (Some(siblings[i].1.as_str()), Some(siblings[j].1.as_str()))
         }
     };
-    rank::key_between(lo, hi)
+    Ok(quire_core::rank::key_between(lo, hi)?)
 }
 
-/// Fractional-index keys over base62 (D6). A port of the CC0 `fractional-indexing` algorithm (rocicorp,
-/// `generateKeyBetween`); minimal W0b copy until W1's `quire_core::rank::key_between` replaces it.
-pub(crate) mod rank {
-    use crate::error::{Error, Result};
-    use quire_core::api::ErrorCode;
-
-    const DIGITS: &[u8; 62] = super::BASE62;
-    const SMALLEST_INT: &str = "A00000000000000000000000000";
-
-    fn bad(msg: String) -> Error {
-        Error::new(ErrorCode::Internal, msg)
+/// [`place`], and when the new key is longer than [`quire_core::rank::MAX_KEY_LEN`], a rebalance of the whole group
+/// first (§5 "Sort keys"): `load` reads the group (`(id, sort_key)` in key order, without the row being placed) and
+/// `rewrite` stores fresh keys for it. Returns the key for the new row.
+pub(crate) fn place_rebalancing(
+    load: impl Fn() -> Result<Vec<(String, String)>>,
+    rewrite: impl FnOnce(&[(String, String)]) -> Result<()>,
+    position: Option<&quire_core::api::Position>,
+) -> Result<String> {
+    let siblings = load()?;
+    let key = place(&siblings, position)?;
+    if !quire_core::rank::needs_rebalance(&key) {
+        return Ok(key);
     }
-
-    fn digit(c: u8) -> Result<usize> {
-        DIGITS
-            .iter()
-            .position(|&d| d == c)
-            .ok_or_else(|| bad(format!("invalid sort key digit {:?}", char::from(c))))
-    }
-
-    fn int_len(head: u8) -> Result<usize> {
-        match head {
-            b'a'..=b'z' => Ok(usize::from(head - b'a') + 2),
-            b'A'..=b'Z' => Ok(usize::from(b'Z' - head) + 2),
-            _ => Err(bad(format!("invalid sort key head {:?}", char::from(head)))),
-        }
-    }
-
-    fn int_part(key: &str) -> Result<&str> {
-        let len = int_len(
-            *key.as_bytes()
-                .first()
-                .ok_or_else(|| bad("empty sort key".into()))?,
-        )?;
-        key.get(..len)
-            .ok_or_else(|| bad(format!("invalid sort key {key:?}")))
-    }
-
-    fn validate(key: &str) -> Result<()> {
-        if key == SMALLEST_INT {
-            return Err(bad(format!("invalid sort key {key:?}")));
-        }
-        let i = int_part(key)?;
-        let f = &key[i.len()..];
-        if f.as_bytes().last() == Some(&DIGITS[0]) {
-            return Err(bad(format!("invalid sort key {key:?}")));
-        }
-        for &c in key.as_bytes()[1..].iter() {
-            digit(c)?;
-        }
-        Ok(())
-    }
-
-    /// A key strictly between the fractional parts `a` and `b` (`b == None`: unbounded above).
-    fn midpoint(a: &[u8], b: Option<&[u8]>) -> Result<Vec<u8>> {
-        if let Some(b) = b {
-            let mut n = 0;
-            while n < b.len() && a.get(n).copied().unwrap_or(DIGITS[0]) == b[n] {
-                n += 1;
-            }
-            if n > 0 {
-                let mut out = b[..n].to_vec();
-                let rest_a = if n <= a.len() { &a[n..] } else { &[][..] };
-                out.extend(midpoint(rest_a, Some(&b[n..]))?);
-                return Ok(out);
-            }
-        }
-        let da = match a.first() {
-            Some(&c) => digit(c)?,
-            None => 0,
-        };
-        let db = match b {
-            Some(b) => digit(
-                *b.first()
-                    .ok_or_else(|| bad("sort keys out of order".into()))?,
-            )?,
-            None => DIGITS.len(),
-        };
-        if db - da > 1 {
-            Ok(vec![DIGITS[(da + db).div_ceil(2)]])
-        } else if let Some(b) = b.filter(|b| b.len() > 1) {
-            Ok(vec![b[0]])
-        } else {
-            let mut out = vec![DIGITS[da]];
-            let rest = if a.is_empty() { &[][..] } else { &a[1..] };
-            out.extend(midpoint(rest, None)?);
-            Ok(out)
-        }
-    }
-
-    fn increment(x: &str) -> Result<Option<String>> {
-        let b = x.as_bytes();
-        let head = b[0];
-        let mut digs = b[1..].to_vec();
-        let mut carry = true;
-        for d in digs.iter_mut().rev() {
-            if !carry {
-                break;
-            }
-            let v = digit(*d)? + 1;
-            if v == DIGITS.len() {
-                *d = DIGITS[0];
-            } else {
-                *d = DIGITS[v];
-                carry = false;
-            }
-        }
-        if carry {
-            if head == b'Z' {
-                return Ok(Some(format!("a{}", char::from(DIGITS[0]))));
-            }
-            if head == b'z' {
-                return Ok(None);
-            }
-            let h = head + 1;
-            if h > b'a' {
-                digs.push(DIGITS[0]);
-            } else {
-                digs.pop();
-            }
-            let mut out = vec![h];
-            out.extend(digs);
-            return Ok(Some(String::from_utf8(out).expect("ASCII")));
-        }
-        let mut out = vec![head];
-        out.extend(digs);
-        Ok(Some(String::from_utf8(out).expect("ASCII")))
-    }
-
-    fn decrement(x: &str) -> Result<Option<String>> {
-        let b = x.as_bytes();
-        let head = b[0];
-        let mut digs = b[1..].to_vec();
-        let mut borrow = true;
-        for d in digs.iter_mut().rev() {
-            if !borrow {
-                break;
-            }
-            let v = digit(*d)?;
-            if v == 0 {
-                *d = DIGITS[DIGITS.len() - 1];
-            } else {
-                *d = DIGITS[v - 1];
-                borrow = false;
-            }
-        }
-        if borrow {
-            if head == b'a' {
-                return Ok(Some(format!("Z{}", char::from(DIGITS[DIGITS.len() - 1]))));
-            }
-            if head == b'A' {
-                return Ok(None);
-            }
-            let h = head - 1;
-            if h < b'Z' {
-                digs.push(DIGITS[DIGITS.len() - 1]);
-            } else {
-                digs.pop();
-            }
-            let mut out = vec![h];
-            out.extend(digs);
-            return Ok(Some(String::from_utf8(out).expect("ASCII")));
-        }
-        let mut out = vec![head];
-        out.extend(digs);
-        Ok(Some(String::from_utf8(out).expect("ASCII")))
-    }
-
-    fn with_mid(int: &str, frac: &[u8], hi: Option<&[u8]>) -> Result<String> {
-        let mut out = int.as_bytes().to_vec();
-        out.extend(midpoint(frac, hi)?);
-        Ok(String::from_utf8(out).expect("ASCII"))
-    }
-
-    /// A key strictly between `a` and `b` (`None`: unbounded). `a < b` is required.
-    pub(crate) fn key_between(a: Option<&str>, b: Option<&str>) -> Result<String> {
-        if let Some(a) = a {
-            validate(a)?;
-        }
-        if let Some(b) = b {
-            validate(b)?;
-        }
-        match (a, b) {
-            (Some(a), Some(b)) if a >= b => Err(bad(format!(
-                "sort keys {a:?} >= {b:?}: the sibling group needs a rebalance"
-            ))),
-            (None, None) => Ok(format!("a{}", char::from(DIGITS[0]))),
-            (None, Some(b)) => {
-                let ib = int_part(b)?;
-                let fb = &b.as_bytes()[ib.len()..];
-                if ib == SMALLEST_INT {
-                    return with_mid(ib, &[], Some(fb));
-                }
-                if ib < b {
-                    return Ok(ib.to_owned());
-                }
-                decrement(ib)?.ok_or_else(|| bad("cannot decrement the sort key any more".into()))
-            }
-            (Some(a), None) => {
-                let ia = int_part(a)?;
-                let fa = &a.as_bytes()[ia.len()..];
-                match increment(ia)? {
-                    Some(i) => Ok(i),
-                    None => with_mid(ia, fa, None),
-                }
-            }
-            (Some(a), Some(b)) => {
-                let ia = int_part(a)?;
-                let fa = &a.as_bytes()[ia.len()..];
-                let ib = int_part(b)?;
-                let fb = &b.as_bytes()[ib.len()..];
-                if ia == ib {
-                    return with_mid(ia, fa, Some(fb));
-                }
-                let i = increment(ia)?
-                    .ok_or_else(|| bad("cannot increment the sort key any more".into()))?;
-                if i.as_str() < b {
-                    return Ok(i);
-                }
-                with_mid(ia, fa, None)
-            }
-        }
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use super::key_between;
-
-        fn kb(a: Option<&str>, b: Option<&str>) -> String {
-            key_between(a, b).unwrap()
-        }
-
-        #[test]
-        fn matches_fractional_indexing_vectors() {
-            // From the fractional-indexing README and test suite (CC0).
-            assert_eq!(kb(None, None), "a0");
-            assert_eq!(kb(None, Some("a0")), "Zz");
-            assert_eq!(kb(None, Some("Zz")), "Zy");
-            assert_eq!(kb(Some("a0"), None), "a1");
-            assert_eq!(kb(Some("a1"), None), "a2");
-            assert_eq!(kb(Some("a0"), Some("a1")), "a0V");
-            assert_eq!(kb(Some("a1"), Some("a2")), "a1V");
-            assert_eq!(kb(Some("a0V"), Some("a1")), "a0l");
-            assert_eq!(kb(Some("Zz"), Some("a0")), "ZzV");
-            assert_eq!(kb(Some("Zz"), Some("a1")), "a0");
-            assert_eq!(kb(None, Some("Y00")), "Xzzz");
-            assert_eq!(kb(Some("bzz"), None), "c000");
-            assert_eq!(kb(Some("a0"), Some("a0V")), "a0G");
-            assert_eq!(kb(Some("a0"), Some("a0G")), "a08");
-            assert_eq!(kb(Some("b125"), Some("b129")), "b127");
-            assert_eq!(kb(Some("a0"), Some("a1V")), "a1");
-            assert_eq!(kb(Some("Zz"), Some("a01")), "a0");
-            assert_eq!(kb(None, Some("a0V")), "a0");
-            assert_eq!(kb(None, Some("b999")), "b99");
-            assert_eq!(
-                kb(None, Some("A000000000000000000000000001")),
-                "A000000000000000000000000000V"
-            );
-            assert_eq!(
-                kb(Some("zzzzzzzzzzzzzzzzzzzzzzzzzzy"), None),
-                "zzzzzzzzzzzzzzzzzzzzzzzzzzz"
-            );
-            assert_eq!(
-                kb(Some("zzzzzzzzzzzzzzzzzzzzzzzzzzz"), None),
-                "zzzzzzzzzzzzzzzzzzzzzzzzzzzV"
-            );
-            assert!(key_between(None, Some("A00000000000000000000000000")).is_err());
-            assert!(key_between(Some("a00"), None).is_err());
-            assert!(key_between(Some("a1"), Some("a0")).is_err());
-        }
-
-        #[test]
-        fn appends_stay_ordered_and_short() {
-            let mut keys = vec![kb(None, None)];
-            for _ in 0..2000 {
-                let next = kb(keys.last().map(String::as_str), None);
-                assert!(next > *keys.last().unwrap());
-                keys.push(next);
-            }
-            assert!(keys.iter().all(|k| k.len() <= 4), "{:?}", keys.last());
-            let mut lo = keys[0].clone();
-            let hi = keys[1].clone();
-            for _ in 0..50 {
-                let mid = kb(Some(&lo), Some(&hi));
-                assert!(lo < mid && mid < hi);
-                lo = mid;
-            }
-        }
-    }
+    let fresh: Vec<(String, String)> = siblings
+        .iter()
+        .map(|(id, _)| id.clone())
+        .zip(quire_core::rank::rebalance(siblings.len()))
+        .collect();
+    rewrite(&fresh)?;
+    place(&load()?, position)
 }
 
 #[cfg(test)]

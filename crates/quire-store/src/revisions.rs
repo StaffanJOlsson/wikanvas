@@ -3,8 +3,8 @@
 //! §5 "Revision policy": on a content save, an `auto` revision of the new state is written when the item's newest
 //! revision (of any reason) is more than 10 minutes old, or there is none. D53 / §5 "Recovery points": before a
 //! token's content write, [`pre_api`] stores a `pre-api` revision of the current state unless the last content write
-//! came from the same token or the newest revision already holds the current state (`source_seq`). The daily prune
-//! is W1's; W0b's [`prune`] keeps everything.
+//! came from the same token or the newest revision already holds the current state (`source_seq`). [`prune`] is the
+//! daily thinning of §5.
 
 use std::collections::BTreeMap;
 
@@ -282,10 +282,49 @@ pub fn pre_api(
     Ok(true)
 }
 
-/// The revision prune (§5: 24 h, hourly for 7 days, daily for 90 days, then weekly; `manual` never). W0b keeps
-/// everything and returns 0; W1 completes it.
-pub fn prune(_tx: &Transaction<'_>, _now: i64) -> Result<u64> {
-    Ok(0)
+/// The daily revision prune (§5): per item, every revision from the last 24 h stays; older ones are thinned to the
+/// newest per hour while under 7 days old, per day while under 90 days, then per week. Buckets are fixed calendar
+/// spans of unix time (UTC), so a revision kept once stays kept until it reaches a coarser tier. `manual` revisions are
+/// never pruned (nor counted). Returns how many revisions it deleted.
+pub fn prune(tx: &Transaction<'_>, now: i64) -> Result<u64> {
+    use quire_core::time::{DAY_MS, HOUR_MS, WEEK_MS};
+    let rows = tx
+        .prepare(
+            "SELECT id, item_id, created_at FROM revisions WHERE reason <> 'manual'
+             ORDER BY item_id, created_at DESC, id DESC",
+        )?
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, i64>(2)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut kept: std::collections::HashSet<(String, u8, i64)> = std::collections::HashSet::new();
+    let mut doomed = Vec::new();
+    for (id, item, created_at) in rows {
+        let age = now - created_at;
+        let (tier, span) = if age < DAY_MS {
+            continue;
+        } else if age < 7 * DAY_MS {
+            (1, HOUR_MS)
+        } else if age < 90 * DAY_MS {
+            (2, DAY_MS)
+        } else {
+            (3, WEEK_MS)
+        };
+        if !kept.insert((item, tier, created_at.div_euclid(span))) {
+            doomed.push(id);
+        }
+    }
+    let mut stmt =
+        tx.prepare("DELETE FROM revisions WHERE id IN (SELECT value FROM json_each(?1))")?;
+    let mut deleted = 0;
+    for chunk in doomed.chunks(500) {
+        deleted += stmt.execute([serde_json::to_string(chunk)?])? as u64;
+    }
+    Ok(deleted)
 }
 
 /// The compacted state plus the stored updates as one full Yjs v1 update.

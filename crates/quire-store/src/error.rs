@@ -155,6 +155,28 @@ impl From<quire_core::cursor::CursorError> for Error {
     }
 }
 
+impl From<quire_core::rank::RankError> for Error {
+    /// A sort key that cannot be made is a store bug or a corrupt row: `internal`.
+    fn from(e: quire_core::rank::RankError) -> Self {
+        Error::internal("sort key", e)
+    }
+}
+
+impl From<quire_core::tree::TreeError> for Error {
+    /// The tree rules' refusals, with their §7.1 codes.
+    fn from(e: quire_core::tree::TreeError) -> Self {
+        use quire_core::tree::TreeError;
+        let code = match e {
+            TreeError::Cycle => ErrorCode::Cycle,
+            TreeError::ParentInvalid => ErrorCode::ParentInvalid,
+            TreeError::ReadOnly => ErrorCode::ReadOnly,
+            TreeError::Conflict => ErrorCode::Conflict,
+            TreeError::NotFound => ErrorCode::NotFound,
+        };
+        Error::new(code, e.to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

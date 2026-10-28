@@ -10,6 +10,100 @@
     "version": "1.0"
   },
   "paths": {
+    "/api/v1/archive": {
+      "get": {
+        "tags": [
+          "lists"
+        ],
+        "summary": "Archived items (archive roots that are not in the trash), most recently archived first, with `archived_at`.",
+        "operationId": "list_archive",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "The `next_cursor` of the previous page.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page size, 1–100 (default 25).",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "maximum": 100,
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_ListedItem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`validation` (`field`: `cursor`, `limit` or `query`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      }
+    },
     "/api/v1/auth/me": {
       "get": {
         "tags": [
@@ -72,6 +166,68 @@
       }
     },
     "/api/v1/collections": {
+      "get": {
+        "tags": [
+          "collections"
+        ],
+        "summary": "The live collections in sidebar order.",
+        "operationId": "list_collections",
+        "responses": {
+          "200": {
+            "description": "The collections",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Collection"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      },
       "post": {
         "tags": [
           "collections"
@@ -150,7 +306,2302 @@
             }
           },
           "422": {
-            "description": "`validation` (`field`: `name`, `color`, `description` or `position`)",
+            "description": "`validation` (`field`: `name`, `color`, `icon`, `description` or `position`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "write"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      }
+    },
+    "/api/v1/collections/{id}": {
+      "get": {
+        "tags": [
+          "collections"
+        ],
+        "summary": "A live collection, by id or `url_id`.",
+        "operationId": "get_collection",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The collection's id or url_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The collection",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Collection"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found` (also while it is in the trash)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "collections"
+        ],
+        "summary": "Moves a collection to the trash with its live items (it appears in `GET /trash`; items trashed earlier keep their\nown entries).",
+        "operationId": "delete_collection",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The collection's id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "How many items went to the trash with it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionDeleted"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`, `csrf_rejected`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found` (also when it is already in the trash)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "write"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "collections"
+        ],
+        "summary": "Edits a collection: name, icon (`null` clears it), colour, description, tree order.",
+        "operationId": "patch_collection",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The collection's id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CollectionPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The collection",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Collection"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`, `csrf_rejected`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found` (also while it is in the trash)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "`unsupported_media_type`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`validation` (`field`: `name`, `color`, `icon`, `description` or `body`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "write"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      }
+    },
+    "/api/v1/collections/{id}/move": {
+      "post": {
+        "tags": [
+          "collections"
+        ],
+        "summary": "Moves a collection to `position` among the collections.",
+        "operationId": "move_collection",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The collection's id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MoveCollection"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The collection",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Collection"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`, `csrf_rejected`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found` (also while it is in the trash)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "`unsupported_media_type`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`validation` (`field`: `position` or `body`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "write"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      }
+    },
+    "/api/v1/collections/{id}/restore": {
+      "post": {
+        "tags": [
+          "collections"
+        ],
+        "summary": "Restores a collection from the trash, with exactly the items its deletion trashed.",
+        "operationId": "restore_collection",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The collection's id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The collection",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Collection"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`, `csrf_rejected`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`conflict` (not in the trash), `setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "write"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      }
+    },
+    "/api/v1/collections/{id}/tree": {
+      "get": {
+        "tags": [
+          "tree"
+        ],
+        "summary": "A collection's visible, unarchived items as one flat list, parents before children, siblings in the\ncollection's `child_order`. 304 while `If-None-Match` holds the current ETag.",
+        "operationId": "get_tree",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The collection's id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "If-None-Match",
+            "in": "header",
+            "description": "A previous ETag: 304 while the tree is unchanged",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The tree (`Cache-Control: no-cache`)",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "`\"t{tree_version}.{viewer_epoch}\"`"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionTree"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Unchanged since the ETag in `If-None-Match`"
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found` (also while the collection is in the trash)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      }
+    },
+    "/api/v1/collections/{id}/updated": {
+      "get": {
+        "tags": [
+          "lists"
+        ],
+        "summary": "A collection's items at every depth, most recently updated first.",
+        "operationId": "list_collection_updated",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The collection's id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "The `next_cursor` of the previous page.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page size, 1–100 (default 25).",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "maximum": 100,
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_ListedItem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found` (also while the collection is in the trash)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`validation` (`field`: `cursor`, `limit` or `query`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      }
+    },
+    "/api/v1/drafts": {
+      "get": {
+        "tags": [
+          "lists"
+        ],
+        "summary": "Unpublished items (in M1 only those unpublished through the API or CLI, D23), most recently updated first.",
+        "operationId": "list_drafts",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "The `next_cursor` of the previous page.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page size, 1–100 (default 25).",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "maximum": 100,
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_ListedItem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`validation` (`field`: `cursor`, `limit` or `query`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      }
+    },
+    "/api/v1/items": {
+      "post": {
+        "tags": [
+          "items"
+        ],
+        "summary": "Creates a document or board, published (D23), with its content initialized, at `position` (omitted: last).",
+        "operationId": "create_item",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewItem"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The new item",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemSummary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`, `csrf_rejected`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`parent_invalid` (collection or parent missing, trashed, archived or foreign), `setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "`payload_too_large`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "`unsupported_media_type`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`validation` (`field`: `title`, `position` or `body`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "write"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      }
+    },
+    "/api/v1/items/{id}": {
+      "get": {
+        "tags": [
+          "items"
+        ],
+        "summary": "An item in any state, with its collection, breadcrumbs, star, effective publication, trash and archive dates and\nboard meta. `ETag: \"m{meta_version}\"` is for a later `If-Match`; this route never answers 304.",
+        "operationId": "get_item",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The item's id or url_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The item",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "`\"m{meta_version}\"`, for `If-Match` on PATCH"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "items"
+        ],
+        "summary": "Moves an item and its subtree to the trash; with `?discard_empty=true`, deletes a new empty item permanently\ninstead (created under 24 h ago, no children, blank title, empty body; published or not), else 409 `not_empty`.",
+        "operationId": "delete_item",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The item's id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "discard_empty",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "How many items were trashed (or deleted)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemTrashed"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`, `csrf_rejected`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`not_empty`, `read_only` (already in the trash), `setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`validation` (`field`: `query`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "write"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "items"
+        ],
+        "summary": "Renames an item or sets `full_width`. With `If-Match: \"m{n}\"`, a stale tag is 412 `rev_mismatch`; without it the\nlast write wins.",
+        "operationId": "patch_item",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The item's id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "`\"m{meta_version}\"` from GET; `*` or none: last write wins",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ItemPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The item",
+            "headers": {
+              "ETag": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "The new `\"m{meta_version}\"`"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemSummary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`, `csrf_rejected`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`read_only` (trashed or archived), `setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "`rev_mismatch` (`details.etag` is the current tag)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "`unsupported_media_type`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`validation` (`field`: `title` or `body`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "write"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      }
+    },
+    "/api/v1/items/{id}/archive": {
+      "post": {
+        "tags": [
+          "items"
+        ],
+        "summary": "Archives an item with its subtree (the descendants that are neither archived nor trashed).",
+        "operationId": "archive_item",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The item's id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "How many items were archived",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemsArchived"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`, `csrf_rejected`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`read_only` (trashed or already archived), `setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "write"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      }
+    },
+    "/api/v1/items/{id}/children": {
+      "get": {
+        "tags": [
+          "tree"
+        ],
+        "summary": "An item's visible children in its collection's `child_order` (an archived item's archived children).",
+        "operationId": "get_children",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The item's id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The children",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ItemSummary"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      }
+    },
+    "/api/v1/items/{id}/duplicate": {
+      "post": {
+        "tags": [
+          "items"
+        ],
+        "summary": "Duplicates an item right after it: its content (Y state or board bytes, attachments, text) and `full_width`;\nthe title gets \" (copy)\". Children are not copied; the copy is published.",
+        "operationId": "duplicate_item",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The item's id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "The copy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemSummary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`, `csrf_rejected`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`read_only` (trashed or archived), `setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "write"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      }
+    },
+    "/api/v1/items/{id}/move": {
+      "post": {
+        "tags": [
+          "items"
+        ],
+        "summary": "Moves an item with its subtree: to another parent (`null`: the top level), optionally in another collection, at\n`position` among the new siblings (omitted: last).",
+        "operationId": "move_item",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The item's id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MoveItem"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The moved item",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemSummary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`, `csrf_rejected`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`cycle`, `parent_invalid`, `read_only`, `setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "`unsupported_media_type`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`validation` (`field`: `position` or `body`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "write"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      }
+    },
+    "/api/v1/items/{id}/publish": {
+      "post": {
+        "tags": [
+          "items"
+        ],
+        "summary": "Publishes an item; with `with_ancestors: true`, its draft ancestors too. Not called by the M1 web client (D23).\nThe body may be omitted (`with_ancestors: false`).",
+        "operationId": "publish_item",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The item's id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Optional; `{}` or none publishes the item alone",
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/PublishRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The item",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemSummary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`, `csrf_rejected`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`read_only` (trashed or archived), `setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "`unsupported_media_type`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`validation` (`field`: `body`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "write"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      }
+    },
+    "/api/v1/items/{id}/restore": {
+      "post": {
+        "tags": [
+          "items"
+        ],
+        "summary": "Restores the item's trash unit (its trash root). The root goes to the end of the top level when its parent is\ngone (`moved_to_top`). Returns the root.",
+        "operationId": "restore_item",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The item's id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The restored root",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestoredItem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`, `csrf_rejected`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`parent_invalid` (the collection is in the trash: restore it first), `conflict` (not in the trash), `setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "write"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      }
+    },
+    "/api/v1/items/{id}/star": {
+      "put": {
+        "tags": [
+          "items"
+        ],
+        "summary": "Stars an item at `position` among the caller's stars (omitted: last; an existing star keeps its place). The body\nmay be omitted.",
+        "operationId": "star_item",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The item's id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Optional",
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/StarRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Starred"
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`, `csrf_rejected`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`read_only` (in the trash), `setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "`unsupported_media_type`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`validation` (`field`: `position` or `body`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "write"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "items"
+        ],
+        "summary": "Removes the caller's star (also when there is none).",
+        "operationId": "unstar_item",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The item's id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Not starred"
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`, `csrf_rejected`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "write"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      }
+    },
+    "/api/v1/items/{id}/text": {
+      "get": {
+        "tags": [
+          "items"
+        ],
+        "summary": "The derived plain text that search indexes (§6.1, §6.2), in any state.",
+        "operationId": "get_item_text",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The item's id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The text",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemText"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      }
+    },
+    "/api/v1/items/{id}/unarchive": {
+      "post": {
+        "tags": [
+          "items"
+        ],
+        "summary": "Unarchives the item's archive unit (its archive root). The root goes to the end of the top level when its parent\nis gone (`moved_to_top`). Returns the root.",
+        "operationId": "unarchive_item",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The item's id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The unarchived root",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestoredItem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`, `csrf_rejected`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`conflict` (not archived), `read_only` (in the trash), `setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "write"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      }
+    },
+    "/api/v1/items/{id}/unpublish": {
+      "post": {
+        "tags": [
+          "items"
+        ],
+        "summary": "Makes an item a draft. Always allowed (whatever its parent and children); in M1 the only way an item becomes a\ndraft (D23).",
+        "operationId": "unpublish_item",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The item's id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The item",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemSummary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`, `csrf_rejected`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`read_only` (trashed or archived), `setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "write"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      }
+    },
+    "/api/v1/items/{id}/view": {
+      "post": {
+        "tags": [
+          "items"
+        ],
+        "summary": "Records that the caller viewed the item (`GET /recent`). The web client calls it when it opens an item; the CLI\nnever does.",
+        "operationId": "view_item",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The item's id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Recorded"
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`, `csrf_rejected`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`setup_required`",
             "content": {
               "application/json": {
                 "schema": {
@@ -213,6 +2664,502 @@
           }
         },
         "security": []
+      }
+    },
+    "/api/v1/recent": {
+      "get": {
+        "tags": [
+          "lists"
+        ],
+        "summary": "The items the caller viewed (`POST /items/{id}/view`), most recently viewed first, with `last_viewed_at`.",
+        "operationId": "list_recent",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "The `next_cursor` of the previous page.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page size, 1–100 (default 25).",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "maximum": 100,
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_ListedItem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`validation` (`field`: `cursor`, `limit` or `query`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      }
+    },
+    "/api/v1/search": {
+      "get": {
+        "tags": [
+          "search"
+        ],
+        "summary": "Searches titles and bodies. Terms are words (the last one a prefix), `\"…\"` keeps a phrase, `-word` excludes;\nnothing is FTS syntax. A query without a positive term finds nothing. Archived items only with\n`include_archived=true`; drafts unless `include_drafts=false`.",
+        "operationId": "search",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "description": "At most 500 characters. `\"…\"` keeps a phrase, `-word` excludes; a query with no positive term finds nothing.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "collection_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ItemKind"
+            }
+          },
+          {
+            "name": "updated_after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/Timestamp"
+            }
+          },
+          {
+            "name": "include_archived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "include_drafts",
+            "in": "query",
+            "description": "Default `true`.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/SearchSort"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "maximum": 100,
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page of hits; snippets mark hits as parts with `hit: true`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_SearchHit"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`validation` (`field`: `q` (over 500 characters), `limit`, `cursor` or `query`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      }
+    },
+    "/api/v1/search/titles": {
+      "get": {
+        "tags": [
+          "search"
+        ],
+        "summary": "Items whose title matches `q` (the last word a prefix, accents folded), best first; a blank `q` lists the most\nrecently updated items. Visible and unarchived only.",
+        "operationId": "search_titles",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "1–20, default 10.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "maximum": 20,
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "At most `limit` items with their paths",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TitleHit"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`validation` (`field`: `q`, `limit` or `query`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      }
+    },
+    "/api/v1/sidebar": {
+      "get": {
+        "tags": [
+          "tree"
+        ],
+        "summary": "The sidebar: the live collections, the caller's stars (visible, unarchived, in star order) and the drafts count.",
+        "operationId": "get_sidebar",
+        "responses": {
+          "200": {
+            "description": "The sidebar",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Sidebar"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      }
+    },
+    "/api/v1/starred": {
+      "get": {
+        "tags": [
+          "lists"
+        ],
+        "summary": "The caller's starred items (visible, unarchived) in star order, with `starred_at`.",
+        "operationId": "list_starred",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "The `next_cursor` of the previous page.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page size, 1–100 (default 25).",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "maximum": 100,
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_ListedItem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`validation` (`field`: `cursor`, `limit` or `query`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
       }
     },
     "/api/v1/tokens": {
@@ -503,6 +3450,365 @@
           }
         ]
       }
+    },
+    "/api/v1/trash": {
+      "get": {
+        "tags": [
+          "lists"
+        ],
+        "summary": "The trash, roots only: deleted collections and item roots, each with its purge date (30 days after deletion);\nan item root also with the number of descendants trashed with it and its path.",
+        "operationId": "get_trash",
+        "responses": {
+          "200": {
+            "description": "The trash",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrashList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "lists"
+        ],
+        "summary": "Empties the trash: every item root and every deleted collection.",
+        "operationId": "empty_trash",
+        "responses": {
+          "204": {
+            "description": "The trash is empty"
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`, `csrf_rejected`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "admin"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      }
+    },
+    "/api/v1/trash/collections/{id}": {
+      "delete": {
+        "tags": [
+          "lists"
+        ],
+        "summary": "Permanently deletes a collection in the trash with every item in it.",
+        "operationId": "purge_trash_collection",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The collection's id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Purged"
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`, `csrf_rejected`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`conflict` (not in the trash), `setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "admin"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      }
+    },
+    "/api/v1/trash/items/{id}": {
+      "delete": {
+        "tags": [
+          "lists"
+        ],
+        "summary": "Permanently deletes an item in the trash with its whole subtree.",
+        "operationId": "purge_trash_item",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The item's id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Purged"
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`, `csrf_rejected`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`conflict` (not in the trash), `setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "admin"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      }
+    },
+    "/api/v1/updated": {
+      "get": {
+        "tags": [
+          "lists"
+        ],
+        "summary": "Items at every depth of every collection, most recently updated first.",
+        "operationId": "list_updated",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "The `next_cursor` of the previous page.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page size, 1–100 (default 25).",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "maximum": 100,
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_ListedItem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`validation` (`field`: `cursor`, `limit` or `query`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      }
     }
   },
   "components": {
@@ -588,6 +3894,85 @@
           "token"
         ]
       },
+      "BoardMeta": {
+        "type": "object",
+        "description": "What the server knows about a board without loading it: `board_state.meta` plus the revision and preview state.",
+        "required": [
+          "rev",
+          "pages",
+          "objects",
+          "background",
+          "bytes",
+          "text_excerpt"
+        ],
+        "properties": {
+          "background": {
+            "type": "string",
+            "description": "Background colour, `#rrggbb`."
+          },
+          "bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Size of the full envelope in bytes.",
+            "minimum": 0
+          },
+          "objects": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Number of objects on all pages.",
+            "minimum": 0
+          },
+          "pages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BoardPageMeta"
+            }
+          },
+          "preview_rev": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "The revision the stored SVG previews were made from, `null` before the first preview."
+          },
+          "rev": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The board revision; its ETag is `\"r{rev}\"`."
+          },
+          "text_excerpt": {
+            "type": "string",
+            "description": "The first characters of the board's text (page names, labels, cells)."
+          }
+        }
+      },
+      "BoardPageMeta": {
+        "type": "object",
+        "description": "One page of a board.",
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Inkboard's page id."
+          },
+          "name": {
+            "type": "string"
+          },
+          "svg_len": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Size of the page's SVG preview in bytes; `null` while there is none (list views show a placeholder when it is\nover 2 MB).",
+            "minimum": 0
+          }
+        }
+      },
       "ChildOrder": {
         "type": "string",
         "description": "How a collection orders its items in the tree. Non-manual orders are computed at read time.",
@@ -655,6 +4040,79 @@
           }
         }
       },
+      "CollectionDeleted": {
+        "type": "object",
+        "description": "Response of `DELETE /collections/{id}` (a soft delete; the collection appears in Trash).",
+        "required": [
+          "trashed_items"
+        ],
+        "properties": {
+          "trashed_items": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "CollectionPatch": {
+        "type": "object",
+        "description": "Body of `PATCH /collections/{id}`. Omitted fields stay unchanged; `icon: null` clears the icon.",
+        "properties": {
+          "child_order": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ChildOrder"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "color": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "icon": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CollectionTree": {
+        "type": "object",
+        "description": "Response of `GET /collections/{id}/tree`: every visible, unarchived item, flat, in `child_order`. ETag\n`\"t{tree_version}.{viewer_epoch}\"`.",
+        "required": [
+          "collection",
+          "items"
+        ],
+        "properties": {
+          "collection": {
+            "$ref": "#/components/schemas/Collection"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ItemSummary"
+            }
+          }
+        }
+      },
       "CreatedToken": {
         "type": "object",
         "description": "Response of `POST /tokens`: the only response that ever contains the secret.",
@@ -680,6 +4138,31 @@
           "api",
           "admin"
         ]
+      },
+      "Crumb": {
+        "type": "object",
+        "description": "One step of a breadcrumb path, root first.",
+        "required": [
+          "id",
+          "url_id",
+          "kind",
+          "title"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ItemKind"
+          },
+          "title": {
+            "type": "string"
+          },
+          "url_id": {
+            "type": "string"
+          }
+        }
       },
       "ErrorBody": {
         "type": "object",
@@ -764,6 +4247,298 @@
           }
         }
       },
+      "ItemDetail": {
+        "type": "object",
+        "description": "Response of `GET /items/{id}`, with `ETag: \"m{meta_version}\"` (never 304).",
+        "required": [
+          "item",
+          "collection",
+          "breadcrumbs",
+          "starred",
+          "effectively_published",
+          "meta_version"
+        ],
+        "properties": {
+          "archived_at": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Timestamp"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "board": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BoardMeta",
+                "description": "Boards only."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "breadcrumbs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Crumb"
+            },
+            "description": "Ancestors, root first (the item itself excluded)."
+          },
+          "collection": {
+            "$ref": "#/components/schemas/Collection"
+          },
+          "effectively_published": {
+            "type": "boolean",
+            "description": "The item and every ancestor are published (D23)."
+          },
+          "item": {
+            "$ref": "#/components/schemas/ItemSummary"
+          },
+          "meta_version": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "purge_at": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Timestamp",
+                "description": "When a trashed item is purged."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "starred": {
+            "type": "boolean"
+          },
+          "trashed_at": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Timestamp"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "ItemKind": {
+        "type": "string",
+        "description": "The kind of an item (lookup table `item_kinds`).",
+        "enum": [
+          "doc",
+          "board"
+        ]
+      },
+      "ItemPatch": {
+        "type": "object",
+        "description": "Body of `PATCH /items/{id}` (`If-Match: \"m{n}\"` optional, D45).",
+        "properties": {
+          "full_width": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ItemSummary": {
+        "type": "object",
+        "description": "An item as the tree and every list show it.",
+        "required": [
+          "id",
+          "url_id",
+          "collection_id",
+          "kind",
+          "title",
+          "sort_key",
+          "child_count",
+          "published",
+          "archived",
+          "updated_at",
+          "created_at"
+        ],
+        "properties": {
+          "archived": {
+            "type": "boolean"
+          },
+          "child_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Visible children.",
+            "minimum": 0
+          },
+          "collection_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "content_at": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Timestamp",
+                "description": "The last body save; `null` when never edited."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ItemKind"
+          },
+          "parent_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "`null` at the top level of the collection."
+          },
+          "published": {
+            "type": "boolean",
+            "description": "`published_at` is set. Items are published on create; only `unpublish` makes a draft (D23)."
+          },
+          "sort_key": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "url_id": {
+            "type": "string",
+            "description": "10 base62 characters, used in URLs (`/doc/<slug>-<url_id>`, `/board/<slug>-<url_id>`)."
+          }
+        }
+      },
+      "ItemText": {
+        "type": "object",
+        "description": "Response of `GET /items/{id}/text`: the derived plain text that search indexes.",
+        "required": [
+          "kind",
+          "title",
+          "body",
+          "updated_at"
+        ],
+        "properties": {
+          "body": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ItemKind"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          }
+        }
+      },
+      "ItemTrashed": {
+        "type": "object",
+        "description": "Response of `DELETE /items/{id}`: the number of items trashed (or deleted, with `discard_empty`).",
+        "required": [
+          "trashed"
+        ],
+        "properties": {
+          "trashed": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "ItemsArchived": {
+        "type": "object",
+        "description": "Response of `POST /items/{id}/archive`: the number of items archived (the subtree).",
+        "required": [
+          "archived"
+        ],
+        "properties": {
+          "archived": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "ListedItem": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ItemSummary"
+          },
+          {
+            "type": "object",
+            "required": [
+              "path"
+            ],
+            "properties": {
+              "archived_at": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Timestamp",
+                    "description": "`/archive` only."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "last_viewed_at": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Timestamp",
+                    "description": "`/recent` only."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "path": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Crumb"
+                },
+                "description": "Ancestors, root first."
+              },
+              "starred_at": {
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/Timestamp",
+                    "description": "`/starred` only."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "description": "An entry of a paginated item list (`/archive`, `/drafts`, `/starred`, `/recent`, `/updated`,\n`/collections/{id}/updated`): the item, its path, and the list's own field."
+      },
       "Me": {
         "type": "object",
         "description": "Response of `GET /auth/me`.",
@@ -803,6 +4578,54 @@
               {
                 "$ref": "#/components/schemas/ApiToken",
                 "description": "The calling token, when `method` is `token`."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "MoveCollection": {
+        "type": "object",
+        "description": "Body of `POST /collections/{id}/move`.",
+        "required": [
+          "position"
+        ],
+        "properties": {
+          "position": {
+            "$ref": "#/components/schemas/Position"
+          }
+        }
+      },
+      "MoveItem": {
+        "type": "object",
+        "description": "Body of `POST /items/{id}/move`.",
+        "required": [
+          "parent_id"
+        ],
+        "properties": {
+          "collection_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Omitted: the current collection."
+          },
+          "parent_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The new parent; `null` for the top level. Required (§7.2): a body without it is 422 `validation`, so a\nreorder that leaves it out never moves the item to the top level by accident."
+          },
+          "position": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Position",
+                "description": "Omitted: last."
               },
               {
                 "type": "null"
@@ -853,6 +4676,48 @@
           }
         }
       },
+      "NewItem": {
+        "type": "object",
+        "description": "Body of `POST /items`. The item is published on create (D23).",
+        "required": [
+          "collection_id",
+          "kind"
+        ],
+        "properties": {
+          "collection_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ItemKind"
+          },
+          "parent_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Omitted or `null`: top level."
+          },
+          "position": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Position",
+                "description": "Omitted: last."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "NewToken": {
         "type": "object",
         "description": "Body of `POST /tokens`.",
@@ -891,6 +4756,131 @@
           }
         }
       },
+      "Page_ListedItem": {
+        "type": "object",
+        "description": "One page of a paginated list. `next_cursor` is `null` on the last page. Cursors are opaque, stable under\nconcurrent inserts and deletes, and valid only with the query parameters that produced them.",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/ItemSummary"
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "path"
+                  ],
+                  "properties": {
+                    "archived_at": {
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/Timestamp",
+                          "description": "`/archive` only."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "last_viewed_at": {
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/Timestamp",
+                          "description": "`/recent` only."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "path": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Crumb"
+                      },
+                      "description": "Ancestors, root first."
+                    },
+                    "starred_at": {
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/Timestamp",
+                          "description": "`/starred` only."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  }
+                }
+              ],
+              "description": "An entry of a paginated item list (`/archive`, `/drafts`, `/starred`, `/recent`, `/updated`,\n`/collections/{id}/updated`): the item, its path, and the list's own field."
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "Page_SearchHit": {
+        "type": "object",
+        "description": "One page of a paginated list. `next_cursor` is `null` on the last page. Cursors are opaque, stable under\nconcurrent inserts and deletes, and valid only with the query parameters that produced them.",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "One search result.",
+              "required": [
+                "item",
+                "path",
+                "snippet",
+                "score"
+              ],
+              "properties": {
+                "item": {
+                  "$ref": "#/components/schemas/ItemSummary"
+                },
+                "path": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Crumb"
+                  },
+                  "description": "Ancestors, root first."
+                },
+                "score": {
+                  "type": "number",
+                  "format": "double"
+                },
+                "snippet": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SnippetPart"
+                  },
+                  "description": "The snippet in parts; `hit` parts are the matched terms. Render as text nodes, never as HTML."
+                }
+              }
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "Position": {
         "type": "object",
         "description": "A position among siblings (or collections, or stars). The server computes the sort key (D6). With both ids\nomitted (or `null`) the row goes last.",
@@ -913,6 +4903,35 @@
           }
         }
       },
+      "PublishRequest": {
+        "type": "object",
+        "description": "Body of `POST /items/{id}/publish`.",
+        "properties": {
+          "with_ancestors": {
+            "type": "boolean",
+            "description": "Publish draft ancestors too."
+          }
+        }
+      },
+      "RestoredItem": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ItemSummary"
+          },
+          {
+            "type": "object",
+            "required": [
+              "moved_to_top"
+            ],
+            "properties": {
+              "moved_to_top": {
+                "type": "boolean"
+              }
+            }
+          }
+        ],
+        "description": "Response of restore and unarchive: the item, and whether its subtree went to the top of the collection because\nthe old parent is gone."
+      },
       "Role": {
         "type": "string",
         "description": "A user's role (lookup table `user_roles`). M1 has a single owner.",
@@ -932,6 +4951,101 @@
           "admin"
         ]
       },
+      "SearchHit": {
+        "type": "object",
+        "description": "One search result.",
+        "required": [
+          "item",
+          "path",
+          "snippet",
+          "score"
+        ],
+        "properties": {
+          "item": {
+            "$ref": "#/components/schemas/ItemSummary"
+          },
+          "path": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Crumb"
+            },
+            "description": "Ancestors, root first."
+          },
+          "score": {
+            "type": "number",
+            "format": "double"
+          },
+          "snippet": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SnippetPart"
+            },
+            "description": "The snippet in parts; `hit` parts are the matched terms. Render as text nodes, never as HTML."
+          }
+        }
+      },
+      "Sidebar": {
+        "type": "object",
+        "description": "Response of `GET /sidebar`.",
+        "required": [
+          "collections",
+          "stars",
+          "drafts_count"
+        ],
+        "properties": {
+          "collections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Collection"
+            }
+          },
+          "drafts_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Unpublished items (in M1 only those unpublished through the API or CLI, D23).",
+            "minimum": 0
+          },
+          "stars": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ItemSummary"
+            }
+          }
+        }
+      },
+      "SnippetPart": {
+        "type": "object",
+        "description": "A part of a search snippet.",
+        "required": [
+          "text",
+          "hit"
+        ],
+        "properties": {
+          "hit": {
+            "type": "boolean"
+          },
+          "text": {
+            "type": "string"
+          }
+        }
+      },
+      "StarRequest": {
+        "type": "object",
+        "description": "Body of `PUT /items/{id}/star`.",
+        "properties": {
+          "position": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Position",
+                "description": "Among the stars; omitted: last."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
       "Theme": {
         "type": "string",
         "description": "A user's colour theme.",
@@ -945,6 +5059,108 @@
         "type": "string",
         "format": "date-time",
         "description": "A point in time. Unix milliseconds in Rust and SQL (D5); on the wire an RFC 3339 UTC string with millisecond\nprecision, e.g. `2026-10-28T09:30:00.000Z`. Parsing accepts any RFC 3339 offset and fraction (truncated to\nmilliseconds)."
+      },
+      "TitleHit": {
+        "type": "object",
+        "description": "One result of `GET /search/titles`.",
+        "required": [
+          "item",
+          "path"
+        ],
+        "properties": {
+          "item": {
+            "$ref": "#/components/schemas/ItemSummary"
+          },
+          "path": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Crumb"
+            },
+            "description": "Ancestors, root first."
+          }
+        }
+      },
+      "TrashList": {
+        "type": "object",
+        "description": "Response of `GET /trash` (roots only, unpaginated).",
+        "required": [
+          "collections",
+          "items"
+        ],
+        "properties": {
+          "collections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TrashedCollection"
+            }
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TrashedItem"
+            }
+          }
+        }
+      },
+      "TrashedCollection": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Collection"
+          },
+          {
+            "type": "object",
+            "required": [
+              "deleted_at",
+              "purge_at"
+            ],
+            "properties": {
+              "deleted_at": {
+                "$ref": "#/components/schemas/Timestamp"
+              },
+              "purge_at": {
+                "$ref": "#/components/schemas/Timestamp"
+              }
+            }
+          }
+        ],
+        "description": "A collection in the trash."
+      },
+      "TrashedItem": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ItemSummary"
+          },
+          {
+            "type": "object",
+            "required": [
+              "deleted_at",
+              "purge_at",
+              "descendant_count",
+              "path"
+            ],
+            "properties": {
+              "deleted_at": {
+                "$ref": "#/components/schemas/Timestamp"
+              },
+              "descendant_count": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "path": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Crumb"
+                },
+                "description": "Ancestors at the time of listing, root first."
+              },
+              "purge_at": {
+                "$ref": "#/components/schemas/Timestamp"
+              }
+            }
+          }
+        ],
+        "description": "A trash root item (its trashed descendants are counted, not listed)."
       },
       "User": {
         "type": "object",

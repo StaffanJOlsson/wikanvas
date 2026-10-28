@@ -19,6 +19,8 @@ sha2.workspace = true
 base64.workspace = true
 thiserror.workspace = true
 getrandom.workspace = true
+# NFKD for ids::slugify (the web slug rule); MIT OR Apache-2.0, already in Cargo.lock through comrak (caseless).
+unicode-normalization = "0.1.25"
 
 [dev-dependencies]
 proptest.workspace = true
