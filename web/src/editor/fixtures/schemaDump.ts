@@ -59,14 +59,13 @@ export function dumpSchema(schema: Schema): DocSchema {
     atom: t.isAtom,
     attrs: attrs(t.name, t.spec.attrs as Record<string, { default?: unknown }> | undefined),
   }));
-  const marks = Object.values(schema.marks)
-    .sort((a, b) => a.rank - b.rank)
-    .map((t) => ({
+  // `schema.marks` is in rank order.
+  const marks = Object.values(schema.marks).map((t, rank) => ({
       name: t.name,
-      rank: t.rank,
+      rank,
       excludes: (t.spec.excludes as string | undefined) ?? null,
       inclusive: (t.spec.inclusive as boolean | undefined) ?? null,
       attrs: attrs(t.name, t.spec.attrs as Record<string, { default?: unknown }> | undefined),
-    }));
+  }));
   return { schema_version: SCHEMA_VERSION, top_node: schema.topNodeType.name, nodes, marks } as DocSchema;
 }
