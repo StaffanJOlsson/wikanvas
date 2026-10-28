@@ -1612,9 +1612,12 @@ main (contracts) ──┬─ E1 ─┐
 **Key behaviours** (§18.3, §18.4): a card is a `rect` box with `embed {item}` and round-trips byte for byte; a malformed
 `embed` loads as a plain box; the layout is reported at most once per frame and only on change, in canvas px turned into
 frame px by `frame.js`, with the occluders of every visible egui layer above `Order::Background`; every path into
-label editing of a card sends `onEmbedOpen` instead (with the double-click point); `setEmbedEditing` hides the card's
-handles and the first press or focus gain in the frame ends it, a canvas press swallowed; `insertEmbed` uses §18.2's
-defaults exactly (480 × 360, the style and label), one undo step, `null` when read-only; `setEmbedTitles` changes labels
+label editing of a card sends `onEmbedOpen` instead (with the double-click point), and nothing at all in a read-only
+host (a right-click selects there, so Enter and the menu's "Edit text" still reach `start_editing`);
+`setEmbedEditing` hides the card's handles, turns the engine's shortcuts off while it lasts, and the first press or
+focus gain in the frame ends it, a canvas press swallowed; `insertEmbed` validates a label being typed first, uses
+§18.2's defaults exactly (480 × 360, the style and label, the first visible unlocked layer), one undo step, `null`
+when read-only (checked before `ed.insert`, which returns an id even then); `setEmbedTitles` changes labels
 in place with no revision, again after every revision change, cleared by `host_load_doc`; capture-phase `dragenter`,
 `dragover` and `drop` for `application/x-quire-item` only, refused while read-only; no `t()` string; every changed file
 has its notice line.
@@ -1642,44 +1645,48 @@ New frame tests (`e2e/tests/frame.spec.ts`, real engine, `fixtures/boards/embed.
 
 | Test | Checks |
 |---|---|
-| `embeds: the layout of the fixture` | One `onEmbedLayout` after `open()`: two embeds with the fixture's object ids, items, frames and labels, the plain box left out; `items` sorted; `editing` null; `canvas` the whole canvas; `occluders` non-empty and inside `canvas`; a pixel probe at `origin + centre × zoom` of a card sees its white fill |
-| `embeds: pan and zoom report at most once per frame` | A wheel zoom and a Hand-tool drag change `zoom` and `origin`; reports ≤ animation frames during the gesture; no report in 1 s of idling; none for a pan on a board without cards (`frame-test.inkboard`) |
+| `embeds: the layout of the fixture` | One `onEmbedLayout` after `open()`: two embeds with the fixture's object ids, items, frames and labels, the plain box left out; `items` sorted; `editing` null; `canvas` the whole canvas; `occluders` non-empty and inside `canvas`; a screenshot of the 80 × 24 px region centred at `origin + centre × zoom` of each card holds pixels darker than `#808080` (the engine's centred title snapshot; the fixture's background and the card's fill are both white, so a fill probe would prove nothing), while the same region 120 world units above a card's centre (inside the card, its white fill) holds none |
+| `embeds: pan and zoom report at most once per frame` | A wheel zoom and a Hand-tool drag change `zoom` and `origin`; reports ≤ the animation frames during the gesture plus 2 (eframe also runs an engine frame inside `pointerdown` and `pointerup`, §18.3); no report in 1 s of idling; none for a pan on a board without cards (`frame-test.inkboard`) |
 | `embeds: open instead of label editing` | A double-click on a card gives `onEmbedOpen` with its `objectId`, `item` and `point` within 2 px of the click, the card selected, no `onChange` and the snapshot unchanged; Enter on the selected card gives `point: null`; the plain box still edits its label (positive control) |
-| `embeds: the editing state` | `setEmbedEditing(id)` → `layout.editing === id`; a click on empty canvas → `onEmbedEditEnd {reason: 'press'}`, no marquee and the selection unchanged; again, then a click on an engine toolbar button → `press` and the tool changes; focusing the canvas after focusing another element → `focus`; `open()` of another board while editing → `gone` |
-| `embeds: insertEmbed` | `'center'` returns an id, sends `onChange`, and the snapshot holds the card with exactly §18.2's defaults centred on the view centre; a point gives a card centred there (±1 world unit); Ctrl+Z removes it; read-only returns `null` and changes nothing |
+| `embeds: the editing state` | `setEmbedEditing(id)` → `layout.editing === id`; with the canvas still focused, `r`, `Delete` and Ctrl+V change neither the tool nor the board (no `onChange`, the card still there); a click on empty canvas → `onEmbedEditEnd {reason: 'press'}`, no marquee and the selection unchanged; again, then a click on an engine toolbar button → `press` and the tool changes; focusing the canvas after focusing another element → `focus`; `open()` of another board while editing → `gone` |
+| `embeds: insertEmbed` | `'center'` returns an id, sends `onChange`, and the snapshot holds the card with exactly §18.2's defaults centred on the view centre; a point gives a card centred there (±1 world unit); Ctrl+Z removes it; read-only returns `null` and the snapshot gains no object; with the first layer hidden (a variant of the fixture built in the test) the card goes on the second, visible layer |
 | `embeds: titles in place` | `setEmbedTitles` changes the layout's label with no `onChange`, the same revision and `isDirty()` false; after drawing a rectangle the snapshot holds the new label; after `open()` of the same board again the map is cleared |
 | `embeds: round trip and lenient model` | The fixture round-trips byte for byte (without views); a box with `"embed": 5` opens without a `load` error and its snapshot has no `embed`; an ellipse with an `embed` keeps it in the snapshot and is not in the layout |
 | `embeds: drop of a sidebar document` | A synthetic `dragover` with `application/x-quire-item` is accepted (`defaultPrevented`); the `drop` gives `onDropItem` with the `DraggedItem` and the drop point; a drop without the type, with JSON that does not parse, with `v: 2` or `kind: 'board'` gives nothing; read-only: the `dragover` is not accepted and no event |
 | `embeds: no rotation handle for a single card` | Dragging from where the rotation handle of a selected card would be leaves its `angle` 0; the same gesture on the plain box rotates it (positive control) |
-| `embeds: read-only` | A double-click on a card gives no `onEmbedOpen` |
+| `embeds: read-only` | A double-click on a card gives no `onEmbedOpen`; neither do Enter nor the context menu's "Edit text" on a card selected with a right-click |
 
 The M1 frame tests keep passing, and every new test also checks that no CSP violation was recorded.
 
 ### E2: server, core, store, AGENTS.md, agent scenario 12
 
-**Goal.** ARCHITECTURE §18.8–§18.10: cards become `item_links`, nothing about them is refused, agents can build them.
+**Goal.** ARCHITECTURE §18.8–§18.10: cards become `item_links`, no value of `embed` is refused (only a repeated
+`embed` key), an embedded item is never discarded, agents can build cards.
 
 **Owns.**
 
 | Area | Files |
 |---|---|
 | `crates/quire-core` | `src/board.rs` |
-| `crates/quire-store` | `src/boards.rs`, `tests/store/boards.rs` |
+| `crates/quire-store` | `src/boards.rs`, `tests/store/boards.rs`; in `src/items.rs` only `discard_empty` (the `embed` link check, §18.8) |
 | `crates/quire-server` | `src/routes/boards.rs` (only if a change is needed), `tests/api/boards.rs` |
 | Docs | `docs/AGENTS.md`, `docs/handoff/E2.md` |
 | Agent harness | `e2e/agent/scenarios/12-board-embeds.sh`, any new `e2e/agent/fixtures/embed-*.inkboard` |
 
 **Produces.** `quire_core::board::Inspect::embeds`, `EMBED_LINKS_MAX` (1000), the embed scan (§18.8); `boards::save`,
 `boards::init_with` and `boards::copy` maintaining `item_links` kind `embed` (board → target), the board's own id skipped;
-AGENTS.md §8 "Embedded pages" with the §18.2 JSON, its rules and the `jq` recipe; scenario 12. No route, DTO or
-OpenAPI change.
+the 422 for a repeated `embed` key; `items::discard_empty` refusing an item that any `embed` link targets; AGENTS.md
+§8 "Embedded pages" with the §18.2 JSON, its rules and the `jq` recipe; scenario 12. No route, DTO or OpenAPI change
+(the `discard_empty` parameter's description in `quire-api` stays as it is).
 
 **Consumes.** §18.2 and `fixtures/boards/embed.inkboard`; nothing from E1 or E3.
 
-**Key behaviours.** The scan is a second, borrowed, typed pass after `from_json` (no `Value` tree) and never fails a
-PUT; only `type: "box"`, `geom: "rect"`, an `embed` object with a canonical-UUID string `item` counts; targets are
-distinct in first-appearance order and capped at 1000; the links are replaced in the PUT's writer transaction after the
-body text, untouched by a no-op save; nothing checks that a target exists.
+**Key behaviours.** The scan is a second, borrowed, typed pass after `from_json` (no `Value` tree, `Cow<str>` for
+`type` and `geom`); it fails a PUT only for a box kind with the key `embed` twice (422 `invalid_board`, which the M1.1
+engine could not load), and any other failure gives no embeds; only `type: "box"`, `geom: "rect"`, an `embed` object
+with a canonical-UUID string `item` counts; targets are distinct in first-appearance order and capped at 1000; the
+links are replaced in the PUT's writer transaction after the body text, untouched by a no-op save; nothing checks that
+a target exists; `discard_empty` answers 409 `not_empty` for an item that is the `target_id` of an `embed` row.
 
 **Acceptance.**
 
@@ -1705,12 +1712,15 @@ These tests must exist and pass:
 | core | `board::tests::embeds_distinct_and_capped` (one target twice gives it once; 1001 distinct give the first 1000) |
 | core | `board::tests::embed_fixture_round_trips_byte_identical` (`split` then `splice` gives the input with the title) |
 | core | `board::tests::embed_fixture_text_and_preview` (the text has both labels; page 0's SVG holds "First page") |
+| core | `board::tests::embeds_repeated_key_is_refused` (a box kind with `"embed"` twice: 422 `invalid_board`; the same key once in each of two boxes, and a kind whose `"type"` is written `"bo\u0078"`, scan without an error) |
 | Store | `boards::save_records_embed_links` (rows `(board, target, 'embed')`; a second save with one card leaves one row; a no-op save keeps them; the board's own id is never linked) |
 | Store | `boards::init_with_records_embed_links` |
 | Store | `boards::copy_copies_embed_links` |
 | Store | `boards::purging_a_board_drops_its_links_not_a_targets` (purging the board removes its rows; purging a target leaves the board's row) |
+| Store | `boards::discard_empty_keeps_embedded_items` (a new empty untitled document that a board's card targets: `items::discard_empty` is 409 `not_empty`; after a save without the card it is deleted; a new empty board that a document embeds is kept the same way) |
 | API | `boards::put_with_embeds_keeps_them_byte_for_byte` (session and bearer clients) |
 | API | `boards::malformed_embeds_are_accepted_and_kept` |
+| API | `boards::repeated_embed_key_is_refused` (422 `invalid_board`, the stored board unchanged) |
 | API | `boards::put_with_embeds_records_links` |
 | API | `boards::duplicate_board_copies_embed_links` (through `POST /items/{id}/duplicate`) |
 
@@ -1728,8 +1738,12 @@ Agent scenario `12-board-embeds.sh` (CLI only, against the image, like 04):
 7. `item duplicate` of the board: the copy's `board get` has the same two targets.
 8. `item trash` of the board: the child shows `trashed_at`, the shared page does not; `item restore`: the child is back.
 9. `item move` of the child to the top level: `board get` is unchanged.
-10. AGENTS.md's `jq` recipe, verbatim with the scenario's ids, appends a card for the shared page: `board put` exits 0
-    and the board has three cards.
+10. AGENTS.md's `jq` recipe, verbatim with the scenario's ids, appends a card for the shared page: `board put` exits 0,
+    and `board get`'s page 0 ends with that card (`kind.embed.item` the shared page's id) while every earlier object is
+    unchanged.
+11. A new empty, untitled document `$SPARE` (`item create --kind doc` with neither `--title` nor `--md`), then a card
+    for it appended to the board (`board put`): `item trash "$SPARE" --discard-empty` exits 8 with `not_empty`; after a
+    `board put` without that card it exits 0 and `item get "$SPARE"` exits 7.
 
 ### E3: web (host overlay, Text doc, Embed page…, sidebar drag and drop)
 
@@ -1742,7 +1756,7 @@ against the fake frame, since E1's engine arrives at the merge.
 |---|---|
 | Board host | `web/src/board/embed/**` (new), `web/src/board/{BoardFrameHost.tsx,host.ts,fakeFrame.ts,testkit.tsx,board.css,BoardSurface.tsx}`, the tests in `web/src/board/` |
 | Board page | `web/src/pages/BoardPage.tsx` |
-| Editor | `web/src/editor/{QuireEditor.tsx,menus.tsx,extensions.ts}`, new tests in `web/src/editor/` |
+| Editor | `web/src/editor/{QuireEditor.tsx,menus.tsx,extensions.ts,slash.ts}` (`slash.ts`: leaving out an item whose callback is missing), new tests in `web/src/editor/` |
 | Sidebar | `web/src/components/sidebar/TreeRow.tsx`, a new test next to it |
 | Queries | `web/src/api/queries/docs.ts` |
 | Docs | `docs/handoff/E3.md` |
@@ -1760,13 +1774,19 @@ the board page needs them.
 `GET /search/titles`, the doc session's routes).
 
 **Key behaviours** (§18.5–§18.7): the overlay shares the iframe's rect, applies each layout synchronously to the DOM, and
-re-renders only when the set of drawn cards changes; at most 24 static cards at zoom ≥ 0.5 and ≥ 120 × 80 px, inset 12
-world units; clipped to the canvas minus the occluders (disjoint holes); static cards are read-only TipTap viewers of
-`DocJson` (200 blocks, `If-None-Match`); one editing card on a `DocSession`, entered on `onEmbedOpen` with
-`setEmbedEditing`, the caret at the double-click point, left on Esc (then `frame.focus()`), `onEmbedEditEnd`, a
-pointerdown outside the card and `popupRoot`, and every board or target state change; the target states; paper cards;
-the three ways to add through one `insertCard`; the discard of empty unreferenced "Text doc" documents; titles to
-`setEmbedTitles`; Focus over the layer; the buttons only when the frame has `insertEmbed`.
+re-renders only when the set of drawn cards changes; `overflow: clip` (never `hidden`) on the overlay and the card
+boxes, only the editing body scrolls, and no `will-change`; at most 24 static cards at zoom ≥ 0.5 and ≥ 120 × 80 px
+with hysteresis, inset 12 world units, inner sizes clamped at 0; clipped to the canvas minus the occluders (disjoint
+holes); static cards are read-only TipTap viewers of `DocJson` (200 blocks, `If-None-Match`, `injectCSS: false`), with
+"Empty page", "Double-click to edit" on a selected card, and a title link on a read-only board; one editing card on a
+`DocSession`, entered on `onEmbedOpen` with `setEmbedEditing` and focus moved to the card at once, the caret at the
+double-click point (through world units), left on Esc (then `frame.focus()`), `onEmbedEditEnd`, a pointerdown outside
+the card and `popupRoot`, a later layout without the card or no longer editing it, and every board or target state
+change; `popupRoot` in `document.body`, moved into `.board-frame-layer` while it is fullscreen; no board items in a
+card's slash menu; Ctrl+wheel over the editing card prevented; the target states; paper cards with `color-scheme:
+light`; the three ways to add through one `insertCard` (a drop titled from the cached `ItemDetail`); the discard of
+empty unreferenced "Text doc" documents, before the board's own discard; titles to `setEmbedTitles`; Focus over the
+layer; the buttons only when the frame has `insertEmbed`.
 
 **Acceptance.**
 
@@ -1782,16 +1802,16 @@ These tests must exist and pass:
 
 | File | Checks |
 |---|---|
-| `board/embed/layout.test.ts` | world → frame → viewport with an iframe offset; `chooseCards`: the 0.5 zoom and 120 × 80 px thresholds, the cap of 24 largest first, the editing card always, off-screen and rotated bounds; `clipPath` with overlapping and edge-touching occluders gives disjoint holes whose area is the union's |
-| `board/embed/embedLayer.test.tsx` | a fake layout sets the world transform and the card boxes (inset 12); a camera-only layout renders no card component again (a render counter); hidden and `inert` with the iframe; emptied on a frame reset; another board's events ignored; `requestEmbedLayout` after `open()` |
-| `board/embed/staticCard.test.tsx` | `DocJson` fetched once, revalidated with `If-None-Match` (304 keeps it); only the first 200 blocks; no POST ever; the states `loading`, `static`, `trashed`, `archived`, `missing` (404, a non-UUID `item`, a board target) and `error` |
-| `board/embed/editing.test.tsx` | `onEmbedOpen` → `setEmbedEditing(id)`, a `DocSession` for the target, the editor focused with the caret from the converted point, typing POSTs only the document's updates; Esc → `setEmbedEditing(null)`, flush, `frame.focus()`; `onEmbedEditEnd` ends without moving focus; a pointerdown outside ends it, one in `popupRoot` does not; a second `onEmbedOpen` ends and flushes the first before opening; never opened on a read-only board or for a trashed, archived or missing target; ends when the board turns read-only; an open failure → the toast and `setEmbedEditing(null)` |
-| `board/embed/textDoc.test.tsx` | "Text doc": `POST /items` with `parent_id` = the board and `kind: "doc"`, then `insertEmbed({at: 'center', title: 'Untitled'})`, then editing; disabled while read-only or without `insertEmbed`; leaving the board discards created documents absent from `items` (`DELETE ?discard_empty=true`) and keeps the referenced ones; an insert failure discards at once |
+| `board/embed/layout.test.ts` | world → frame → viewport with an iframe offset; `chooseCards`: the 0.5 zoom and 120 × 80 px thresholds, the hysteresis (a drawn card stays down to 0.45 and 108 × 72 px, a new one needs 0.5), the cap of 24 largest first, the editing card always, off-screen and rotated bounds; inner boxes of a 20 × 20 card clamp at 0; `clipPath` with overlapping and edge-touching occluders gives disjoint holes whose area is the union's |
+| `board/embed/embedLayer.test.tsx` | a fake layout sets the world transform (and no `will-change`) and the card boxes (inset 12); a camera-only layout renders no card component again (a render counter); hidden and `inert` with the iframe; emptied on a frame reset; another board's events ignored; `requestEmbedLayout` after `open()`; `.board-embed-popups` moves into `.board-frame-layer` on a `fullscreenchange` that makes the layer the fullscreen element, and back to `document.body` on the next |
+| `board/embed/staticCard.test.tsx` | `DocJson` fetched once, revalidated with `If-None-Match` (304 keeps it); only the first 200 blocks; no POST ever; no `<style>` element added to `document.head` (`injectCSS: false`); "Empty page" for an empty document; "Double-click to edit" only while selected on a writable board; on a read-only board the header title is a link to the page; the states `loading`, `static`, `trashed`, `archived`, `missing` (404, a non-UUID `item`, a board target) and `error` |
+| `board/embed/editing.test.tsx` | `onEmbedOpen` → `setEmbedEditing(id)` and the card focused before the session has opened (a pending `GET …/doc`), then a `DocSession` for the target, the editor focused with the caret from the converted point (the camera moved in between), typing POSTs only the document's updates; Esc while the session still opens ends it; Esc → `setEmbedEditing(null)`, flush, `frame.focus()`; `onEmbedEditEnd` ends without moving focus; the first layout after `onEmbedOpen` with `editing: null` does not end it, a later layout without the card or with `editing` no longer this card does; a pointerdown outside ends it, one in `popupRoot` does not; an `onEmbedOpen` for the editing card changes nothing, a second one for another card ends and flushes the first before opening; never opened on a read-only board or for a trashed, archived or missing target; ends when the board turns read-only; an open failure → the toast and `setEmbedEditing(null)`; a Ctrl+wheel over the editing card is `defaultPrevented` |
+| `board/embed/textDoc.test.tsx` | "Text doc": `POST /items` with `parent_id` = the board and `kind: "doc"`, then `insertEmbed({at: 'center', title: 'Untitled'})`, then editing; disabled while read-only or without `insertEmbed`; leaving the board discards created documents absent from `items` (`DELETE ?discard_empty=true`, a 409 ignored) and keeps the referenced ones, before a created board's own discard; an insert failure discards at once |
 | `board/embed/picker.test.tsx` | "Embed page…" lists documents only (a board hit filtered out), Enter takes the first, Esc closes, `insertEmbed` at the centre, then `frame.focus()` |
-| `board/embed/drop.test.tsx` | `onDropItem` with a document → `insertEmbed` at its point; a non-UUID id, another board's event or a read-only board → nothing; a drop on the editing card is taken in the capture phase and its viewport point converted to frame px |
+| `board/embed/drop.test.tsx` | `onDropItem` with a document → `insertEmbed` at its point, titled from the cached `ItemDetail` when there is one and from the drag data otherwise; a non-UUID id, another board's event or a read-only board → nothing; a drop on the editing card is taken in the capture phase and its viewport point converted to frame px |
 | `board/embed/titles.test.ts` | `setEmbedTitles` gets `title.trim() \|\| 'Untitled'` for every cached target in `items`, debounced 250 ms, only when the map changed; a rename in the cache updates it |
 | `board/boardPage.test.tsx` (updated) | Focus fullscreens `.board-frame-layer`; the two buttons exist only when the frame has `insertEmbed` |
-| `editor/embedVariant.test.tsx` | `variant="embed"`: the slash and mention popups render in `popupRoot`, the bubble and table menus are appended to it with `strategy: 'fixed'`, no block handle, no heading anchors; `variant="page"` (the default) renders as before |
+| `editor/embedVariant.test.tsx` | `variant="embed"`: the slash and mention popups render in `popupRoot`, the bubble and table menus are appended to it with `strategy: 'fixed'`, no block handle, no heading anchors, and without `pickBoard`/`newBoard` the slash menu has no "Embed board…" and no "New board"; `variant="page"` (the default) renders as before, with both items |
 | `components/sidebar/dragExternal.test.tsx` | a document row's `draggable` has `getInitialDataForExternal` giving `{'application/x-quire-item': JSON.stringify({v: 1, id, kind: 'doc', title})}`; board and collection rows have none |
 
 ### Merge stage (M)
@@ -1828,7 +1848,11 @@ file, each as its own commit with a test.
 7. Double-click the word "quokka" in C's card with `page.mouse` at the word's box (a static card takes no pointer
    events, so the double-click reaches the engine): the card is `editing` and the focus is in its editor; press End and
    type " numbat": "Saved", and `GET /api/v1/items/{C}/text` holds "quokka numbat". Click an empty part of the canvas
-   with `page.mouse`: the card is `static` again, and the next board save (if any) holds no new object.
+   with `page.mouse`: the card is `static` again, and the next board save (if any) holds no new object. Then zoom in
+   with the wheel over an empty part of the canvas until C's card is taller than the canvas, double-click its body near
+   the top, press Ctrl+End and Enter ten times: `.board-embeds` keeps `scrollTop` and `scrollLeft` 0 (ARCHITECTURE
+   §18.5 `overflow: clip`) and the card's `getBoundingClientRect()` is the one it had before the keys (±2 px); Ctrl+Z
+   ten times and a click on empty canvas leave the text as it was (step 8's reload refits the view).
 8. Reload: once the engine is ready, the three cards are `static` and show "wombat", "quokka numbat" and A's text;
    open C: its body holds "quokka numbat".
 

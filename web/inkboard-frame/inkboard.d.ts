@@ -41,7 +41,7 @@ export interface MountOptions {
   onError?(e: { kind: 'panic'; message: string }): void;
   // Patch 0005, embedded documents (docs/ARCHITECTURE.md §18.3). Called after the frame, like the others.
   onEmbedLayout?(e: EngineEmbedLayout): void;   // at most once per frame, when anything in it changed
-  onEmbedOpen?(e: EngineEmbedOpen): void;       // instead of editing a card's label
+  onEmbedOpen?(e: EngineEmbedOpen): void;       // instead of editing a card's label; never while read-only
   onEmbedEditEnd?(e: EngineEmbedEditEnd): void; // the editing set by setEmbedEditing ended in the engine
 }
 
@@ -60,7 +60,7 @@ export interface InkboardHandle {
   destroy(): void;                                  // runner.destroy(), clear_ctx(); handle becomes inert; mount allowed again
   // Patch 0005, embedded documents (§18.3); absent from an engine built without it.
   insertEmbed?(a: EngineInsertEmbed): string | null; // one undo step, selected; null when read-only; throws {kind:'start'} when inert
-  setEmbedEditing?(id: string | null): void;
+  setEmbedEditing?(id: string | null): void;        // while set: no handles, no shortcut; ended by a press or focus
   setEmbedTitles?(titles: Record<string, string>): void; // replaces the map; labels change in place (no undo, no revision)
   requestEmbedLayout?(): void;                      // onEmbedLayout after the next frame even when unchanged
 }

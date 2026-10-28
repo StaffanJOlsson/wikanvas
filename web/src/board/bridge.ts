@@ -14,7 +14,8 @@ export interface FrameEvents {
   // M1.1, board document embeds (docs/ARCHITECTURE.md §18.4):
   /** The cards of the current page and the camera, after a frame in which any of it changed (at most one per frame). */
   onEmbedLayout?(e: EmbedLayout): void;
-  /** The user asked to edit a card (double-click, Enter, or the context menu's "Edit text"): the host may open it. */
+  /** The user asked to edit a card (double-click, Enter, or the context menu's "Edit text"): the host may open it.
+   *  Never sent while the board is read-only. */
   onEmbedOpen?(e: EmbedOpenEvent): void;
   /** The engine ended the editing set by `setEmbedEditing` (a press in the frame, the frame took focus, the card left). */
   onEmbedEditEnd?(e: EmbedEditEndEvent): void;
@@ -38,11 +39,12 @@ export interface BoardFrameApi {
   fitView(): void;
   // M1.1, board document embeds (§18.4). Optional: a frame without them (M1, the fake frame before E3) still types,
   // and the host offers embeds only when the connected frame has `insertEmbed`.
-  /** Adds a card to the current page (one undo step) and selects it; its id, or null when the board is read-only.
-   *  Throws while no board is open. */
+  /** Adds a card to the current page (one undo step, on the first visible unlocked layer) and selects it; its id, or
+   *  null when the board is read-only. Throws while no board is open. */
   insertEmbed?(a: InsertEmbedArgs): string | null;
-  /** The card being edited in the host (null: none). The engine keeps it selected, hides its handles, and ends the
-   *  editing itself on a press in the frame or when the frame takes focus (`onEmbedEditEnd`). */
+  /** The card being edited in the host (null: none). The engine keeps it selected, hides its handles, handles no key
+   *  while it lasts, and ends the editing itself on a press in the frame or when the frame takes focus
+   *  (`onEmbedEditEnd`). An id that is not a card on the current page's visible layers is ignored. */
   setEmbedEditing?(objectId: string | null): void;
   /** The live titles, by item id (already "Untitled" for a blank title). Replaces the previous map; the engine shows
    *  them as the cards' labels without an undo step or a revision, and the next save stores them. */
