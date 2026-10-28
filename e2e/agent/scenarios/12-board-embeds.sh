@@ -188,6 +188,17 @@ expect ".content.document.pages[0].objects[-1] | .kind.type == \"box\" and .kind
 expect ".content | $linked == ([\"$child\", \"$shared\"] | sort)"
 ok "AGENTS.md's jq recipe appends a card for the shared page; every earlier object of page 0 is unchanged"
 
+# 10b. The recipe's title snapshot is the one the web client writes (§18.7: the title trimmed, else "Untitled").
+q item create --collection "$SCRATCH" --kind doc --title "  Padded  title  "
+expect_rc 0
+expect '.title == "  Padded  title  "'
+padded="$(val .id)"
+run_recipe "$board" "$padded" || _fail "the AGENTS.md recipe failed for the padded title: $(tail -n 3 "$work/recipe.err")"
+q board get "$board"
+expect_rc 0
+expect ".content.document.pages[0].objects[-1] | .kind.embed.item == \"$padded\" and .kind.label.text[0].text == \"Padded  title\""
+ok "the recipe's title snapshot leaves out the title's leading and trailing spaces, as the web client's does"
+
 # 11. A card keeps a new, empty, untitled document from being discarded; without the card it goes.
 q item create --collection "$SCRATCH" --kind doc
 expect_rc 0
