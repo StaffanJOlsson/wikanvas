@@ -2,9 +2,10 @@
 
 Quire is licensed under the MIT License (`LICENSE`).
 It builds on the software below, each under its own licence. Every package Quire ships is under, or offers, a licence
-on Quire's allow-list (MIT, Apache-2.0, BSD, ISC, Zlib, Unicode or CC0; docs/PLAN.md rule R6). Two exceptions are
-open for the owner: lightningcss, a build-time tool (MPL-2.0), and the fonts inside the whiteboard engine (SIL OFL 1.1
-and the Ubuntu Font Licence); both are described below. Nothing comes from AGPL or BSL projects, or from TipTap Pro or
+on Quire's allow-list (MIT, Apache-2.0, BSD, ISC, Zlib, Unicode or CC0; docs/PLAN.md rule R6). lightningcss, a
+build-time tool, is MPL-2.0, which R6 allows for build-only tools (the owner's decision of 2026-10-28). One exception
+is still open for the owner: the fonts inside the whiteboard engine (SIL OFL 1.1 and the Ubuntu Font Licence). Both
+are described below. Nothing comes from AGPL or BSL projects, or from TipTap Pro or
 Cloud.
 
 This file is the record in the source tree, and the standalone CLI (`scripts/cli-dist.sh`) ships it next to the
@@ -62,19 +63,13 @@ Outline's source.
   uses the system CA bundle (D54); option-ext (MPL-2.0): rust-embed's `interpolate-folder-path` feature is off;
   OpenSSL, native-tls and aws-lc: no crate pulls them in.
 
-## Open for the owner: lightningcss (MPL-2.0, build time only)
+## lightningcss (MPL-2.0, build time only): allowed
 
 Vite 8.3.5, the web client's bundler, depends on **lightningcss 1.33.0** and its platform package
-(`lightningcss-linux-x64-gnu` in the build container), both **MPL-2.0**, which is not on the R6 allow-list. They run
-only while `pnpm --dir web build` runs (in `scripts/dev.sh` or the image's `web` stage), and none of their code ends up
-in `web/dist`, so they are not part of anything Quire distributes. The owner was offered two ways out, and has not
-chosen yet:
-
-1. accept MPL-2.0 for build-only tools (a sentence in PLAN R6 and ARCHITECTURE §4.2, and this note stays); or
-2. re-pin to Vite 7 with @vitejs/plugin-react 5, which do not depend on lightningcss, and regenerate
-   `web/pnpm-lock.yaml`.
-
-Until then the pins stay as they are (ARCHITECTURE §16, risk 24).
+(`lightningcss-linux-x64-gnu` in the build container), both **MPL-2.0**. They run only while `pnpm --dir web build`
+runs (in `scripts/dev.sh` or the image's `web` stage), and none of their code ends up in `web/dist`, so they are not
+part of anything Quire distributes. On 2026-10-28 the owner allowed MPL-2.0 for build-only tools (PLAN R6), rather
+than re-pinning to Vite 7 with @vitejs/plugin-react 5 (ARCHITECTURE §16, risk 24).
 
 ## Container images
 

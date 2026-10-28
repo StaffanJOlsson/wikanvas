@@ -297,7 +297,7 @@ Dev: vite 8.3.5, @vitejs/plugin-react, typescript 7.0.2, vitest 5.0.5, happy-dom
 @testing-library/dom (its required peer), @testing-library/user-event, fake-indexeddb, @types/react and
 @types/react-dom. `packageManager` is `pnpm@11.24.0`; the versions W0b picked where this list gives none are in
 `web/package.json`. vite 8.3.5 hard-depends on lightningcss 1.33.0 (MPL-2.0, build time only, nothing of it in
-`web/dist`), which is not on the licence allow-list: open for the owner (§16 item 24, `THIRD_PARTY.md`).
+`web/dist`), allowed as a build-only tool (owner, 2026-10-28; PLAN R6, §16 item 24, `THIRD_PARTY.md`).
 Scripts: `dev` (Vite on 0.0.0.0:5173, proxying `/api` and `/inkboard` to 127.0.0.1:8080), `build`,
 `test` (`vitest run`; config `maxWorkers: 4`), `typecheck` (`tsc --noEmit -p . && tsc --noEmit -p inkboard-frame`),
 `fixtures` (`WRITE_FIXTURES=1 vitest run src/editor/fixtures`).
@@ -3198,6 +3198,8 @@ asynchronous (board previews).
       `mcr.microsoft.com/playwright:v1.64.1-noble@sha256:47b510dd9230bf0b9bfc9b20102241e577ea7a99334ab4c3ca19f19770e9b8ea`
       (2026-10-23), which @playwright/test 1.64.1 must match. All four digests were under two weeks old; if the
       two-week rule is meant for digests too, older digests of the same tags are in the registries' history.
+      **Decided by the owner (2026-10-28):** the digests and node 24.22.1 stay as pinned; the two-week rule applies to
+      the releases, not to Docker's rebuilds of a tag.
       binaryen `version_131` (2026-07-15) is pinned by its release checksum.
     - rust-embed 8.13.0 is used without `interpolate-folder-path`: that feature pulls option-ext (MPL-2.0, not on the
       licence allow-list). quire-assets uses relative `#[folder = "../../web/dist"]` paths, which rust-embed resolves
@@ -3219,29 +3221,31 @@ asynchronous (board previews).
       version, the newest release at least two weeks old was taken (crc32fast 1.5.2, not 1.5.3 of 2026-10-20; rustix
       1.1.5, not 1.1.6). Younger transitive crates were moved back with `cargo update --precise`, and the npm lockfile
       was resolved with a 14-day `minimumReleaseAge` apart from those pins.
-    - **Open, for the owner:** vite 8.3.5 has lightningcss 1.33.0 and lightningcss-linux-x64-gnu as hard
-      dependencies, and both are MPL-2.0, which is not on the licence allow-list. They run only at build time, and
-      none of their code ships in `web/dist`. The choices are to accept MPL-2.0 for build-only tools, or to re-pin to
-      Vite 7 with @vitejs/plugin-react 5. Still open on 2026-10-28; the pins stay, and `THIRD_PARTY.md` lists both
-      packages as pending.
-25. **Owner decisions still open** (2026-10-28; nothing here was decided for the owner, and the current pins stay):
-    - lightningcss (MPL-2.0, build only; item 24);
-    - the age of the image digests (item 24): the four of item 24 were under two weeks old when pinned (node 24.22.1
-      about 7 days), and so was Caddy's (v2.11.7 dates from 2026-10-03, but its index digest is Docker's rebuild of
-      2026-10-21); if the two-week rule covers digests, older builds of the same tags are in the registries' history
-      (node 24.21.0);
+    - vite 8.3.5 has lightningcss 1.33.0 and lightningcss-linux-x64-gnu as hard dependencies, and both are MPL-2.0.
+      They run only at build time, and none of their code ships in `web/dist`. **Decided by the owner (2026-10-28):**
+      MPL-2.0 is allowed for build-only tools (PLAN R6), and the Vite 8 pins stay (not Vite 7 with
+      @vitejs/plugin-react 5).
+25. **Owner decisions** (2026-10-28). Decided by the owner on 2026-10-28:
+    - ~~lightningcss~~: allowed as a build-only tool (item 24, PLAN R6);
+    - ~~the age of the image digests~~: kept as pinned (item 24), Caddy's as well (v2.11.7 dates from 2026-10-03; its
+      index digest is Docker's rebuild of 2026-10-21);
+    - ~~host port 443~~: the owner's own Caddy keeps host port 443. On the owner's machine Quire runs its own compose
+      project with its bundled Caddy on `127.0.0.1:8443` (HTTPS) and `127.0.0.1:8088` (HTTP), set in a local `.env`
+      (ignored by git; README "When port 80 or 443 is taken"). Serving it through the owner's Caddy, for access from
+      other devices or a public name, is a later step.
+    - ~~how a link is followed while a document is editable~~ (W7 review P1): the implemented default stays, Ctrl/Cmd+click
+      while editable and a plain click when read-only (§17.4).
+    - ~~the build slice is not installed yet (item 13)~~: installed 2026-10-28 after the M1 gate, and the builder
+      recreated in it (`docs/handoff/W0a.md`, task 8); every build before that ran with the per-container caps only.
+
+    Still open, and the current state stays until the owner decides:
     - the fonts the Inkboard wasm embeds (egui's default fonts under the Ubuntu Font Licence 1.0 and SIL OFL 1.1; Noto
       Sans, Gelasio, Patrick Hand and STIX Two Math under SIL OFL 1.1): permissive, but not on the licence allow-list;
       Quire ships them as Inkboard ships them (`THIRD_PARTY.md`);
     - the operating-system layer of the runtime base image (libc6 LGPL-2.1+, the GCC runtime libraries GPL-3+ with the
       runtime exception, the Mozilla CA data of ca-certificates MPL-2.0, among others): the allow-list is a rule for
       Quire's own dependencies, and this layer is listed in `THIRD_PARTY.md` for the owner to see;
-    - host port 443 on the owner's machine is held by his own Caddy, so the production project cannot bind it as is.
-      The README describes `QUIRE_HTTPS_PORT`/`QUIRE_HTTP_PORT` and running behind that Caddy with
-      `QUIRE_TRUSTED_PROXIES`; which one to use is his choice;
-    - the copyright line of `LICENSE-MIT` ("The Quire contributors"; the owner may want his name, W0b D39);
-    - ~~the build slice is not installed yet (item 13)~~: installed 2026-10-28 after the M1 gate, and the builder
-      recreated in it (`docs/handoff/W0a.md`, task 8); every build before that ran with the per-container caps only.
+    - the copyright line of `LICENSE-MIT` ("The Quire contributors"; the owner may want their own name, W0b D39).
 26. **Checks that need a real browser** (happy-dom does no layout and fires no native drag events). The W7 gate's
     Playwright smoke (`e2e/tests/smoke.spec.ts`, real engine, SwiftShader WebGL 2) now covers: the board host with the
     real dist (the frame page, `manifest.json` and the engine from `/inkboard/{build}/`, the iframe shown over the

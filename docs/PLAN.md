@@ -65,7 +65,8 @@ parallel agents:
     branch's lockfile and re-runs the update command.
   - Licences: MIT, Apache-2.0, BSD, ISC, Zlib, Unicode or CC0 only. Nothing from AGPL or BSL projects; nothing from
     TipTap Pro or Cloud. webpki-roots (CDLA-Permissive-2.0) is not allowed, so never enable ureq's `rustls` feature
-    (D54).
+    (D54). Build-only tools may also be MPL-2.0: a package that runs only during a build, with none of its code in
+    `web/dist`, a binary or the image (owner, 2026-10-28, for lightningcss through Vite 8; `THIRD_PARTY.md` lists it).
 - **R7. Tests.** Rust integration tests share one binary per crate: `crates/quire-store/tests/store/main.rs` and
   `crates/quire-server/tests/api/main.rs` (both W0b, frozen, owned by W7 afterwards), and
   `crates/quire-cli/tests/cli/main.rs` (W0b, then W8 with the whole crate). Each workstream owns its own module file
