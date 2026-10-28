@@ -198,6 +198,99 @@ quire --json board put "$B" board.json --if-match r3
 quire --json board preview "$B" --page 0 --out page0.svg
 ```
 
+### Embedded pages
+
+A board can show documents: each one is a **card**, an ordinary Inkboard box with `"geom": "rect"` whose `kind` holds
+`"embed": {"item": "<document id>"}`. The web client draws the document's content over the box and edits it in place
+(double-click); the document stays an ordinary item, in the tree and in search, openable on its own, and one document
+can be on several boards. A card as the web client writes it (pretty-printed here; the engine writes it compact, in
+this field order):
+
+```json
+{
+  "id": "k3j2h1g0f9",
+  "kind": {
+    "type": "box",
+    "geom": "rect",
+    "frame": { "x": -240.0, "y": -180.0, "w": 480.0, "h": 360.0 },
+    "label": {
+      "text": [ { "text": "Meeting notes", "bold": true, "color": "#1d2430" } ],
+      "family": "sans",
+      "size": 24.0,
+      "align": "center"
+    },
+    "embed": { "item": "0192f0e0-0000-7000-8000-000000000001" }
+  },
+  "style": { "stroke": "#c4cad4", "fill": "#ffffff", "width": 1.0, "dash": "solid", "opacity": 1.0, "roundness": 0.04, "shadow": true },
+  "layer": "main"
+}
+```
+
+- **What is a card**: an object whose `kind.type` is `"box"`, `kind.geom` is `"rect"`, and `kind.embed` is a JSON object
+  with a string `item`. Anything else (an `embed` on an ellipse, `"embed": 5`, an object without `item`) is a plain
+  box: the server keeps it byte for byte and links nothing, and the web client's engine drops the malformed `embed`
+  the next time it saves the board. No value of `embed` is refused; only a box `kind` that holds the key `embed` twice
+  is (exit 10, `invalid_board`).
+- **`item`** is the document's id, a UUID in canonical form (36 characters, lowercase, with hyphens: `item get`'s
+  `.item.id`). Any other string is kept but shows "Page not found". Only documents (`kind: "doc"`) are shown; a board
+  id shows "Page not found" too. `embed` holds only `item`: other fields in it are dropped by the engine.
+- **The label is a title snapshot**: one bold span coloured `#1d2430` (sans, size 24, centred) holding the document's
+  title, `"Untitled"` when it is blank. Previews (`board preview`), the board's search text (`item text`, `search`) and
+  engines without Quire's patch show it; the web client shows the live title and refreshes the snapshot when it next
+  saves the board. Searching for a document's title also finds the boards it is on; a board's text never holds the
+  documents' bodies (each document is its own search hit).
+- **Keep `embed`** when you rewrite a board through your own model of Inkboard's JSON: a model without the field drops
+  it, and the card becomes a plain box. Edit the JSON (as with `jq` below) rather than rebuild it.
+- **Object ids** must be unique on their page: the engine keeps the first object with a given id and drops the rest.
+- New cards are 480 × 360 world units, centred where they are placed, on the page's first visible, unlocked layer.
+  Any size works; the web client draws the content once the card is large enough on screen.
+- **Documents and boards stay separate items.** Trashing, restoring, archiving, moving or purging a board never
+  touches a document it shows, except its own children ("Text doc" in the web client makes the new document a child of
+  the board), which follow the board as any child does. `item duplicate` of a board copies its cards, not its
+  children, so the copy's cards show the original's documents: trashing or purging the original then trashes or
+  deletes its children for the copy too (move them out of the board first to keep them). Deleting a card never deletes
+  its document, and the server keeps every document that a card shows even when it is new and empty:
+  `item trash --discard-empty` then exits 8 (`not_empty`).
+
+A card for a new child document of the board `$B` (in collection `$C`), with Markdown from `notes.md`:
+
+```sh
+DOC=$(quire --json item create --collection "$C" --kind doc --parent "$B" --title "Meeting notes" --md notes.md | jq -r .item.id)
+```
+
+Then append a card for the document `$DOC` to page 0 of `$B`, to the right of the boxes already there (the same
+commands work for any existing document):
+
+<!-- e2e/agent/scenarios/12-board-embeds.sh runs the next block as it is written: keep it a complete recipe. -->
+```sh
+quire --json board get "$B" > got.json
+TITLE=$(quire --json item get "$DOC" | jq -r .item.title)
+jq --arg doc "$DOC" --arg title "$TITLE" '
+  .content
+  | .document.pages[0] as $page
+  | ([$page.objects[].kind.frame | select(. != null) | .x + .w] | max // -280) as $right
+  | .document.pages[0].objects += [{
+      id: "card-\(now * 1000000 | floor)",
+      kind: {
+        type: "box",
+        geom: "rect",
+        frame: {x: ($right + 40), y: -180, w: 480, h: 360},
+        label: {
+          text: [{text: (if ($title | test("\\S")) then $title else "Untitled" end), bold: true, color: "#1d2430"}],
+          family: "sans", size: 24, align: "center"
+        },
+        embed: {item: $doc}
+      },
+      style: {stroke: "#c4cad4", fill: "#ffffff", width: 1, dash: "solid", opacity: 1, roundness: 0.04, shadow: true},
+      layer: ([$page.layers[] | select(.visible != false and .locked != true) | .id] | first // $page.layers[0].id // "main")
+    }]' got.json > board.json
+quire --json board put "$B" - --if-match "$(jq -r .etag got.json)" < board.json
+```
+
+Exit 9 (`rev_mismatch`) means the board changed since the `board get`: run the recipe again. To remove a card, delete
+its object the same way (`.document.pages[0].objects |= map(select(.kind.embed | type == "object" and .item == $doc | not))`);
+the document stays.
+
 ## 9. The agent test harness
 
 `scripts/agent-test.sh` runs CLI scenarios (`e2e/agent/scenarios/NN-*.sh`) against the production image in a
