@@ -1,7 +1,9 @@
 // Documents over the API (docs/ARCHITECTURE.md §6.1, §7.2, §7.5): the Yjs sync the doc session uses, the export
-// URL, the title search the mention menu uses and the nested-items list.
-import { useQuery, type UseQueryResult } from '@tanstack/react-query';
-import { api, apiUrl, type ApiError } from '../client';
+// URL, the title search the mention menu uses, the nested-items list, and the ProseMirror JSON a board card shows
+// (`['docJson', id]`, §18.5 "Static cards").
+import { useQuery, useQueryClient, type QueryClient, type UseQueryResult } from '@tanstack/react-query';
+import { api, apiResponse, apiUrl, type ApiError } from '../client';
+import type { DocJson } from '../gen/DocJson';
 import type { DocState } from '../gen/DocState';
 import type { DocUpdateResult } from '../gen/DocUpdateResult';
 import type { ItemSummary } from '../gen/ItemSummary';
@@ -60,4 +62,47 @@ export function useChildren(itemId: string): UseQueryResult<ItemSummary[], ApiEr
     queryKey: ['children', itemId],
     queryFn: ({ signal }) => api<ItemSummary[]>('GET', `/items/${encodeURIComponent(itemId)}/children`, { signal }),
   });
+}
+
+// ------------------------------------------------------------------------------------------------- board cards
+
+/** A cached `GET /items/{id}/doc/prosemirror`: the body and the ETag it came with (`"d{seq}"`). */
+export interface CachedDocJson {
+  json: DocJson;
+  /** Sent as `If-None-Match` on the next fetch; null when the entry was written locally (an editor's last JSON). */
+  etag: string | null;
+}
+
+/** `['docJson', id]` (M1.1, §18.5). */
+export function docJsonKey(itemId: string): readonly ['docJson', string] {
+  return ['docJson', itemId] as const;
+}
+
+/**
+ * `GET /items/{id}/doc/prosemirror`, revalidated with `If-None-Match` against `prev`: a 304 keeps `prev`.
+ */
+export async function fetchDocJson(itemId: string, prev?: CachedDocJson, signal?: AbortSignal): Promise<CachedDocJson> {
+  const r = await apiResponse<DocJson>('GET', `${path(itemId)}/prosemirror`, {
+    signal,
+    ...(prev?.etag ? { etag: prev.etag } : {}),
+  });
+  if (r.notModified && prev) return prev;
+  return { json: r.data, etag: r.etag };
+}
+
+/** The query options of `['docJson', id]`: 30 s fresh, refetched on window focus (this key only). */
+export function docJsonQuery(qc: QueryClient, itemId: string) {
+  return {
+    queryKey: docJsonKey(itemId),
+    queryFn: ({ signal }: { signal: AbortSignal }) =>
+      fetchDocJson(itemId, qc.getQueryData<CachedDocJson>(docJsonKey(itemId)), signal),
+    staleTime: 30_000,
+    refetchOnWindowFocus: true,
+  } as const;
+}
+
+/** A document's ProseMirror JSON for a board card (read-only; never written from here). */
+export function useDocJson(itemId: string, enabled = true): UseQueryResult<CachedDocJson, ApiError> {
+  const qc = useQueryClient();
+  return useQuery<CachedDocJson, ApiError>({ ...docJsonQuery(qc, itemId), enabled });
 }

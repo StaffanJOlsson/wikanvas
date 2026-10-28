@@ -2,7 +2,22 @@
 // page are tested before W5's real frame lands. It keeps the boards it was given, a revision counter and the dirty
 // state as the engine would (§10.3: `open` resets undo, `markSaved(r)` clears dirty when nothing changed after r), logs
 // every call, and lets a test act as the user or the engine: `edit()`, `pressSave()`, `fail(kind)`, `progress(…)`.
-import type { BoardFrameApi, FrameErrorKind, FrameEvents, OpenArgs } from './bridge';
+// M1.1 (§18.4): it has the embed members (`insertEmbed`, `setEmbedEditing`, `setEmbedTitles`, `requestEmbedLayout`;
+// `embeds: false` makes a frame without them, like M1's), and the engine's side of them as helpers: `layout(l)` sends
+// an `onEmbedLayout`, `openEmbed(objectId, point)` a double-click, `endEdit(objectId, reason)` the engine ending the
+// editing, `dropItem(item, point)` a sidebar drop; `inserted` lists the cards `insertEmbed` placed.
+import type {
+  BoardFrameApi,
+  DraggedItem,
+  EmbedBox,
+  EmbedEditEndReason,
+  EmbedLayout,
+  FrameErrorKind,
+  FrameEvents,
+  FramePoint,
+  InsertEmbedArgs,
+  OpenArgs,
+} from './bridge';
 import type { FrameDriver } from './frameDriver';
 
 export type FakeCall = { method: keyof BoardFrameApi; args: unknown[] };
@@ -35,12 +50,48 @@ export interface FakeFrame {
   /** Makes `connect` reject like the W0b stub frame (`onError`, then the rejection); with `missing`, like the real
    *  driver for a page without the frame script (no event, `{kind, message, missing: true}`). */
   rejectConnect(kind: FrameErrorKind, message?: string, missing?: boolean): void;
+  // M1.1, board document embeds:
+  /** Sends `onEmbedLayout` for the current board: the given fields over defaults (page `p1`, zoom 1, origin 0, an
+   *  800 × 600 canvas, no occluders, `items` from `embeds`, `editing` the frame's). Returns what was sent. */
+  layout(l?: Partial<Omit<EmbedLayout, 'embeds'>> & { embeds?: readonly Partial<EmbedBox>[] }): EmbedLayout;
+  /** The last layout sent. */
+  lastLayout(): EmbedLayout | null;
+  /** A double-click (`point`) or Enter (`null`) on card `objectId` of the last layout: `onEmbedOpen`. */
+  openEmbed(objectId: string, point?: FramePoint | null): void;
+  /** The engine ends the editing (a press, focus, the card gone): `onEmbedEditEnd`. */
+  endEdit(objectId: string, reason?: EmbedEditEndReason): void;
+  /** A sidebar document dropped on the canvas: `onDropItem`. */
+  dropItem(item: DraggedItem, point: FramePoint): void;
+  /** The cards `insertEmbed` placed (id and arguments), in order. */
+  readonly inserted: ({ id: string } & InsertEmbedArgs)[];
+  /** What `setEmbedEditing` set last. */
+  embedEditing(): string | null;
+  /** What `setEmbedTitles` set last. */
+  embedTitles(): Readonly<Record<string, string>>;
 }
 
 export interface FakeFrameOptions {
   /** Keep `connect` pending until `resolveConnect()` or `rejectConnect()`. */
   manualConnect?: boolean;
   engineVersion?: string;
+  /** Without the M1.1 embed members (default: with them). */
+  embeds?: boolean;
+}
+
+/** A card of a fake layout: defaults for everything not given. */
+export function embedBox(over: Partial<EmbedBox> & { objectId: string }): EmbedBox {
+  return {
+    item: '0192f0e0-0000-7000-8000-000000000001',
+    x: -240,
+    y: -180,
+    w: 480,
+    h: 360,
+    angle: 0,
+    label: 'Untitled',
+    selected: false,
+    locked: false,
+    ...over,
+  };
 }
 
 export function createFakeFrame(opts: FakeFrameOptions = {}): FakeFrame {
@@ -56,15 +107,51 @@ export function createFakeFrame(opts: FakeFrameOptions = {}): FakeFrame {
   let readOnly = false;
   let name: string | null = null;
   let settle: { resolve(api: BoardFrameApi): void; reject(e: unknown): void } | null = null;
+  let editing: string | null = null;
+  let titles: Readonly<Record<string, string>> = {};
+  let last: EmbedLayout | null = null;
+  let seq = 0;
+  const inserted: ({ id: string } & InsertEmbedArgs)[] = [];
 
   const log = (method: keyof BoardFrameApi, ...args: unknown[]) => calls.push({ method, args });
 
+  const embedApi: Pick<BoardFrameApi, 'insertEmbed' | 'setEmbedEditing' | 'setEmbedTitles' | 'requestEmbedLayout'> = {
+    insertEmbed(a) {
+      log('insertEmbed', a);
+      if (current === null) throw new Error('no board is open');
+      if (readOnly) return null;
+      const id = `inserted${++seq}`;
+      inserted.push({ id, ...a });
+      return id;
+    },
+    setEmbedEditing(id) {
+      log('setEmbedEditing', id);
+      editing = id;
+    },
+    setEmbedTitles(t) {
+      log('setEmbedTitles', t);
+      titles = { ...t };
+    },
+    requestEmbedLayout() {
+      log('requestEmbedLayout');
+    },
+  };
+
   const api: BoardFrameApi = {
+    ...(opts.embeds === false ? {} : embedApi),
     engineVersion: opts.engineVersion ?? '0.2.0-beta.3+embed.quire.fake',
     formatVersion: 2,
     async open(a: OpenArgs) {
       log('open', a);
+      // host_load_doc: any embed editing ends ('gone'), the title map is cleared.
+      const was = editing;
+      editing = null;
+      titles = {};
+      last = null;
       current = a.itemId;
+      if (was !== null && opts.embeds !== false) {
+        events?.onEmbedEditEnd?.({ itemId: a.itemId, objectId: was, reason: 'gone' });
+      }
       board = a.board;
       readOnly = a.readOnly;
       name = a.name;
@@ -165,5 +252,46 @@ export function createFakeFrame(opts: FakeFrameOptions = {}): FakeFrame {
       settle?.reject(missing ? { kind, message, missing } : { kind, message });
       settle = null;
     },
+    layout(l = {}) {
+      if (current === null) throw new Error('no board is open');
+      const embeds = (l.embeds ?? []).map((e, i) => embedBox({ objectId: `card${i + 1}`, ...e }));
+      const sent: EmbedLayout = {
+        itemId: current,
+        page: 'p1',
+        zoom: 1,
+        originX: 0,
+        originY: 0,
+        canvas: { x: 0, y: 0, width: 800, height: 600 },
+        occluders: [],
+        items: [...new Set(embeds.map((e) => e.item))].sort(),
+        editing,
+        ...l,
+        embeds,
+      };
+      last = sent;
+      events?.onEmbedLayout?.(sent);
+      return sent;
+    },
+    lastLayout: () => last,
+    openEmbed(objectId, point = null) {
+      if (current === null) throw new Error('no board is open');
+      if (readOnly) return;
+      const card = last?.embeds.find((e) => e.objectId === objectId);
+      if (!card) throw new Error(`no card ${objectId} in the last layout`);
+      events?.onEmbedOpen?.({ itemId: current, objectId, item: card.item, point });
+    },
+    endEdit(objectId, reason = 'press') {
+      if (current === null) throw new Error('no board is open');
+      if (editing === objectId) editing = null;
+      events?.onEmbedEditEnd?.({ itemId: current, objectId, reason });
+    },
+    dropItem(item, point) {
+      if (current === null) throw new Error('no board is open');
+      if (readOnly) return;
+      events?.onDropItem?.({ itemId: current, item, point });
+    },
+    inserted,
+    embedEditing: () => editing,
+    embedTitles: () => titles,
   };
 }

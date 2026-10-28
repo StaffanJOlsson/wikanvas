@@ -1,20 +1,31 @@
 // Shared setup of the board tests (not part of the app): fixtures, a fetch mock that speaks the board routes (ETag
 // headers, raw envelope text), and a render of the frame host next to the board page in a memory router, with the
-// fake frame (fakeFrame.ts) as the host's driver.
+// fake frame (fakeFrame.ts) as the host's driver. M1.1: documents a card shows (their detail, ProseMirror JSON and
+// Yjs state routes) and `openBoardApp`, which waits until the overlay serves the board.
 import type { QueryClient } from '@tanstack/react-query';
+import { expect } from 'vitest';
 import { QueryClientProvider } from '@tanstack/react-query';
-import { render } from '@testing-library/react';
+import { act, render, waitFor } from '@testing-library/react';
+import type { JSONContent } from '@tiptap/react';
+import * as Y from 'yjs';
 import { Outlet, createMemoryRouter, type RouteObject } from 'react-router';
 import { RouterProvider } from 'react-router/dom';
 import type { BoardMeta } from '../api/gen/BoardMeta';
 import type { BoardPutResult } from '../api/gen/BoardPutResult';
 import type { Config } from '../api/gen/Config';
+import type { DocJson } from '../api/gen/DocJson';
+import type { DocState } from '../api/gen/DocState';
 import type { ItemDetail } from '../api/gen/ItemDetail';
+import { toBase64 } from '../api/queries/docs';
 import { UpdateBanner } from '../app/UpdateBanner';
+import { writeDoc } from '../editor/fixtures/writer';
+import { Toasts } from '../components/toasts/Toasts';
 import { itemPath } from '../lib/urls';
 import BoardPage from '../pages/BoardPage';
 import { createTestQueryClient } from '../test/render';
 import BoardFrameHost from './BoardFrameHost';
+import { useEmbedStore } from './embed/controller';
+import { loadEmbedCards } from './embed/EmbedLayer';
 import { createFakeFrame, type FakeFrame, type FakeFrameOptions } from './fakeFrame';
 import { setFrameDriver } from './frameDriver';
 import { resetHost } from './host';
@@ -202,10 +213,12 @@ export function renderBoardApp(path: string, opts: FakeFrameOptions & { fake?: F
             <Outlet />
           </main>
           <BoardFrameHost />
+          <Toasts />
         </>
       ),
       children: [
         { path: '/board/:slugId', element: <BoardPage /> },
+        { path: '/doc/:slugId', element: <h1>Document page</h1> },
         { path: '/home', element: <h1>Home</h1> },
       ],
     },
@@ -226,4 +239,78 @@ export function renderBoardApp(path: string, opts: FakeFrameOptions & { fake?: F
       resetHost();
     },
   };
+}
+
+// ------------------------------------------------------------------------------------------------- board embeds
+
+/** Target ids (canonical UUIDs, as the fixture's). */
+export const DOC_1 = '0192f0e0-0000-7000-8000-000000000001';
+export const DOC_2 = '0192f0e0-0000-7000-8000-000000000002';
+export const DOC_3 = '0192f0e0-0000-7000-8000-000000000003';
+
+/** A document's detail. */
+export function docItem(id: string, over: Partial<ItemDetail['item']> = {}, detail: Partial<ItemDetail> = {}): ItemDetail {
+  const b = boardItem(9);
+  return {
+    ...b,
+    item: { ...b.item, id, url_id: `DoC${id.slice(-7)}`, kind: 'doc', title: 'A page', ...over },
+    board: null,
+    ...detail,
+  };
+}
+
+/** ProseMirror JSON with one paragraph per text. */
+export function paragraphs(...texts: string[]): JSONContent {
+  return { type: 'doc', content: texts.map((t) => ({ type: 'paragraph', content: t ? [{ type: 'text', text: t }] : [] })) };
+}
+
+export function docJson(doc: JSONContent, seq = 1): DocJson {
+  return { schema_version: 1, seq, doc: doc as DocJson['doc'] };
+}
+
+/** An empty Yjs document's state, as `GET …/doc` sends it. */
+export function emptyDocState(): DocState {
+  const u = Y.encodeStateAsUpdate(new Y.Doc());
+  return { update: toBase64(u), state_vector: toBase64(Y.encodeStateVector(new Y.Doc())), seq: 0, field: 'default', schema_version: 1 };
+}
+
+/** The Yjs state of `doc`, as `GET …/doc` sends it. */
+export function docStateOf(doc: JSONContent, seq = 1): DocState {
+  const { bin } = writeDoc(doc.content ?? []);
+  const y = new Y.Doc();
+  Y.applyUpdate(y, bin);
+  return { update: toBase64(bin), state_vector: toBase64(Y.encodeStateVector(y)), seq, field: 'default', schema_version: 1 };
+}
+
+/** The routes of a target: its detail, its ProseMirror JSON (`ETag: "d<seq>"`, 304 for a matching If-None-Match),
+ *  its Yjs state and its updates. */
+export function docRoutes(detail: ItemDetail, doc: JSONContent = paragraphs('Hello'), seq = 1): Record<string, Handler | Reply> {
+  const id = detail.item.id;
+  return {
+    [`GET /api/v1/items/${id}`]: [200, detail],
+    [`GET /api/v1/items/${id}/doc/prosemirror`]: (req) =>
+      req.headers.get('If-None-Match') === `"d${seq}"` ? [304] : [200, docJson(doc, seq), { ETag: `"d${seq}"` }],
+    [`GET /api/v1/items/${id}/doc`]: [200, docStateOf(doc, seq)],
+    [`POST /api/v1/items/${id}/doc/updates`]: [200, { seq: seq + 1, state_vector: '', updated_at: '2026-10-28T10:00:00.000Z' }],
+  };
+}
+
+/** Renders the board app at `item` and waits until the frame opened it and the overlay serves it. */
+export async function openBoardApp(item: ItemDetail, opts: FakeFrameOptions & { fake?: FakeFrame } = {}): Promise<Rendered> {
+  const r = renderBoardApp(boardPath(item), opts);
+  await waitFor(() => expect(r.fake.api.current()).toBe(item.item.id));
+  await waitFor(() => expect(useEmbedStore.getState().board?.itemId).toBe(item.item.id));
+  // The cards' chunk is there and the overlay knows it (as in the app once a board was shown).
+  await act(() => loadEmbedCards());
+  await waitFor(() => expect(document.querySelector('.board-embeds')).not.toBeNull());
+  await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+  return r;
+}
+
+/** The overlay's card for `objectId`. */
+export function cardEl(objectId: string): HTMLElement | null {
+  for (const el of document.querySelectorAll<HTMLElement>('.board-embeds .board-embed-card')) {
+    if (el.dataset.objectId === objectId) return el;
+  }
+  return null;
 }

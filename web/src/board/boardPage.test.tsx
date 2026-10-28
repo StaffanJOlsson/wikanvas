@@ -199,21 +199,53 @@ describe('board page', () => {
     expect(puts(requests)[0].body).toBe(envelope('a rectangle'));
   });
 
-  it('Focus shows the frame full screen; the board text is listed for screen readers', async () => {
+  it('Focus shows the frame layer full screen (the iframe and the embeds overlay); the board text is listed for screen readers', async () => {
     const a = boardItem(1);
     vi.stubGlobal('fetch', mockFetch(boardRoutes(a)).fetch);
     const r = (app = renderBoardApp(boardPath(a)));
     await waitFor(() => expect(r.fake.api.current()).toBe('board-1'));
+    const layer = document.querySelector('.board-frame-layer') as HTMLElement;
     const iframe = document.querySelector('iframe') as HTMLIFrameElement;
+    // The layer holds the iframe and, after it, the overlay (§18.5).
+    expect(iframe.parentElement).toBe(layer);
+    expect(layer.children[0]).toBe(iframe);
+    expect(layer.children[1].classList.contains('board-embeds')).toBe(true);
     const fullscreen = vi.fn(async () => {});
-    iframe.requestFullscreen = fullscreen;
+    const iframeFullscreen = vi.fn(async () => {});
+    layer.requestFullscreen = fullscreen;
+    iframe.requestFullscreen = iframeFullscreen;
     const focus = screen.getByRole('button', { name: 'Focus' }) as HTMLButtonElement;
     await waitFor(() => expect(focus.disabled).toBe(false));
     fireEvent.click(focus);
     await waitFor(() => expect(fullscreen).toHaveBeenCalledTimes(1));
+    expect(iframeFullscreen).not.toHaveBeenCalled();
     // BoardMeta.text_excerpt, one line per entry, in a visually hidden list.
     const list = screen.getByRole('list', { name: 'Text on this board' });
     expect(list.className).toBe('visually-hidden');
     expect(within(list).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['Page 1', 'Hello']);
+  });
+
+  it('"Text doc" and "Embed page…" exist only when the frame has insertEmbed', async () => {
+    const a = boardItem(1);
+    vi.stubGlobal('fetch', mockFetch(boardRoutes(a)).fetch);
+    const r = (app = renderBoardApp(boardPath(a), { embeds: false }));
+    await waitFor(() => expect(r.fake.api.current()).toBe('board-1'));
+    await screen.findByRole('button', { name: 'Focus' });
+    expect(screen.queryByRole('button', { name: 'Text doc' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Embed page…' })).toBeNull();
+    r.unmount();
+    app = null;
+
+    vi.stubGlobal('fetch', mockFetch(boardRoutes(a)).fetch);
+    const s2 = (app = renderBoardApp(boardPath(a)));
+    await waitFor(() => expect(s2.fake.api.current()).toBe('board-1'));
+    const text = (await screen.findByRole('button', { name: 'Text doc' })) as HTMLButtonElement;
+    const embed = screen.getByRole('button', { name: 'Embed page…' }) as HTMLButtonElement;
+    await waitFor(() => expect(text.disabled).toBe(false));
+    expect(embed.disabled).toBe(false);
+    // Left of the star.
+    const star = screen.getByRole('button', { name: /star/i });
+    expect(text.compareDocumentPosition(star) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(embed.compareDocumentPosition(star) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });

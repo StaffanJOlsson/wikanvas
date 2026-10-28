@@ -10,14 +10,18 @@
 //   server is another build, the one "Quire was updated. Reload" banner shows (AppShell's UpdateBanner).
 // - Quire's theme is passed on with `setTheme`; host keys from the frame go to `runHostShortcut` (host.ts).
 // - While mounted it registers the engine warm-up of a 300 ms sidebar board-row hover (`useBoardRowWarmup`).
+// - M1.1 (§18.5): the layer also holds the board embeds overlay (`EmbedLayer`), after the iframe in DOM order and
+//   placed by the same routine to the same rect. Focus fullscreens the layer (iframe and overlay); while the layer is
+//   the fullscreen element both are placed at its rect.
 // The default export (no props) and `useBoardFrame(): BoardFrameContext | null` are the frozen contract (PLAN W0b).
-import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useLocation } from 'react-router';
 import { useShallow } from 'zustand/react/shallow';
 import { useConfig } from '../api/queries/config';
 import { checkForUpdate, useUpdate } from '../app/updateCheck';
 import { inkboardBase } from '../lib/urls';
 import type { BoardFrameApi, OpenArgs } from './bridge';
+import { EmbedLayer } from './embed/EmbedLayer';
 import { frameDriver, toConnectFailure } from './frameDriver';
 import {
   attachSurface,
@@ -63,7 +67,7 @@ export interface BoardFrameContext {
   show(shown: boolean): void;
   /** Removes the iframe so the next board visit creates a new one (after a panic). */
   reload(): void;
-  /** Shows the board full screen (Focus). */
+  /** Shows the board full screen (Focus): the frame layer, so the embeds overlay is shown with the iframe. */
   requestFullscreen(): Promise<void>;
 }
 
@@ -93,7 +97,7 @@ export function useBoardFrame(): BoardFrameContext | null {
       show: showBoard,
       reload: removeFrame,
       requestFullscreen: async () => {
-        await useHostStore.getState().iframe?.requestFullscreen?.();
+        await useHostStore.getState().layer?.requestFullscreen?.();
       },
     };
   }, [s, updateAvailable]);
@@ -121,6 +125,10 @@ export default function BoardFrameHost() {
   const config = useConfig();
   const theme = useResolvedTheme();
   const layer = useRef<HTMLDivElement>(null);
+  const overlay = useRef<HTMLDivElement | null>(null);
+  const overlayRef = useCallback((el: HTMLDivElement | null) => {
+    overlay.current = el;
+  }, []);
   const st = useHostStore(
     useShallow((s) => ({
       iframe: s.iframe,
@@ -135,7 +143,7 @@ export default function BoardFrameHost() {
   useBoardRowWarmup();
 
   useEffect(() => {
-    useHostStore.setState({ mounted: true });
+    useHostStore.setState({ mounted: true, layer: layer.current });
     return () => {
       useHostStore.getState().iframe?.remove();
       resetHost();
@@ -164,7 +172,8 @@ export default function BoardFrameHost() {
         if (failure.missing && (await frameGone(src))) void checkForUpdate();
       },
     );
-    layer.current.appendChild(iframe);
+    // Before the overlay, which paints above it (§18.5).
+    layer.current.insertBefore(iframe, layer.current.firstChild);
   }, [wanted, base]);
 
   // Shown over the surface only on a board route, with the board open; hidden and inert otherwise.
@@ -194,7 +203,7 @@ export default function BoardFrameHost() {
     st.frame?.setTheme(theme);
   }, [st.frame, theme]);
 
-  // Track the surface's rect.
+  // Track the surface's rect (the layer's while the layer is full screen); the overlay gets the same rect.
   const { iframe: trackedFrame, surface: trackedSurface } = st;
   useLayoutEffect(() => {
     const iframe = trackedFrame;
@@ -203,11 +212,16 @@ export default function BoardFrameHost() {
     let raf = 0;
     const place = () => {
       raf = 0;
-      const r = surface.getBoundingClientRect();
-      iframe.style.left = `${r.left}px`;
-      iframe.style.top = `${r.top}px`;
-      iframe.style.width = `${r.width}px`;
-      iframe.style.height = `${r.height}px`;
+      const l = layer.current;
+      const full = l !== null && document.fullscreenElement === l;
+      const r = (full ? l : surface).getBoundingClientRect();
+      for (const el of [iframe, overlay.current]) {
+        if (!el) continue;
+        el.style.left = `${r.left}px`;
+        el.style.top = `${r.top}px`;
+        el.style.width = `${r.width}px`;
+        el.style.height = `${r.height}px`;
+      }
     };
     const schedule = () => {
       if (raf === 0) raf = requestAnimationFrame(place);
@@ -217,13 +231,19 @@ export default function BoardFrameHost() {
     ro?.observe(surface);
     window.addEventListener('resize', schedule);
     window.addEventListener('scroll', schedule, true);
+    document.addEventListener('fullscreenchange', schedule);
     return () => {
       if (raf !== 0) cancelAnimationFrame(raf);
       ro?.disconnect();
       window.removeEventListener('resize', schedule);
       window.removeEventListener('scroll', schedule, true);
+      document.removeEventListener('fullscreenchange', schedule);
     };
   }, [trackedFrame, trackedSurface]);
 
-  return <div ref={layer} className="board-frame-layer" />;
+  return (
+    <div ref={layer} className="board-frame-layer">
+      <EmbedLayer visible={visible} overlayRef={overlayRef} />
+    </div>
+  );
 }

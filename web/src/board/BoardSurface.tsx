@@ -1,7 +1,9 @@
 // The editing surface of a board page (docs/ARCHITECTURE.md §9.3, §9.5): it hands its canvas element to the frame
 // host (which lays the iframe over it), opens the board in the frame, runs the save loop, and shows BoardLoading, the
 // ConflictBanner, the restore prompt for an unsaved snapshot, the large-board warning, and a visually hidden list of
-// the board's text (`BoardMeta.text_excerpt`) for screen readers.
+// the board's text (`BoardMeta.text_excerpt`) for screen readers. M1.1 (§18.5): it tells the embeds overlay the board's
+// read-only state and when the page leaves the board (any card editing ends), and reopens the board in the frame
+// through `openInFrame`, which asks for a new embed layout.
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
@@ -14,11 +16,13 @@ import { BoardLoading } from './BoardLoading';
 import type { BoardFrameContext } from './BoardFrameHost';
 import type { BoardFrameApi } from './bridge';
 import { ConflictBanner } from './ConflictBanner';
+import { releaseEmbeds, setEmbedReadOnly } from './embed/controller';
 import {
   attachSurface,
   flushPrevious,
   noteSaved,
   openBoard,
+  openInFrame,
   releaseBoard,
   showBoard,
   useHostStore,
@@ -132,6 +136,7 @@ export function BoardSurface({ item, host }: BoardSurfaceProps) {
     return () => {
       alive = false;
       showBoard(false);
+      releaseEmbeds(itemId);
       if (loopRef.current === loop) loopRef.current = null;
       void loop.flush().finally(() => {
         loop.dispose();
@@ -147,6 +152,7 @@ export function BoardSurface({ item, host }: BoardSurfaceProps) {
   }, [frame, itemId, title]);
   useEffect(() => {
     if (frame?.current() === itemId) frame.setReadOnly(readOnly);
+    setEmbedReadOnly(itemId, readOnly);
   }, [frame, itemId, readOnly]);
 
   const act = async (work: (f: BoardFrameApi, loop: BoardSaveLoop) => Promise<void>) => {
@@ -164,7 +170,7 @@ export function BoardSurface({ item, host }: BoardSurfaceProps) {
   const loadLatest = () =>
     act(async (f, loop) => {
       const loaded = await fetchBoard(itemId);
-      await f.open({ itemId, board: loaded.board, name: title, readOnly, theme });
+      await openInFrame(f, { itemId, board: loaded.board, name: title, readOnly, theme });
       loop.resume(loaded.rev);
       await clearUnsaved(itemId);
       setS((st) => ({ ...st, conflict: null }));
@@ -190,7 +196,7 @@ export function BoardSurface({ item, host }: BoardSurfaceProps) {
     act(async (f, loop) => {
       const snap = s.restore;
       if (!snap) return;
-      await f.open({ itemId, board: snap.board, name: title, readOnly, theme });
+      await openInFrame(f, { itemId, board: snap.board, name: title, readOnly, theme });
       loop.rev = snap.baseRev;
       setS((st) => ({ ...st, restore: null }));
       await loop.saveNow();

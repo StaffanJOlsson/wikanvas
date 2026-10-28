@@ -227,6 +227,258 @@
   color: var(--text-tertiary);
 }
 
+/* ---- board document embeds (§18.5) ----
+   The overlay shares the iframe's rect (the frame host places both) and paints above it (later in DOM order). It is
+   `overflow: clip`, never `hidden`: a hidden box is still a scroll container that ProseMirror's scrollRectIntoView and
+   the browser's caret-into-view scroll, which would shift every card off its engine box. Only the editing card's body
+   scrolls. The world layer carries the camera transform without `will-change` (a will-change layer keeps its raster
+   scale, so text would stay blurred after zooming in). */
+
+.board-embeds {
+  position: fixed;
+  overflow: clip;
+  pointer-events: none;
+}
+
+.board-embeds[hidden] {
+  display: none;
+}
+
+.board-embeds-world {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  transform-origin: 0 0;
+}
+
+/* Cards are paper (D67): Quire's light palette whatever the theme and the board background. */
+.board-embed-card {
+  color-scheme: light;
+  --bg: #ffffff;
+  --bg-sidebar: #f6f7f9;
+  --bg-hover: #eceef2;
+  --bg-active: #e2e7f0;
+  --text: #1d2430;
+  --text-secondary: #5f6878;
+  --text-tertiary: #8b93a1;
+  --border: #e4e7ec;
+  --accent: #3a6df0;
+  --accent-text: #ffffff;
+  --danger: #d93b3b;
+  --warning: #b86e00;
+  --success: #1f8f50;
+  --mark: #fff0a0;
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  overflow: clip;
+  transform-origin: 50% 50%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  pointer-events: none;
+  outline: none;
+}
+
+.board-embed-card[data-editing] {
+  pointer-events: auto;
+}
+
+.board-embed-header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+  box-sizing: border-box;
+  height: 40px;
+  padding: 0 var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.board-embed-header .kind-icon {
+  flex: none;
+  color: var(--text-secondary);
+}
+
+.board-embed-card-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 18px;
+  line-height: 26px;
+  font-weight: 600;
+  color: var(--text);
+  text-decoration: none;
+}
+
+input.board-embed-card-title {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  outline: none;
+}
+
+input.board-embed-card-title::placeholder {
+  color: var(--text-tertiary);
+}
+
+s.board-embed-card-title {
+  text-decoration: line-through;
+  color: var(--text-tertiary);
+}
+
+.board-embed-link {
+  pointer-events: auto;
+}
+
+.board-embed-link:hover {
+  text-decoration: underline;
+}
+
+.board-embed-hint,
+.board-embed-status,
+.board-embed-badge {
+  flex: none;
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
+  color: var(--text-tertiary);
+}
+
+.board-embed-badge {
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-row);
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
+.board-embed-save[data-state="error"],
+.board-embed-status[data-state="error"] {
+  color: var(--danger);
+}
+
+.board-embed-retry,
+.board-embed-open {
+  flex: none;
+  padding: 2px var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 16px;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.board-embed-retry:hover,
+.board-embed-open:hover {
+  background: var(--bg-hover);
+}
+
+.board-embed-body {
+  flex: 1;
+  min-height: 0;
+  box-sizing: border-box;
+  padding: var(--space-2) var(--space-4);
+  overflow: clip;
+}
+
+.board-embed-card[data-editing] .board-embed-body {
+  overflow-x: clip;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.board-embed-body .quire-editor {
+  min-height: 0;
+  padding: 0;
+}
+
+.board-embed-editor,
+.board-embed-editor .quire-editor-shell,
+.board-embed-editor .quire-editor {
+  min-height: 100%;
+}
+
+.board-embed-card[data-state="trashed"] .board-embed-body,
+.board-embed-card[data-state="archived"] .board-embed-body {
+  opacity: 0.5;
+}
+
+.board-embed-empty,
+.board-embed-message {
+  margin: 0;
+  font-size: 16px;
+  line-height: 26px;
+  color: var(--text-tertiary);
+}
+
+/* The editing card's popups (slash, mention, bubble and table menus): above the frame layer and the top bar; moved
+   into the frame layer while it is full screen. They follow the Quire theme. */
+.board-embed-popups {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  pointer-events: none;
+}
+
+.board-embed-popups > * {
+  pointer-events: auto;
+}
+
+.board-add-card {
+  white-space: nowrap;
+}
+
+.embed-picker-results {
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.embed-picker-results button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 30px;
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  border-radius: var(--radius-row);
+  background: none;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.embed-picker-results button:hover,
+.embed-picker-results button:focus-visible {
+  background: var(--bg-hover);
+}
+
+.embed-picker-title {
+  flex: none;
+}
+
+.embed-picker-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  text-align: right;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .board-preview-viewport img {
     transition: none;
