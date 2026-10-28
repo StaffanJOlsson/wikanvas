@@ -248,10 +248,26 @@ pub fn render_clap_error(err: &clap::Error, json: bool) -> (Stream, String, Exit
     if !json {
         return (Stream::Stderr, text, ExitCode::Usage);
     }
-    let first = text.lines().next().unwrap_or_default();
-    let message = first.strip_prefix("error: ").unwrap_or(first).trim();
-    let line = Failure::usage(message).line().to_string();
+    let line = Failure::usage(usage_message(&text)).line().to_string();
     (Stream::Stderr, format!("{line}\n"), ExitCode::Usage)
+}
+
+/// The message of a rendered clap usage error: its first paragraph on one line, without `error: `. The paragraph
+/// holds the lines that name the arguments (a missing `<--if-match <ETAG>|--force>`, `--yes`, `--kind <KIND>`); the
+/// tip and `Usage:` paragraphs after the blank line are left out.
+fn usage_message(text: &str) -> String {
+    let mut lines = text
+        .lines()
+        .take_while(|l| !l.trim().is_empty())
+        .map(str::trim);
+    let first = lines.next().unwrap_or_default();
+    let first = first.strip_prefix("error: ").unwrap_or(first);
+    let rest: Vec<&str> = lines.collect();
+    if rest.is_empty() {
+        first.to_owned()
+    } else {
+        format!("{first} {}", rest.join(", "))
+    }
 }
 
 /// Prints a clap error as [`render_clap_error`] says and returns its exit code.
@@ -303,6 +319,26 @@ mod tests {
         let message = value["error"]["message"].as_str().expect("a message");
         assert!(message.contains("--bogus"), "{message}");
         assert!(!message.starts_with("error:"), "{message}");
+    }
+
+    #[test]
+    fn usage_error_json_names_the_missing_arguments() {
+        for (list, wanted) in [
+            (&["doc", "put", "x", "--md", "f.md"][..], "--if-match"),
+            (&["trash", "purge", "--all"][..], "--yes"),
+        ] {
+            let (_, text, code) = render_clap_error(&err(list), true);
+            assert_eq!(code, ExitCode::Usage, "{list:?}");
+            assert_eq!(text.trim_end().lines().count(), 1, "{text}");
+            let value: serde_json::Value = serde_json::from_str(&text).expect("one JSON line");
+            let message = value["error"]["message"].as_str().expect("a message");
+            assert!(
+                message.starts_with("the following required arguments were not provided:"),
+                "{message}"
+            );
+            assert!(message.contains(wanted), "{list:?}: {message}");
+            assert!(!message.contains("Usage:"), "{message}");
+        }
     }
 
     #[test]
