@@ -175,9 +175,9 @@ caps (D57, §13.4).
    add `--cpuset-cpus` (last N cores), `--shm-size 1g`, `quire_slice` and `--cgroup-parent "$QUIRE_CGROUP_PARENT"` when
    set, the thread-count environment variables, `QUIRE_DEV_IMAGE`, `QUIRE_DEV_NETWORK` and `QUIRE_SHARED_CARGO_HOME`.
 5. **Builder.** Add `docker/buildkitd.toml` (`max-parallelism = 2`, GC `maxUsedSpace = "30GB"`). In
-   `scripts/toolchain.sh`: create the BuildKit container `quire-buildkit` from `moby/buildkit:v0.34.1` pinned by digest
-   (`docker buildx imagetools inspect`; v0.34.1 was days old on 2026-10-28, so as for Caddy below, if it is still
-   under two weeks old take the newest older patch and record it in ARCHITECTURE §16), with the caps, cpuset, cgroup parent (from `quire_slice`), state volume and
+   `scripts/toolchain.sh`: create the BuildKit container `quire-buildkit` from `moby/buildkit:v0.34.0` pinned by digest
+   (`docker buildx imagetools inspect`; v0.34.1, released 2026-10-20, was under two weeks old on 2026-10-28, so W0a took
+   the newest older patch, ARCHITECTURE §16 risk 23), with the caps, cpuset, cgroup parent (from `quire_slice`), state volume and
    `docker cp` of the config of §13.1, and register it as `quire-limited` with the `remote` driver
    (`docker-container://quire-buildkit`): buildx's docker-container driver ignores `cgroup-parent` under the systemd
    cgroup driver. If the existing `quire-limited` uses another driver (it does today), or `quire-buildkit` has other
@@ -212,8 +212,8 @@ During W0a: `scripts/lib/lock.sh`, `scripts/lib/slice.sh`, `scripts/dev.sh`, `sc
 ### Acceptance
 
 ```sh
-bash -n scripts/*.sh scripts/lib/*.sh
-( scripts/dev.sh sleep 20 & sleep 2; scripts/dev.sh true 2>&1 | grep -q 'waiting for another Quire build' ); wait
+for f in scripts/*.sh scripts/lib/*.sh; do bash -n "$f" || exit 1; done   # bash -n a b checks only a
+( scripts/dev.sh sleep 20 & sleep 2; scripts/dev.sh true 2>&1 | grep -q 'waiting for another Quire build' ); rc=$?; wait; test $rc -eq 0
 bash -c '. scripts/lib/lock.sh && quire_lock && timeout 120 scripts/dev.sh true'    # nested call does not deadlock
 QUIRE_BUILD_SLICE=quire-missing-test.slice scripts/dev.sh true 2>&1 | grep -q 'not installed: per-container caps only'
 scripts/dev.sh nproc | grep -qx 6
@@ -245,7 +245,7 @@ test ! -e vendor/inkboard/target
 git -C vendor/inkboard status --porcelain | wc -l | grep -qx 0
 # after the coordinator installed the slice (task 8):
 scripts/install-build-slice.sh --check
-( scripts/dev.sh sleep 15 & sleep 5; systemctl status quire-build.slice --no-pager | grep -q 'docker-.*\.scope' ); wait
+( scripts/dev.sh sleep 15 & sleep 5; systemctl status quire-build.slice --no-pager | grep -q 'docker-init -- nice -n 10 sleep 15' ); rc=$?; wait; test $rc -eq 0
 docker inspect -f '{{.HostConfig.CgroupParent}}' quire-buildkit | grep -qx quire-build.slice
 ```
 
@@ -403,7 +403,11 @@ tables.
 
   ```rust
   // quire-store::db
-  impl Db { pub fn write<T>(&self, f) -> Result<T>; pub fn read<T>(&self, f) -> Result<T>;
+  impl Db {                                       // async: deadpool-sqlite's pools; the closure itself is synchronous
+    pub async fn write<T, F>(&self, f: F) -> Result<T>   // BEGIN IMMEDIATE on the single writer
+      where F: FnOnce(&rusqlite::Transaction<'_>) -> Result<T> + Send + 'static, T: Send + 'static;
+    pub async fn read<T, F>(&self, f: F) -> Result<T>    // one deferred transaction on a query_only reader
+      where F: FnOnce(&rusqlite::Connection) -> Result<T> + Send + 'static, T: Send + 'static;
     pub fn maintenance(&self) -> Result<rusqlite::Connection>; }                  // no query_only; VACUUM INTO only
   // quire-store::shared
   pub fn touch_content(tx, item_id: &str, actor_id: &str, now) -> Result<()>;         // content_at, updated_at, updated_by
@@ -419,7 +423,7 @@ tables.
   pub fn pre_api(tx, item_id: &str, kind: ItemKind, by: &WriteBy, now) -> Result<bool>; // D53: last_token_id, source_seq
   pub fn prune(tx, now) -> Result<u64>;
   // quire-store::blobs (D26)
-  impl BlobStore { pub fn new(root: PathBuf) -> Self;
+  impl BlobStore { pub fn new(root: PathBuf) -> Self;          // root = the data dir: files in root/files, staging in root/tmp
     pub fn stage(&self, bytes: &[u8]) -> std::io::Result<Staged>;                    // outside the writer
     pub async fn stage_stream(&self, body: impl Stream<Item = std::io::Result<Bytes>> + Unpin, limit: u64)
       -> Result<Staged>;                                                               // uploads: hashed while streamed
@@ -447,7 +451,8 @@ tables.
   pub fn tokens::create(tx, user_id: &str, new: &NewToken /* api DTO */, via: CreatedVia,
     parent: Option<&TokenRow>, now) -> Result<CreatedToken>;                          // parent caps expiry, forbids admin
   pub fn tokens::lookup(conn: &rusqlite::Connection, token: &str, now)
-    -> Result<TokenLookup /* Live(TokenRow{id, user_id, scopes, expires_at}) | Expired | Rejected */>;
+    -> Result<TokenLookup /* Live(TokenRow{id, user_id, role, scopes, expires_at}) | Expired | Rejected */>;
+  pub fn tokens::get(conn: &rusqlite::Connection, user_id: &str, token_id: &str) -> Result<Option<ApiToken>>; // not revoked
   pub fn tokens::list(conn: &rusqlite::Connection, user_id: &str, now) -> Result<Vec<ApiToken>>;
   pub fn tokens::revoke(tx, user_id: &str, token_id: &str, now) -> Result<u64>;      // also its children; 0 = not found
   // quire-core::cursor (W1 owns afterwards)
@@ -477,7 +482,7 @@ tables.
 ### Acceptance
 
 ```sh
-bash -n scripts/*.sh scripts/lib/*.sh
+for f in scripts/*.sh scripts/lib/*.sh; do bash -n "$f" || exit 1; done   # bash -n a b checks only a
 scripts/toolchain.sh
 scripts/dev.sh rustup show active-toolchain | grep -q '^1\.99\.1-'
 scripts/dev.sh cargo clippy --version && scripts/dev.sh rustfmt --version
@@ -546,8 +551,9 @@ git -C vendor/inkboard status --porcelain | wc -l | grep -qx 0
   position semantics.
 - `collections::create`, `items::create`, `items::rename` and `items::purge_expired` completed;
   `revisions::{prune, pre_api}`.
-- `quire-core::rank::{key_between, rebalance}`, `ids::{new_uuid, new_url_id, slugify}`, `search::build_match`,
-  `cursor::{encode, decode}`, and a store helper `lists::page(…)` that every paginated query uses.
+- `quire-core::rank::{key_between, rebalance}`, `ids::{new_uuid, new_url_id, slugify}` and `cursor::{encode, decode}`;
+  `quire_store::search::build_match` (quire-core's frozen module list has no `search`); and a store helper
+  `lists::page(…)` that every paginated query uses.
 
 ### Consumes
 
@@ -773,7 +779,7 @@ These tests must exist and pass:
 | Blobs | `blobs::gc_between_stage_and_commit_never_leaves_row_without_file` |
 | Blobs | `blobs::attachment_gc_respects_refs_and_24h_grace` |
 | Tokens | `tokens::create_shows_secret_once_list_never` (list and `Me` never contain the secret or hash) |
-| Tokens | `tokens::scopes_expanded_and_capped_by_caller` (a write token cannot mint admin: 422) |
+| Tokens | `tokens::scopes_expanded_and_capped_by_caller` (a write token cannot reach `POST /tokens`, which needs `admin`: 403; a token asking for `admin` is 403 `session_required`; a token's own cap is 422 `scopes`, reachable in the store: a read parent, a write child) |
 | Tokens | `tokens::malformed_token_401_without_lookup` (bad checksum; a counting reader sees no query) |
 | Tokens | `tokens::expired_token_401_reason_expired` |
 | Tokens | `tokens::lookup_classifies_expired_revoked_disabled` (revoked, disabled and unknown give the same body) |
@@ -1297,7 +1303,9 @@ These tests must exist and pass:
 scripts/dev.sh cargo test -p quire-cli --locked --test cli -- config:: transport:: output:: exit_codes:: api:: auth:: tokens:: admin:: coverage::
 scripts/dev.sh cargo clippy -p quire-cli --all-targets --locked -- -D warnings
 ! scripts/dev.sh cargo tree --locked -p quire-cli -e normal --prefix none | grep -qE '^(openssl|openssl-sys|native-tls|rusqlite|yrs|inkboard-core|comrak|webpki-roots) '
-bash -n scripts/agent-test.sh scripts/cli-dist.sh e2e/agent/lib.sh e2e/agent/scenarios/*.sh
+for f in scripts/agent-test.sh scripts/cli-dist.sh e2e/agent/lib.sh e2e/agent/scenarios/*.sh; do
+  bash -n "$f" || exit 1
+done
 scripts/cli-dist.sh && scripts/dev.sh bash -c 'f=dist/cli/quire-x86_64-unknown-linux-musl \
   && { ldd "$f" 2>&1 | grep -qE "not a dynamic executable|statically linked"; } && "$f" --version \
   && (cd dist/cli && sha256sum -c quire-x86_64-unknown-linux-musl.sha256) && test -s dist/cli/THIRD_PARTY.md'
