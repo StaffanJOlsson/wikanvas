@@ -49,9 +49,13 @@ pub fn run(ctx: &Ctx, cmd: BoardCmd) -> Res {
                     let content = RawValue::from_string(text).map_err(|e| {
                         Failure::bad_response(format!("GET …/board: not JSON: {e}"))
                     })?;
-                    output::print_json(&json!({
-                        "item_id": id, "format": "inkboard", "etag": etag, "content": content,
-                    }))
+                    output::print_json(&output::Wrapped {
+                        item_id: &id,
+                        format: "inkboard",
+                        etag: etag.as_deref(),
+                        content: &*content,
+                        warnings: None,
+                    })
                 }
             }
         }

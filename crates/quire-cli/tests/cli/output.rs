@@ -261,6 +261,31 @@ fn json_stdout_is_the_body_unchanged() {
         expected,
         "byte for byte, plus a newline"
     );
+    // Wrapped content (board get, doc get --format json) and merged pages keep the server's bytes and key order.
+    let envelope = r#"{"format":"inkboard","version":2,"document":{"z_last":1,"a_first":[1.50,{"x_future":true}]}}"#;
+    let boards = Mock::always(
+        Reply::raw(200, "application/json", envelope.as_bytes()).with("ETag", "\"r3\""),
+    );
+    let out = s
+        .quire_at(&boards.url, &fake_token(1))
+        .args(["--json", "board", "get", ID])
+        .assert()
+        .success();
+    let text = String::from_utf8_lossy(&out.get_output().stdout).into_owned();
+    assert!(text.contains(&format!("\"content\": {envelope}")), "{text}");
+    assert!(
+        text.find("\"item_id\"") < text.find("\"content\""),
+        "{text}"
+    );
+    let page = r#"{"items":[{"z":1,"a":2.50}],"next_cursor":null}"#;
+    let pages = Mock::always(Reply::raw(200, "application/json", page.as_bytes()));
+    let out = s
+        .quire_at(&pages.url, &fake_token(1))
+        .args(["--json", "list", "recent", "--all"])
+        .assert()
+        .success();
+    let text = String::from_utf8_lossy(&out.get_output().stdout).into_owned();
+    assert!(text.contains(r#"{"z":1,"a":2.50}"#), "{text}");
     // The same through `api`.
     let out = s
         .quire_at(&mock.url, &fake_token(1))

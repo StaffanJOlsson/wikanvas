@@ -83,16 +83,24 @@ fn get(ctx: &Ctx, a: DocGet) -> Res {
                 return output::stdout_bytes(text.as_bytes());
             }
             if md {
-                output::print_json(&json!({
-                    "item_id": id, "format": "md", "etag": etag, "content": text, "warnings": warnings,
-                }))
+                output::print_json(&output::Wrapped {
+                    item_id: &id,
+                    format: "md",
+                    etag: etag.as_deref(),
+                    content: text.as_str(),
+                    warnings: Some(&warnings),
+                })
             } else {
                 let content = RawValue::from_string(text).map_err(|e| {
                     Failure::bad_response(format!("GET …/doc/prosemirror: not JSON: {e}"))
                 })?;
-                output::print_json(&json!({
-                    "item_id": id, "format": "json", "etag": etag, "content": content,
-                }))
+                output::print_json(&output::Wrapped {
+                    item_id: &id,
+                    format: "json",
+                    etag: etag.as_deref(),
+                    content: &*content,
+                    warnings: None,
+                })
             }
         }
     }

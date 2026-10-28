@@ -518,8 +518,14 @@ pub fn resolve(
     env: &Env,
     read_stdin: impl FnOnce() -> std::io::Result<String>,
 ) -> Result<Resolved, Failure> {
-    let path = config_path(env)?;
-    let file = load(&path)?;
+    // Without a config directory (no HOME, no QUIRE_CONFIG) there is no profile file; the environment still works.
+    let (path, file) = match config_path(env) {
+        Ok(p) => {
+            let f = load(&p)?;
+            (p, f)
+        }
+        Err(_) => (PathBuf::new(), ProfileFile::default()),
+    };
     let explicit = g.profile.as_deref();
 
     let (profile_name, profile) = match explicit {

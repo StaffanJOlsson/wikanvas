@@ -189,6 +189,18 @@ pub fn print_ok(
     }
 }
 
+/// A wrapped content result (`doc get`, `board get`): the content stays the server's raw JSON, never a value tree
+/// (§7.6 "Memory"), and the fields print in this order.
+#[derive(Serialize)]
+pub struct Wrapped<'a, C: Serialize + ?Sized> {
+    pub item_id: &'a str,
+    pub format: &'a str,
+    pub etag: Option<&'a str>,
+    pub content: &'a C,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warnings: Option<&'a [String]>,
+}
+
 /// Where a message goes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Stream {

@@ -87,7 +87,15 @@ fn create(ctx: &Ctx, a: TokenCreate) -> Res {
         Some(path) => {
             config::write_secret(&path, &created.token)?;
             if output::json() {
-                output::print_json(&json!({ "token_file": path, "api_token": created.api_token }))
+                #[derive(serde::Serialize)]
+                struct Written<'a> {
+                    token_file: &'a std::path::Path,
+                    api_token: &'a RawValue,
+                }
+                output::print_json(&Written {
+                    token_file: &path,
+                    api_token: created.api_token,
+                })
             } else {
                 output::print_text(&format!(
                     "wrote token {}… to {} (mode 0600)",

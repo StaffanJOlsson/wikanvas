@@ -183,7 +183,16 @@ fn create(ctx: &Ctx, a: ItemCreate) -> Res {
         created
     };
     if output::json() {
-        output::print_json(&json!({ "item": raw(item)?, "doc": raw(doc)? }))
+        #[derive(serde::Serialize)]
+        struct Created<'a> {
+            item: &'a RawValue,
+            doc: &'a RawValue,
+        }
+        let (item, doc) = (raw(item)?, raw(doc)?);
+        output::print_json(&Created {
+            item: &item,
+            doc: &doc,
+        })
     } else {
         let item: Value = serde_json::from_str(&item).unwrap_or(Value::Null);
         output::print_text(&human::table(&[item]))

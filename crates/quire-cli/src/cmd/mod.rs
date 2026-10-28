@@ -302,10 +302,21 @@ impl Ctx {
                 Some(c) => cursor = Some(c.clone()),
             }
         }
+        #[derive(serde::Serialize)]
+        struct Merged<'a> {
+            items: &'a [Box<RawValue>],
+            next_cursor: &'a Option<String>,
+        }
+        let merged = Merged {
+            items: &items,
+            next_cursor: &next,
+        };
         if output::json() {
-            output::print_json(&json!({ "items": items, "next_cursor": next }))
+            output::print_json(&merged)
         } else {
-            let v = json!({ "items": items, "next_cursor": next });
+            let text = serde_json::to_string(&merged)
+                .map_err(|e| Failure::bad_response(format!("cannot print the result: {e}")))?;
+            let v: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
             output::print_text(&human::render(&v))
         }
     }
