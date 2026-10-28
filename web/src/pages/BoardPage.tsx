@@ -70,19 +70,28 @@ export function BoardView({ item }: { item: ItemDetail }) {
   if (created.current?.id !== id) {
     created.current = { id, created: (location.state as { created?: boolean } | null)?.created === true };
   }
-  // Where the board is now (a move changes both while the page stays on it): read when the page leaves the board.
-  const place = useRef({ collectionId: item.item.collection_id, parentId: item.item.parent_id });
-  place.current = { collectionId: item.item.collection_id, parentId: item.item.parent_id };
-  // The "Text doc" documents created on this board in this page session (§18.6 (a) step 4).
-  const textDocs = useRef<{ id: string; docs: string[] }>({ id, docs: [] });
-  if (textDocs.current.id !== id) textDocs.current = { id, docs: [] };
+  // This page session's state of the board: the "Text doc" documents created on it (§18.6 (a) step 4), and where the
+  // board is now (a move changes the place while the page stays on it). A board switch starts a new object, so the
+  // cleanup of the board left reads that board's own place, never the next one's (rendered before the cleanup runs).
+  const session = useRef<{ id: string; docs: string[]; collectionId: string; parentId: string | null }>({
+    id,
+    docs: [],
+    collectionId: item.item.collection_id,
+    parentId: item.item.parent_id,
+  });
+  if (session.current.id !== id) {
+    session.current = { id, docs: [], collectionId: item.item.collection_id, parentId: item.item.parent_id };
+  } else {
+    session.current.collectionId = item.item.collection_id;
+    session.current.parentId = item.item.parent_id;
+  }
   // Runs its cleanup only when the page leaves the board (unmount or a board switch), never on a move or a rename.
   useEffect(() => {
     const discard = created.current?.id === id && created.current.created;
-    const mine = textDocs.current;
+    const mine = session.current;
     return () => {
       const docs = mine.docs.splice(0);
-      const { collectionId, parentId } = place.current;
+      const { collectionId, parentId } = mine;
       void (async () => {
         // First the created documents that are on no card (the server keeps embedded ones), then the board itself:
         // its `has_children` check would otherwise keep it for a child about to go.
@@ -103,7 +112,7 @@ export function BoardView({ item }: { item: ItemDetail }) {
     };
   }, [id, qc]);
   const canAdd = useCanAddCards(id);
-  const createdDocs = textDocs.current;
+  const createdDocs = session.current;
   const reason = fallbackReason({
     config: config.isError ? null : config.data,
     failure: host?.failure ?? null,

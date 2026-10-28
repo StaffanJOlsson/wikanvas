@@ -5,7 +5,7 @@ import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ItemDetail } from '../../api/gen/ItemDetail';
 import type { ItemSummary } from '../../api/gen/ItemSummary';
-import { updateCachedItem } from '../../api/queries/items';
+import { itemKey, updateCachedItem } from '../../api/queries/items';
 import {
   boardItem,
   boardPath,
@@ -196,6 +196,27 @@ describe('Text doc', () => {
       `/api/v1/items/${DOC_3}?discard_empty=true`,
       '/api/v1/items/board-1?discard_empty=true',
     ]);
+  });
+
+  it('a board switch discards with the left board’s place, not the next one’s', async () => {
+    const a = boardItem(1);
+    const b = boardItem(2, { collection_id: 'col-2' });
+    const m = mockFetch({ ...routes(a, { [`DELETE /api/v1/items/${DOC_3}`]: [204] }), ...boardRoutes(b) });
+    vi.stubGlobal('fetch', m.fetch);
+    const r = (app = await openBoardApp(a));
+    await waitFor(() => expect(textDoc().disabled).toBe(false));
+    fireEvent.click(textDoc());
+    await waitFor(() => expect(r.fake.inserted).toHaveLength(1));
+    act(() => {
+      r.fake.layout({ embeds: [] });
+    });
+    // B's detail is cached (the sidebar hovered it, an earlier visit): BoardView stays mounted from A to B.
+    r.queryClient.setQueryData(itemKey(b.item.url_id), b);
+    const invalidate = vi.spyOn(r.queryClient, 'invalidateQueries');
+    await act(() => r.router.navigate(boardPath(b)));
+    await waitFor(() => expect(deletes(m.requests)).toHaveLength(1));
+    await waitFor(() => expect(invalidate.mock.calls.some(([f]) => JSON.stringify(f?.queryKey) === '["tree","col-1"]')).toBe(true));
+    expect(invalidate.mock.calls.some(([f]) => JSON.stringify(f?.queryKey) === '["tree","col-2"]')).toBe(false);
   });
 
   it('an insert failure shows the toast and discards the new document at once', async () => {
