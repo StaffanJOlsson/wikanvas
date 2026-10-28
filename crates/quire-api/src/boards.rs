@@ -22,7 +22,7 @@ pub struct BoardMeta {
     pub bytes: u64,
     /// The revision the stored SVG previews were made from, `null` before the first preview.
     pub preview_rev: Option<i64>,
-    /// The first characters of the board's text (page names, labels, cells).
+    /// The first 4 KB of the board's search text (page names, labels, table cells, LaTeX), one entry per line.
     pub text_excerpt: String,
 }
 
@@ -33,8 +33,8 @@ pub struct BoardPageMeta {
     /// Inkboard's page id.
     pub id: String,
     pub name: String,
-    /// Size of the page's SVG preview in bytes; `null` while there is none (list views show a placeholder when it is
-    /// over 2 MB).
+    /// Size of the page's SVG preview in bytes; `null` while there is none, and for a page after the board's preview
+    /// budget (its preview is a "too large to preview" card). List views show a placeholder when it is over 2 MB.
     pub svg_len: Option<u64>,
 }
 
@@ -55,6 +55,7 @@ pub struct BoardPutResult {
 #[into_params(parameter_in = Query)]
 #[ts(export)]
 pub struct BoardPreviewQuery {
+    /// The board revision the page is wanted at (`BoardMeta.rev`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rev: Option<i64>,
 }

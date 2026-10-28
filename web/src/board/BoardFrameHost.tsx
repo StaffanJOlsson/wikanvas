@@ -1,29 +1,245 @@
-// The board frame host (docs/ARCHITECTURE.md §9.3, §9.5): one persistent iframe of the engine's frame page, laid over
-// the current BoardSurface. AppShell mounts it once, next to the routes.
-//
-// PLACEHOLDER (W0b): renders nothing and `useBoardFrame()` returns null, so board pages show BoardPreview. W6
-// replaces the body (iframe creation, rect tracking, hidden + inert + setActive(false) off board routes, removal after
-// 10 minutes, the update banner on a frame.html 404, preview mode when `config.inkboard` is null). The default export
-// (no props) and `useBoardFrame(): BoardFrameContext | null` are frozen (PLAN W0b); BoardFrameContext is W6's to extend.
-import type { BoardFrameApi, FrameError } from './bridge';
+// The board frame host (docs/ARCHITECTURE.md §9.3, §9.5, D11): one persistent iframe of the engine's frame page,
+// laid over the current BoardSurface. AppShell mounts it once, next to the routes.
+// - The iframe is created on the first board visit that wants the editor (a BoardSurface attached), from
+//   `config.inkboard.base + 'frame.html'`; with `config.inkboard === null` there is none and boards open in BoardPreview.
+// - It is never moved in the DOM (that would reload it): it sits in a fixed layer and is positioned over the
+//   surface's rect, which is tracked on resize and scroll.
+// - Off board routes it gets `visibility: hidden`, `inert` and `setActive(false)`; back on a board route
+//   `setActive(true)`. It is removed after 10 minutes away from boards.
+// - If `frame.html` turns out to be missing (404), `/config` is fetched again and, when the build changed, a banner
+//   offers "Quire was updated. Reload".
+// - Quire's theme is passed on with `setTheme`; host keys from the frame go to `runHostShortcut` (host.ts).
+// The default export (no props) and `useBoardFrame(): BoardFrameContext | null` are the frozen contract (PLAN W0b).
+import { useQueryClient } from '@tanstack/react-query';
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import { useLocation } from 'react-router';
+import { useShallow } from 'zustand/react/shallow';
+import type { Config } from '../api/gen/Config';
+import { configKey, fetchConfig, useConfig } from '../api/queries/config';
+import { inkboardBase } from '../lib/urls';
+import type { BoardFrameApi, OpenArgs } from './bridge';
+import { frameDriver, toConnectFailure } from './frameDriver';
+import {
+  attachSurface,
+  frameEvents,
+  openBoard,
+  releaseBoard,
+  resetFrame,
+  resetHost,
+  showBoard,
+  useHostStore,
+  type BoardSession,
+  type Failure,
+} from './host';
+import { useResolvedTheme } from './theme';
+import './board.css';
+
+/** How long the iframe is kept while no board route is open. */
+export const IDLE_REMOVE_MS = 10 * 60 * 1000;
 
 /** What board pages get from the host. */
 export interface BoardFrameContext {
   /** The connected frame, or null while it loads (or when it failed: see `failure`). */
   readonly frame: BoardFrameApi | null;
   /** Why boards open in BoardPreview instead (no engine, unsupported browser, panic, …), or null. */
-  readonly failure: Pick<FrameError, 'kind' | 'message'> | null;
+  readonly failure: Failure | null;
   /**
    * BoardSurface hands over the element the iframe covers (its rect is tracked); the returned function releases it.
    */
   attach(surface: HTMLElement): () => void;
+  // Additions (W6, PLAN R3):
+  /** The engine download, while it runs (`onProgress`). */
+  readonly progress: { loaded: number; total: number } | null;
+  /** "Quire was updated. Reload" is showing. */
+  readonly updateAvailable: boolean;
+  /** When each board was last saved (ms). */
+  readonly savedAt: Readonly<Record<string, number>>;
+  /** Flushes the previous board's session, then opens `args` for `session` (host.ts `openBoard`). */
+  open(session: BoardSession, args: OpenArgs): Promise<void>;
+  /** The session's page is gone. */
+  release(session: BoardSession): void;
+  /** The current board is (not) ready to be shown over the surface. */
+  show(shown: boolean): void;
+  /** Removes the iframe so the next board visit creates a new one (after a panic). */
+  reload(): void;
+  /** Shows the board full screen (Focus). */
+  requestFullscreen(): Promise<void>;
 }
 
-/** The board frame context, or null when no frame host is active (always null in this placeholder). */
+/** The board frame context, or null when no frame host is mounted. */
 export function useBoardFrame(): BoardFrameContext | null {
-  return null;
+  const s = useHostStore(
+    useShallow((st) => ({
+      mounted: st.mounted,
+      frame: st.frame,
+      failure: st.failure,
+      progress: st.progress,
+      updateAvailable: st.updateAvailable,
+      savedAt: st.savedAt,
+    })),
+  );
+  return useMemo<BoardFrameContext | null>(() => {
+    if (!s.mounted) return null;
+    return {
+      frame: s.frame,
+      failure: s.failure,
+      progress: s.progress,
+      updateAvailable: s.updateAvailable,
+      savedAt: s.savedAt,
+      attach: attachSurface,
+      open: openBoard,
+      release: releaseBoard,
+      show: showBoard,
+      reload: removeFrame,
+      requestFullscreen: async () => {
+        await useHostStore.getState().iframe?.requestFullscreen?.();
+      },
+    };
+  }, [s]);
 }
 
-export default function BoardFrameHost(): null {
-  return null;
+/** Removes the iframe and forgets the frame. */
+function removeFrame(): void {
+  useHostStore.getState().iframe?.remove();
+  resetFrame();
+}
+
+/** After a connection without `quireBoardFrame`: whether `frame.html` is gone and `/config` names another build. */
+async function updated(src: string, before: Config | undefined, refetch: () => Promise<Config>): Promise<boolean> {
+  try {
+    const res = await fetch(src, { cache: 'no-store', credentials: 'same-origin' });
+    if (res.status !== 404) return false;
+    const now = await refetch();
+    return now.version !== before?.version || inkboardBase(now) !== inkboardBase(before);
+  } catch {
+    return false;
+  }
+}
+
+export default function BoardFrameHost() {
+  const location = useLocation();
+  const onBoard = location.pathname.startsWith('/board/');
+  const config = useConfig();
+  const qc = useQueryClient();
+  const theme = useResolvedTheme();
+  const layer = useRef<HTMLDivElement>(null);
+  const st = useHostStore(
+    useShallow((s) => ({
+      iframe: s.iframe,
+      frame: s.frame,
+      failure: s.failure,
+      surface: s.surface,
+      shown: s.shown,
+      updateAvailable: s.updateAvailable,
+    })),
+  );
+  const base = inkboardBase(config.data);
+
+  useEffect(() => {
+    useHostStore.setState({ mounted: true });
+    return () => {
+      useHostStore.getState().iframe?.remove();
+      resetHost();
+    };
+  }, []);
+
+  // Create the iframe on the first board visit that wants the editor.
+  const wanted = onBoard && st.surface !== null && base !== null && st.failure === null && st.iframe === null;
+  useEffect(() => {
+    if (!wanted || base === null || !layer.current) return;
+    const src = `${base}frame.html`;
+    const driver = frameDriver();
+    const iframe = driver.create(src);
+    iframe.style.visibility = 'hidden';
+    iframe.setAttribute('inert', '');
+    useHostStore.setState({ iframe, failure: null, progress: null });
+    const before = config.data;
+    driver.connect(iframe, frameEvents).then(
+      (frame) => {
+        if (useHostStore.getState().iframe === iframe) useHostStore.setState({ frame });
+      },
+      async (e: unknown) => {
+        const failure = toConnectFailure(e);
+        if (useHostStore.getState().iframe !== iframe) return;
+        useHostStore.setState((s) => ({ failure: s.failure ?? { kind: failure.kind, message: failure.message } }));
+        if (failure.missing) {
+          const refetch = () => qc.fetchQuery({ queryKey: configKey, queryFn: ({ signal }) => fetchConfig(signal), staleTime: 0 });
+          if (await updated(src, before, refetch)) useHostStore.setState({ updateAvailable: true });
+        }
+      },
+    );
+    layer.current.appendChild(iframe);
+  }, [wanted, base, config.data, qc]);
+
+  // Shown over the surface only on a board route, with the board open; hidden and inert otherwise.
+  const visible = onBoard && st.surface !== null && st.shown && st.frame !== null && st.failure === null;
+  useLayoutEffect(() => {
+    const iframe = st.iframe;
+    if (!iframe) return;
+    iframe.style.visibility = visible ? 'visible' : 'hidden';
+    if (visible) iframe.removeAttribute('inert');
+    else iframe.setAttribute('inert', '');
+  }, [st.iframe, visible]);
+
+  // Paused off board routes (no periodic repaint).
+  useEffect(() => {
+    st.frame?.setActive(onBoard);
+  }, [st.frame, onBoard]);
+
+  // Removed after 10 minutes away from boards.
+  useEffect(() => {
+    if (onBoard || st.iframe === null) return;
+    const timer = setTimeout(removeFrame, IDLE_REMOVE_MS);
+    return () => clearTimeout(timer);
+  }, [onBoard, st.iframe]);
+
+  // The frame follows Quire's theme.
+  useEffect(() => {
+    st.frame?.setTheme(theme);
+  }, [st.frame, theme]);
+
+  // Track the surface's rect.
+  const { iframe: trackedFrame, surface: trackedSurface } = st;
+  useLayoutEffect(() => {
+    const iframe = trackedFrame;
+    const surface = trackedSurface;
+    if (!iframe || !surface) return;
+    let raf = 0;
+    const place = () => {
+      raf = 0;
+      const r = surface.getBoundingClientRect();
+      iframe.style.left = `${r.left}px`;
+      iframe.style.top = `${r.top}px`;
+      iframe.style.width = `${r.width}px`;
+      iframe.style.height = `${r.height}px`;
+    };
+    const schedule = () => {
+      if (raf === 0) raf = requestAnimationFrame(place);
+    };
+    place();
+    const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(schedule);
+    ro?.observe(surface);
+    window.addEventListener('resize', schedule);
+    window.addEventListener('scroll', schedule, true);
+    return () => {
+      if (raf !== 0) cancelAnimationFrame(raf);
+      ro?.disconnect();
+      window.removeEventListener('resize', schedule);
+      window.removeEventListener('scroll', schedule, true);
+    };
+  }, [trackedFrame, trackedSurface]);
+
+  return (
+    <>
+      <div ref={layer} className="board-frame-layer" />
+      {st.updateAvailable && (
+        <div role="alert" className="board-update-banner">
+          Quire was updated.{' '}
+          <button type="button" onClick={() => window.location.reload()}>
+            Reload
+          </button>
+        </div>
+      )}
+    </>
+  );
 }
