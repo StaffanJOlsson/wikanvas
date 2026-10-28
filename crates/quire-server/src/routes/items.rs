@@ -105,20 +105,15 @@ pub fn meta_etag(meta_version: i64) -> String {
     format!("\"m{meta_version}\"")
 }
 
-/// Whether the caller's theme is dark (new boards get the dark background).
+/// Whether the caller's theme is dark (new boards get the dark background): `users.theme` through
+/// `quire_store::users::get`; light when the user cannot be read.
 async fn dark_theme(state: &AppState, user_id: &str) -> bool {
     let user = user_id.to_owned();
     state
         .db
-        .read(move |conn| {
-            Ok(conn.query_row(
-                "SELECT theme = 'dark' FROM users WHERE id = ?1",
-                [user],
-                |r| r.get::<_, bool>(0),
-            )?)
-        })
+        .read(move |conn| quire_store::users::get(conn, &user))
         .await
-        .unwrap_or(false)
+        .is_ok_and(|u| u.theme == quire_api::Theme::Dark)
 }
 
 /// Creates a document or board, published (D23), with its content initialized, at `position` (omitted: last).

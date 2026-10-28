@@ -753,3 +753,35 @@ async fn move_duplicate_archive_and_restore() {
         ErrorCode::NotFound,
     );
 }
+
+/// A new board's background follows the caller's theme, read through `users::get` (W1 D19): dark gives `slate`.
+#[tokio::test]
+async fn new_board_background_follows_the_theme() {
+    let app = TestApp::with_owner().await;
+    let c = collection(&app, "Boards").await;
+    let preset = |id: Uuid| {
+        let server = &app.server;
+        async move {
+            let res = server.get(&format!("/api/v1/items/{id}/board")).await;
+            res.assert_status_ok();
+            res.json::<Value>()["document"]["background"]["preset"]
+                .as_str()
+                .unwrap()
+                .to_owned()
+        }
+    };
+    let light = item(&app, c.id, None, "board", "Light").await;
+    assert_eq!(preset(light.id).await, "white");
+    app.server
+        .patch("/api/v1/auth/me")
+        .json(&json!({"theme": "dark"}))
+        .await
+        .assert_status_ok();
+    let dark = item(&app, c.id, None, "board", "Dark").await;
+    assert_eq!(preset(dark.id).await, "slate");
+    assert_eq!(
+        preset(light.id).await,
+        "white",
+        "existing boards keep theirs"
+    );
+}
