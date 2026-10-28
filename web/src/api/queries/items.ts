@@ -12,6 +12,7 @@ import {
   type UseMutationResult,
   type UseQueryResult,
 } from '@tanstack/react-query';
+import { useEffect } from 'react';
 import { applyCreate, applyRemove } from '../../components/tree/applyMove';
 import { api, type ApiError } from '../client';
 import type { ItemDetail } from '../gen/ItemDetail';
@@ -256,4 +257,19 @@ export function usePatchItem(): UseMutationResult<ItemSummary, ApiError, PatchIt
       void qc.invalidateQueries({ queryKey: ['item'] });
     },
   });
+}
+
+/**
+ * Records one view of the item when a page opens it (`POST /items/{id}/view`, the only source of `/recent`, §7.2):
+ * once per mount and item, fire and forget (a failure only leaves Recently viewed as it was), then the Recently viewed
+ * list refetches.
+ */
+export function useRecordView(id: string): void {
+  const qc = useQueryClient();
+  useEffect(() => {
+    api<void>('POST', `/items/${enc(id)}/view`).then(
+      () => void qc.invalidateQueries({ queryKey: ['list', 'recent'] }),
+      () => undefined,
+    );
+  }, [id, qc]);
 }

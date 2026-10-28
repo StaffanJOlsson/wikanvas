@@ -34,6 +34,20 @@ describe('DocPage', () => {
     expect(document.querySelectorAll('style')).toHaveLength(0);
   });
 
+  it('records one view of the document (Recently viewed fills only through POST …/view, §7.2)', async () => {
+    const c = makeCollection({ id: 'c1' });
+    const doc = makeItem({ id: 'd1', collection_id: 'c1', title: 'Plan' });
+    const api = mockApi()
+      .on('GET', `/items/${doc.url_id}`, [200, makeDetail(doc, c)])
+      .on('GET', '/items/:id/doc', [200, EMPTY])
+      .on('GET', '/items/:id/children', [200, []])
+      .on('POST', '/items/:id/view', [204]);
+    render(<DocPage />, { route: itemPath(doc), path: '/doc/:slugId' });
+    await screen.findByDisplayValue('Plan');
+    await waitFor(() => expect(api.calls('POST', '/items/:id/view')).toHaveLength(1));
+    expect(api.calls('POST', '/items/:id/view')[0]!.params.id).toBe('d1');
+  });
+
   it('keeps the 720 px column otherwise', async () => {
     const { container } = renderDoc(false);
     await screen.findByDisplayValue('Plan');

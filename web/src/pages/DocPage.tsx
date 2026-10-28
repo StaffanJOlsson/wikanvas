@@ -9,7 +9,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from '
 import { Link, useLocation, useNavigate, useParams } from 'react-router';
 import { api, isApiError } from '../api/client';
 import { searchTitles, useChildren } from '../api/queries/docs';
-import { useCreateItem, useItem } from '../api/queries/items';
+import { useCreateItem, useItem, useRecordView } from '../api/queries/items';
 import type { ItemDetail } from '../api/gen/ItemDetail';
 import type { TitleHit } from '../api/gen/TitleHit';
 import { ItemHeader } from '../components/item/ItemHeader';
@@ -189,6 +189,7 @@ function DocView({ detail }: { detail: ItemDetail }) {
   const [active, setActive] = useState<string | null>(null);
   const [picking, setPicking] = useState<Editor | null>(null);
   const editorRef = useRef<Editor | null>(null);
+  useRecordView(id);
   const titleRef = useRef(detail.item.title);
   titleRef.current = detail.item.title;
   // Only an item this page session created is discarded: whoever creates one navigates to it with
