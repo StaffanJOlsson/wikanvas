@@ -401,8 +401,7 @@ pub fn inspect(full: &str) -> Result<Inspect, BoardError> {
 /// The pass reads every shape `from_json` accepts: its envelope, document, page and object structs have the engine's
 /// fields in the engine's order, so serde reads each from a JSON object or, by position, from a JSON array, as the
 /// engine does; a kind by position is never a card (`from_json` refuses one long enough to hold `embed`). A body the
-/// pass cannot read (one that
-/// `from_json` refuses) gives no targets, never an error.
+/// pass cannot read (one that `from_json` refuses) gives no targets, never an error.
 pub fn embeds(full: &str) -> Result<Vec<String>, BoardError> {
     let Ok(env) = serde_json::from_str::<ScanEnvelope<'_>>(serial::strip_bom(full)) else {
         return Ok(Vec::new());
