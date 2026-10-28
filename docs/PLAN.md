@@ -1520,3 +1520,329 @@ scripts/cli-dist.sh && scripts/dev.sh dist/cli/quire-x86_64-unknown-linux-musl -
 ! grep -rnE 'todo!\(|unimplemented!\(|TODO\(W|not implemented \(W' crates web/src web/inkboard-frame scripts e2e/agent
 git -C vendor/inkboard status --porcelain | wc -l | grep -qx 0
 ```
+
+---
+
+## M1.1: board document embeds
+
+**Goal.** The owner's request of 2026-10-28, "I want text docs to be able to be embedded and editable inside a board",
+as designed in `docs/ARCHITECTURE.md` §18 (normative; D58–D75). A card on a board shows a real document and edits it
+in place: a click selects, moves and resizes it, a double-click puts the caret in its text, Esc or a click outside
+leaves editing; a card is added with "Text doc" (a new child of the board), "Embed page…" (a picker), or by dragging a
+document from the sidebar onto the canvas.
+
+**Frozen contracts**, committed on main with this section (R3: additive changes only, by the file's owner, recorded
+in its handoff note; anything else through the orchestrator):
+- the stored representation of a card, ARCHITECTURE §18.2, and the fixture `fixtures/boards/embed.inkboard` (no
+  workstream edits it; tests build their variants from it in code);
+- the bridge types, `web/src/board/bridge.ts` "board document embeds" (§18.4: the `FrameEvents` and `BoardFrameApi`
+  additions, optional, and `DragItemType`, `DraggedItem`, `FramePoint`, `FrameRect`, `EmbedBox`, `EmbedLayout`,
+  `EmbedOpenEvent`, `EmbedEditEndReason`, `EmbedEditEndEvent`, `DropItemEvent`, `InsertEmbedArgs`);
+- the engine types, `web/inkboard-frame/inkboard.d.ts` "Patch 0005" (§18.3).
+
+**Rules.** R1–R11 apply as written, with these M1.1 specifics:
+- R2 ownership is the "Owns" lists below; they do not overlap, so E1, E2 and E3 run in parallel from this commit.
+  Handoff notes: `docs/handoff/E1.md`, `E2.md`, `E3.md` (each owned by its workstream), and `docs/handoff/E-merge.md`.
+- R11 worktrees and branches, created on the host from main:
+  ```sh
+  git worktree add ../Quire-E1-engine -b ws/E1-engine main
+  git worktree add ../Quire-E2-server -b ws/E2-server main
+  git worktree add ../Quire-E3-web    -b ws/E3-web    main
+  for w in ../Quire-E1-engine ../Quire-E2-server ../Quire-E3-web; do
+    git -C "$w" submodule update --init --reference "$PWD/vendor/inkboard" vendor/inkboard
+  done
+  ```
+  Every `scripts/dev.sh` command sets `QUIRE_SHARED_CARGO_HOME=$HOME/.cache/quire-cargo` in the same command.
+- No new Rust or npm dependency is expected. If one is unavoidable, its owner adds it (E2: the `quire-*` manifests it
+  touches; E3: `web/package.json`), commits the lockfile and the `THIRD_PARTY.md` row in the same commit (R6), checks
+  the licence against R6 and names it in the handoff note; the merge stage then merges that branch alone.
+- No schema change (R5): `link_kinds` already has `embed`. No route, DTO or error code changes, so
+  `docs/api/openapi.json` and `web/src/api/gen` stay byte-identical.
+- The owner's live wiki runs as compose project `quire`: never `docker compose up/down/restart/rm` or a writing
+  `exec` against it, never its volumes; use only the scripts (`e2e`, `agent-test`, `image-smoke`), which use their own
+  project names. Retagging `quire:latest` with `scripts/image.sh` is fine.
+- R10 "done" uses `grep -rnE 'todo!\(|unimplemented!\(|TODO\(E' <owned paths>`.
+
+| Id | Workstream | Worktree, branch | Depends on |
+|---|---|---|---|
+| E1 | Engine: patches 0005 and 0006, `frame.js`, the frame tests | `/home/staffan/Projects/Quire-E1-engine`, `ws/E1-engine` | the frozen contracts |
+| E2 | Server, core, store, `docs/AGENTS.md`, agent scenario 12 | `/home/staffan/Projects/Quire-E2-server`, `ws/E2-server` | §18.2 and the fixture |
+| E3 | Web: the host overlay, "Text doc", "Embed page…", the sidebar drag and the drop, the fake frame, unit tests | `/home/staffan/Projects/Quire-E3-web`, `ws/E3-web` | the bridge types (fake frame until E1 merges) |
+| M | Merge, smoke step 17, docs, the M1.1 gate | main, `/home/staffan/Projects/Quire` | E1, E2, E3 |
+
+```
+main (contracts) ──┬─ E1 ─┐
+                   ├─ E2 ─┼─ M (merge, smoke step 17) ─ M1.1 gate (+ the whole M1 release gate)
+                   └─ E3 ─┘   E3 ⇠ E1 through bridge.ts only; E1, E3 ⇠ E2 through §18.2 only
+```
+
+### E1: engine (patches 0005 and 0006, frame page, frame tests)
+
+**Goal.** ARCHITECTURE §18.3 and §18.4: the `BoxObj.embed` field in `inkboard-core`, the host events and methods in
+`inkboard-app`, and `frame.js`'s side of the bridge, including the drop of a sidebar document.
+
+**Order.**
+1. `scripts/dev.sh scripts/inkboard.sh src` in the fresh worktree (base + 0001–0004).
+2. 0005, part 1 (`inkboard-core`): `Embed`, `BoxObj.embed` last, lenient deserialization, `is_embed`, `embed: None` at the
+   construction sites (`inkboard-core/src/model.rs`, `inkboard-core/tests/properties.rs`,
+   `inkboard-formats/src/mermaid.rs`), the model tests; `cargo test -p inkboard-core`.
+3. 0005, part 2 (`inkboard-app`): `HostEvents` and `HostMode` additions, the layout report in `host_frame`, the
+   `start_editing` interception, the editing state with the swallowed press, `insertEmbed`, titles in place, no
+   rotation handle for a single card, the JS side in `embed.rs`, the native unit tests (§18.3 "Native unit tests").
+4. `export`, then `check` (no warning above the baseline) and the native tests.
+5. `frame.js` (§18.4) against the frozen types.
+6. `build --quick` and the new frame tests; then the full `build`.
+7. 0006 (docs) and `patches/inkboard/README.md`: patchset `3`, the two rows, and the `inkboard-core` sentence of the
+   series description amended as §10.2 now says.
+8. `export --upstream`, the full acceptance below.
+
+**Owns.**
+- `patches/inkboard/**` (new `0005-embed-documents.patch`, `0006-docs-embedded-documents.patch`; `README.md`;
+  `check-baseline.txt` stays as recorded on `base`), `scripts/inkboard.sh` (only if a change is needed)
+- `web/inkboard-frame/**` (`frame.js`; `inkboard.d.ts` additive only), `web/src/board/bridge.ts` (additive only)
+- `e2e/tests/frame.spec.ts`, `e2e/serve-static.mjs`, `fixtures/boards/frame-test.inkboard`
+- `docs/handoff/E1.md`
+
+**Produces.** A dist whose `manifest.json` has `patchset` `"3"` (`engine_version` `0.2.0-beta.3+embed.quire.3`) and whose
+`frame.js` implements every §18.4 member: the four events and `insertEmbed`, `setEmbedEditing`, `setEmbedTitles`,
+`requestEmbedLayout`.
+
+**Consumes.** The frozen contracts; nothing from E2 or E3.
+
+**Key behaviours** (§18.3, §18.4): a card is a `rect` box with `embed {item}` and round-trips byte for byte; a malformed
+`embed` loads as a plain box; the layout is reported at most once per frame and only on change, in canvas px turned into
+frame px by `frame.js`, with the occluders of every visible egui layer above `Order::Background`; every path into
+label editing of a card sends `onEmbedOpen` instead (with the double-click point); `setEmbedEditing` hides the card's
+handles and the first press or focus gain in the frame ends it, a canvas press swallowed; `insertEmbed` uses §18.2's
+defaults exactly (480 × 360, the style and label), one undo step, `null` when read-only; `setEmbedTitles` changes labels
+in place with no revision, again after every revision change, cleared by `host_load_doc`; capture-phase `dragenter`,
+`dragover` and `drop` for `application/x-quire-item` only, refused while read-only; no `t()` string; every changed file
+has its notice line.
+
+**Acceptance.**
+
+```sh
+scripts/dev.sh scripts/inkboard.sh src
+scripts/dev.sh scripts/inkboard.sh check
+scripts/dev.sh bash -c 'cd .cache/inkboard-src && CARGO_TARGET_DIR=/work/.cache/inkboard-target cargo test --locked -p inkboard-core'
+scripts/dev.sh bash -c 'cd .cache/inkboard-src && CARGO_TARGET_DIR=/work/.cache/inkboard-target cargo test --locked -p inkboard-app embed'
+scripts/dev.sh bash -c 'cd .cache/inkboard-src && CARGO_TARGET_DIR=/work/.cache/inkboard-target cargo test --locked -p inkboard-app i18n'
+scripts/dev.sh bash -c 'cd .cache/inkboard-src && CARGO_TARGET_DIR=/work/.cache/inkboard-target cargo test --locked -p inkboard-formats mermaid'
+scripts/dev.sh scripts/inkboard.sh build && jq -e '.patchset == "3" and .engine_version == "0.2.0-beta.3+embed.quire.3"' web/dist-inkboard/manifest.json
+scripts/dev.sh scripts/inkboard.sh export --upstream && ! grep -rq 'Changed for Quire' .cache/inkboard-upstream
+test "$(grep -c 'Changed for Quire' patches/inkboard/0005-embed-documents.patch)" -ge 1
+scripts/dev.sh pnpm --dir web typecheck
+scripts/dev.sh pnpm --dir web test src/board          # the fake frame still satisfies the bridge
+scripts/e2e.sh frame                                  # every M1 frame test and the new ones below
+scripts/dev.sh cargo test -p quire-core --locked -- board::   # the server's unpatched core still reads the boards
+git -C vendor/inkboard status --porcelain | wc -l | grep -qx 0
+```
+
+New frame tests (`e2e/tests/frame.spec.ts`, real engine, `fixtures/boards/embed.inkboard`):
+
+| Test | Checks |
+|---|---|
+| `embeds: the layout of the fixture` | One `onEmbedLayout` after `open()`: two embeds with the fixture's object ids, items, frames and labels, the plain box left out; `items` sorted; `editing` null; `canvas` the whole canvas; `occluders` non-empty and inside `canvas`; a pixel probe at `origin + centre × zoom` of a card sees its white fill |
+| `embeds: pan and zoom report at most once per frame` | A wheel zoom and a Hand-tool drag change `zoom` and `origin`; reports ≤ animation frames during the gesture; no report in 1 s of idling; none for a pan on a board without cards (`frame-test.inkboard`) |
+| `embeds: open instead of label editing` | A double-click on a card gives `onEmbedOpen` with its `objectId`, `item` and `point` within 2 px of the click, the card selected, no `onChange` and the snapshot unchanged; Enter on the selected card gives `point: null`; the plain box still edits its label (positive control) |
+| `embeds: the editing state` | `setEmbedEditing(id)` → `layout.editing === id`; a click on empty canvas → `onEmbedEditEnd {reason: 'press'}`, no marquee and the selection unchanged; again, then a click on an engine toolbar button → `press` and the tool changes; focusing the canvas after focusing another element → `focus`; `open()` of another board while editing → `gone` |
+| `embeds: insertEmbed` | `'center'` returns an id, sends `onChange`, and the snapshot holds the card with exactly §18.2's defaults centred on the view centre; a point gives a card centred there (±1 world unit); Ctrl+Z removes it; read-only returns `null` and changes nothing |
+| `embeds: titles in place` | `setEmbedTitles` changes the layout's label with no `onChange`, the same revision and `isDirty()` false; after drawing a rectangle the snapshot holds the new label; after `open()` of the same board again the map is cleared |
+| `embeds: round trip and lenient model` | The fixture round-trips byte for byte (without views); a box with `"embed": 5` opens without a `load` error and its snapshot has no `embed`; an ellipse with an `embed` keeps it in the snapshot and is not in the layout |
+| `embeds: drop of a sidebar document` | A synthetic `dragover` with `application/x-quire-item` is accepted (`defaultPrevented`); the `drop` gives `onDropItem` with the `DraggedItem` and the drop point; a drop without the type, with JSON that does not parse, with `v: 2` or `kind: 'board'` gives nothing; read-only: the `dragover` is not accepted and no event |
+| `embeds: no rotation handle for a single card` | Dragging from where the rotation handle of a selected card would be leaves its `angle` 0; the same gesture on the plain box rotates it (positive control) |
+| `embeds: read-only` | A double-click on a card gives no `onEmbedOpen` |
+
+The M1 frame tests keep passing, and every new test also checks that no CSP violation was recorded.
+
+### E2: server, core, store, AGENTS.md, agent scenario 12
+
+**Goal.** ARCHITECTURE §18.8–§18.10: cards become `item_links`, nothing about them is refused, agents can build them.
+
+**Owns.**
+
+| Area | Files |
+|---|---|
+| `crates/quire-core` | `src/board.rs` |
+| `crates/quire-store` | `src/boards.rs`, `tests/store/boards.rs` |
+| `crates/quire-server` | `src/routes/boards.rs` (only if a change is needed), `tests/api/boards.rs` |
+| Docs | `docs/AGENTS.md`, `docs/handoff/E2.md` |
+| Agent harness | `e2e/agent/scenarios/12-board-embeds.sh`, any new `e2e/agent/fixtures/embed-*.inkboard` |
+
+**Produces.** `quire_core::board::Inspect::embeds`, `EMBED_LINKS_MAX` (1000), the embed scan (§18.8); `boards::save`,
+`boards::init_with` and `boards::copy` maintaining `item_links` kind `embed` (board → target), the board's own id skipped;
+AGENTS.md §8 "Embedded pages" with the §18.2 JSON, its rules and the `jq` recipe; scenario 12. No route, DTO or
+OpenAPI change.
+
+**Consumes.** §18.2 and `fixtures/boards/embed.inkboard`; nothing from E1 or E3.
+
+**Key behaviours.** The scan is a second, borrowed, typed pass after `from_json` (no `Value` tree) and never fails a
+PUT; only `type: "box"`, `geom: "rect"`, an `embed` object with a canonical-UUID string `item` counts; targets are
+distinct in first-appearance order and capped at 1000; the links are replaced in the PUT's writer transaction after the
+body text, untouched by a no-op save; nothing checks that a target exists.
+
+**Acceptance.**
+
+```sh
+scripts/dev.sh cargo test -p quire-core   --locked -- board::
+scripts/dev.sh cargo test -p quire-store  --locked --test store -- boards::
+scripts/dev.sh cargo test -p quire-server --locked --test api   -- boards::
+scripts/dev.sh cargo test -p quire-server --locked --test api   -- openapi:: && git diff --exit-code docs/api/openapi.json
+scripts/dev.sh cargo test -p quire-api --locked export_bindings && git diff --exit-code web/src/api/gen
+scripts/dev.sh cargo clippy --workspace --all-targets --locked -- -D warnings
+scripts/fmt.sh --check
+scripts/image.sh --build-arg INKBOARD_BUILD=stub      # after the last commit: the harness refuses a stale image
+scripts/agent-test.sh --scenario '12-*'
+scripts/agent-test.sh                                 # every scenario, 01–12
+```
+
+These tests must exist and pass:
+
+| Area | Test |
+|---|---|
+| core | `board::tests::embeds_found_in_rect_cards_only` (the fixture: both targets in order, the plain box none) |
+| core | `board::tests::embeds_ignore_malformed_values` (`"embed": 5`, `{}`, `{"item": 3}`, `{"item": "abc"}`, an uppercase UUID, an ellipse with a valid `embed`: no target, and `inspect` succeeds) |
+| core | `board::tests::embeds_distinct_and_capped` (one target twice gives it once; 1001 distinct give the first 1000) |
+| core | `board::tests::embed_fixture_round_trips_byte_identical` (`split` then `splice` gives the input with the title) |
+| core | `board::tests::embed_fixture_text_and_preview` (the text has both labels; page 0's SVG holds "First page") |
+| Store | `boards::save_records_embed_links` (rows `(board, target, 'embed')`; a second save with one card leaves one row; a no-op save keeps them; the board's own id is never linked) |
+| Store | `boards::init_with_records_embed_links` |
+| Store | `boards::copy_copies_embed_links` |
+| Store | `boards::purging_a_board_drops_its_links_not_a_targets` (purging the board removes its rows; purging a target leaves the board's row) |
+| API | `boards::put_with_embeds_keeps_them_byte_for_byte` (session and bearer clients) |
+| API | `boards::malformed_embeds_are_accepted_and_kept` |
+| API | `boards::put_with_embeds_records_links` |
+| API | `boards::duplicate_board_copies_embed_links` (through `POST /items/{id}/duplicate`) |
+
+Agent scenario `12-board-embeds.sh` (CLI only, against the image, like 04):
+1. A scratch collection; a board "Embed board"; a child document of the board "Embedded notes" (`item create --parent`,
+   `--md` with "kangaroo"); a document "Shared page" at the top level.
+2. The fixture with its two placeholder ids replaced (`jq`) by the child's and the shared page's ids: `board put
+   --if-match r1` exits 0.
+3. `board get`: both cards keep `kind.embed.item`, the plain box has no `embed`, `document.name` is the title, and the
+   content equals the sent board apart from the name (`jq -S`).
+4. `item text` of the board holds "First page" and "Second page"; `search "Second page"` finds the board.
+5. A board with `"embed": 5`, `{"item": "not-a-uuid"}` and an ellipse with a valid `embed` added: `board put` exits 0 and
+   `board get` keeps all three exactly.
+6. `board preview --page 0` is `image/svg+xml` and holds "First page".
+7. `item duplicate` of the board: the copy's `board get` has the same two targets.
+8. `item trash` of the board: the child shows `trashed_at`, the shared page does not; `item restore`: the child is back.
+9. `item move` of the child to the top level: `board get` is unchanged.
+10. AGENTS.md's `jq` recipe, verbatim with the scenario's ids, appends a card for the shared page: `board put` exits 0
+    and the board has three cards.
+
+### E3: web (host overlay, Text doc, Embed page…, sidebar drag and drop)
+
+**Goal.** ARCHITECTURE §18.5–§18.7: cards drawn and edited over the board, the three ways to add one, titles; all tested
+against the fake frame, since E1's engine arrives at the merge.
+
+**Owns.**
+
+| Area | Files |
+|---|---|
+| Board host | `web/src/board/embed/**` (new), `web/src/board/{BoardFrameHost.tsx,host.ts,fakeFrame.ts,testkit.tsx,board.css,BoardSurface.tsx}`, the tests in `web/src/board/` |
+| Board page | `web/src/pages/BoardPage.tsx` |
+| Editor | `web/src/editor/{QuireEditor.tsx,menus.tsx,extensions.ts}`, new tests in `web/src/editor/` |
+| Sidebar | `web/src/components/sidebar/TreeRow.tsx`, a new test next to it |
+| Queries | `web/src/api/queries/docs.ts` |
+| Docs | `docs/handoff/E3.md` |
+
+Not owned: `web/src/board/bridge.ts` (E1; frozen) and `web/inkboard-frame/**` (E1). `web/package.json`,
+`web/pnpm-lock.yaml` and `THIRD_PARTY.md` only if a dependency is unavoidable (Rules).
+
+**Produces.** The overlay (`.board-embeds`, the §18.5 test contract), the "Text doc" and "Embed page…" buttons and the
+picker, the drag source on document rows, the drop handling, `QuireEditor`'s `variant`/`popupRoot` props, the
+`['docJson', id]` query, the fake frame's embed members and helpers (`layout(l)`, `openEmbed(objectId, point)`,
+`endEdit(objectId, reason)`, `dropItem(item, point)`, the inserted cards), and additive `BoardFrameContext` members if
+the board page needs them.
+
+**Consumes.** The bridge types; the existing routes (`POST /items`, `GET …/doc/prosemirror`, `GET /items/{id}`,
+`GET /search/titles`, the doc session's routes).
+
+**Key behaviours** (§18.5–§18.7): the overlay shares the iframe's rect, applies each layout synchronously to the DOM, and
+re-renders only when the set of drawn cards changes; at most 24 static cards at zoom ≥ 0.5 and ≥ 120 × 80 px, inset 12
+world units; clipped to the canvas minus the occluders (disjoint holes); static cards are read-only TipTap viewers of
+`DocJson` (200 blocks, `If-None-Match`); one editing card on a `DocSession`, entered on `onEmbedOpen` with
+`setEmbedEditing`, the caret at the double-click point, left on Esc (then `frame.focus()`), `onEmbedEditEnd`, a
+pointerdown outside the card and `popupRoot`, and every board or target state change; the target states; paper cards;
+the three ways to add through one `insertCard`; the discard of empty unreferenced "Text doc" documents; titles to
+`setEmbedTitles`; Focus over the layer; the buttons only when the frame has `insertEmbed`.
+
+**Acceptance.**
+
+```sh
+scripts/dev.sh pnpm --dir web typecheck
+scripts/dev.sh pnpm --dir web test src/board src/editor src/components/sidebar src/pages
+scripts/dev.sh pnpm --dir web test
+scripts/dev.sh pnpm --dir web build
+! grep -rnE 'TODO\(E' web/src
+```
+
+These tests must exist and pass:
+
+| File | Checks |
+|---|---|
+| `board/embed/layout.test.ts` | world → frame → viewport with an iframe offset; `chooseCards`: the 0.5 zoom and 120 × 80 px thresholds, the cap of 24 largest first, the editing card always, off-screen and rotated bounds; `clipPath` with overlapping and edge-touching occluders gives disjoint holes whose area is the union's |
+| `board/embed/embedLayer.test.tsx` | a fake layout sets the world transform and the card boxes (inset 12); a camera-only layout renders no card component again (a render counter); hidden and `inert` with the iframe; emptied on a frame reset; another board's events ignored; `requestEmbedLayout` after `open()` |
+| `board/embed/staticCard.test.tsx` | `DocJson` fetched once, revalidated with `If-None-Match` (304 keeps it); only the first 200 blocks; no POST ever; the states `loading`, `static`, `trashed`, `archived`, `missing` (404, a non-UUID `item`, a board target) and `error` |
+| `board/embed/editing.test.tsx` | `onEmbedOpen` → `setEmbedEditing(id)`, a `DocSession` for the target, the editor focused with the caret from the converted point, typing POSTs only the document's updates; Esc → `setEmbedEditing(null)`, flush, `frame.focus()`; `onEmbedEditEnd` ends without moving focus; a pointerdown outside ends it, one in `popupRoot` does not; a second `onEmbedOpen` ends and flushes the first before opening; never opened on a read-only board or for a trashed, archived or missing target; ends when the board turns read-only; an open failure → the toast and `setEmbedEditing(null)` |
+| `board/embed/textDoc.test.tsx` | "Text doc": `POST /items` with `parent_id` = the board and `kind: "doc"`, then `insertEmbed({at: 'center', title: 'Untitled'})`, then editing; disabled while read-only or without `insertEmbed`; leaving the board discards created documents absent from `items` (`DELETE ?discard_empty=true`) and keeps the referenced ones; an insert failure discards at once |
+| `board/embed/picker.test.tsx` | "Embed page…" lists documents only (a board hit filtered out), Enter takes the first, Esc closes, `insertEmbed` at the centre, then `frame.focus()` |
+| `board/embed/drop.test.tsx` | `onDropItem` with a document → `insertEmbed` at its point; a non-UUID id, another board's event or a read-only board → nothing; a drop on the editing card is taken in the capture phase and its viewport point converted to frame px |
+| `board/embed/titles.test.ts` | `setEmbedTitles` gets `title.trim() \|\| 'Untitled'` for every cached target in `items`, debounced 250 ms, only when the map changed; a rename in the cache updates it |
+| `board/boardPage.test.tsx` (updated) | Focus fullscreens `.board-frame-layer`; the two buttons exist only when the frame has `insertEmbed` |
+| `editor/embedVariant.test.tsx` | `variant="embed"`: the slash and mention popups render in `popupRoot`, the bubble and table menus are appended to it with `strategy: 'fixed'`, no block handle, no heading anchors; `variant="page"` (the default) renders as before |
+| `components/sidebar/dragExternal.test.tsx` | a document row's `draggable` has `getInitialDataForExternal` giving `{'application/x-quire-item': JSON.stringify({v: 1, id, kind: 'doc', title})}`; board and collection rows have none |
+
+### Merge stage (M)
+
+On main, by the orchestrator or one integrating agent, after E1, E2 and E3 are done (R10):
+1. Merge the branches in the order they finish (`git merge --no-ff`; no file is shared, so a conflict means a
+   workstream edited outside its "Owns" and goes back to it). After each merge, rerun that workstream's acceptance on
+   main.
+2. Apply the handoff notes' requests and fold their deviations into ARCHITECTURE §18 (with a row per decision in
+   §18.14) and this section.
+3. Write smoke step 17 (below) in `e2e/tests/smoke.spec.ts`, after step 16.
+4. Run the M1.1 gate.
+
+**Owns.** `e2e/tests/smoke.spec.ts`, `docs/ARCHITECTURE.md`, `docs/PLAN.md`, `README.md` (a sentence on cards in the
+feature list, if it has one), `THIRD_PARTY.md`, `CLAUDE.md`, `docs/handoff/E-merge.md`, and fixes found by the gate in any
+file, each as its own commit with a test.
+
+**Smoke step 17** (real engine; skipped with a recorded reason when step 9 fell back to the preview, like steps 10–12):
+"17. Board document embeds: Text doc, Embed page…, a sidebar drop, double-click editing, autosave, reload".
+1. Create a new board "Embed board" under A and wait for the engine.
+2. "Text doc": a `POST /items` with `parent_id` = the board; the sidebar shows an "Untitled" child under the board; a
+   card `[data-state="editing"]` appears with its centre within 40 px of the canvas's; the focus is in its
+   `.board-embed-editor .ProseMirror`. Type "wombat": the card's `.board-embed-status` reads "Saved", and
+   `GET /api/v1/items/{doc}/text` holds "wombat". Click the card's title input and type "Wombat notes": the sidebar
+   row is renamed.
+3. Esc (in the title input): the card is `static` and still shows "wombat".
+4. "Embed page…": search "C" and choose C: a second card appears near the centre, static, showing "quokka".
+5. Drag the sidebar row of A (visible: the tree is expanded to the board) onto an empty part of the canvas at a point
+   P with real mouse events: a third card appears centred on P (±40 px). If Playwright cannot carry the drag into the frame, dispatch `dragenter`,
+   `dragover` and `drop` at P in the frame with a `DataTransfer` holding exactly §18.6's data, record the reason in the
+   test annotations and in `docs/handoff/E-merge.md`, and add the real drag to ARCHITECTURE §16 item 26's manual list.
+6. After the board's save: `GET /api/v1/items/{board}/board` holds three cards whose `kind.embed.item` are the new
+   document, C and A, and the first card's label is "Wombat notes" (the title map was saved with the later saves).
+7. Double-click the word "quokka" in C's card with `page.mouse` at the word's box (a static card takes no pointer
+   events, so the double-click reaches the engine): the card is `editing` and the focus is in its editor; press End and
+   type " numbat": "Saved", and `GET /api/v1/items/{C}/text` holds "quokka numbat". Click an empty part of the canvas
+   with `page.mouse`: the card is `static` again, and the next board save (if any) holds no new object.
+8. Reload: once the engine is ready, the three cards are `static` and show "wombat", "quokka numbat" and A's text;
+   open C: its body holds "quokka numbat".
+
+### Acceptance (the M1.1 gate)
+
+On main after the merge stage, in this order, with `QUIRE_SHARED_CARGO_HOME=$HOME/.cache/quire-cargo` in every
+`scripts/dev.sh` command:
+1. E1's, E2's and E3's acceptance blocks, verbatim, on main.
+2. `scripts/dev.sh scripts/inkboard.sh build && scripts/e2e.sh frame` (the M1 frame tests and the new ones).
+3. `scripts/image.sh` (the full engine), then `scripts/e2e.sh smoke` with step 17, and `scripts/agent-test.sh`
+   (scenarios 01–12, no `--allow-stale`).
+4. The whole M1 release gate, "Acceptance (the M1 release gate)" above, verbatim (it rebuilds and reruns the image,
+   the image smoke, the smoke and the harness against the merged main).
+5. `! grep -rnE 'todo!\(|unimplemented!\(|TODO\(W|TODO\(E|not implemented \(W' crates web/src web/inkboard-frame scripts e2e/agent`.
+
+A failure is fixed at its cause or reported as a blocker; nothing is skipped, ignored or loosened (§16 item 31 lists
+what only a real browser shows).
