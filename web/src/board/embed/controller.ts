@@ -15,6 +15,7 @@
 import type { QueryClient } from '@tanstack/react-query';
 import type { Editor } from '@tiptap/react';
 import { create } from 'zustand';
+import { isApiError } from '../../api/client';
 import type { ItemDetail } from '../../api/gen/ItemDetail';
 import { docJsonKey, type CachedDocJson } from '../../api/queries/docs';
 import { fetchItem, itemKey } from '../../api/queries/items';
@@ -394,22 +395,30 @@ export class EmbedController implements EmbedSink {
     void this.openSession(ed);
   }
 
-  private async validTarget(item: string): Promise<boolean> {
+  /** `ok`: a live document; `dead`: trashed, archived, missing or not a document; `failed`: the detail did not load. */
+  private async validTarget(item: string): Promise<'ok' | 'dead' | 'failed'> {
     const cached = cachedItem(this.qc, item);
-    if (cached) return isEditableTarget(cached);
+    if (cached) return isEditableTarget(cached) ? 'ok' : 'dead';
     try {
       const d = await this.qc.fetchQuery({ queryKey: itemKey(item), queryFn: ({ signal }) => fetchItem(item, signal) });
-      return isEditableTarget(d);
-    } catch {
-      return false;
+      return isEditableTarget(d) ? 'ok' : 'dead';
+    } catch (e) {
+      return isApiError(e, 'not_found') ? 'dead' : 'failed';
     }
   }
 
   private async openSession(ed: Editing): Promise<void> {
     const valid = await this.validTarget(ed.item);
     if (this.ed !== ed) return;
-    if (!valid) {
+    if (valid === 'dead') {
+      // A dead target never opens (§18.5 Editing step 1): back to the frame, as if nothing happened.
       this.end({ tellEngine: true, focusFrame: true });
+      return;
+    }
+    if (valid === 'failed') {
+      // The open failed (§18.5 Editing step 1): the toast, and editing ends.
+      toast({ message: OPEN_FAILED, kind: 'error' });
+      this.end({ tellEngine: true });
       return;
     }
     await this.closing;

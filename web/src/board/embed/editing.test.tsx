@@ -291,6 +291,54 @@ describe('editing a card', () => {
     expect(cardEl('c1')?.dataset.state).toBe('static');
   });
 
+  it('an undrawn card whose target is missing ends silently; one whose target cannot be fetched ends with the toast', async () => {
+    const MISSING = '0192f0e0-0000-7000-8000-0000000000e4';
+    const BROKEN = '0192f0e0-0000-7000-8000-0000000000e5';
+    const { r } = await setup({
+      [`GET /api/v1/items/${MISSING}`]: [404, errorBody('not_found')],
+      [`GET /api/v1/items/${BROKEN}`]: [500, errorBody('internal')],
+    });
+    // Zoomed out below 0.5: no static card is drawn, so these targets were never fetched (E3-D5).
+    const embeds = [
+      ...L0.embeds,
+      { objectId: 'm', item: MISSING, x: 600, y: -200 },
+      { objectId: 'b', item: BROKEN, x: 1200, y: -200 },
+    ];
+    act(() => {
+      r.fake.layout({ ...L0, zoom: 0.3, embeds });
+    });
+    act(() => r.fake.openEmbed('m', null));
+    await waitFor(() => expect(editingCalls(r)).toEqual(['m', null]));
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+    expect(screen.queryByText('Could not open the page')).toBeNull();
+    act(() => r.fake.openEmbed('b', null));
+    await screen.findByText('Could not open the page');
+    expect(editingCalls(r)).toEqual(['m', null, 'b', null]);
+    expect(embedController()?.editingId()).toBeNull();
+  });
+
+  it('Esc with the slash menu open closes the menu and keeps editing; the next Esc leaves', async () => {
+    const { r } = await setup();
+    await openCard(r);
+    const editor = editorOf();
+    act(() => {
+      editor.commands.focus('end');
+      for (const ch of ' /') {
+        const { from, to } = editor.state.selection;
+        editor.view.dispatch(editor.state.tr.insertText(ch, from, to));
+      }
+    });
+    const root = document.querySelector('.board-embed-popups') as HTMLElement;
+    await waitFor(() => expect(root.querySelector('[role="listbox"][aria-label="Insert a block"]')).not.toBeNull());
+    fireEvent.keyDown(editorDom() as HTMLElement, { key: 'Escape' });
+    await waitFor(() => expect(root.querySelector('[role="listbox"]')).toBeNull());
+    expect(cardEl('c1')?.dataset.state).toBe('editing');
+    expect(editingCalls(r)).toEqual(['c1']);
+    fireEvent.keyDown(editorDom() as HTMLElement, { key: 'Escape' });
+    expect(cardEl('c1')?.dataset.state).toBe('static');
+    expect(editingCalls(r)).toEqual(['c1', null]);
+  });
+
   it('a Ctrl+wheel over the editing card is prevented (no page zoom); a plain wheel is not', async () => {
     const { r } = await setup();
     await openCard(r);
