@@ -90,6 +90,12 @@ describe('optimistic moves', () => {
     await act(async () => {
       expect(await probe.actions.drop(item('C'), { type: 'after', targetId: 'B' })).toBe(false);
     });
+    // A1, A's first child, dropped on A's "after" zone (before its own first child, i.e. before itself).
+    await act(async () => {
+      expect(await probe.actions.drop(item('A1'), { type: 'before', targetId: 'A1' })).toBe(false);
+    });
     expect(api.calls('POST')).toHaveLength(0);
+    expect(screen.queryByRole('status')).toBeNull();
+    await waitForRows(['c1', 'A', 'A1', 'B', 'C']);
   });
 });

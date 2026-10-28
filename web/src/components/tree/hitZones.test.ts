@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { items, rowIndex, treeCase } from '../../test/treeFixtures';
 import { resolveItemDrop } from './drop';
 import { edgeZone, indentX, itemZone, outdentTarget, pointerLevel } from './hitZones';
+import { dropToMove } from './positions';
 
 const rect = { top: 100, height: 40, left: 0 };
 
@@ -62,6 +63,19 @@ describe('hit zones', () => {
 
     it('below an expanded parent the drop goes before its first child', () => {
       expect(after('A2', 0)).toEqual({ type: 'before', targetId: 'A2a' });
+    });
+
+    it('the first child dropped below its own expanded parent stays put: no request', () => {
+      // A1 is A's first child; the "after" zone of A means "before A1", where A1 already is.
+      const drag = { id: 'A1', collectionId: 'c1' };
+      const r = resolveItemDrop({ rows, index: rowIndex(rows, 'A'), dragged: drag, forests, clientX: 0, clientY: rect.top + 35, rect })!;
+      expect(r.instruction).toEqual({ type: 'before', targetId: 'A1' });
+      expect(dropToMove(r.instruction, list.find((i) => i.id === 'A1')!, forests)).toBeNull();
+      // A2a, the only child of A2, likewise.
+      const only = resolveItemDrop({
+        rows, index: rowIndex(rows, 'A2'), dragged: { id: 'A2a', collectionId: 'c1' }, forests, clientX: 0, clientY: rect.top + 35, rect,
+      })!;
+      expect(dropToMove(only.instruction, list.find((i) => i.id === 'A2a')!, forests)).toBeNull();
     });
 
     it('outdentTarget stops at a node that is not the last child', () => {

@@ -60,6 +60,12 @@ describe('drop → {after_id, before_id}', () => {
     expect(dropToMove({ type: 'collection', collectionId: 'c1' }, item('C'), forests)).toBeNull();
   });
 
+  it('before or after the moved item itself is null (never a self neighbour)', () => {
+    expect(dropToMove({ type: 'before', targetId: 'A1' }, item('A1'), forests)).toBeNull();
+    expect(dropToMove({ type: 'after', targetId: 'A1' }, item('A1'), forests)).toBeNull();
+    expect(dropToMove({ type: 'before', targetId: 'B' }, item('B'), forests)).toBeNull();
+  });
+
   it('currentPlace is the Undo target', () => {
     expect(currentPlace(forests.get('c1'), item('A2'))).toEqual({
       collection_id: 'c1', parent_id: 'A', position: { after_id: 'A1', before_id: 'A3' },

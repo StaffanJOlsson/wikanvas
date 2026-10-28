@@ -35,8 +35,8 @@ function findForest(forests: ReadonlyMap<string, Forest | undefined>, itemId: st
 }
 
 /**
- * The move a drop of `item` performs, or null when it would change nothing (same parent and same neighbours, or the
- * same parent in a non-manual group).
+ * The move a drop of `item` performs, or null when it would change nothing (same parent and same neighbours, the same
+ * parent in a non-manual group, or before/after the item itself).
  */
 export function dropToMove(
   instruction: DropInstruction,
@@ -66,6 +66,8 @@ export function dropToMove(
     return { collection_id: cid, parent_id: target.item.id };
   }
 
+  // Before or after itself: where it already is (e.g. "below its expanded parent" when it is the first child).
+  if (target.item.id === item.id) return null;
   const parentId = target.item.parent_id;
   const sibs = group(forest, parentId).filter((n) => n.item.id !== item.id);
   const i = sibs.indexOf(target);

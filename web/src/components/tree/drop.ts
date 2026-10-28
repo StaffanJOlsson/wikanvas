@@ -98,7 +98,8 @@ export function resolveItemDrop({ rows, index, dragged, forests, clientX, client
     instruction = { type: 'before', targetId: row.item.id };
     indicator = { rowKey: row.key, kind: 'line-before', depth: row.depth };
   } else if (row.expanded && row.node.children.length > 0) {
-    // Below an expanded parent is above its first child.
+    // Below an expanded parent is above its first child. When that child is the dragged item, this is where it already
+    // is: the line still shows, and dropToMove makes the drop a no-op (a target that is the moved item itself).
     const first = row.node.children[0]!;
     instruction = { type: 'before', targetId: first.item.id };
     indicator = { rowKey: row.key, kind: 'line-after', depth: first.depth };
