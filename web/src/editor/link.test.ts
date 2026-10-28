@@ -29,8 +29,13 @@ describe('links', () => {
     for (const ok of ['https://example.com', 'http://x', 'mailto:a@b.c', 'quire://item/x', '/doc/a', '#h-1']) {
       expect(isAllowedLink(ok), ok).toBe(true);
     }
-    for (const bad of ['javascript:alert(1)', 'JAVASCRIPT:x', 'java\tscript:x', ' javascript:x', 'data:text/html,x', 'vbscript:x', '//evil.com', '']) {
-      expect(isAllowedLink(bad), bad).toBe(false);
+    // The same list as quire-core's convert::tests::allow_list: the two allow-lists must agree.
+    for (const bad of [
+      'javascript:alert(1)', 'JAVASCRIPT:x', 'java\tscript:x', ' javascript:x', 'data:text/html,x', 'vbscript:x',
+      '//evil.com', '/\\evil.com', '/\t/evil.com', '/\n/evil.com', '/\r/evil.com', ' //evil.com', '/ /evil.com', '', '\t',
+    ]) {
+      expect(isAllowedLink(bad), JSON.stringify(bad)).toBe(false);
+      expect(isAllowedImageSrc(bad), JSON.stringify(bad)).toBe(false);
     }
     expect(isAllowedImageSrc('mailto:a@b.c')).toBe(false);
     expect(isAllowedImageSrc('data:image/png;base64,AA')).toBe(false);

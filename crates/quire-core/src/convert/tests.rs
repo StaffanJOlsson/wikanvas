@@ -1078,11 +1078,19 @@ fn allow_list() {
         "java\tscript:x",
         "data:text/html,x",
         "//evil.com",
+        "/\\evil.com",
+        "/\t/evil.com",
+        "/\n/evil.com",
+        "/\r/evil.com",
+        " //evil.com",
+        "/ /evil.com",
         "vbscript:x",
         "",
+        "\t",
         "x:y",
     ] {
-        assert!(!link_allowed(bad), "{bad}");
+        assert!(!link_allowed(bad), "{bad:?}");
+        assert!(!image_allowed(bad), "{bad:?}");
     }
     assert!(!image_allowed("mailto:a@b"));
     assert!(!image_allowed("data:image/png;base64,AAAA"));

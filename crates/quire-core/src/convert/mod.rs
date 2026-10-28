@@ -27,12 +27,8 @@ pub const QUIRE_ITEM_PREFIX: &str = "quire://item/";
 /// The attachment URL path prefix (§7.5).
 pub const ATTACHMENT_PREFIX: &str = "/api/v1/attachments/";
 
-/// The scheme of `url` (lowercase), after the control characters and spaces browsers strip; `None` without one.
-fn scheme_of(url: &str) -> Option<String> {
-    let cleaned: String = url
-        .chars()
-        .filter(|c| !(c.is_control() || *c == ' '))
-        .collect();
+/// The scheme of `cleaned` (lowercase); `None` without one.
+fn scheme_of(cleaned: &str) -> Option<String> {
     let colon = cleaned.find(':')?;
     let scheme = &cleaned[..colon];
     let mut chars = scheme.chars();
@@ -42,18 +38,24 @@ fn scheme_of(url: &str) -> Option<String> {
     .then(|| scheme.to_ascii_lowercase())
 }
 
+/// Every check runs on `url` without the control characters and spaces (U+0000–U+0020, U+007F–U+009F), as
+/// `web/src/editor/links.ts` does: a browser drops tab and newline anywhere in a URL, so `/\t/evil.example` is the
+/// protocol-relative `//evil.example`, and `java\tscript:` is `javascript:`.
 fn allowed(url: &str, schemes: &[&str]) -> bool {
-    let trimmed = url.trim_start_matches(|c: char| c.is_control() || c == ' ');
-    if trimmed.is_empty() {
+    let cleaned: String = url
+        .chars()
+        .filter(|c| !(c.is_control() || *c == ' '))
+        .collect();
+    if cleaned.is_empty() {
         return false;
     }
-    if trimmed.starts_with('#') {
+    if cleaned.starts_with('#') {
         return true;
     }
-    if trimmed.starts_with('/') {
-        return !trimmed.starts_with("//") && !trimmed.starts_with("/\\");
+    if cleaned.starts_with('/') {
+        return !cleaned.starts_with("//") && !cleaned.starts_with("/\\");
     }
-    scheme_of(trimmed).is_some_and(|s| schemes.contains(&s.as_str()))
+    scheme_of(&cleaned).is_some_and(|s| schemes.contains(&s.as_str()))
 }
 
 /// The §6.4 allow-list for `link.href`: http, https, mailto, quire, same-origin paths and fragments.
