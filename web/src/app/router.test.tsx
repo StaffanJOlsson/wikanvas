@@ -18,7 +18,8 @@ describe('router', () => {
     ['/starred', 'Starred'],
     ['/archive', 'Archive'],
     ['/trash', 'Trash'],
-    ['/settings/tokens', 'Settings: API tokens'],
+    ['/settings/tokens', 'API tokens'],
+    ['/settings/account', 'Account'],
     ['/drafts', 'Page not found'],
     ['/settings/nope', 'Page not found'],
   ])('%s renders %s inside the shell', async (path, heading) => {
@@ -56,12 +57,13 @@ describe('router', () => {
     expect(c.router.state.location.search).toBe('?force=1');
   });
 
-  it('/setup and /login render without loading /auth/me', async () => {
-    const fetch = vi.fn(jsonFetch({}));
+  it.each([['/login', 'Sign in'], ['/setup', 'Set up Quire']])('%s renders without loading /auth/me', async (path, heading) => {
+    const fetch = vi.fn(jsonFetch({ 'GET /api/v1/setup': [200, { needs_setup: true }] }));
     vi.stubGlobal('fetch', fetch);
-    renderRoutes(routes, '/login');
-    expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeTruthy();
-    expect(fetch).not.toHaveBeenCalled();
+    renderRoutes(routes, path);
+    expect(await screen.findByRole('heading', { name: heading })).toBeTruthy();
+    const urls = fetch.mock.calls.map(([u]) => String(u));
+    expect(urls.some((u) => u.includes('/auth/me'))).toBe(false);
   });
 
   it('the lazy DocPage resolves an item by its url_id', async () => {

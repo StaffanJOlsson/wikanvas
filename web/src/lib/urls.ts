@@ -64,3 +64,13 @@ export function inkboardFrameUrl(config: Pick<Config, 'inkboard'> | null | undef
   const base = inkboardBase(config);
   return base === null ? null : `${base}frame.html`;
 }
+
+/**
+ * The `?next=` target after signing in: a same-origin path only (no scheme, no `//host`, no backslash tricks), else
+ * `/home`.
+ */
+export function safeNext(next: string | null | undefined): string {
+  if (!next || !next.startsWith('/') || next.startsWith('//') || next.includes('\\')) return '/home';
+  if (next === '/login' || next.startsWith('/login?') || next.startsWith('/setup')) return '/home';
+  return next;
+}

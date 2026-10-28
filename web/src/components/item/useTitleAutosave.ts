@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../../api/client';
 import type { ItemDetail } from '../../api/gen/ItemDetail';
 import type { ItemSummary } from '../../api/gen/ItemSummary';
-import { updateCachedItem } from '../../api/queries/items';
+import { replaceCachedSummary } from '../../api/queries/tree';
 import { registerPending } from '../../state/pending';
 import { getSaveStatus, setSaveStatus } from '../../state/saveStatus';
 
@@ -62,9 +62,9 @@ export function useTitleAutosave(item: ItemDetail): TitleAutosave {
     const run = (async () => {
       try {
         const saved = await api<ItemSummary>('PATCH', `/items/${encodeURIComponent(itemId)}`, { json: { title: value } });
-        updateCachedItem(qc, itemId, (d) => ({ ...d, item: saved }));
+        // The sidebar, the stars and every cached detail show the new title at once.
+        replaceCachedSummary(qc, saved);
         void qc.invalidateQueries({ queryKey: ['tree', saved.collection_id] });
-        void qc.invalidateQueries({ queryKey: ['sidebar'] });
         if (s.failed && getSaveStatus(itemId).state === 'error') setSaveStatus(itemId, 'saved');
         s.failed = false;
       } catch (e) {

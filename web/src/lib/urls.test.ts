@@ -6,6 +6,7 @@ import {
   inkboardBase,
   inkboardFrameUrl,
   itemPath,
+  safeNext,
   slugify,
   urlIdFromSlugId,
 } from './urls';
@@ -56,5 +57,14 @@ describe('urls', () => {
     expect(inkboardFrameUrl({ inkboard })).toBe('/inkboard/0123456789ab/frame.html');
     expect(inkboardBase({ inkboard: null })).toBeNull();
     expect(inkboardFrameUrl(undefined)).toBeNull();
+  });
+
+  it('safeNext keeps same-origin paths only', () => {
+    expect(safeNext('/doc/x-AbCdEfGh12?a=1#h')).toBe('/doc/x-AbCdEfGh12?a=1#h');
+    expect(safeNext(null)).toBe('/home');
+    expect(safeNext('https://evil.example/')).toBe('/home');
+    expect(safeNext('//evil.example/')).toBe('/home');
+    expect(safeNext('/\\evil.example')).toBe('/home');
+    expect(safeNext('/login?next=/x')).toBe('/home');
   });
 });
