@@ -4,7 +4,9 @@ use std::os::unix::fs::PermissionsExt;
 
 use serde_json::Value;
 
-use crate::common::{Sandbox, last_error, run_json};
+use assert_cmd::assert::OutputAssertExt;
+
+use crate::common::{Sandbox, last_error, run_json, spawn_output};
 
 fn stub(s: &Sandbox, name: &str, exit: u8) -> std::path::PathBuf {
     let log = s.path().join("args.log");
@@ -83,11 +85,14 @@ fn passthrough_execs_quire_server_with_args_and_exit_code() {
         std::fs::Permissions::from_mode(0o755),
     )
     .unwrap();
-    s.quire_bin(&quire)
-        .env("PATH", "")
-        .args(["admin", "backup"])
-        .assert()
-        .success();
+    // A fresh copy: run through `spawn_output`, which retries a spawn that finds it busy (ETXTBSY).
+    spawn_output(
+        s.quire_bin(&quire)
+            .env("PATH", "")
+            .args(["admin", "backup"]),
+    )
+    .assert()
+    .success();
     assert_eq!(std::fs::read_to_string(&log).unwrap(), "admin\nbackup\n");
 }
 

@@ -173,9 +173,25 @@ impl Harness {
     }
 }
 
+/// Runs `cmd` and collects its output. An executable a test has just written (a copy of `quire`) can be "busy"
+/// for a moment (ETXTBSY): a child that another test thread spawned while the file was still open for writing holds
+/// that descriptor until its own exec. That race is the test process's, not the CLI's, so the spawn is retried for up
+/// to two seconds; any other error, or a busy file after that, fails the test.
+pub fn spawn_output(cmd: &mut Command) -> std::process::Output {
+    for _ in 0..200 {
+        match cmd.output() {
+            Err(e) if e.kind() == std::io::ErrorKind::ExecutableFileBusy => {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            result => return result.expect("quire runs"),
+        }
+    }
+    cmd.output().expect("quire runs")
+}
+
 /// Runs a command; returns the exit code, stdout parsed as one JSON value (Null when empty) and stderr.
 pub fn run_json(cmd: &mut Command) -> (i32, Value, String) {
-    let out = cmd.output().expect("quire runs");
+    let out = spawn_output(cmd);
     let code = out.status.code().unwrap_or(-1);
     let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
     let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
