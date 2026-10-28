@@ -267,11 +267,13 @@ async fn put_board(
         .map_err(ApiError::internal)?;
     let bytes = read_body_within(body, limit, BODY_DEADLINE).await?;
     let (blobs, min_free) = (state.blobs.clone(), state.config.min_free_mb);
+    let free_space = Arc::clone(&state.free_space);
     let (permit, prepared) = tokio::task::spawn_blocking(move || -> Result<_, ApiError> {
         let text = String::from_utf8(bytes)
             .map_err(|_| ApiError::new(ErrorCode::InvalidBoard, "the body is not UTF-8"))?;
         check_depth(&text)?;
-        Ok((permit, boards::prepare(&blobs, &text, min_free)?))
+        let check = || free_space(blobs.root(), min_free);
+        Ok((permit, boards::prepare_with(&blobs, &text, check)?))
     })
     .await
     .map_err(ApiError::internal)??;

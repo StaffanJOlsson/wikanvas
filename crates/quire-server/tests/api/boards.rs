@@ -54,7 +54,7 @@ async fn new_item(app: &TestApp, kind: ItemKind, title: &str) -> String {
         .expect("create the item")
 }
 
-async fn new_board(app: &TestApp, title: &str) -> String {
+pub async fn new_board(app: &TestApp, title: &str) -> String {
     new_item(app, ItemKind::Board, title).await
 }
 
@@ -68,7 +68,7 @@ fn label_box(text: &str) -> Object {
 }
 
 /// A board with a labelled box and an image, named `name`.
-fn board(name: &str, text: &str) -> String {
+pub fn board(name: &str, text: &str) -> String {
     let mut d = Document::new(name);
     let asset = d.add_asset("image/png", PNG.to_vec());
     d.pages[0].objects.extend([

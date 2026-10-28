@@ -419,9 +419,18 @@ pub fn assemble(blobs: &BlobStore, board: &StoredBoard) -> Result<String> {
 /// `board_too_new`), [`board::split`] it, check the free space (507 `insufficient_storage`, D33), then stage each
 /// asset in the blob store (one file per asset; identical bytes are deduplicated by [`BlobStore::commit`]).
 pub fn prepare(blobs: &BlobStore, body: &str, min_free_mb: u64) -> Result<Prepared> {
+    prepare_with(blobs, body, || check_free_space(blobs.root(), min_free_mb))
+}
+
+/// [`prepare`] with the free-space check given by the caller (the server's injectable probe, D33).
+pub fn prepare_with(
+    blobs: &BlobStore,
+    body: &str,
+    free_space: impl FnOnce() -> Result<()>,
+) -> Result<Prepared> {
     let inspected = inspect(body)?;
     let split = split(body)?;
-    check_free_space(blobs.root(), min_free_mb)?;
+    free_space()?;
     let mut staged = Vec::new();
     let mut empty = Vec::new();
     for a in split.assets {
