@@ -716,18 +716,26 @@ test('smoke: setup to export (PLAN W7 steps 1-15, and the review fixes)', async 
     expect(welcome, 'the Welcome document').toBeTruthy();
     await page.goto(`/doc/${welcome.item.url_id}`);
     const preview = page.locator('.board-embed img.board-embed-preview');
-    await preview.scrollIntoViewIfNeeded();
-    await expect.poll(() => preview.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0), {
-      timeout: SAVE_TIMEOUT,
-    }).toBe(true);
+    await expect(preview).toHaveCount(1, { timeout: SAVE_TIMEOUT });
+    await preview.scrollIntoViewIfNeeded({ timeout: SAVE_TIMEOUT });
+    // evaluateAll never waits: a failed load replaces the <img> with the placeholder, which fails the poll in time.
+    await expect.poll(
+      () => preview.evaluateAll((els) => els.length === 1 && (els[0] as HTMLImageElement).complete && (els[0] as HTMLImageElement).naturalWidth > 0),
+      { timeout: SAVE_TIMEOUT, message: 'the Welcome board card loads its preview' },
+    ).toBe(true);
     // A row menu near the bottom of the window opens upward: every item, Delete included, stays inside the window.
     // The window is cut 24 px below the lowest sidebar row that has room for the menu above it.
     const viewport = page.viewportSize();
     if (!viewport) throw new Error('no viewport');
     const rows = sidebar(page).getByRole('treeitem');
-    const boxes = await rows.evaluateAll((els) => els.map((el) => el.getBoundingClientRect()).map((r) => ({ top: r.top, bottom: r.bottom })));
-    const low = boxes.map((b, i) => ({ ...b, i })).filter((b) => b.top >= 300 && b.bottom <= viewport.height).pop();
-    expect(low, `a sidebar row with its top at 300 px or lower (rows: ${JSON.stringify(boxes)})`).toBeTruthy();
+    const boxes = await rows.evaluateAll((els) =>
+      els.map((el) => ({ level: Number(el.getAttribute('aria-level')), ...el.getBoundingClientRect().toJSON() })));
+    // An item row (level 2 and deeper: its menu is the item menu of §9.6.2), low enough for that menu to fit above it.
+    const low = boxes
+      .map((b, i) => ({ top: b.top as number, bottom: b.bottom as number, level: b.level, i }))
+      .filter((b) => b.level >= 2 && b.top >= 300 && b.bottom <= viewport.height)
+      .pop();
+    expect(low, `an item row with its top at 300 px or lower (rows: ${JSON.stringify(boxes)})`).toBeTruthy();
     const height = Math.ceil((low?.bottom ?? 0) + 24);
     await page.setViewportSize({ width: viewport.width, height });
     const row = rows.nth(low?.i ?? 0);
