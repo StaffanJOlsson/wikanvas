@@ -11,6 +11,14 @@ and print "quire-build.slice not installed: per-container caps only", and `quire
 the owner is back, run the install below, then task 8. After the install, `scripts/toolchain.sh` and
 `scripts/toolchain.sh --builder-only` exit 1 with the recreate instruction until the builder is recreated.
 
+**Task 8 done (2026-10-28, evening, after the M1 gate):** the owner was back, and the coordinator ran the install through
+the askpass dialog. Every value holds (`--check` exits 0). `scripts/toolchain.sh --builder-only` then printed the
+recreate instruction (`CgroupParent '' (want 'quire-build.slice')`); the builder was recreated with exactly that, the
+build cache survived (every toolchain step `CACHED`), and both post-checks pass: `quire-buildkit` has cgroup parent
+`quire-build.slice`, and a `scripts/dev.sh` container shows up in the slice as `docker-init -- nice -n 10 …`. The
+install's `--check` printed `printf: --: invalid option` for its info lines (a format string starting with `--`);
+fixed in `info()`.
+
 ## Coordinator: the one privileged step
 
 The slice is ready to install. Run it once, interactively, through the owner's askpass dialog (one dialog for the

@@ -88,7 +88,7 @@ EOF
 
 failures=0
 ok() { printf 'ok    %s\n' "$*"; }
-info() { printf '--    %s\n' "$*"; }
+info() { printf -- '--    %s\n' "$*"; }
 bad() {
   printf 'FAIL  %s\n' "$*"
   failures=$((failures + 1))

@@ -3240,7 +3240,8 @@ asynchronous (board previews).
       The README describes `QUIRE_HTTPS_PORT`/`QUIRE_HTTP_PORT` and running behind that Caddy with
       `QUIRE_TRUSTED_PROXIES`; which one to use is his choice;
     - the copyright line of `LICENSE-MIT` ("The Quire contributors"; the owner may want his name, W0b D39);
-    - the build slice is not installed yet (item 13): every build so far ran with the per-container caps only.
+    - ~~the build slice is not installed yet (item 13)~~: installed 2026-10-28 after the M1 gate, and the builder
+      recreated in it (`docs/handoff/W0a.md`, task 8); every build before that ran with the per-container caps only.
 26. **Checks that need a real browser** (happy-dom does no layout and fires no native drag events). The W7 gate's
     Playwright smoke (`e2e/tests/smoke.spec.ts`, real engine, SwiftShader WebGL 2) now covers: the board host with the
     real dist (the frame page, `manifest.json` and the engine from `/inkboard/{build}/`, the iframe shown over the
