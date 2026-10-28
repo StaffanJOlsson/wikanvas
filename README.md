@@ -1,13 +1,27 @@
-# Quire
+# Wikanvas
 
-A self-hosted wiki: a sidebar of collections holding documents and
-[Inkboard](https://github.com/VictorLetirand/inkboard) whiteboards, nested to any depth. The server is Rust (axum) on
-SQLite; the frontend is React with the TipTap editor; boards run Inkboard compiled to WebAssembly. A board can hold
-documents as cards: each is a real page of the tree, edited in place on the board with a double-click (§18). It has a
-versioned HTTP API (`/api/v1`, with personal access tokens and an OpenAPI 3.1 spec) and a command-line client, `quire`.
+**An open-source, self-hosted wiki where documents and whiteboards live in one tree.** A self-hostable alternative to
+Confluence and Miro: a sidebar of collections holding rich-text documents and infinite
+[Inkboard](https://github.com/VictorLetirand/inkboard) whiteboards, nested to any depth.
 
-**Status:** milestone 1, single owner, not released yet. The design is in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
-(cited below as §n) and the implementation plan in [`docs/PLAN.md`](docs/PLAN.md).
+> [!WARNING]
+> **Early alpha.** Wikanvas is days old. Expect bugs, missing features and breaking changes between versions,
+> including to how data is stored. Don't use it for anything you can't afford to lose yet, and keep backups (it makes
+> them for you, daily).
+
+> [!NOTE]
+> Wikanvas was called Quire while it was being built, and the code is still mid-rename: the CLI, environment
+> variables, crates and images still say `quire` (for example the `quire` command and the `QUIRE_*` settings). The
+> next release renames them; the commands below are the current ones.
+
+The server is Rust (axum) on SQLite; the frontend is React with the TipTap editor; boards run Inkboard compiled to
+WebAssembly. A board can hold documents as cards: each is a real page of the tree, edited in place on the board
+with a double-click (§18). It has a versioned HTTP API (`/api/v1`, with personal access tokens and an OpenAPI 3.1 spec) and a
+command-line client, `quire`.
+
+**Status:** milestone 1, single owner. The design is in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) (cited below
+as §n) and the implementation plan in [`docs/PLAN.md`](docs/PLAN.md). Wikanvas is not affiliated with Atlassian,
+Miro or Canva.
 
 Contents: [Install](#install) · [Configuration](#configuration) · [Runtime limits](#runtime-limits) ·
 [HTTPS](#https) · [Ports 80 or 443 taken](#when-port-80-or-443-is-taken) ·
@@ -17,7 +31,7 @@ Contents: [Install](#install) · [Configuration](#configuration) · [Runtime lim
 
 ## Install
 
-Quire runs as two containers in one compose project: the app (`quire`) and [Caddy](https://caddyserver.com), its
+Wikanvas runs as two containers in one compose project: the app (`quire`) and [Caddy](https://caddyserver.com), its
 HTTPS front. The app has no published port; Caddy publishes 80 and 443 and terminates TLS (D57).
 
 You need Linux on x86_64, Docker Engine with the Compose v2 plugin and buildx (the test overlays need Compose 2.24 or
@@ -39,7 +53,7 @@ resource-capped containers (see [Building](#building-and-the-build-caps)).
    scripts/image.sh
    ```
 
-3. Optionally write a `.env` next to `compose.yaml` ([Configuration](#configuration)). Without one, Quire serves
+3. Optionally write a `.env` next to `compose.yaml` ([Configuration](#configuration)). Without one, Wikanvas serves
    `https://localhost` on this machine only, with certificates from Caddy's local CA.
 
 4. Start it:
@@ -58,7 +72,7 @@ resource-capped containers (see [Building](#building-and-the-build-caps)).
    # … First-run setup: https://localhost/setup code ABCD-EFGH-JKMN
    ```
 
-   Open the link, enter the code, the workspace name, your name, email and a password (12 to 1024 bytes). Quire seeds
+   Open the link, enter the code, the workspace name, your name, email and a password (12 to 1024 bytes). Wikanvas seeds
    a "Getting started" collection. Instead of the web form you can create the owner from the shell:
 
    ```sh
@@ -77,12 +91,12 @@ empty value counts as unset. A malformed value stops the server with `VAR: messa
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `QUIRE_DOMAIN` | `localhost` | The name Quire is served under. Caddy serves only this name; Quire allows it as `Host` with any port and derives the public URL from it |
-| `QUIRE_TLS` | `internal` | `internal`: Caddy's local CA (localhost or a LAN name). `acme`: public certificates; Quire then also sends HSTS ([HTTPS](#https)) |
+| `QUIRE_DOMAIN` | `localhost` | The name Wikanvas is served under. Caddy serves only this name; Wikanvas allows it as `Host` with any port and derives the public URL from it |
+| `QUIRE_TLS` | `internal` | `internal`: Caddy's local CA (localhost or a LAN name). `acme`: public certificates; Wikanvas then also sends HSTS ([HTTPS](#https)) |
 | `QUIRE_BIND` | `127.0.0.1` | The host address Caddy's ports bind to: `127.0.0.1` for this machine only, `0.0.0.0` for the LAN (required for `acme`) |
 | `QUIRE_HTTP_PORT`, `QUIRE_HTTPS_PORT` | `80`, `443` | The host ports Caddy publishes. Change them only when 80 or 443 are taken ([below](#when-port-80-or-443-is-taken)) |
-| `QUIRE_PUBLIC_URL` | derived | `https://<QUIRE_DOMAIN>`, plus `:<QUIRE_HTTPS_PORT>` unless 443. Set it (`scheme://host[:port]`, no path) only when clients reach Quire under another URL, for example behind your own proxy |
-| `QUIRE_ALLOWED_HOSTS` | none | More `Host` values to accept, comma-separated `host` or `host:port`, for clients that reach Quire under another name, such as another container on the compose network (`quire`) |
+| `QUIRE_PUBLIC_URL` | derived | `https://<QUIRE_DOMAIN>`, plus `:<QUIRE_HTTPS_PORT>` unless 443. Set it (`scheme://host[:port]`, no path) only when clients reach Wikanvas under another URL, for example behind your own proxy |
+| `QUIRE_ALLOWED_HOSTS` | none | More `Host` values to accept, comma-separated `host` or `host:port`, for clients that reach Wikanvas under another name, such as another container on the compose network (`quire`) |
 | `QUIRE_BACKUP_INTERVAL` | `24h` | Scheduled backups: a number with `s`, `m`, `h` or `d` |
 | `QUIRE_BACKUP_KEEP` | `7` | How many `quire-*.db` backups to keep; `0` turns scheduled backups off |
 | `QUIRE_MAX_UPLOAD_MB` | `25` | Largest attachment upload |
@@ -111,16 +125,16 @@ Both containers are capped in `compose.yaml`, and neither may swap (`memswap_lim
 | `quire` | `QUIRE_CPUS=2` | `QUIRE_MEM=1g` | 256 processes, read-only root filesystem, every capability dropped, a 32 MB `/tmp` |
 | `caddy` | `QUIRE_CADDY_CPUS=0.5` | `QUIRE_CADDY_MEM=128m` | 128 processes, read-only root filesystem, only `NET_BIND_SERVICE` |
 
-Change them in `.env` and run `docker compose up -d` again. The defaults are the owner's requirement, and the server's
+Change them in `.env` and run `docker compose up -d` again. The defaults are deliberately small, and the server's
 memory budget is built for 1 GiB (D25): the board limit, the number of documents loaded at once and the thread pools
 (2 worker threads, `QUIRE_WORKER_THREADS` in `compose.yaml`) are sized for it. More memory adds headroom; it does not
 raise any limit by itself.
 
 ## HTTPS
 
-Caddy terminates HTTPS in front of Quire (`docker/Caddyfile`, §13.4). It forwards the client's address and scheme to
-Quire, passes Quire's precompressed responses through untouched, and adds no headers of its own: every security
-header, HSTS included, comes from Quire.
+Caddy terminates HTTPS in front of Wikanvas (`docker/Caddyfile`, §13.4). It forwards the client's address and scheme to
+Wikanvas, passes Wikanvas's precompressed responses through untouched, and adds no headers of its own: every security
+header, HSTS included, comes from Wikanvas.
 
 ### Local or LAN (default: `QUIRE_TLS=internal`)
 
@@ -133,7 +147,7 @@ QUIRE_DOMAIN=quire.lan
 QUIRE_BIND=0.0.0.0
 ```
 
-Quire sends **no HSTS** in this mode: HSTS on `localhost` or a private name would pin every device to HTTPS for a
+Wikanvas sends **no HSTS** in this mode: HSTS on `localhost` or a private name would pin every device to HTTPS for a
 year, including devices that do not trust the root yet.
 
 ### Trusting the local CA
@@ -148,7 +162,7 @@ docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt ./quire-local
 - **This machine's system bundle** (curl, the `quire` CLI, most tools; Debian and Ubuntu):
   `sudo install -m 0644 quire-local-ca.crt /usr/local/share/ca-certificates/ && sudo update-ca-certificates`.
 - **Chrome and Chromium** read their own NSS store (per user, no root; `certutil` is in `libnss3-tools`):
-  `certutil -d "sql:$HOME/.pki/nssdb" -A -t "C,," -n "Quire local CA" -i quire-local-ca.crt`.
+  `certutil -d "sql:$HOME/.pki/nssdb" -A -t "C,," -n "Wikanvas local CA" -i quire-local-ca.crt`.
 - **Firefox:** Settings → Privacy & Security → Certificates → View Certificates → Authorities → Import, and tick
   "Trust this CA to identify websites".
 - **Other devices** import the same `root.crt` (on phones, as a CA profile or certificate).
@@ -168,7 +182,7 @@ QUIRE_BIND=0.0.0.0
 
 The domain needs a DNS A record to this host, and ports 80 and 443 must be reachable from the Internet: Caddy gets
 Let's Encrypt certificates through its automatic HTTPS and keeps them, with the ACME account, in `caddy-data` (keep the
-volume: ACME has rate limits). In this mode Quire sends `Strict-Transport-Security: max-age=31536000` on every HTTPS
+volume: ACME has rate limits). In this mode Wikanvas sends `Strict-Transport-Security: max-age=31536000` on every HTTPS
 response (no `includeSubDomains`, no `preload`).
 
 ### The `caddy-data` volume
@@ -180,7 +194,7 @@ device trusts, as well as `quire-data`, the wiki itself. Use `docker compose dow
 ### When port 80 or 443 is taken
 
 `docker compose up` fails with "address already in use" when another web server or proxy holds port 80 or 443 on
-the host (on the owner's machine, his own Caddy holds 443). There are two ways out.
+the host. There are two ways out.
 
 **Other host ports.** Let Caddy publish other ports:
 
@@ -190,21 +204,21 @@ QUIRE_HTTPS_PORT=8443
 QUIRE_HTTP_PORT=8088        # only if 80 is taken too
 ```
 
-Then open `https://localhost:8443`. Quire's derived public URL includes the port (`https://localhost:8443`), and its
+Then open `https://localhost:8443`. Wikanvas's derived public URL includes the port (`https://localhost:8443`), and its
 `Host` check accepts `QUIRE_DOMAIN` with any port. Caddy's plain-HTTP redirect still names port 443, so always use the
 HTTPS URL with its port. In `acme` mode the certificate authority still connects to ports 80 and 443 of your public
-address: forward them on the router to `QUIRE_HTTP_PORT` and `QUIRE_HTTPS_PORT`, or run Quire behind the proxy that
+address: forward them on the router to `QUIRE_HTTP_PORT` and `QUIRE_HTTPS_PORT`, or run Wikanvas behind the proxy that
 already owns them (next section).
 
-**Your own proxy in front.** If a reverse proxy already serves 443 for other sites, let it serve Quire too, and do not
+**Your own proxy in front.** If a reverse proxy already serves 443 for other sites, let it serve Wikanvas too, and do not
 start the bundled Caddy.
 
 ### Behind an existing reverse proxy
 
-Quire trusts `X-Forwarded-For` and `X-Forwarded-Proto` only from the addresses in `QUIRE_TRUSTED_PROXIES`. In the
-bundled setup that is exactly Caddy's fixed address, so a client that reaches Quire any other way can neither choose its
+Wikanvas trusts `X-Forwarded-For` and `X-Forwarded-Proto` only from the addresses in `QUIRE_TRUSTED_PROXIES`. In the
+bundled setup that is exactly Caddy's fixed address, so a client that reaches Wikanvas any other way can neither choose its
 rate-limit key nor claim HTTPS. A deployment that swaps Caddy for another proxy **must** set `QUIRE_TRUSTED_PROXIES` to
-the address Quire sees that proxy connect from: every per-IP limit (login, setup, failed token attempts), the access
+the address Wikanvas sees that proxy connect from: every per-IP limit (login, setup, failed token attempts), the access
 log, the Secure session cookie and HSTS depend on it. Without it every request looks like plain HTTP from one address.
 
 1. Create `compose.override.yaml` next to `compose.yaml` (`docker compose` merges it automatically):
@@ -214,7 +228,7 @@ log, the Secure session cookie and HSTS depend on it. Without it every request l
      quire:
        ports: ["127.0.0.1:8085:8080"]            # loopback only: your proxy connects here
        environment:
-         QUIRE_DOMAIN: wiki.example.org          # the name your proxy serves; Quire allows it as Host
+         QUIRE_DOMAIN: wiki.example.org          # the name your proxy serves; Wikanvas allows it as Host
          QUIRE_TLS: acme                         # HSTS on HTTPS requests; keep internal for a private name
          QUIRE_TRUSTED_PROXIES: 172.31.240.8/29  # where the proxy's connections appear to come from (step 3)
      caddy:
@@ -224,8 +238,8 @@ log, the Secure session cookie and HSTS depend on it. Without it every request l
    `QUIRE_DOMAIN` here sets the public URL, `https://wiki.example.org`; if your proxy serves another port or scheme, set
    `QUIRE_PUBLIC_URL` too.
 
-2. Point the proxy at `127.0.0.1:8085`. It must keep the client's `Host`, send `X-Forwarded-For` (Quire takes the
-   rightmost address) and `X-Forwarded-Proto: https`, and must not compress or decompress responses (Quire sends
+2. Point the proxy at `127.0.0.1:8085`. It must keep the client's `Host`, send `X-Forwarded-For` (Wikanvas takes the
+   rightmost address) and `X-Forwarded-Proto: https`, and must not compress or decompress responses (Wikanvas sends
    precompressed br and gzip). For a Caddy you already run:
 
    ```caddyfile
@@ -241,18 +255,18 @@ log, the Secure session cookie and HSTS depend on it. Without it every request l
    For nginx: `proxy_set_header Host $host; proxy_set_header X-Forwarded-For $remote_addr; proxy_set_header
    X-Forwarded-Proto $scheme;`, `client_max_body_size 64m;` (boards up to 50 MB), no `gzip` on that location, and a
    long `proxy_read_timeout` for exports. A proxy that adds HTTP Basic auth, or forwards its own `Authorization: Bearer`
-   header (oauth2-proxy), keeps working: Quire ignores any `Authorization` value that is not a Quire token (D43).
+   header (oauth2-proxy), keeps working: Wikanvas ignores any `Authorization` value that is not a Wikanvas token (D43).
 
-3. Start only the app with `docker compose up -d`, send one request through the proxy, and check which address Quire
+3. Start only the app with `docker compose up -d`, send one request through the proxy, and check which address Wikanvas
    saw:
 
    ```sh
    docker compose logs quire | grep -o 'client_ip=[^ ]*' | tail -n 3
    ```
 
-   It should be the real client's address. If it is an address of the compose network instead, Quire did not trust
+   It should be the real client's address. If it is an address of the compose network instead, Wikanvas did not trust
    the proxy: set `QUIRE_TRUSTED_PROXIES` to that address (or the network's range) and restart. With a loopback port
-   as above, Docker hands the proxy's connections to Quire from inside the project network (on Docker 29 from an
+   as above, Docker hands the proxy's connections to Wikanvas from inside the project network (on Docker 29 from an
    address in `QUIRE_NET_RANGE`, `172.31.240.8/29` by default), so trusting that range means: any process on this host
    that can reach `127.0.0.1:8085` may set `X-Forwarded-*`. A proxy that runs as a container can join the compose
    network instead (`quire_default`), with a fixed address outside the range, and proxy to `quire:8080`; trust that one
@@ -356,7 +370,7 @@ routes. Within v1, changes are additive only.
 - **Limits:** per token, `QUIRE_TOKEN_RATE` requests per minute and `QUIRE_TOKEN_BYTES_PER_HOUR` of request body;
   over either, 429 with `Retry-After`. Writes answer 507 below `QUIRE_MIN_FREE_MB`. CORS is off unless
   `QUIRE_CORS_ORIGINS` lists an origin.
-- **Clients on a Docker network:** Quire checks `Host` on every request. A container that calls `http://quire:8080`
+- **Clients on a Docker network:** Wikanvas checks `Host` on every request. A container that calls `http://quire:8080`
   on the compose network sends `Host: quire`, so add `QUIRE_ALLOWED_HOSTS=quire`. Such a request arrives as plain HTTP
   from an untrusted address, which is fine for a token client.
 
@@ -389,7 +403,7 @@ AI agents and scripts.
 with no swap, pinned to the host's last 6 cores, at low priority. Images are built only by `scripts/image.sh` and
 `scripts/toolchain.sh` with the capped builder `quire-limited`; `compose.yaml` has no `build:` key. The caps may be
 lowered (`QUIRE_BUILD_CPUS`, `QUIRE_BUILD_MEM`, `QUIRE_BUILD_CPUSET`), never raised. The build scripts take one
-per-user lock, so builds queue ("waiting for another Quire build…"). [`CLAUDE.md`](CLAUDE.md) lists the rules for
+per-user lock, so builds queue ("waiting for another Wikanvas build…"). [`CLAUDE.md`](CLAUDE.md) lists the rules for
 contributors and agents; §13.1 has the details.
 
 **The build slice** caps the total of all build containers at 6 CPUs and 12 GB, even when several run at once. It is
@@ -402,7 +416,7 @@ scripts/install-build-slice.sh --check    # no root: shows whether it is install
 
 After installing it, run the `docker buildx rm quire-limited; docker rm -f quire-buildkit; scripts/toolchain.sh` line
 that `scripts/toolchain.sh --builder-only` prints, so the builder joins the slice. The slice is optional for anyone
-else building Quire: without it every script prints "quire-build.slice not installed: per-container caps only" and
+else building Wikanvas: without it every script prints "quire-build.slice not installed: per-container caps only" and
 keeps the per-container caps.
 
 Tests run through the same wrappers: `scripts/dev.sh cargo test --workspace --locked`,
@@ -412,8 +426,8 @@ against the image). PLAN W7 "Acceptance" lists the full release gate.
 
 ## Licence
 
-Quire is licensed under the MIT License ([`LICENSE`](LICENSE)). Third-party software, Inkboard included, is listed in [`THIRD_PARTY.md`](THIRD_PARTY.md); the image
+Wikanvas is licensed under the MIT License ([`LICENSE`](LICENSE)). Third-party software, Inkboard included, is listed in [`THIRD_PARTY.md`](THIRD_PARTY.md); the image
 also shows the generated list, with every licence text, in Settings → About (`/licenses.txt`).
 
-Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in Quire by you shall be
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in Wikanvas by you shall be
 licensed under the MIT License as above, without any additional terms or conditions.
