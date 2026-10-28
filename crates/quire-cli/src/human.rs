@@ -1,12 +1,44 @@
 //! Short human output (§7.7: not stable). Lists print as columns of id, kind, title and updated time; anything
 //! else prints as indented JSON (owner: W8)
+//!
+//! Titles, names and messages come from the server: [`clean`] shows their control characters as escapes, so none of
+//! them reaches the terminal as an escape sequence (§7.6: nothing prints colour). `output::print_text` and the human
+//! stderr lines apply it to everything they print.
+
+use std::borrow::Cow;
 
 use serde_json::Value;
+
+/// `text` with every control character (C0, DEL, C1) except `\n` shown as its escape (`\u{1b}`, `\t`).
+pub fn clean(text: &str) -> Cow<'_, str> {
+    escape_controls(text, true)
+}
+
+/// Like [`clean`], for one cell of a row: `\n` is escaped too.
+fn one_line(text: &str) -> Cow<'_, str> {
+    escape_controls(text, false)
+}
+
+fn escape_controls(text: &str, keep_newline: bool) -> Cow<'_, str> {
+    let escaped = |c: char| c.is_control() && !(keep_newline && c == '\n');
+    if !text.chars().any(escaped) {
+        return Cow::Borrowed(text);
+    }
+    let mut out = String::with_capacity(text.len() + 8);
+    for c in text.chars() {
+        if escaped(c) {
+            out.extend(c.escape_default());
+        } else {
+            out.push(c);
+        }
+    }
+    Cow::Owned(out)
+}
 
 fn text(v: &Value) -> String {
     match v {
         Value::Null => "-".into(),
-        Value::String(s) => s.clone(),
+        Value::String(s) => one_line(s).into_owned(),
         other => other.to_string(),
     }
 }
@@ -77,7 +109,7 @@ pub fn tree(v: &Value) -> String {
     let items = v["items"].as_array().cloned().unwrap_or_default();
     let mut out = String::new();
     if let Some(name) = v["collection"]["name"].as_str() {
-        out.push_str(&format!("{name}\n"));
+        out.push_str(&format!("{}\n", one_line(name)));
     }
     fn walk(out: &mut String, items: &[Value], parent: &Value, depth: usize) {
         for it in items.iter().filter(|i| &i["parent_id"] == parent) {
@@ -110,6 +142,29 @@ mod tests {
         assert!(out.contains("a  doc    One  t1"), "{out}");
         assert!(out.contains("b  board  Two  t2"), "{out}");
         assert!(out.ends_with("next cursor: c\n"), "{out}");
+    }
+
+    #[test]
+    fn control_characters_are_escaped() {
+        assert_eq!(clean("plain\nlines"), "plain\nlines");
+        assert!(matches!(clean("plain"), Cow::Borrowed(_)));
+        assert_eq!(
+            clean("a\u{1b}[31mred\u{7}\tb\u{9b}c\u{7f}\n"),
+            "a\\u{1b}[31mred\\u{7}\\tb\\u{9b}c\\u{7f}\n"
+        );
+        assert_eq!(one_line("x\ny"), "x\\ny");
+        let page =
+            json!([{"id": "a", "kind": "doc", "title": "\u{1b}]0;owned\u{7}T", "updated_at": "t"}]);
+        let out = render(&page);
+        assert!(!out.contains('\u{1b}') && !out.contains('\u{7}'), "{out:?}");
+        let t = json!({"collection": {"name": "C\u{1b}[2J"}, "items": [
+            {"id": "a", "parent_id": null, "kind": "doc", "title": "A\u{9b}1m"}
+        ]});
+        let out = tree(&t);
+        assert!(
+            !out.contains('\u{1b}') && !out.contains('\u{9b}'),
+            "{out:?}"
+        );
     }
 
     #[test]

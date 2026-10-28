@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 use super::{Ctx, Res};
 use crate::args::{Cli, HelpArgs};
 use crate::error::Failure;
-use crate::http::{self, Client, Req};
+use crate::http::{Client, Req};
 use crate::output;
 
 /// `quire version`: `{cli: {version, api_version}, server: {version, commit, api_version} | null}`. `server` is
@@ -55,7 +55,7 @@ fn server_version(ctx: &Ctx) -> Result<Value, Failure> {
         return Ok(Value::Null);
     }
     let client = Client::new(&resolved, &ctx.env, ctx.g.retries, ctx.g.timeout)?;
-    let text = http::read_text(client.send(&Req::get("/api/v1/config").public())?)?;
+    let text = client.send_text(&Req::get("/api/v1/config").public())?.text;
     let v: Value = serde_json::from_str(&text)
         .map_err(|e| Failure::bad_response(format!("GET /config: not JSON: {e}")))?;
     Ok(json!({ "version": v["version"], "commit": v["commit"], "api_version": v["api_version"] }))

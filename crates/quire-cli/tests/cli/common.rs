@@ -4,7 +4,8 @@
 //! [`Command`] for the `quire` binary that inherits no `QUIRE_*` variable and no config or CA location from the
 //! environment the tests run in. [`Harness`] adds a running `quire_server::testing::TestServer` and points
 //! `QUIRE_URL` and `QUIRE_TOKEN` at it. [`Mock`] is a scripted HTTP listener (std `TcpListener`, one request per
-//! connection) that records every request and answers what the test's handler says.
+//! connection) that records every request and answers what the test's handler says. [`RawListener`] speaks no
+//! HTTP at all, for TLS handshakes that stall or fail.
 
 #![allow(dead_code)]
 
@@ -244,6 +245,10 @@ pub enum Reply {
     Drop,
     /// Read the request, wait, then close without an answer.
     Hang(Duration),
+    /// Answer 200 with headers that promise a 64-byte JSON body, send its first 9 bytes, then wait and close.
+    BodyHangs(Duration),
+    /// Answer 200 with headers that promise a 64-byte JSON body, send its first 9 bytes, then close.
+    BodyDrops,
 }
 
 impl Reply {
@@ -495,5 +500,85 @@ fn serve_one(stream: TcpStream, state: &MockState) {
             std::thread::sleep(d);
             let _ = stream.shutdown(Shutdown::Both);
         }
+        Reply::BodyHangs(d) => {
+            write_partial_body(&mut stream, index);
+            std::thread::sleep(d);
+            let _ = stream.shutdown(Shutdown::Both);
+        }
+        Reply::BodyDrops => {
+            write_partial_body(&mut stream, index);
+            let _ = stream.shutdown(Shutdown::Both);
+        }
+    }
+}
+
+/// A 200 head that promises a 64-byte JSON body, and its first 9 bytes.
+fn write_partial_body(stream: &mut TcpStream, index: usize) {
+    let head = format!(
+        "HTTP/1.1 200 OK\r\nX-Request-Id: mock-{index}\r\nQuire-Api-Version: 1.0\r\n\
+         Content-Type: application/json\r\nContent-Length: 64\r\nConnection: close\r\n\r\n{{\"items\":"
+    );
+    let _ = stream.write_all(head.as_bytes());
+    let _ = stream.flush();
+}
+
+// ------------------------------------------------------------------------------------------------ the raw listener
+
+/// A placeholder CA bundle: one PEM block, which the CLI accepts as a certificate. Nothing is verified against it
+/// before a server answers the ClientHello, so it serves handshakes that stall or fail.
+pub const PLACEHOLDER_CA: &[u8] =
+    b"-----BEGIN CERTIFICATE-----\nMIIBAA==\n-----END CERTIFICATE-----\n";
+
+/// A TCP listener on 127.0.0.1 that speaks no HTTP. Each connection gets `greeting` (when not empty) and is then
+/// held open until the client closes it. For an https URL, no greeting stalls the TLS handshake and a plain-text
+/// greeting fails it; either way the request is never written.
+pub struct RawListener {
+    pub port: u16,
+    connections: Arc<AtomicUsize>,
+    stop: Arc<AtomicBool>,
+}
+
+impl RawListener {
+    pub fn start(greeting: &'static [u8]) -> RawListener {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind the raw listener");
+        let port = listener.local_addr().unwrap().port();
+        let connections = Arc::new(AtomicUsize::new(0));
+        let stop = Arc::new(AtomicBool::new(false));
+        let (count, halt) = (Arc::clone(&connections), Arc::clone(&stop));
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                if halt.load(Ordering::SeqCst) {
+                    break;
+                }
+                let Ok(mut stream) = stream else { continue };
+                count.fetch_add(1, Ordering::SeqCst);
+                std::thread::spawn(move || {
+                    if !greeting.is_empty() {
+                        let _ = stream.write_all(greeting);
+                        let _ = stream.flush();
+                    }
+                    // Hold the connection until the client gives up.
+                    let mut sink = [0u8; 4096];
+                    while matches!(stream.read(&mut sink), Ok(n) if n > 0) {}
+                });
+            }
+        });
+        RawListener {
+            port,
+            connections,
+            stop,
+        }
+    }
+
+    /// Accepted connections so far.
+    pub fn connections(&self) -> usize {
+        self.connections.load(Ordering::SeqCst)
+    }
+}
+
+impl Drop for RawListener {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+        let _ = TcpStream::connect(("127.0.0.1", self.port));
     }
 }

@@ -159,6 +159,53 @@ fn item_create_md_discards_on_put_failure() {
     assert_eq!(none.connections(), 0);
 }
 
+/// The title PATCH after a good PUT fails: the item exists and holds the content, so it is kept (no discard), the
+/// command exits with the PATCH's error, and an `item_created` warning names the item (D-W8-4).
+#[test]
+fn item_create_md_title_failure_keeps_item_and_warns() {
+    let mock = Mock::start(|r: &Recorded, _| match (r.method.as_str(), r.path()) {
+        ("POST", "/api/v1/items") => Reply::json(201, &summary("")),
+        ("PUT", _) => Reply::json(200, &put_result()),
+        ("PATCH", _) => Reply::error(422, "validation"),
+        _ => Reply::error(404, "not_found"),
+    });
+    let s = Sandbox::new();
+    let (code, v, err) = run_json(
+        s.quire_at(&mock.url, &fake_token(1))
+            .args([
+                "--json",
+                "item",
+                "create",
+                "--collection",
+                ID,
+                "--kind",
+                "doc",
+            ])
+            .args(["--title", "T", "--md", "-"])
+            .write_stdin("Body\n"),
+    );
+    assert_eq!(code, 10, "{err}");
+    assert_eq!(v, Value::Null);
+    let lines: Vec<Value> = err
+        .lines()
+        .map(|l| serde_json::from_str(l).expect("a JSON line"))
+        .collect();
+    assert_eq!(lines.len(), 2, "{err}");
+    assert_eq!(lines[0]["warning"]["code"], "item_created");
+    assert_eq!(lines[0]["warning"]["details"]["id"], NEW);
+    assert_eq!(lines[1]["error"]["code"], "validation");
+    assert_eq!(lines[1]["exit_code"], 10);
+    assert_eq!(
+        calls(&mock),
+        [
+            "POST /api/v1/items".to_owned(),
+            format!("PUT /api/v1/items/{NEW}/doc/markdown"),
+            format!("PATCH /api/v1/items/{NEW}"),
+        ],
+        "never discarded"
+    );
+}
+
 #[test]
 fn attach_images_uploads_only_contained_images() {
     let mock = Mock::start(|r: &Recorded, i| match (r.method.as_str(), r.path()) {

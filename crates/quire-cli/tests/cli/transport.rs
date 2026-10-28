@@ -5,7 +5,10 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
-use crate::common::{ID, Mock, Reply, Sandbox, fake_token, last_error, non_loopback_ip, run_json};
+use crate::common::{
+    ID, Mock, PLACEHOLDER_CA, RawListener, Reply, Sandbox, fake_token, last_error, non_loopback_ip,
+    run_json,
+};
 
 fn collection() -> Value {
     json!({"id": ID, "url_id": "AbCdEfGhIj", "name": "C", "description": "", "icon": null, "color": "#8D8D8D",
@@ -356,4 +359,110 @@ fn https_without_ca_bundle_exit_3() {
         assert_eq!(code, 3, "{ca}: {err}");
     }
     assert_eq!(mock.connections(), 0, "nothing was sent");
+}
+
+/// A TLS handshake that stalls or fails happens before the request is written (ureq completes it in the connector):
+/// even a POST is retried, and the error says `details.sent: false`. A TCP connect timeout takes the same path
+/// (`http::tests::every_connect_stage_error_counts_as_not_sent`); no listener here can make the kernel drop SYNs.
+#[test]
+fn tls_handshake_failures_are_not_sent() {
+    let s = Sandbox::new();
+    let ca = s.file("ca.pem", PLACEHOLDER_CA, 0o644);
+    let ca = ca.to_str().unwrap();
+    // No answer to the ClientHello: a timeout, and with only the global timeout set ureq calls it `Global`.
+    let silent = RawListener::start(b"");
+    // An answer that is not TLS: a TLS error.
+    let plain = RawListener::start(b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n");
+    for (listener, code_name) in [(&silent, "timeout"), (&plain, "tls")] {
+        let url = format!("https://127.0.0.1:{}", listener.port);
+        let started = Instant::now();
+        let (code, out, err) = run_json(
+            s.quire_at(&url, &fake_token(1))
+                .args([
+                    "--json",
+                    "--retries",
+                    "1",
+                    "--timeout",
+                    "1",
+                    "--ca-file",
+                    ca,
+                ])
+                .args(["collection", "create", "--name", "C"]),
+        );
+        assert_eq!(code, 4, "{code_name}: {err}");
+        assert_eq!(out, Value::Null);
+        let e = last_error(&err);
+        assert_eq!(e["error"]["code"], code_name, "{e}");
+        assert_eq!(e["error"]["details"]["sent"], false, "{e}");
+        assert_eq!(
+            listener.connections(),
+            2,
+            "{code_name}: the POST was retried once"
+        );
+        assert!(started.elapsed() < Duration::from_secs(20), "{code_name}");
+    }
+}
+
+/// A GET whose body fails in transit (a stall past the timeout, a dropped connection) is retried, within the same
+/// --retries budget; a write whose body fails is not, and says `details.sent: true`.
+#[test]
+fn get_retried_after_its_body_fails() {
+    let s = Sandbox::new();
+    let tree = json!({"collection": collection(), "items": []});
+    for first in [Reply::BodyHangs(Duration::from_secs(4)), Reply::BodyDrops] {
+        let (first2, tree2) = (first.clone(), tree.clone());
+        let mock = Mock::start(move |_, i| {
+            if i == 0 {
+                first2.clone()
+            } else {
+                Reply::json(200, &tree2)
+            }
+        });
+        let (code, out, err) = run_json(s.quire_at(&mock.url, &fake_token(1)).args([
+            "--json",
+            "--retries",
+            "1",
+            "--timeout",
+            "1",
+            "tree",
+            ID,
+        ]));
+        assert_eq!(code, 0, "{first:?}: {err}");
+        assert_eq!(out, tree);
+        assert_eq!(mock.requests().len(), 2, "{first:?}");
+        // With no retry left, the failure is exit 4.
+        let mock = Mock::always(first.clone());
+        let (code, _, err) = run_json(s.quire_at(&mock.url, &fake_token(1)).args([
+            "--json",
+            "--retries",
+            "0",
+            "--timeout",
+            "1",
+            "tree",
+            ID,
+        ]));
+        assert_eq!(code, 4, "{first:?}: {err}");
+        assert_eq!(mock.requests().len(), 1);
+    }
+    for (reply, code_name) in [
+        (Reply::BodyHangs(Duration::from_secs(4)), "timeout"),
+        (Reply::BodyDrops, "network"),
+    ] {
+        let mock = Mock::always(reply.clone());
+        let (code, out, err) = run_json(
+            s.quire_at(&mock.url, &fake_token(1))
+                .args(["--json", "--retries", "2", "--timeout", "1"])
+                .args(["collection", "create", "--name", "C"]),
+        );
+        assert_eq!(code, 4, "{reply:?}: {err}");
+        assert_eq!(out, Value::Null);
+        let e = last_error(&err);
+        assert_eq!(e["error"]["code"], code_name, "{e}");
+        assert_eq!(e["error"]["details"]["sent"], true, "{e}");
+        assert_eq!(
+            mock.requests().len(),
+            1,
+            "{reply:?}: the POST was not retried"
+        );
+    }
 }

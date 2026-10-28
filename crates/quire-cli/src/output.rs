@@ -2,7 +2,10 @@
 //!
 //! stdout carries only the result (§7.7): with `--json` exactly one JSON document, an API body unchanged; without
 //! it, short human text. stderr carries, with `--json`, JSON Lines only: `{"warning": {"code", "message"}}`,
-//! `{"debug": {…}}` with `--debug`, then at most one error object; without it, human lines.
+//! `{"debug": {…}}` with `--debug`, then at most one error object; without it, human lines. Human text, on both
+//! streams, shows control characters as escapes ([`human::clean`]): titles and messages come from the server, and
+//! nothing may reach the terminal as an escape sequence (§7.6 "Non-interactive"). Raw content (`doc get`, `board
+//! get` without `--json`, downloads) is written byte for byte.
 
 use std::ffi::OsString;
 use std::io::Write;
@@ -14,6 +17,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use crate::error::Failure;
+use crate::human;
 
 struct Mode {
     json: bool,
@@ -50,6 +54,11 @@ fn stderr_line(text: &str) {
     let _ = err.write_all(b"\n");
 }
 
+/// A human stderr line, its control characters escaped.
+fn human_line(text: &str) {
+    stderr_line(&human::clean(text));
+}
+
 /// A CLI warning: `truncated`, `attach_skipped`, `api_version_older`, `token_file_permissions`, and a few more
 /// named in docs/AGENTS.md. `details` is optional extra data.
 pub fn warn(code: &str, message: &str, details: Option<Value>) {
@@ -60,7 +69,7 @@ pub fn warn(code: &str, message: &str, details: Option<Value>) {
         }
         stderr_line(&json!({ "warning": warning }).to_string());
     } else {
-        stderr_line(&format!("warning: {message} [{code}]"));
+        human_line(&format!("warning: {message} [{code}]"));
     }
 }
 
@@ -102,14 +111,14 @@ pub fn debug(fields: Value) {
         if !fields["error"].is_null() {
             line.push_str(&format!(" ({})", get("error")));
         }
-        stderr_line(&line);
+        human_line(&line);
     }
 }
 
 /// Prints a human note to stderr (never with `--json`).
 pub fn note(text: &str) {
     if !json() {
-        stderr_line(text);
+        human_line(text);
     }
 }
 
@@ -129,7 +138,7 @@ pub fn fail(f: &Failure) -> ExitCode {
         if let Some(details) = f.envelope["error"].get("details").filter(|d| !d.is_null()) {
             line.push_str(&format!("\n  details: {details}"));
         }
-        stderr_line(&line);
+        human_line(&line);
     }
     f.exit
 }
@@ -142,26 +151,47 @@ pub fn stdout_bytes(bytes: &[u8]) -> Result<(), Failure> {
         .map_err(|e| Failure::io("writing stdout", &e))
 }
 
-/// Writes a human result to stdout, with a trailing newline when it has none.
+/// Writes text to stdout, with a trailing newline when it has none (and is not empty), without copying it.
+fn write_with_newline(text: &str) -> Result<(), Failure> {
+    let mut out = std::io::stdout().lock();
+    out.write_all(text.as_bytes())
+        .and_then(|()| {
+            if text.is_empty() || text.ends_with('\n') {
+                Ok(())
+            } else {
+                out.write_all(b"\n")
+            }
+        })
+        .and_then(|()| out.flush())
+        .map_err(|e| Failure::io("writing stdout", &e))
+}
+
+/// Writes a human result to stdout, its control characters but `\n` escaped, with a trailing newline when it has
+/// none.
 pub fn print_text(text: &str) -> Result<(), Failure> {
-    if text.is_empty() || text.ends_with('\n') {
-        stdout_bytes(text.as_bytes())
-    } else {
-        stdout_bytes(format!("{text}\n").as_bytes())
-    }
+    write_with_newline(&human::clean(text))
 }
 
-/// Writes `value` as the one JSON document of stdout (pretty-printed, with a trailing newline).
+/// Writes `value` as the one JSON document of stdout (pretty-printed, with a trailing newline). It is serialized
+/// straight into stdout, so a `RawValue` inside (`board get`, `doc get`) is never copied into a second buffer (§7.6
+/// "Memory").
 pub fn print_json(value: &impl Serialize) -> Result<(), Failure> {
-    let mut bytes = serde_json::to_vec_pretty(value)
-        .map_err(|e| Failure::bad_response(format!("cannot print the result: {e}")))?;
-    bytes.push(b'\n');
-    stdout_bytes(&bytes)
+    let mut out = std::io::BufWriter::new(std::io::stdout().lock());
+    serde_json::to_writer_pretty(&mut out, value).map_err(|e| {
+        if e.is_io() {
+            Failure::io("writing stdout", &std::io::Error::from(e))
+        } else {
+            Failure::bad_response(format!("cannot print the result: {e}"))
+        }
+    })?;
+    out.write_all(b"\n")
+        .and_then(|()| out.flush())
+        .map_err(|e| Failure::io("writing stdout", &e))
 }
 
-/// Writes an API body unchanged as the one JSON document of stdout.
+/// Writes an API body unchanged as the one JSON document of stdout (plus a newline when it has none).
 pub fn print_body(body: &str) -> Result<(), Failure> {
-    print_text(body)
+    write_with_newline(body)
 }
 
 /// The body-less success object of §7.7: `{"ok": true, "status": 204, "request_id": "…", "id": "…"}`.

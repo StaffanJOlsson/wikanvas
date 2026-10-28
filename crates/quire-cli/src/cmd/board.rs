@@ -16,48 +16,48 @@ pub fn run(ctx: &Ctx, cmd: BoardCmd) -> Res {
     match cmd {
         BoardCmd::Get(a) => {
             let id = ctx.item_id(&a.item)?;
-            let resp = ctx
-                .client()?
-                .send(&Req::get(format!("/api/v1/items/{id}/board")).transfer())?;
-            let etag = http::header(resp.headers(), "etag");
-            if !output::json()
-                && let Some(e) = &etag
-            {
-                output::note(&format!("etag: {e}"));
-            }
-            match a.out {
-                Some(path) => {
-                    let mut file = std::fs::File::create(&path)
-                        .map_err(|e| Failure::io(&format!("creating {}", path.display()), &e))?;
-                    let w =
-                        http::stream_to(resp, &mut file, &format!("writing {}", path.display()))?;
-                    if output::json() {
-                        output::print_json(&json!({
-                            "item_id": id, "format": "inkboard", "etag": etag, "path": path,
-                            "bytes": w.bytes, "sha256": w.sha256,
-                        }))
-                    } else {
-                        output::note(&format!("wrote {} bytes to {}", w.bytes, path.display()));
-                        Ok(())
-                    }
+            let req = Req::get(format!("/api/v1/items/{id}/board")).transfer();
+            let note_etag = |etag: &Option<String>| {
+                if !output::json()
+                    && let Some(e) = etag
+                {
+                    output::note(&format!("etag: {e}"));
                 }
-                None => {
-                    let text = http::read_text(resp)?;
-                    if !output::json() {
-                        return output::stdout_bytes(text.as_bytes());
-                    }
-                    let content = RawValue::from_string(text).map_err(|e| {
-                        Failure::bad_response(format!("GET …/board: not JSON: {e}"))
-                    })?;
-                    output::print_json(&output::Wrapped {
-                        item_id: &id,
-                        format: "inkboard",
-                        etag: etag.as_deref(),
-                        content: &*content,
-                        warnings: None,
-                    })
-                }
+            };
+            // With --out the envelope streams to the file; without it, it is read into memory once (a GET is
+            // then retried when the body fails in transit).
+            if let Some(path) = a.out {
+                let resp = ctx.client()?.send(&req)?;
+                let etag = http::header(resp.headers(), "etag");
+                note_etag(&etag);
+                let mut file = std::fs::File::create(&path)
+                    .map_err(|e| Failure::io(&format!("creating {}", path.display()), &e))?;
+                let w = http::stream_to(resp, &mut file, &format!("writing {}", path.display()))?;
+                return if output::json() {
+                    output::print_json(&json!({
+                        "item_id": id, "format": "inkboard", "etag": etag, "path": path,
+                        "bytes": w.bytes, "sha256": w.sha256,
+                    }))
+                } else {
+                    output::note(&format!("wrote {} bytes to {}", w.bytes, path.display()));
+                    Ok(())
+                };
             }
+            let t = ctx.client()?.send_text(&req)?;
+            let etag = t.header("etag");
+            note_etag(&etag);
+            if !output::json() {
+                return output::stdout_bytes(t.text.as_bytes());
+            }
+            let content = RawValue::from_string(t.text)
+                .map_err(|e| Failure::bad_response(format!("GET …/board: not JSON: {e}")))?;
+            output::print_json(&output::Wrapped {
+                item_id: &id,
+                format: "inkboard",
+                etag: etag.as_deref(),
+                content: &*content,
+                warnings: None,
+            })
         }
         BoardCmd::Put(a) => {
             let if_match = super::precondition(&a.precondition)?;
@@ -67,7 +67,7 @@ pub fn run(ctx: &Ctx, cmd: BoardCmd) -> Res {
                 .raw(body, "application/json")
                 .header("If-Match", if_match)
                 .transfer();
-            let text = http::read_text(ctx.client()?.send(&req)?)?;
+            let text = ctx.client()?.send_text(&req)?.text;
             if output::json() {
                 return print_json_text(&text);
             }

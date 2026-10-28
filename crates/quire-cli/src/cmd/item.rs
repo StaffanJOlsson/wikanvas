@@ -6,7 +6,7 @@ use serde_json::{Map, Value, json};
 use super::{Ctx, Res, print_json_text};
 use crate::args::{ItemCmd, ItemCreate};
 use crate::error::Failure;
-use crate::http::{self, Req};
+use crate::http::Req;
 use crate::refs::{self, Ref};
 use crate::{human, output};
 
@@ -130,8 +130,9 @@ fn create(ctx: &Ctx, a: ItemCreate) -> Res {
         body.insert("position".into(), p);
     }
     let client = ctx.client()?;
-    let created =
-        http::read_text(client.send(&Req::post("/api/v1/items").json(&Value::Object(body)))?)?;
+    let created = client
+        .send_text(&Req::post("/api/v1/items").json(&Value::Object(body)))?
+        .text;
     let Some(md) = md else {
         return print_json_text(&created);
     };
@@ -148,7 +149,7 @@ fn create(ctx: &Ctx, a: ItemCreate) -> Res {
     if a.title_h1 {
         put = put.query("title", "from_h1");
     }
-    let doc = match client.send(&put).and_then(http::read_text) {
+    let doc = match client.send_text(&put).map(|t| t.text) {
         Ok(doc) => doc,
         Err(put_error) => {
             let discard = Req::delete(format!("/api/v1/items/{id}")).query("discard_empty", "true");
@@ -165,7 +166,7 @@ fn create(ctx: &Ctx, a: ItemCreate) -> Res {
 
     let item = if let Some(title) = &a.title {
         let patch = Req::patch(format!("/api/v1/items/{id}")).json(&json!({ "title": title }));
-        match client.send(&patch).and_then(http::read_text) {
+        match client.send_text(&patch).map(|t| t.text) {
             Ok(t) => t,
             Err(e) => {
                 output::warn(

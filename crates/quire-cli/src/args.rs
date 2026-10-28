@@ -190,7 +190,7 @@ pub enum AuthCmd {
 
 #[derive(Debug, Args)]
 pub struct LogoutArgs {
-    /// Revoke the token on the server first (DELETE /tokens/current)
+    /// Revoke the profile's token on the server first (DELETE /tokens/current, at the profile's URL)
     #[arg(long)]
     pub revoke: bool,
 }

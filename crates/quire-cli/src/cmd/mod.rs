@@ -238,8 +238,7 @@ impl Ctx {
 
     /// Sends a request and parses the JSON body.
     pub fn get_value(&self, req: Req) -> Result<Value, Failure> {
-        let resp = self.client()?.send(&req)?;
-        let text = http::read_text(resp)?;
+        let text = self.client()?.send_text(&req)?.text;
         serde_json::from_str(&text).map_err(|e| {
             Failure::bad_response(format!(
                 "{} {}: the response is not JSON: {e}",
@@ -251,8 +250,7 @@ impl Ctx {
     /// Sends a request and prints the result: the body unchanged (`--json`) or its human form; a body-less 2xx
     /// prints the ok object, with `id` when given.
     pub fn call(&self, req: Req, id: Option<&str>) -> Res {
-        let resp = self.client()?.send(&req)?;
-        print_response(resp, id)
+        print_response(&self.client()?.send_text(&req)?, id)
     }
 
     /// A paginated list: one page, or with `--all` every page merged into one (at most 10,000 items, then the real
@@ -280,7 +278,7 @@ impl Ctx {
                 .clone()
                 .query_opt("cursor", cursor.clone())
                 .query("limit", want.to_string());
-            let text = http::read_text(client.send(&r)?)?;
+            let text = client.send_text(&r)?.text;
             let page: PageRaw = serde_json::from_str(&text)
                 .map_err(|e| Failure::bad_response(format!("GET {}: not a page: {e}", req.path)))?;
             let empty = page.items.is_empty();
@@ -332,18 +330,12 @@ fn read_stdin_text() -> std::io::Result<String> {
 }
 
 /// Prints a 2xx response (see [`Ctx::call`]).
-pub fn print_response(resp: ureq::http::Response<ureq::Body>, id: Option<&str>) -> Res {
-    let status = resp.status().as_u16();
-    let rid = http::header(resp.headers(), quire_api::common::header::REQUEST_ID);
-    let text = if status == 204 {
-        String::new()
-    } else {
-        http::read_text(resp)?
-    };
-    if text.trim().is_empty() {
-        return output::print_ok(Some(status), rid.as_deref(), id);
+pub fn print_response(t: &http::Text, id: Option<&str>) -> Res {
+    if t.status == 204 || t.text.trim().is_empty() {
+        let rid = t.header(quire_api::common::header::REQUEST_ID);
+        return output::print_ok(Some(t.status), rid.as_deref(), id);
     }
-    print_json_text(&text)
+    print_json_text(&t.text)
 }
 
 /// Prints a JSON body: unchanged with `--json`, else in human form. A body that is not JSON is exit 1.

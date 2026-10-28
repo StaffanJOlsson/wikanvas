@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use super::{Ctx, Res, print_json_text};
 use crate::args::{TokenCmd, TokenCreate};
 use crate::error::Failure;
-use crate::http::{self, Req};
+use crate::http::Req;
 use crate::{config, output, refs};
 
 pub fn run(ctx: &Ctx, cmd: TokenCmd) -> Res {
@@ -22,7 +22,7 @@ pub fn run(ctx: &Ctx, cmd: TokenCmd) -> Res {
 }
 
 fn list(ctx: &Ctx) -> Res {
-    let text = http::read_text(ctx.client()?.send(&Req::get("/api/v1/tokens"))?)?;
+    let text = ctx.client()?.send_text(&Req::get("/api/v1/tokens"))?.text;
     if output::json() {
         return print_json_text(&text);
     }
@@ -71,10 +71,10 @@ fn create(ctx: &Ctx, a: TokenCreate) -> Res {
     if let Some(days) = expires(a.expires.as_deref())? {
         body["expires_in_days"] = days;
     }
-    let text = http::read_text(
-        ctx.client()?
-            .send(&Req::post("/api/v1/tokens").json(&body))?,
-    )?;
+    let text = ctx
+        .client()?
+        .send_text(&Req::post("/api/v1/tokens").json(&body))?
+        .text;
     #[derive(Deserialize)]
     struct Created<'a> {
         token: String,

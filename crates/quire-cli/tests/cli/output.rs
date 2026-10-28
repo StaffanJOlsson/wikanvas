@@ -718,3 +718,91 @@ fn all_truncation_keeps_next_cursor() {
     assert_eq!(code, 12, "{err}");
     assert_eq!(v, Value::Null);
 }
+
+/// The warnings of a stderr with --json, by code.
+fn warnings(err: &str, code: &str) -> Vec<Value> {
+    err.lines()
+        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+        .filter(|v| v["warning"]["code"] == code)
+        .collect()
+}
+
+#[test]
+fn api_version_older_warns_once() {
+    // Two pages, both from a server one minor version behind.
+    let mock = Mock::start(|_, i| {
+        let next = if i == 0 { json!("c1") } else { Value::Null };
+        Reply::json(200, &json!({"items": [summary()], "next_cursor": next}))
+            .with("Quire-Api-Version", "0.9")
+    });
+    let s = Sandbox::new();
+    let (code, v, err) = run_json(
+        s.quire_at(&mock.url, &fake_token(1))
+            .args(["--json", "list", "recent", "--all"]),
+    );
+    assert_eq!(code, 0, "{err}");
+    assert_eq!(v["items"].as_array().unwrap().len(), 2);
+    assert_eq!(mock.requests().len(), 2);
+    let w = warnings(&err, "api_version_older");
+    assert_eq!(w.len(), 1, "once per command: {err}");
+    assert_eq!(w[0]["warning"]["details"]["server"], "0.9");
+    assert_eq!(w[0]["warning"]["details"]["cli"], quire_api::API_VERSION);
+    // The same version, or a newer one: no warning.
+    for version in [quire_api::API_VERSION, "1.9"] {
+        let mock = Mock::always(Reply::json(200, &json!([])).with("Quire-Api-Version", version));
+        let (code, _, err) =
+            run_json(
+                s.quire_at(&mock.url, &fake_token(1))
+                    .args(["--json", "collection", "list"]),
+            );
+        assert_eq!((code, err.as_str()), (0, ""), "{version}");
+    }
+}
+
+#[test]
+fn human_output_escapes_control_characters() {
+    // A title and an error message that would set the window title, colour the text and clear the screen.
+    const EVIL: &str = "\u{1b}]0;owned\u{7}\u{1b}[31mred\u{9b}2J";
+    let mock = Mock::start(|req, _| match req.path() {
+        "/api/v1/collections" => Reply::json(
+            200,
+            &json!([{"id": ID, "name": EVIL, "color": "#000000", "updated_at": "t"}]),
+        ),
+        _ => Reply::json(
+            404,
+            &json!({"error": {"code": "not_found", "message": EVIL}, "request_id": "r"}),
+        ),
+    });
+    let s = Sandbox::new();
+    let controls = |text: &str| {
+        text.chars()
+            .filter(|c| c.is_control() && *c != '\n')
+            .count()
+    };
+    let out = s
+        .quire_at(&mock.url, &fake_token(1))
+        .args(["collection", "list"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert_eq!(out.status.code(), Some(0));
+    assert_eq!(controls(&stdout), 0, "{stdout:?}");
+    assert!(stdout.contains("\\u{1b}[31mred"), "{stdout:?}");
+    let out = s
+        .quire_at(&mock.url, &fake_token(1))
+        .args(["item", "get", ID])
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8(out.stderr).unwrap();
+    assert_eq!(out.status.code(), Some(7));
+    assert_eq!(controls(&stderr), 0, "{stderr:?}");
+    assert!(stderr.contains("\\u{9b}2J"), "{stderr:?}");
+    // --json keeps the body unchanged.
+    let out = s
+        .quire_at(&mock.url, &fake_token(1))
+        .args(["--json", "collection", "list"])
+        .output()
+        .unwrap();
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v[0]["name"], EVIL);
+}

@@ -41,19 +41,64 @@ fn get(ctx: &Ctx, a: DocGet) -> Res {
     } else {
         Req::get(format!("/api/v1/items/{id}/doc/prosemirror"))
     };
-    let resp = ctx.client()?.send(&req)?;
-    let etag = http::header(resp.headers(), "etag");
-    let warnings: Vec<String> = http::header(
-        resp.headers(),
-        quire_api::common::header::CONVERSION_WARNINGS,
-    )
-    .map(|h| {
-        h.split(',')
-            .map(|s| s.trim().to_owned())
-            .filter(|s| !s.is_empty())
-            .collect()
-    })
-    .unwrap_or_default();
+    // With --out the body streams to the file; without it, it is read into memory (a GET is then retried when the
+    // body fails in transit).
+    if let Some(path) = &a.out {
+        let resp = ctx.client()?.send(&req)?;
+        let (etag, _) = content_headers(resp.headers());
+        let mut file = std::fs::File::create(path)
+            .map_err(|e| Failure::io(&format!("creating {}", path.display()), &e))?;
+        let w = http::stream_to(resp, &mut file, &format!("writing {}", path.display()))?;
+        return if output::json() {
+            output::print_json(&json!({
+                "item_id": id, "format": a.format, "etag": etag, "path": path, "bytes": w.bytes,
+                "sha256": w.sha256,
+            }))
+        } else {
+            output::note(&format!("wrote {} bytes to {}", w.bytes, path.display()));
+            Ok(())
+        };
+    }
+    let t = ctx.client()?.send_text(&req)?;
+    let (etag, warnings) = content_headers(&t.headers);
+    let text = t.text;
+    if !output::json() {
+        return output::stdout_bytes(text.as_bytes());
+    }
+    if md {
+        output::print_json(&output::Wrapped {
+            item_id: &id,
+            format: "md",
+            etag: etag.as_deref(),
+            content: text.as_str(),
+            warnings: Some(&warnings),
+        })
+    } else {
+        let content = RawValue::from_string(text)
+            .map_err(|e| Failure::bad_response(format!("GET …/doc/prosemirror: not JSON: {e}")))?;
+        output::print_json(&output::Wrapped {
+            item_id: &id,
+            format: "json",
+            etag: etag.as_deref(),
+            content: &*content,
+            warnings: None,
+        })
+    }
+}
+
+/// The `ETag` and the `Quire-Conversion-Warnings` codes of a content response; without `--json` both are also noted
+/// on stderr.
+fn content_headers(headers: &ureq::http::HeaderMap) -> (Option<String>, Vec<String>) {
+    let etag = http::header(headers, "etag");
+    let warnings: Vec<String> =
+        http::header(headers, quire_api::common::header::CONVERSION_WARNINGS)
+            .map(|h| {
+                h.split(',')
+                    .map(|s| s.trim().to_owned())
+                    .filter(|s| !s.is_empty())
+                    .collect()
+            })
+            .unwrap_or_default();
     if !output::json() {
         if let Some(e) = &etag {
             output::note(&format!("etag: {e}"));
@@ -62,48 +107,7 @@ fn get(ctx: &Ctx, a: DocGet) -> Res {
             output::note(&format!("warning: {w}"));
         }
     }
-    match a.out {
-        Some(path) => {
-            let mut file = std::fs::File::create(&path)
-                .map_err(|e| Failure::io(&format!("creating {}", path.display()), &e))?;
-            let w = http::stream_to(resp, &mut file, &format!("writing {}", path.display()))?;
-            if output::json() {
-                output::print_json(&json!({
-                    "item_id": id, "format": a.format, "etag": etag, "path": path, "bytes": w.bytes,
-                    "sha256": w.sha256,
-                }))
-            } else {
-                output::note(&format!("wrote {} bytes to {}", w.bytes, path.display()));
-                Ok(())
-            }
-        }
-        None => {
-            let text = http::read_text(resp)?;
-            if !output::json() {
-                return output::stdout_bytes(text.as_bytes());
-            }
-            if md {
-                output::print_json(&output::Wrapped {
-                    item_id: &id,
-                    format: "md",
-                    etag: etag.as_deref(),
-                    content: text.as_str(),
-                    warnings: Some(&warnings),
-                })
-            } else {
-                let content = RawValue::from_string(text).map_err(|e| {
-                    Failure::bad_response(format!("GET …/doc/prosemirror: not JSON: {e}"))
-                })?;
-                output::print_json(&output::Wrapped {
-                    item_id: &id,
-                    format: "json",
-                    etag: etag.as_deref(),
-                    content: &*content,
-                    warnings: None,
-                })
-            }
-        }
-    }
+    (etag, warnings)
 }
 
 /// The body of a ProseMirror PUT: the file as it is, or a bare `{"type": "doc", …}` wrapped in
@@ -151,7 +155,7 @@ fn put(ctx: &Ctx, a: DocPut) -> Res {
     if a.merge {
         req = req.query("merge", "true");
     }
-    let text = http::read_text(ctx.client()?.send(&req)?)?;
+    let text = ctx.client()?.send_text(&req)?.text;
     if output::json() {
         return print_json_text(&text);
     }
@@ -179,10 +183,9 @@ fn put(ctx: &Ctx, a: DocPut) -> Res {
 fn upload_limit(ctx: &Ctx) -> u64 {
     let mb = ctx
         .client()
-        .and_then(|c| c.send(&Req::get("/api/v1/config").public()))
-        .and_then(http::read_text)
+        .and_then(|c| c.send_text(&Req::get("/api/v1/config").public()))
         .ok()
-        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+        .and_then(|t| serde_json::from_str::<Value>(&t.text).ok())
         .and_then(|v| v.pointer("/limits/max_upload_mb").and_then(Value::as_u64))
         .unwrap_or(DEFAULT_MAX_UPLOAD_MB);
     mb.saturating_mul(1 << 20)

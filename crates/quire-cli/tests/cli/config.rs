@@ -554,26 +554,45 @@ fn token_stdin_with_token_file_exit_2() {
     ] {
         sandbox.quire().args(args).assert().code(2).stdout("");
     }
-    // --token-stdin and a `-` content argument cannot share stdin.
+    // --token-stdin and a `-` content argument cannot share stdin: every command that reads `-` refuses before any
+    // request.
     let mock = Mock::always(Reply::json(200, &json!({})));
-    let (code, _, err) = run_json(
-        sandbox
-            .quire()
-            .args([
-                "--json",
-                "--url",
-                &mock.url,
-                "--token-stdin",
-                "doc",
-                "put",
-                crate::common::ID,
-                "--md",
-                "-",
-                "--force",
-            ])
-            .write_stdin("x"),
-    );
-    assert_eq!(code, 2, "{err}");
-    assert_eq!(last_error(&err)["error"]["code"], "cli_usage");
+    let id = crate::common::ID;
+    for args in [
+        &["doc", "put", id, "--md", "-", "--force"][..],
+        &["doc", "put", id, "--json", "-", "--force"][..],
+        &["board", "put", id, "-", "--force"][..],
+        &[
+            "item",
+            "create",
+            "--collection",
+            id,
+            "--kind",
+            "doc",
+            "--md",
+            "-",
+        ][..],
+        &["attachment", "upload", "-"][..],
+        &["api", "POST", "/api/v1/collections", "--input", "-"][..],
+    ] {
+        let (code, out, err) = run_json(
+            sandbox
+                .quire()
+                .args(["--json", "--url", &mock.url, "--token-stdin"])
+                .args(args)
+                .write_stdin("x"),
+        );
+        assert_eq!(code, 2, "{args:?}: {err}");
+        assert_eq!(out, Value::Null);
+        let e = last_error(&err);
+        assert_eq!(e["error"]["code"], "cli_usage", "{args:?}");
+        assert!(
+            e["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("--token-stdin"),
+            "{e}"
+        );
+    }
     assert_eq!(mock.connections(), 0);
 }

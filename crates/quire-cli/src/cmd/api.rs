@@ -10,7 +10,7 @@ use ureq::http::Method;
 use super::{Ctx, Res, print_json_text};
 use crate::args::ApiArgs;
 use crate::error::Failure;
-use crate::http::{self, Req};
+use crate::http::{self, Answer, Req};
 use crate::output;
 
 fn method(input: &str) -> Result<Method, Failure> {
@@ -138,34 +138,40 @@ pub fn run(ctx: &Ctx, a: ApiArgs) -> Res {
     if !client.has_token() {
         req = req.public();
     }
-    let resp = client.send(&req)?;
-    let status = resp.status().as_u16();
-    if let Some(out) = a.out.as_deref() {
-        return super::download(resp, Some(out));
-    }
-    let rid = http::header(resp.headers(), quire_api::common::header::REQUEST_ID);
-    let ct = http::header(resp.headers(), "content-type").unwrap_or_default();
-    let is_json = {
-        let mime = ct
-            .split(';')
-            .next()
-            .unwrap_or_default()
-            .trim()
-            .to_ascii_lowercase();
-        mime == "application/json" || mime.ends_with("+json")
+    // A JSON answer is read into memory (and a GET is retried when its body fails in transit); anything else, and
+    // every answer for --out, streams.
+    let stream = |resp: &ureq::http::Response<ureq::Body>| {
+        a.out.is_some()
+            || (resp.status().as_u16() != 204 && method != Method::HEAD && !is_json(resp.headers()))
     };
-    if status == 204 || method == Method::HEAD {
-        return output::print_ok(Some(status), rid.as_deref(), None);
-    }
-    if is_json {
-        let text = http::read_text(resp)?;
-        if text.trim().is_empty() {
-            return output::print_ok(Some(status), rid.as_deref(), None);
+    match client.send_text_or_stream(&req, stream)? {
+        Answer::Stream(resp) => match a.out.as_deref() {
+            Some(out) => super::download(resp, Some(out)),
+            None => {
+                super::require_out_with_json(None)?;
+                super::download(resp, None)
+            }
+        },
+        Answer::Text(t) => {
+            if t.status == 204 || method == Method::HEAD || t.text.trim().is_empty() {
+                let rid = t.header(quire_api::common::header::REQUEST_ID);
+                return output::print_ok(Some(t.status), rid.as_deref(), None);
+            }
+            print_json_text(&t.text)
         }
-        return print_json_text(&text);
     }
-    super::require_out_with_json(None)?;
-    super::download(resp, None)
+}
+
+/// Whether a response's `Content-Type` is JSON (`application/json` or `…+json`).
+fn is_json(headers: &ureq::http::HeaderMap) -> bool {
+    let ct = http::header(headers, "content-type").unwrap_or_default();
+    let mime = ct
+        .split(';')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    mime == "application/json" || mime.ends_with("+json")
 }
 
 #[cfg(test)]

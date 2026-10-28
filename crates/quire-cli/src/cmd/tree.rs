@@ -3,16 +3,16 @@
 use super::{Ctx, Res, print_json_text};
 use crate::args::TreeArgs;
 use crate::error::Failure;
-use crate::http::{self, Req};
+use crate::http::Req;
 use crate::{human, output};
 
 /// `GET /collections/{id}/tree`: `{collection, items}`; the human form is indented.
 pub fn run(ctx: &Ctx, a: TreeArgs) -> Res {
     let id = ctx.collection_id(&a.collection)?;
-    let text = http::read_text(
-        ctx.client()?
-            .send(&Req::get(format!("/api/v1/collections/{id}/tree")))?,
-    )?;
+    let text = ctx
+        .client()?
+        .send_text(&Req::get(format!("/api/v1/collections/{id}/tree")))?
+        .text;
     if output::json() {
         return print_json_text(&text);
     }

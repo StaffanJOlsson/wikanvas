@@ -8,8 +8,12 @@
 //!
 //! Retries (`--retries`, default 2), after `Retry-After` (capped at 60 s), else 1 s and then 3 s: every method when
 //! the server answered 429 or 503, or when the request never left (DNS, connect, TLS handshake); GET and HEAD also
-//! after a timeout or a reset. A write that was sent is never retried, and its error says `details.sent: true`.
+//! after a timeout or a reset, including one while the body is read into memory ([`Client::send_text`]). A write
+//! that was sent is never retried, and its error says `details.sent: true`. "Never left" is decided by the stage:
+//! every error of the resolver ([`Lookup`]) and of the connector chain ([`ConnectStage`]: TCP connect and TLS
+//! handshake, which ureq completes before it writes the request) is "not sent"; any later error is "sent".
 
+use std::fmt;
 use std::io::{Read, Write};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -19,7 +23,9 @@ use sha2::{Digest, Sha256};
 use ureq::http::{self, Method, Response};
 use ureq::tls::{PemItem, RootCerts, TlsConfig, TlsProvider};
 use ureq::unversioned::resolver::{DefaultResolver, ResolvedSocketAddrs, Resolver};
-use ureq::unversioned::transport::{DefaultConnector, NextTimeout};
+use ureq::unversioned::transport::{
+    ConnectionDetails, Connector, DefaultConnector, NextTimeout, Transport,
+};
 use ureq::{Agent, Body};
 
 use crate::config::{Env, Origin, Resolved, Scheme};
@@ -156,6 +162,15 @@ struct NetError {
 fn classify(err: &ureq::Error) -> NetError {
     use std::io::ErrorKind as K;
     use ureq::Timeout as T;
+    // An error of the connect stage: whatever it is, nothing of the request was written.
+    if let ureq::Error::Io(io) = err
+        && let Some(BeforeSend(inner)) = io.get_ref().and_then(|e| e.downcast_ref::<BeforeSend>())
+    {
+        return NetError {
+            sent: false,
+            ..classify(inner)
+        };
+    }
     let message = err.to_string();
     let (code, sent) = match err {
         ureq::Error::HostNotFound => ("network", false),
@@ -168,7 +183,9 @@ fn classify(err: &ureq::Error) -> NetError {
                 .get_ref()
                 .is_some_and(|inner| inner.downcast_ref::<rustls::Error>().is_some())
             {
-                ("tls", false)
+                // Outside the connect stage (marked above), a TLS error comes from reading the response, after the
+                // request was written: an alert from a TLS-terminating proxy, a decrypt error.
+                ("tls", true)
             } else {
                 match io.kind() {
                     K::ConnectionRefused
@@ -191,6 +208,50 @@ fn classify(err: &ureq::Error) -> NetError {
     }
 }
 
+/// Marks an error of the connect stage (TCP connect, TLS handshake): the request was not written.
+#[derive(Debug)]
+struct BeforeSend(ureq::Error);
+
+impl fmt::Display for BeforeSend {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl std::error::Error for BeforeSend {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.0)
+    }
+}
+
+/// An error of the connect stage, marked "not sent". With only a global timeout set, ureq reports a connect or
+/// handshake timeout as `Timeout::Global`, which here becomes `Timeout::Connect`; any other error is wrapped in
+/// [`BeforeSend`] (ureq passes an I/O error whose inner error is not its own through unchanged).
+fn before_send(err: ureq::Error) -> ureq::Error {
+    match err {
+        ureq::Error::Timeout(_) => ureq::Error::Timeout(ureq::Timeout::Connect),
+        other => ureq::Error::Io(std::io::Error::other(BeforeSend(other))),
+    }
+}
+
+/// The default connector chain (TCP, then rustls for https), with every error marked by [`before_send`]. ureq
+/// finishes the TLS handshake (`complete_io`) inside `connect`, before it writes the request; a pooled connection
+/// skips `connect` altogether.
+#[derive(Debug, Default)]
+struct ConnectStage(DefaultConnector);
+
+impl Connector<()> for ConnectStage {
+    type Out = Box<dyn Transport>;
+
+    fn connect(
+        &self,
+        details: &ConnectionDetails,
+        chained: Option<()>,
+    ) -> Result<Option<Self::Out>, ureq::Error> {
+        self.0.connect(details, chained).map_err(before_send)
+    }
+}
+
 /// The default resolver, with a failed lookup reported as `HostNotFound` (std reports it as an I/O error without
 /// a kind of its own), so a DNS failure counts as "never left".
 #[derive(Debug, Default)]
@@ -207,7 +268,8 @@ impl Resolver for Lookup {
             ureq::Error::Io(_) => ureq::Error::HostNotFound,
             // A lookup that ran out of time never sent anything, whichever timeout was in force.
             ureq::Error::Timeout(_) => ureq::Error::Timeout(ureq::Timeout::Resolve),
-            other => other,
+            // Nothing was sent before the lookup either.
+            other => before_send(other),
         })
     }
 }
@@ -294,7 +356,7 @@ impl Client {
             .user_agent(format!("quire-cli/{}", env!("CARGO_PKG_VERSION")))
             .tls_config(tls)
             .build();
-        let agent = Agent::with_parts(config, DefaultConnector::default(), Lookup::default());
+        let agent = Agent::with_parts(config, ConnectStage::default(), Lookup::default());
         Ok(Client {
             agent,
             origin,
@@ -372,20 +434,30 @@ impl Client {
         })
     }
 
-    /// Sends `req` with the retry rule and returns the response of any status (3xx included). Only transport
-    /// failures are errors here.
-    pub fn send_any(&self, req: &Req) -> Result<Response<Body>, Failure> {
+    fn need_token(&self, req: &Req) -> Result<(), Failure> {
         if req.auth && self.token.is_none() {
             return Err(Failure::config(
                 "no API token: pass --token-file or --token-stdin, set QUIRE_TOKEN or QUIRE_TOKEN_FILE, or run \
                  `quire auth login`",
             ));
         }
-        let url = self.url_of(req);
-        let mut attempt: u32 = 0;
+        Ok(())
+    }
+
+    /// Sends `req` with the retry rule and returns the response of any status (3xx included). Only transport
+    /// failures are errors here.
+    pub fn send_any(&self, req: &Req) -> Result<Response<Body>, Failure> {
+        self.need_token(req)?;
+        let mut attempt = 0;
+        self.exchange(req, &self.url_of(req), &mut attempt)
+    }
+
+    /// The retry loop up to the response headers. `attempt` counts every attempt of the command's request, so a
+    /// retry after a failed body read ([`send_text`](Self::send_text)) uses the same `--retries` budget.
+    fn exchange(&self, req: &Req, url: &str, attempt: &mut u32) -> Result<Response<Body>, Failure> {
         loop {
             let started = Instant::now();
-            let result = self.attempt(req, &url)?;
+            let result = self.attempt(req, url)?;
             let elapsed = started.elapsed().as_millis() as u64;
             match result {
                 Ok(resp) => {
@@ -393,7 +465,7 @@ impl Client {
                     let request_id = header(resp.headers(), quire_api::common::header::REQUEST_ID);
                     output::debug(json!({
                         "method": req.method.as_str(), "url": url, "status": status,
-                        "duration_ms": elapsed, "request_id": request_id, "attempt": attempt + 1,
+                        "duration_ms": elapsed, "request_id": request_id, "attempt": *attempt + 1,
                     }));
                     if let Some(server) =
                         header(resp.headers(), quire_api::common::header::API_VERSION)
@@ -401,10 +473,10 @@ impl Client {
                     {
                         output::warn_api_version_once(&server);
                     }
-                    if (status == 429 || status == 503) && attempt < self.retries {
-                        let wait = retry_after(resp.headers()).unwrap_or(backoff(attempt));
+                    if (status == 429 || status == 503) && *attempt < self.retries {
+                        let wait = retry_after(resp.headers()).unwrap_or(backoff(*attempt));
                         std::thread::sleep(wait);
-                        attempt += 1;
+                        *attempt += 1;
                         continue;
                     }
                     return Ok(resp);
@@ -413,22 +485,23 @@ impl Client {
                     let net = classify(&err);
                     output::debug(json!({
                         "method": req.method.as_str(), "url": url, "status": null,
-                        "duration_ms": elapsed, "request_id": null, "attempt": attempt + 1,
+                        "duration_ms": elapsed, "request_id": null, "attempt": *attempt + 1,
                         "error": net.message,
                     }));
-                    if attempt < self.retries && (!net.sent || req.is_read()) {
-                        std::thread::sleep(backoff(attempt));
-                        attempt += 1;
+                    if *attempt < self.retries && (!net.sent || req.is_read()) {
+                        std::thread::sleep(backoff(*attempt));
+                        *attempt += 1;
                         continue;
                     }
-                    let what = if net.sent && !req.is_read() {
-                        "; the request may have reached the server: check before retrying"
-                    } else {
-                        ""
-                    };
                     return Err(Failure::network(
                         net.code,
-                        format!("{} {}: {}{what}", req.method, url, net.message),
+                        format!(
+                            "{} {}: {}{}",
+                            req.method,
+                            url,
+                            net.message,
+                            unknown_outcome(req, net.sent)
+                        ),
                         net.sent,
                     ));
                 }
@@ -441,6 +514,107 @@ impl Client {
         let resp = self.send_any(req)?;
         expect_success(resp)
     }
+
+    /// Sends `req` and reads its 2xx response into memory (JSON, Markdown, envelopes; at most [`MAX_BODY`]). A GET
+    /// or HEAD whose body fails in transit (a timeout, a reset) is sent again, within the same `--retries` budget;
+    /// a write whose body fails is exit 4 with `details.sent: true`.
+    pub fn send_text(&self, req: &Req) -> Result<Text, Failure> {
+        match self.send_text_or_stream(req, |_| false)? {
+            Answer::Text(t) => Ok(t),
+            Answer::Stream(_) => unreachable!("send_text_or_stream streams only when asked to"),
+        }
+    }
+
+    /// Like [`send_text`](Self::send_text), but a response for which `stream` is true is returned unread, for a
+    /// download (`quire api` decides by the content type).
+    pub fn send_text_or_stream(
+        &self,
+        req: &Req,
+        stream: impl Fn(&Response<Body>) -> bool,
+    ) -> Result<Answer, Failure> {
+        self.need_token(req)?;
+        let url = self.url_of(req);
+        let mut attempt = 0;
+        loop {
+            let resp = expect_success(self.exchange(req, &url, &mut attempt)?)?;
+            if stream(&resp) {
+                return Ok(Answer::Stream(resp));
+            }
+            let status = resp.status().as_u16();
+            let headers = resp.headers().clone();
+            let started = Instant::now();
+            let err = match read_body(resp) {
+                Ok(bytes) => {
+                    let text = String::from_utf8(bytes).map_err(|_| {
+                        Failure::bad_response(format!(
+                            "{} {url}: the response is not UTF-8",
+                            req.method
+                        ))
+                    })?;
+                    return Ok(Answer::Text(Text {
+                        status,
+                        headers,
+                        text,
+                    }));
+                }
+                Err(err) => err,
+            };
+            let net = classify(&err);
+            output::debug(json!({
+                "method": req.method.as_str(), "url": url, "status": status,
+                "duration_ms": started.elapsed().as_millis() as u64,
+                "request_id": header(&headers, quire_api::common::header::REQUEST_ID),
+                "attempt": attempt + 1, "error": format!("reading the response: {}", net.message),
+            }));
+            let too_big = matches!(err, ureq::Error::BodyExceedsLimit(_));
+            if req.is_read() && !too_big && attempt < self.retries {
+                std::thread::sleep(backoff(attempt));
+                attempt += 1;
+                continue;
+            }
+            return Err(Failure::network(
+                net.code,
+                format!(
+                    "{} {url}: reading the response: {}{}",
+                    req.method,
+                    net.message,
+                    unknown_outcome(req, true)
+                ),
+                true,
+            ));
+        }
+    }
+}
+
+/// The note on an error after which a write's outcome is unknown.
+fn unknown_outcome(req: &Req, sent: bool) -> &'static str {
+    if sent && !req.is_read() {
+        "; the request may have reached the server: check before retrying"
+    } else {
+        ""
+    }
+}
+
+/// A 2xx response read into memory.
+#[derive(Debug)]
+pub struct Text {
+    pub status: u16,
+    pub headers: http::HeaderMap,
+    pub text: String,
+}
+
+impl Text {
+    /// A response header as text.
+    pub fn header(&self, name: &str) -> Option<String> {
+        header(&self.headers, name)
+    }
+}
+
+/// What [`Client::send_text_or_stream`] returns.
+pub enum Answer {
+    Text(Text),
+    /// The response, its body unread.
+    Stream(Response<Body>),
 }
 
 /// A 2xx response as it is; a 3xx is exit 3 naming the `Location`; any other status is the server's error.
@@ -503,16 +677,16 @@ fn body_error(err: std::io::Error) -> Failure {
     )
 }
 
-/// Reads a whole body as UTF-8 text (JSON, Markdown, envelopes).
-pub fn read_text(resp: Response<Body>) -> Result<String, Failure> {
+/// Reads a whole body (at most [`MAX_BODY`]).
+fn read_body(resp: Response<Body>) -> Result<Vec<u8>, ureq::Error> {
     let mut bytes = Vec::new();
     resp.into_body()
         .into_with_config()
         .limit(MAX_BODY)
         .reader()
         .read_to_end(&mut bytes)
-        .map_err(body_error)?;
-    String::from_utf8(bytes).map_err(|_| Failure::bad_response("the response is not UTF-8"))
+        .map_err(ureq::Error::from)?;
+    Ok(bytes)
 }
 
 /// What a streamed download wrote.
@@ -605,5 +779,48 @@ mod tests {
         assert!(classify(&io(K::ConnectionReset)).sent);
         assert!(classify(&io(K::UnexpectedEof)).sent);
         assert_eq!(classify(&ureq::Error::Tls("x")).code, "tls");
+    }
+
+    /// A TLS error while the response is read: rustls wraps it in an I/O error (InvalidData).
+    fn tls_read_error() -> ureq::Error {
+        ureq::Error::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            rustls::Error::DecryptError,
+        ))
+    }
+
+    #[test]
+    fn a_tls_error_after_the_handshake_counts_as_sent() {
+        let net = classify(&tls_read_error());
+        assert_eq!((net.code, net.sent), ("tls", true));
+    }
+
+    #[test]
+    fn every_connect_stage_error_counts_as_not_sent() {
+        use std::io::ErrorKind as K;
+        let io = |k| ureq::Error::Io(std::io::Error::from(k));
+        // With only a global timeout set, ureq names a connect or handshake timeout `Global`.
+        let t = before_send(ureq::Error::Timeout(ureq::Timeout::Global));
+        assert!(
+            matches!(t, ureq::Error::Timeout(ureq::Timeout::Connect)),
+            "{t}"
+        );
+        for (err, code) in [
+            (ureq::Error::Timeout(ureq::Timeout::Global), "timeout"),
+            (tls_read_error(), "tls"),
+            (io(K::ConnectionReset), "network"),
+            (io(K::UnexpectedEof), "network"),
+            (io(K::TimedOut), "timeout"),
+            (io(K::ConnectionRefused), "network"),
+            (ureq::Error::Tls("x"), "tls"),
+        ] {
+            let what = err.to_string();
+            let net = classify(&before_send(err));
+            assert_eq!((net.code, net.sent), (code, false), "{what}");
+            assert!(!net.message.contains("BeforeSend"), "{}", net.message);
+        }
+        // Errors pass through the wrapper's Display unchanged.
+        let e = before_send(io(K::ConnectionReset));
+        assert_eq!(classify(&e).message, io(K::ConnectionReset).to_string());
     }
 }

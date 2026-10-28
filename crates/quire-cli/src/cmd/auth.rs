@@ -3,7 +3,7 @@
 use serde_json::{Map, Value, json};
 
 use super::{Ctx, Res, print_json_text, print_response};
-use crate::args::{AuthCmd, MeCmd, SessionCmd};
+use crate::args::{AuthCmd, GlobalArgs, MeCmd, SessionCmd};
 use crate::config::{self, Origin, Resolved, StoredToken};
 use crate::error::Failure;
 use crate::http::{self, Client, Req};
@@ -66,7 +66,7 @@ fn login(ctx: &Ctx) -> Res {
         allow_http: matches!(ctx.env.get("QUIRE_ALLOW_HTTP"), Some("1" | "true")),
     };
     let client = Client::new(&resolved, &ctx.env, g.retries, g.timeout)?;
-    let text = http::read_text(client.send(&Req::get("/api/v1/auth/me"))?)?;
+    let text = client.send_text(&Req::get("/api/v1/auth/me"))?.text;
     config::write_profile(&resolved.path, &name, &origin, &stored)?;
     output::note(&format!(
         "saved profile {name:?} ({}) in {}",
@@ -80,17 +80,21 @@ fn login(ctx: &Ctx) -> Res {
     }
 }
 
-/// `auth logout [--revoke]`: `--revoke` first calls `DELETE /tokens/current` with the configured token; then the
-/// profile's `token` and `token_file` are removed. Prints the ok object, plus the profile.
+/// `auth logout [--revoke]`: removes the profile's `token` and `token_file`. `--revoke` first revokes that same token
+/// with `DELETE /tokens/current`, sent to the profile's own URL ([`profile_pair`]): a token from `--token-file`,
+/// `--token-stdin`, `QUIRE_TOKEN` or `QUIRE_TOKEN_FILE` is never the one revoked, since it is not the one removed.
+/// Prints the ok object, plus the profile.
 fn logout(ctx: &Ctx, revoke: bool) -> Res {
     let resolved = ctx.resolved()?;
+    let profile = ctx.g.profile.clone().or(resolved.profile.clone());
     let (mut status, mut request_id) = (None, None);
     if revoke {
-        let resp = ctx.client()?.send(&Req::delete("/api/v1/tokens/current"))?;
+        let pair = profile_pair(ctx, &resolved, profile.as_deref())?;
+        let client = Client::new(&pair, &ctx.env, ctx.g.retries, ctx.g.timeout)?;
+        let resp = client.send(&Req::delete("/api/v1/tokens/current"))?;
         status = Some(resp.status().as_u16());
         request_id = http::header(resp.headers(), quire_api::common::header::REQUEST_ID);
     }
-    let profile = ctx.g.profile.clone().or(resolved.profile.clone());
     let removed = match &profile {
         Some(p) => config::remove_token(&resolved.path, p)?,
         None => false,
@@ -114,12 +118,45 @@ fn logout(ctx: &Ctx, revoke: bool) -> Res {
     }
 }
 
-fn whoami(ctx: &Ctx) -> Res {
-    let resp = ctx.client()?.send(&Req::get("/api/v1/auth/me"))?;
-    if output::json() {
-        return print_response(resp, None);
+/// The URL and token of the profile in play, for `auth logout --revoke`: the resolved pair when its token is the
+/// profile's, else the profile resolved on its own (as `--profile P` would, without token flags or `--url`). No
+/// profile, or a profile without a URL and token, is exit 3 before any request.
+fn profile_pair(
+    ctx: &Ctx,
+    resolved: &Resolved,
+    profile: Option<&str>,
+) -> Result<Resolved, Failure> {
+    if resolved.token_source == Some("profile") {
+        return Ok(resolved.clone());
     }
-    print_me(&http::read_text(resp)?)
+    let Some(name) = profile else {
+        return Err(Failure::config(
+            "auth logout --revoke: no profile is in use, so there is no profile token to revoke (revoke any token \
+             with `quire token revoke ID`)",
+        ));
+    };
+    let g = GlobalArgs {
+        profile: Some(name.to_owned()),
+        url: None,
+        token_file: None,
+        token_stdin: false,
+        ..ctx.g.clone()
+    };
+    let own = config::resolve(&g, &ctx.env, || Ok(String::new()))?;
+    if own.token_source != Some("profile") {
+        return Err(Failure::config(format!(
+            "auth logout --revoke: profile {name:?} has no url and token to revoke"
+        )));
+    }
+    Ok(own)
+}
+
+fn whoami(ctx: &Ctx) -> Res {
+    let t = ctx.client()?.send_text(&Req::get("/api/v1/auth/me"))?;
+    if output::json() {
+        return print_response(&t, None);
+    }
+    print_me(&t.text)
 }
 
 fn print_me(text: &str) -> Res {

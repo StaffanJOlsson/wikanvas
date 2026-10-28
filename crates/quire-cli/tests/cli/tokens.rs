@@ -217,3 +217,75 @@ fn logout_revoke_revokes_current_token() {
     let (code, _, _) = h.json(Scope::Read, &["auth", "whoami"]);
     assert_eq!(code, 0);
 }
+
+/// `auth logout --revoke` revokes the token it removes, the profile's, at the profile's URL, even when the shell
+/// exports another token (QUIRE_TOKEN) that the resolved pair would otherwise use.
+#[test]
+fn logout_revoke_revokes_the_profiles_token_not_the_environments() {
+    let h = Harness::start();
+    let mint = |name: &str| {
+        let (code, v, err) = h.json(
+            Scope::Admin,
+            &[
+                "token",
+                "create",
+                "--name",
+                name,
+                "--scope",
+                "read",
+                "--expires",
+                "1d",
+            ],
+        );
+        assert_eq!(code, 0, "{err}");
+        v["token"].as_str().unwrap().to_owned()
+    };
+    let (profile_token, shell_token) = (mint("profile"), mint("shell"));
+    let s = &h.sandbox;
+    s.quire()
+        .args([
+            "--json",
+            "auth",
+            "login",
+            "--url",
+            &h.server.url,
+            "--token-stdin",
+        ])
+        .write_stdin(profile_token.clone())
+        .assert()
+        .success();
+    let whoami = |token: &str| {
+        run_json(
+            s.quire_at(&h.server.url, token)
+                .args(["--json", "auth", "whoami"]),
+        )
+        .0
+    };
+
+    // The URL comes from the profile, the token in play from QUIRE_TOKEN.
+    let (code, v, err) = run_json(
+        s.quire()
+            .env("QUIRE_TOKEN", &shell_token)
+            .args(["--json", "auth", "logout", "--revoke"]),
+    );
+    assert_eq!(code, 0, "{err}");
+    assert_eq!(v["status"], 204);
+    assert_eq!(v["removed"], true);
+    assert_eq!(whoami(&profile_token), 5, "the removed token is revoked");
+    assert_eq!(whoami(&shell_token), 0, "the shell's token still works");
+    assert!(
+        !std::fs::read_to_string(s.config_path())
+            .unwrap()
+            .contains(&profile_token)
+    );
+
+    // The profile holds no token now: --revoke has nothing to revoke (exit 3), and the shell's token is untouched.
+    let (code, _, err) = run_json(
+        s.quire()
+            .env("QUIRE_TOKEN", &shell_token)
+            .args(["--json", "auth", "logout", "--revoke"]),
+    );
+    assert_eq!(code, 3, "{err}");
+    assert_eq!(last_error(&err)["error"]["code"], "cli_config");
+    assert_eq!(whoami(&shell_token), 0);
+}
