@@ -236,6 +236,22 @@ describe('BoardSaveLoop', () => {
     expect(getSaveStatus('a')).toMatchObject({ state: 'error', message: expect.stringContaining('50 MB') });
   });
 
+  it('a frame whose engine trapped counts as gone: flush resolves and nothing is sent', async () => {
+    const { fake, put, loop } = setup('a');
+    await openIn(fake, 'a');
+    fake.edit();
+    const trap = () => {
+      throw new Error('RuntimeError: unreachable');
+    };
+    fake.api.isDirty = trap;
+    fake.api.snapshot = trap;
+    await expect(loop.flush()).resolves.toBeUndefined();
+    expect(loop.hasPending()).toBe(false);
+    fake.api.current = trap;
+    await expect(loop.flush()).resolves.toBeUndefined();
+    expect(put).not.toHaveBeenCalled();
+  });
+
   it('never saves a board the frame does not show', async () => {
     const { fake, put, loop } = setup('a');
     await openIn(fake, 'b');

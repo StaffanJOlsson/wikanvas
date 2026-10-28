@@ -110,7 +110,7 @@ describe('BoardFrameHost', () => {
         const [status, body] = before as [number, { inkboard: { base: string } }];
         return [status, { ...body, inkboard: { ...body.inkboard, base: '/inkboard/fedcba654321/' } }];
       },
-      'HEAD /inkboard/abc123def456/frame.html': [404],
+      'GET /inkboard/abc123def456/frame.html': [404],
     });
     vi.stubGlobal('fetch', fetch);
     const r = (app = renderBoardApp(boardPath(a), { manualConnect: true }));

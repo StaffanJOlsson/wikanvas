@@ -148,13 +148,22 @@ export class BoardSaveLoop {
     this.detach = null;
   }
 
+  /** The frame, when it shows this board. A frame whose engine trapped (a panic) may throw: it counts as gone. */
   private frame(): BoardFrameApi | null {
-    const f = this.o.frame();
-    return f && f.current() === this.itemId ? f : null;
+    try {
+      const f = this.o.frame();
+      return f && f.current() === this.itemId ? f : null;
+    } catch {
+      return null;
+    }
   }
 
   private dirty(): boolean {
-    return this.frame()?.isDirty() ?? false;
+    try {
+      return this.frame()?.isDirty() ?? false;
+    } catch {
+      return false;
+    }
   }
 
   private clearTimers(): void {
@@ -182,8 +191,14 @@ export class BoardSaveLoop {
     }
     const frame = this.frame();
     const forced = force || this.forceNext;
-    if (!frame || this.conflicted || (!forced && !frame.isDirty())) return Promise.resolve();
-    const snap = frame.snapshot();
+    if (!frame || this.conflicted || (!forced && !this.dirty())) return Promise.resolve();
+    let snap: ReturnType<BoardFrameApi['snapshot']>;
+    try {
+      snap = frame.snapshot();
+    } catch (e) {
+      setSaveStatus(this.itemId, { state: 'error', message: `The board could not be read: ${String(e)}` });
+      return Promise.resolve();
+    }
     if (snap.itemId !== this.itemId) return Promise.resolve();
     if (snap.board.length > LARGE_BOARD_BYTES) this.o.onLarge?.(snap.board.length);
     this.forceNext = false;

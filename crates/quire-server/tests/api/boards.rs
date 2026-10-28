@@ -260,22 +260,29 @@ async fn get_sets_document_name_to_title() {
 
 #[tokio::test]
 async fn over_limit_413() {
-    let mut app = TestApp::with_config(|c| c.max_board_mb = 1).await;
+    let mut app = TestApp::with_config(|c| c.max_board_mb = 2).await;
     let owner = app.insert_owner().await;
     let session = app.insert_session(&owner).await;
     app.owner_id = Some(owner);
     let server = app.cookie_client(&session);
     let id = new_board(&app, "Big").await;
-    let mut d = Document::new("Big");
-    let big: Vec<u8> = (0..1_200_000u32).map(|i| (i % 251) as u8).collect();
-    d.add_asset("image/png", big);
-    let res = put(&server, &id, &serial::to_json(&d, false), "*").await;
+    let with_asset = |n: usize| {
+        let mut d = Document::new("Big");
+        d.add_asset("image/png", (0..n).map(|i| (i % 251) as u8).collect());
+        serial::to_json(&d, false)
+    };
+    // Over QUIRE_MAX_BOARD_MB (2 MiB): 413 with the board limit.
+    let big = with_asset(1_800_000);
+    assert!(big.len() > 2 * 1024 * 1024);
+    let res = put(&server, &id, &big, "*").await;
     let body = assert_error(&res, 413, ErrorCode::PayloadTooLarge);
-    assert_eq!(body.error.details, Some(json!({"limit_bytes": 1048576})));
-    // Under the limit it is fine (a body larger than the default 1 MiB limit of other routes, too).
-    let mut d = Document::new("Big");
-    d.add_asset("image/png", vec![7u8; 600_000]);
-    put_ok(&server, &id, &serial::to_json(&d, false), "*").await;
+    assert_eq!(body.error.details, Some(json!({"limit_bytes": 2097152})));
+    // Under it, but over the 1 MiB default limit of the other routes: accepted.
+    let medium = with_asset(1_000_000);
+    assert!(medium.len() > 1024 * 1024 && medium.len() < 2 * 1024 * 1024);
+    let saved = put_ok(&server, &id, &medium, "*").await;
+    assert_eq!(saved.meta.bytes as usize, medium.len());
+    assert_eq!(server.get(&board_url(&id)).await.text(), medium);
 }
 
 #[tokio::test]

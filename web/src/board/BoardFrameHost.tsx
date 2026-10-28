@@ -107,7 +107,7 @@ function removeFrame(): void {
 /** After a connection without `quireBoardFrame`: whether `frame.html` is gone and `/config` names another build. */
 async function updated(src: string, before: Config | undefined, refetch: () => Promise<Config>): Promise<boolean> {
   try {
-    const res = await fetch(src, { method: 'HEAD', cache: 'no-store', credentials: 'same-origin' });
+    const res = await fetch(src, { cache: 'no-store', credentials: 'same-origin' });
     if (res.status !== 404) return false;
     const now = await refetch();
     return now.version !== before?.version || inkboardBase(now) !== inkboardBase(before);

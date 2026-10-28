@@ -99,9 +99,12 @@ async fn render_with(
     })
     .await
     .map_err(ApiError::internal)??;
-    let (id, svgs) = (item_id.to_owned(), pages.clone());
+    // Shared with the writer closure instead of copied: page SVGs embed their images and can be large.
+    let pages = Arc::new(pages);
+    let (id, svgs) = (item_id.to_owned(), Arc::clone(&pages));
     db.write(move |tx| previews::replace(tx, &id, rev, &svgs))
         .await?;
+    let pages = Arc::try_unwrap(pages).unwrap_or_else(|shared| (*shared).clone());
     Ok(Rendered { rev, pages })
 }
 

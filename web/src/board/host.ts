@@ -101,7 +101,13 @@ export const frameEvents: FrameEvents = {
  */
 export async function openBoard(session: BoardSession, args: OpenArgs): Promise<void> {
   const prev = active;
-  if (prev && prev !== session) await prev.flush();
+  if (prev && prev !== session) {
+    try {
+      await prev.flush();
+    } catch (e) {
+      console.warn('saving the previous board failed', e);
+    }
+  }
   const frame = useHostStore.getState().frame;
   if (!frame) throw new Error('the board frame is not connected');
   active = session;
