@@ -3,9 +3,9 @@
 //! D42, §5 "Tokens", §7.3. A token is `qpat_` + 40 base62 characters from `getrandom` + a 6-character CRC32
 //! (`quire_api::token::encode`); only `sha256(token)` (32 bytes) and the 12-character display prefix are stored, and
 //! scopes are stored expanded (`write` → read, write). A token is live when `revoked_at IS NULL AND (expires_at IS NULL
-//! OR expires_at > now)` and its user has no `disabled_at`. W0b provides create (with the parent caps and the
-//! 100-live-tokens limit), lookup with classification, list and revoke with children; W2 adds the `last_used` write
-//! and the 30-day purge. Password checks for a session's `admin` or never-expiring token are the route's (W2).
+//! OR expires_at > now)` and its user has no `disabled_at`. Create (with the parent caps and the 100-live-tokens
+//! limit), lookup with classification, list, revoke with children, the `last_used` write and the 30-day purge.
+//! Password checks for a session's `admin` or never-expiring token are the route's.
 
 use quire_core::api::token;
 use quire_core::api::{
@@ -279,13 +279,17 @@ fn api_token(conn: &Connection, row: TokenListRow) -> Result<ApiToken> {
 }
 
 /// The user's tokens that are not revoked (live and expired), newest first, at most 100. Never the secret or hash.
-pub fn list(conn: &Connection, user_id: &str, _now: i64) -> Result<Vec<ApiToken>> {
+/// Every live token is listed (there are at most 100); expired ones fill the rest, newest first, so newer expired
+/// tokens never hide an older live one.
+pub fn list(conn: &Connection, user_id: &str, now: i64) -> Result<Vec<ApiToken>> {
     let rows: Vec<TokenListRow> = conn
         .prepare_cached(&format!(
-            "SELECT {TOKEN_COLUMNS} FROM api_tokens WHERE user_id = ?1 AND revoked_at IS NULL
-             ORDER BY created_at DESC, id DESC LIMIT ?2"
+            "SELECT {TOKEN_COLUMNS} FROM (
+               SELECT * FROM api_tokens WHERE user_id = ?1 AND revoked_at IS NULL
+               ORDER BY (expires_at IS NULL OR expires_at > ?3) DESC, created_at DESC, id DESC LIMIT ?2
+             ) ORDER BY created_at DESC, id DESC"
         ))?
-        .query_map(params![user_id, MAX_LIVE_TOKENS as i64], token_list_row)?
+        .query_map(params![user_id, MAX_LIVE_TOKENS as i64, now], token_list_row)?
         .collect::<rusqlite::Result<_>>()?;
     rows.into_iter().map(|row| api_token(conn, row)).collect()
 }
@@ -316,6 +320,69 @@ pub fn revoke(tx: &Transaction<'_>, user_id: &str, token_id: &str, now: i64) -> 
         params![user_id, token_id, now],
     )?;
     Ok(n as u64)
+}
+
+/// The live token `token_id` as [`lookup`] would return it (the caller's own row, for the caps of `POST /tokens`);
+/// `None` when it is revoked, expired, unknown or its user is disabled.
+pub fn live_row(conn: &Connection, token_id: &str, now: i64) -> Result<Option<TokenRow>> {
+    let row: Option<(String, Option<i64>, String)> = conn
+        .prepare_cached(
+            "SELECT t.user_id, t.expires_at, u.role FROM api_tokens t JOIN users u ON u.id = t.user_id
+             WHERE t.id = ?1 AND t.revoked_at IS NULL AND (t.expires_at IS NULL OR t.expires_at > ?2)
+               AND u.disabled_at IS NULL",
+        )?
+        .query_row(params![token_id, now], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+        .optional()?;
+    let Some((user_id, expires_at, role)) = row else {
+        return Ok(None);
+    };
+    Ok(Some(TokenRow {
+        id: token_id.to_owned(),
+        user_id,
+        role: role
+            .parse::<Role>()
+            .map_err(|e| Error::internal("stored role", e))?,
+        scopes: scopes_of(conn, token_id)?,
+        expires_at,
+    }))
+}
+
+/// Records a use of the token: `last_used_at = now` and `last_used_ip` (kept when `ip` is `None`). The server calls
+/// it at most once a minute per token (§7.3), off the request path.
+pub fn touch_last_used(
+    tx: &Transaction<'_>,
+    token_id: &str,
+    now: i64,
+    ip: Option<&str>,
+) -> Result<()> {
+    tx.prepare_cached(
+        "UPDATE api_tokens SET last_used_at = ?2, last_used_ip = coalesce(?3, last_used_ip) WHERE id = ?1",
+    )?
+    .execute(params![token_id, now, ip])?;
+    Ok(())
+}
+
+/// Revokes every token of the user that is not revoked yet (`reset-password --revoke-tokens`,
+/// `revoke-token --all`); returns the number revoked.
+pub fn revoke_all(tx: &Transaction<'_>, user_id: &str, now: i64) -> Result<u64> {
+    Ok(tx.execute(
+        "UPDATE api_tokens SET revoked_at = ?2 WHERE user_id = ?1 AND revoked_at IS NULL",
+        params![user_id, now],
+    )? as u64)
+}
+
+/// How long revoked and expired rows are kept (§5).
+pub const RETAIN_DEAD_MS: i64 = 30 * DAY_MS;
+
+/// Deletes the tokens revoked or expired more than 30 days before `now` (the hourly job, §12); their scopes go with
+/// them (FK cascade) and children keep living with `parent_token_id = NULL`. Returns the number deleted.
+pub fn purge(tx: &Transaction<'_>, now: i64) -> Result<u64> {
+    let cutoff = now - RETAIN_DEAD_MS;
+    Ok(tx.execute(
+        "DELETE FROM api_tokens WHERE (revoked_at IS NOT NULL AND revoked_at <= ?1)
+                                  OR (expires_at IS NOT NULL AND expires_at <= ?1)",
+        [cutoff],
+    )? as u64)
 }
 
 fn scopes_of(conn: &Connection, token_id: &str) -> Result<Vec<Scope>> {

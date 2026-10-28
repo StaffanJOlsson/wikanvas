@@ -5,7 +5,7 @@
 //! [`BlobStore::stage`] (or [`BlobStore::stage_stream`] for uploads) writes, hashes, fsyncs and sniffs outside the
 //! writer; [`BlobStore::commit`] renames into place (or drops the staged file and refreshes the mtime when the blob
 //! already exists) and `INSERT OR IGNORE`s the `blobs` row, inside the writer transaction. A staged file that is
-//! dropped without a commit is deleted. Files without a row are swept by the GC after 1 h (W2).
+//! dropped without a commit is deleted. Files without a row are swept by the GC after 1 h ([`crate::gc`]).
 
 use std::fmt;
 use std::fs::{self, File, OpenOptions};
@@ -370,8 +370,9 @@ fn is_raster(mime: &str) -> bool {
     mime.starts_with("image/") && mime != "image/svg+xml"
 }
 
-/// The media type of a file from its first bytes (magic numbers; never the client's word). Minimal W0b set: the web
-/// image formats, SVG, PDF, zip and gzip, UTF-8 text, else `application/octet-stream`.
+/// The media type of a file from its first bytes (magic numbers; never the client's word): the web image formats
+/// (with AVIF and HEIF through imagesize), SVG, PDF, zip, gzip, common audio and video containers, UTF-8 text, else
+/// `application/octet-stream`.
 pub fn sniff(head: &[u8]) -> &'static str {
     use imagesize::ImageType;
     if head.starts_with(b"\x89PNG\r\n\x1a\n") {
@@ -385,6 +386,18 @@ pub fn sniff(head: &[u8]) -> &'static str {
     }
     if head.len() >= 12 && head.starts_with(b"RIFF") && &head[8..12] == b"WEBP" {
         return "image/webp";
+    }
+    // ISO base media files: imagesize calls every `ftyp` HEIF, so the major brand decides.
+    if head.len() >= 12 && &head[4..8] == b"ftyp" {
+        match &head[8..12] {
+            b"avif" | b"avis" => return "image/avif",
+            b"heic" | b"heix" | b"heim" | b"heis" | b"hevc" | b"hevx" | b"mif1" | b"msf1" => {
+                return "image/heif";
+            }
+            b"M4A " => return "audio/mp4",
+            b"qt  " => return "video/quicktime",
+            _ => return "video/mp4",
+        }
     }
     if let Ok(t) = imagesize::image_type(head) {
         let m = match t {
@@ -412,6 +425,21 @@ pub fn sniff(head: &[u8]) -> &'static str {
     }
     if head.starts_with(&[0x1f, 0x8b]) {
         return "application/gzip";
+    }
+    if head.len() >= 12 && head.starts_with(b"RIFF") && &head[8..12] == b"WAVE" {
+        return "audio/wav";
+    }
+    if head.starts_with(&[0x1a, 0x45, 0xdf, 0xa3]) {
+        return "video/webm";
+    }
+    if head.starts_with(b"OggS") {
+        return "audio/ogg";
+    }
+    if head.starts_with(b"fLaC") {
+        return "audio/flac";
+    }
+    if head.starts_with(b"ID3") || (head.len() >= 2 && head[0] == 0xff && head[1] & 0xe0 == 0xe0) {
+        return "audio/mpeg";
     }
     let text = head.strip_prefix(b"\xef\xbb\xbf").unwrap_or(head);
     // A multi-byte character may be cut at the end of the sniffed window.
@@ -470,6 +498,11 @@ mod tests {
         );
         assert_eq!(sniff(b"<?xml version=\"1.0\"?>\n<svg/>"), "image/svg+xml");
         assert_eq!(sniff(b"hello, world\n"), "text/plain");
+        assert_eq!(sniff(b"\0\0\0\x18ftypmp42\0\0\0\0"), "video/mp4");
+        assert_eq!(sniff(b"\0\0\0\x1cftypavif\0\0\0\0"), "image/avif");
+        assert_eq!(sniff(b"\0\0\0\x18ftypheic\0\0\0\0"), "image/heif");
+        assert_eq!(sniff(b"OggS\0\x02"), "audio/ogg");
+        assert_eq!(sniff(b"ID3\x04\0"), "audio/mpeg");
         assert_eq!(sniff(b"\0\x01\x02binary"), "application/octet-stream");
         assert_eq!(sniff(b""), "application/octet-stream");
     }
