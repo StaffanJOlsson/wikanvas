@@ -92,10 +92,12 @@ quire --json auth login --url https://wiki.example.org --token-stdin < agent.tok
 
 `auth login` saves a profile (`~/.config/quire/config.toml`, 0600; `QUIRE_CONFIG` moves it). The URL and the token are
 resolved as a pair: a profile's token is never sent to a URL from somewhere else (that is exit 3), and `--profile P`
-ignores `QUIRE_URL`, `QUIRE_TOKEN` and `QUIRE_TOKEN_FILE`. Scopes: `read` (every GET but tokens and export), `write`
-(content and structure), `admin` (purge, tokens, settings, export). A token never creates an `admin` token, and never
-one that outlives it: pass a shorter `--expires`. For a LAN install on Caddy's local CA, add `--ca-file
-quire-local-ca.crt`; plain `http://` works only for this machine (or with `QUIRE_ALLOW_HTTP=1`).
+ignores `QUIRE_URL`, `QUIRE_TOKEN` and `QUIRE_TOKEN_FILE`. Scopes: `read` (every GET except tokens, sessions and
+export), `write` (content and structure), `admin` (tokens, sessions, `me update`, workspace settings, purge, export,
+backup). A token never creates an `admin` token, and never one that outlives it: pass a shorter `--expires`.
+`auth logout --revoke` revokes the profile's own token at the profile's URL, never a `QUIRE_TOKEN` you exported. For a
+LAN install on Caddy's local CA, add `--ca-file quire-local-ca.crt`; plain `http://` works only for this machine (or
+with `QUIRE_ALLOW_HTTP=1`).
 
 ## 4. Always use `--json`
 
@@ -205,7 +207,8 @@ throwaway project (`quire-agent`, only the app, its data in memory). It never bu
 - `scripts/agent-test.sh up --ttl 10`: leaves the app on `127.0.0.1:18080` (`QUIRE_AGENT_PORT`) for at most 15 minutes
   and writes `.cache/agent-test/env` (`QUIRE_URL`, `QUIRE_TOKEN_FILE`) beside `read.token`, `write.token` and
   `admin.token`; `status` shows the time left; `down` stops it. It holds the build lock meanwhile, so build a host CLI
-  with `scripts/cli-dist.sh` before `up`; `QUIRE_AGENT_CLI=dist/cli/quire-x86_64-unknown-linux-musl` makes `run` use it.
+  with `scripts/cli-dist.sh` before `up`; `QUIRE_AGENT_CLI=dist/cli/quire-x86_64-unknown-linux-musl` makes `run` use it
+  (with none of your `QUIRE_*` variables and no profile file).
 - Exit codes: 0 every step passed, 1 a scenario failed, 2 usage, 3 a prerequisite is missing or the image is stale
   (rebuild, or `--allow-stale`), 4 the app did not become healthy.
 

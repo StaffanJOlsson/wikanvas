@@ -7,7 +7,10 @@ expect_rc 0
 expect '(.token | test("^qpat_[0-9A-Za-z]{46}$")) and .api_token.scopes == ["read"]'
 t="$(val .token)"
 tid="$(val .api_token.id)"
-ok "token create --scope read --expires 1d prints qpat_… once"
+# The step's detail carries token create's whole stdout, secret included, through the report's masking.
+ok "token create --scope read --expires 1d prints qpat_… once" "stdout: $OUT"
+tail -n 1 "$AGENT_STEPS" | jq -e '.detail | contains("qpat_***")' >/dev/null ||
+  _fail "the report does not hold token create's output masked"
 grep -qF "$t" "$AGENT_STEPS" && _fail "the report holds the secret unmasked"
 ok "the report shows the token masked"
 

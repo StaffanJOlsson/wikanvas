@@ -11,11 +11,15 @@
 #   q_raw NAME [--as …] [--token T] ARGS…        quire ARGS… (no --json), stdout byte for byte to results/NAME
 #   q_admin ARGS…                                 quire --json admin ARGS… inside the container (no token)
 #   expect_rc N · expect 'JQ' · expect_err 'JQ'   checks on $RC, on $OUT_FILE (jq -e), on the last line of $ERR
-#   ok "name"                                     records the step as passed (TAP: ok N - scenario: name)
+#   ok "name" [DETAIL]                            records the step as passed (TAP: ok N - scenario: name); a DETAIL
+#                                                 goes into the report too, masked like everything else
 #   fixture NAME                                  the host path of e2e/agent/fixtures/NAME or fixtures/markdown/NAME
 #   scratch_collection                            a fresh collection named after the scenario; sets $SCRATCH
 # A failed check prints `not ok`, records the step with the failing command and excerpts, and ends the scenario
 # (exit 1). Every string written to the TAP output or the report has its tokens masked (qpat_***).
+#
+# A host CLI (QUIRE_AGENT_CLI) runs with no QUIRE_* variable of the caller's shell and with QUIRE_CONFIG pointing at a
+# file that never exists, so neither an exported QUIRE_PROFILE nor the caller's own profile file reaches a scenario.
 
 set -u
 
@@ -54,7 +58,8 @@ _record() {
     --argjson duration_ms "$ms" --arg command "$LAST_CMD" --arg detail "$detail" \
     --arg out "${OUT:0:2000}" --arg err "${ERR:0:2000}" --argjson rc "$RC" \
     '{n: $n, scenario: $scenario, step: $step, status: $status, duration_ms: $duration_ms}
-     + (if $status == "fail" then {command: $command, rc: $rc, detail: $detail, out: $out, err: $err} else {} end)' \
+     + (if $status == "fail" then {command: $command, rc: $rc, detail: $detail, out: $out, err: $err}
+        elif $detail != "" then {detail: $detail} else {} end)' \
     | _mask >>"$AGENT_STEPS"
   if [ "$status" = pass ]; then
     echo "ok $n - $AGENT_SCENARIO: $name" | _mask >&3
@@ -109,7 +114,14 @@ _run() {
   [ "$json" = 1 ] && flags=(--json)
   LAST_CMD="quire ${flags[*]} $* (as ${as})"
   if [ -n "${QUIRE_AGENT_CLI:-}" ]; then
-    QUIRE_URL="$AGENT_URL" QUIRE_TOKEN="$token" "$QUIRE_AGENT_CLI" "${flags[@]}" "$@" >"$outf" 2>"$errf"
+    # Only the harness's URL and token: the caller's QUIRE_* variables and profile file stay out.
+    local -a unset=()
+    local v
+    for v in $(compgen -e); do
+      case "$v" in QUIRE_*) unset+=(-u "$v") ;; esac
+    done
+    env "${unset[@]}" QUIRE_CONFIG="$AGENT_RESULTS/.no-config.toml" QUIRE_URL="$AGENT_URL" QUIRE_TOKEN="$token" \
+      "$QUIRE_AGENT_CLI" "${flags[@]}" "$@" >"$outf" 2>"$errf"
   else
     QUIRE_TOKEN="$token" docker exec -i -e QUIRE_TOKEN "$AGENT_CID" quire "${flags[@]}" "$@" >"$outf" 2>"$errf"
   fi
@@ -170,7 +182,7 @@ expect_err() {
 _last_ok=""
 ok() {
   _last_ok="$1"
-  _record pass "$1"
+  _record pass "$1" "${2:-}"
 }
 
 fixture() {
