@@ -1,0 +1,247 @@
+/* The board page, its surface, preview, loading state and banners, and the frame host's layer
+   (docs/ARCHITECTURE.md §9.5, §9.6; values from the §9.6.1 tokens). */
+
+.board-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.board-surface {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.board-canvas {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+/* The iframe never moves in the DOM; it is positioned over the surface's rect. */
+.board-frame-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.board-frame {
+  position: fixed;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  pointer-events: auto;
+  background: transparent;
+}
+
+.board-banner,
+.board-update-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-sidebar);
+  color: var(--text);
+}
+
+.board-banner button,
+.board-update-banner button {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.board-banner button:hover,
+.board-update-banner button:hover {
+  background: var(--bg-hover);
+}
+
+.board-banner.board-conflict,
+.board-banner.board-error {
+  border-left: 3px solid var(--danger);
+}
+
+.board-banner.board-warning {
+  border-left: 3px solid var(--warning);
+}
+
+.board-update-banner {
+  position: fixed;
+  top: var(--space-4);
+  left: 50%;
+  z-index: 20;
+  transform: translateX(-50%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-menu);
+  box-shadow: var(--shadow-pop);
+}
+
+.board-loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+
+.board-loading-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  opacity: 0.5;
+}
+
+.board-loading-card {
+  position: relative;
+  min-width: 220px;
+  padding: var(--space-4);
+  border-radius: var(--radius-menu);
+  background: var(--bg);
+  box-shadow: var(--shadow-pop);
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.board-loading-card progress {
+  width: 100%;
+  margin-top: var(--space-2);
+}
+
+.board-preview {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.board-preview-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+
+.board-preview-bar [role="tablist"] {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.board-preview-bar button {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.board-preview-bar button:hover {
+  background: var(--bg-hover);
+}
+
+.board-preview-bar [role="tab"][aria-selected="true"] {
+  background: var(--bg-active);
+}
+
+.board-preview-reason {
+  flex: 1;
+}
+
+.board-preview-viewport {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+  background: var(--bg);
+}
+
+.board-preview-viewport:active {
+  cursor: grabbing;
+}
+
+.board-preview-viewport img {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.board-preview-empty {
+  display: grid;
+  height: 100%;
+  place-items: center;
+  color: var(--text-tertiary);
+}
+
+.board-nested {
+  position: relative;
+}
+
+.board-nested [role="dialog"] {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  right: 0;
+  z-index: 30;
+  min-width: 240px;
+  max-height: 360px;
+  overflow: auto;
+  padding: var(--space-2);
+  border-radius: var(--radius-menu);
+  background: var(--bg);
+  box-shadow: var(--shadow-pop);
+}
+
+.board-nested ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.board-nested li a,
+.board-nested button.add-page {
+  display: block;
+  width: 100%;
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  border-radius: var(--radius-row);
+  background: none;
+  color: var(--text);
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.board-nested li a:hover,
+.board-nested button.add-page:hover {
+  background: var(--bg-hover);
+}
+
+.board-nested .empty {
+  padding: var(--space-1) var(--space-2);
+  color: var(--text-tertiary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .board-preview-viewport img {
+    transition: none;
+  }
+}
