@@ -487,7 +487,9 @@ fn place_root(tx: &Transaction<'_>, root: &str) -> Result<bool> {
 
 /// `DELETE /items/{id}?discard_empty=true`: deletes the item permanently when it was created less than 24 h ago and
 /// has no children (in any state), a blank title and an empty body (`docs::is_empty` / `boards::is_empty`), whether
-/// or not it is published. Otherwise 409 `not_empty`. Returns 1.
+/// or not it is published, and no board or document embeds it (the target of no `item_links` row of kind `embed`,
+/// whatever state the source is in: an empty "Text doc" that a card on another board shows, or one whose card's
+/// removal never reached the server, is kept, §18.6 (a), §18.8). Otherwise 409 `not_empty`. Returns 1.
 pub fn discard_empty(tx: &Transaction<'_>, item_id: &str, now: i64) -> Result<u64> {
     let row = item_row(tx, item_id)?;
     let has_children: bool = tx.query_row(
@@ -506,6 +508,17 @@ pub fn discard_empty(tx: &Transaction<'_>, item_id: &str, now: i64) -> Result<u6
         return Err(Error::new(
             ErrorCode::NotEmpty,
             "only a new (under 24 h), childless, untitled and empty item can be discarded; move it to the trash instead",
+        ));
+    }
+    let embedded: bool = tx.query_row(
+        "SELECT EXISTS (SELECT 1 FROM item_links WHERE target_id = ?1 AND kind = 'embed')",
+        [item_id],
+        |r| r.get(0),
+    )?;
+    if embedded {
+        return Err(Error::new(
+            ErrorCode::NotEmpty,
+            "a board or a page embeds this item, so it is not discarded; remove it from there, or move it to the trash instead",
         ));
     }
     tx.execute("DELETE FROM items WHERE id = ?1", [item_id])?;

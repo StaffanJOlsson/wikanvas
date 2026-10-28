@@ -924,3 +924,227 @@ async fn page_after_the_preview_budget_is_a_card() {
     assert_eq!(res.header("vary"), "Accept-Encoding");
     assert_eq!(res.text(), "<svg>zero</svg>");
 }
+
+// ---------------------------------------------------------------- board document embeds (M1.1, §18.8; owner: E2)
+
+/// The placeholder targets of `fixtures/boards/embed.inkboard` (§18.2).
+const P1: &str = "0192f0e0-0000-7000-8000-000000000001";
+const P2: &str = "0192f0e0-0000-7000-8000-000000000002";
+
+/// The shared fixture: two cards ("First page" → [`P1`], "Second page" → [`P2`]) and a plain box, named "Embed test".
+fn embed_fixture() -> String {
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fixtures/boards/embed.inkboard");
+    std::fs::read_to_string(&path).expect("the embed fixture")
+}
+
+/// The fixture with its targets replaced.
+fn embed_board(first: &str, second: &str) -> String {
+    embed_fixture().replace(P1, first).replace(P2, second)
+}
+
+/// The `embed` link targets of `board`, sorted.
+async fn embed_links(app: &TestApp, board: &str) -> Vec<String> {
+    let board = board.to_owned();
+    app.state
+        .db
+        .read(move |c| {
+            Ok(c.prepare(
+                "SELECT target_id FROM item_links WHERE source_id = ?1 AND kind = 'embed' ORDER BY target_id",
+            )?
+            .query_map([&board], |r| r.get(0))?
+            .collect::<rusqlite::Result<Vec<String>>>()?)
+        })
+        .await
+        .expect("links")
+}
+
+fn sorted(ids: &[&str]) -> Vec<String> {
+    let mut v: Vec<String> = ids.iter().map(|s| (*s).to_owned()).collect();
+    v.sort();
+    v
+}
+
+#[tokio::test]
+async fn put_with_embeds_keeps_them_byte_for_byte() {
+    let app = TestApp::with_owner().await;
+    // Titled as the fixture is named, so a GET sends the PUT's exact bytes back.
+    let id = new_board(&app, "Embed test").await;
+    let agent = app.token_client(&app.mint_token(app.owner(), Scope::Write).await);
+    let swapped = embed_board(P2, P1);
+    for (client, body) in [(&app.server, embed_fixture()), (&agent, swapped)] {
+        let saved = put_ok(client, &id, &body, "*").await;
+        assert_eq!(saved.meta.objects, 3);
+        assert_eq!(
+            saved.meta.text_excerpt,
+            "Page 1\nFirst page\nSecond page\nPlain box"
+        );
+        let res = client.get(&board_url(&id)).await;
+        res.assert_status_ok();
+        assert_eq!(res.text(), body, "every byte of the cards survives");
+        let back: Value = res.json();
+        assert_eq!(
+            back["document"]["pages"][0]["objects"][2]["kind"].get("embed"),
+            None,
+            "the plain box gets no embed"
+        );
+        // The .inkboard download is the same envelope.
+        let dl = client
+            .get(&format!("/api/v1/items/{id}/board.inkboard"))
+            .await;
+        dl.assert_status_ok();
+        assert_eq!(dl.text(), body);
+    }
+    // With another title only `document.name` differs.
+    let renamed = new_board(&app, "Cards").await;
+    put_ok(&agent, &renamed, &embed_fixture(), "\"r1\"").await;
+    assert_eq!(
+        agent.get(&board_url(&renamed)).await.text(),
+        embed_fixture().replacen("\"name\":\"Embed test\"", "\"name\":\"Cards\"", 1)
+    );
+}
+
+#[tokio::test]
+async fn malformed_embeds_are_accepted_and_kept() {
+    let app = TestApp::with_owner().await;
+    let id = new_board(&app, "Embed test").await;
+    let mut v: Value = serde_json::from_str(&embed_fixture()).unwrap();
+    let objects = v["document"]["pages"][0]["objects"].as_array_mut().unwrap();
+    let card = objects[0].clone();
+    objects[0]["kind"]["embed"] = json!(5);
+    objects[1]["kind"]["embed"] = json!({"item": "not-a-uuid"});
+    let variants = [
+        json!({}),
+        json!({"item": 3}),
+        json!(null),
+        json!({"item": P1.to_uppercase()}),
+        json!({"item": P2, "x_future": {"kept": true}}),
+    ];
+    for (n, embed) in variants.into_iter().enumerate() {
+        let mut o = card.clone();
+        o["id"] = format!("variant{n}").into();
+        o["kind"]["embed"] = embed;
+        objects.push(o);
+    }
+    let mut ellipse = card.clone();
+    ellipse["id"] = "ellipse".into();
+    ellipse["kind"]["geom"] = "ellipse".into();
+    ellipse["kind"]["embed"] = json!({"item": P1});
+    objects.push(ellipse);
+    let body = serde_json::to_string(&v).unwrap();
+    let agent = app.token_client(&app.mint_token(app.owner(), Scope::Write).await);
+    let saved = put_ok(&agent, &id, &body, "\"r1\"").await;
+    assert_eq!(saved.meta.objects, 9);
+    let res = agent.get(&board_url(&id)).await;
+    assert_eq!(
+        res.text(),
+        body,
+        "no value of `embed` is refused or changed"
+    );
+    // Only the canonical UUID of a rect card is linked (the extra field inside `embed` does not matter).
+    assert_eq!(embed_links(&app, &id).await, sorted(&[P2]));
+}
+
+#[tokio::test]
+async fn repeated_embed_key_is_refused() {
+    let app = TestApp::with_owner().await;
+    let id = new_board(&app, "Embed test").await;
+    let stored = embed_fixture();
+    put_ok(&app.server, &id, &stored, "\"r1\"").await;
+    let card = format!(r#""embed":{{"item":"{P1}"}}"#);
+    let repeated = stored.replacen(&card, &format!(r#"{card},"embed":{{"item":"{P2}"}}"#), 1);
+    assert_ne!(repeated, stored);
+    let agent = app.token_client(&app.mint_token(app.owner(), Scope::Write).await);
+    for client in [&app.server, &agent] {
+        let res = put(client, &id, &repeated, "*").await;
+        let body = assert_error(&res, 422, ErrorCode::InvalidBoard);
+        assert!(
+            body.error.message.contains("duplicate field `embed`"),
+            "{}",
+            body.error.message
+        );
+    }
+    // The stored board is unchanged: same revision, same bytes, same links.
+    let res = app.server.get(&board_url(&id)).await;
+    assert_eq!(res.header("etag"), "\"r2\"");
+    assert_eq!(res.text(), stored);
+    assert_eq!(embed_links(&app, &id).await, sorted(&[P1, P2]));
+    // The same key once in each of two boxes is what every card holds.
+    put_ok(&app.server, &id, &embed_board(P2, P1), "\"r2\"").await;
+}
+
+#[tokio::test]
+async fn put_with_embeds_records_links() {
+    let app = TestApp::with_owner().await;
+    let id = new_board(&app, "Board").await;
+    let doc = new_item(&app, ItemKind::Doc, "Notes").await;
+    assert_eq!(embed_links(&app, &id).await, sorted(&[]));
+    put_ok(&app.server, &id, &embed_board(&doc, P2), "\"r1\"").await;
+    assert_eq!(
+        embed_links(&app, &id).await,
+        sorted(&[&doc, P2]),
+        "existence is not checked"
+    );
+    // The same body again (a no-op) keeps them; a body with the board itself as a target never links it.
+    put_ok(&app.server, &id, &embed_board(&doc, P2), "\"r1\"").await;
+    assert_eq!(embed_links(&app, &id).await, sorted(&[&doc, P2]));
+    put_ok(&app.server, &id, &embed_board(&id, &doc), "\"r2\"").await;
+    assert_eq!(embed_links(&app, &id).await, sorted(&[&doc]));
+    // A board without cards has none.
+    put_ok(&app.server, &id, &board("Board", "no cards"), "\"r3\"").await;
+    assert_eq!(embed_links(&app, &id).await, sorted(&[]));
+    // A "Text doc" (a new, empty, untitled child of a board, made through the API) cannot be discarded while a card
+    // shows it; once the board's save without the card is in, it can.
+    let c = crate::items::collection(&app, "Embeds").await;
+    let parent = crate::items::item(&app, c.id, None, "board", "Parent").await;
+    let text_doc = crate::items::item(&app, c.id, Some(parent.id), "doc", "").await;
+    let (parent, text_doc) = (parent.id.to_string(), text_doc.id.to_string());
+    put_ok(
+        &app.server,
+        &parent,
+        &embed_board(&text_doc, &doc),
+        "\"r1\"",
+    )
+    .await;
+    let discard = |item: &str| {
+        app.server
+            .delete(&format!("/api/v1/items/{item}?discard_empty=true"))
+    };
+    let refused = assert_error(&discard(&text_doc).await, 409, ErrorCode::NotEmpty);
+    assert!(
+        refused.error.message.contains("embeds"),
+        "{}",
+        refused.error.message
+    );
+    put_ok(&app.server, &parent, &embed_board(&doc, &doc), "\"r2\"").await;
+    let res = discard(&text_doc).await;
+    res.assert_status_ok();
+    res.assert_json(&json!({"trashed": 1}));
+}
+
+#[tokio::test]
+async fn duplicate_board_copies_embed_links() {
+    let app = TestApp::with_owner().await;
+    let id = new_board(&app, "Embed test").await;
+    let doc = new_item(&app, ItemKind::Doc, "Notes").await;
+    put_ok(&app.server, &id, &embed_board(&doc, P2), "\"r1\"").await;
+    let res = app
+        .server
+        .post(&format!("/api/v1/items/{id}/duplicate"))
+        .await;
+    res.assert_status(axum::http::StatusCode::CREATED);
+    let copy: quire_api::ItemSummary = res.json();
+    let copy = copy.id.to_string();
+    assert_eq!(embed_links(&app, &copy).await, sorted(&[&doc, P2]));
+    assert_eq!(embed_links(&app, &id).await, sorted(&[&doc, P2]));
+    // The copy's cards show the same documents: the body is the original's, under the copy's title.
+    let body = app.server.get(&board_url(&copy)).await.text();
+    assert_eq!(
+        body,
+        embed_board(&doc, P2).replacen(
+            "\"name\":\"Embed test\"",
+            "\"name\":\"Embed test (copy)\"",
+            1
+        )
+    );
+}

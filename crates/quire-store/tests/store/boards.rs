@@ -1082,3 +1082,412 @@ async fn pages_after_the_preview_budget_are_omitted() {
     let state = t.db.read(move |c| boards::state(c, &id)).await.unwrap();
     assert_eq!(state.background, "#ffffff");
 }
+
+// ---------------------------------------------------------------- board document embeds (M1.1, §18.8; owner: E2)
+
+/// The placeholder targets of `fixtures/boards/embed.inkboard` (§18.2).
+const P1: &str = "0192f0e0-0000-7000-8000-000000000001";
+const P2: &str = "0192f0e0-0000-7000-8000-000000000002";
+
+/// The shared fixture (two cards, then a plain box) with its two targets replaced by `first` and `second`.
+fn embed_board(first: &str, second: &str) -> String {
+    let path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/boards/embed.inkboard");
+    let fixture = std::fs::read_to_string(&path).expect("the embed fixture");
+    assert_eq!(
+        (fixture.matches(P1).count(), fixture.matches(P2).count()),
+        (1, 1)
+    );
+    fixture.replace(P1, first).replace(P2, second)
+}
+
+/// `body` with the objects of its first page changed by `f`.
+fn edit_objects(body: &str, f: impl FnOnce(&mut Vec<Value>)) -> String {
+    let mut v: Value = serde_json::from_str(body).unwrap();
+    f(v["document"]["pages"][0]["objects"].as_array_mut().unwrap());
+    serde_json::to_string(&v).unwrap()
+}
+
+/// The `item_links` rows whose source is `source`, as `(target, kind)`, sorted.
+async fn links_from(t: &TestDb, source: &str) -> Vec<(String, String)> {
+    let source = source.to_owned();
+    t.query(move |c| {
+        c.prepare(
+            "SELECT target_id, kind FROM item_links WHERE source_id = ?1 ORDER BY target_id, kind",
+        )?
+        .query_map([&source], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect()
+    })
+    .await
+}
+
+fn embeds_to(targets: &[&str]) -> Vec<(String, String)> {
+    let mut rows: Vec<(String, String)> = targets
+        .iter()
+        .map(|t| ((*t).to_owned(), "embed".to_owned()))
+        .collect();
+    rows.sort();
+    rows
+}
+
+/// An item of `kind` in collection `c`, untitled when `title` is empty.
+async fn new_in(
+    t: &TestDb,
+    owner: &str,
+    c: uuid::Uuid,
+    parent: Option<uuid::Uuid>,
+    kind: ItemKind,
+    title: &str,
+) -> String {
+    t.item(owner, c, parent, kind, title).await.id.to_string()
+}
+
+/// A Yjs state with one `boardEmbed` of `board` (a document that embeds a board).
+fn ydoc_embedding(board: &str) -> Vec<u8> {
+    use yrs::{Doc, ReadTxn, StateVector, Transact, Xml, XmlElementPrelim, XmlFragment};
+    let doc = Doc::new();
+    let frag = doc.get_or_insert_xml_fragment(quire_core::api::YFIELD);
+    {
+        let mut txn = doc.transact_mut();
+        let e = frag.insert(&mut txn, 0, XmlElementPrelim::empty("boardEmbed"));
+        e.insert_attribute(&mut txn, "itemId", board);
+    }
+    doc.transact()
+        .encode_state_as_update_v1(&StateVector::default())
+}
+
+#[tokio::test]
+async fn save_records_embed_links() {
+    let t = TestDb::new();
+    let owner = t.owner().await;
+    let c = t.collection(&owner, "Embeds").await;
+    let board = new_in(&t, &owner, c.id, None, ItemKind::Board, "Board").await;
+    let x = new_in(
+        &t,
+        &owner,
+        c.id,
+        Some(board.parse().unwrap()),
+        ItemKind::Doc,
+        "X",
+    )
+    .await;
+    let y = new_in(&t, &owner, c.id, None, ItemKind::Doc, "Y").await;
+    assert_eq!(
+        links_from(&t, &board).await,
+        embeds_to(&[]),
+        "a new board has none"
+    );
+    // One row per card target, kind `embed`.
+    let both = embed_board(&x, &y);
+    let saved = put(&t, &board, &owner, None, &both, IfMatch::Revs(vec![1]))
+        .await
+        .unwrap();
+    assert!(saved.changed);
+    assert_eq!(links_from(&t, &board).await, embeds_to(&[&x, &y]));
+    // A second save with one card leaves one row.
+    let one = edit_objects(&both, |o| {
+        o.remove(1);
+    });
+    put(&t, &board, &owner, None, &one, IfMatch::Any)
+        .await
+        .unwrap();
+    assert_eq!(links_from(&t, &board).await, embeds_to(&[&x]));
+    // A no-op save keeps them (the body did not change, so neither do they).
+    let noop = put(&t, &board, &owner, None, &one, IfMatch::Revs(vec![1]))
+        .await
+        .unwrap();
+    assert!(!noop.changed);
+    assert_eq!(links_from(&t, &board).await, embeds_to(&[&x]));
+    // A refused save changes nothing either.
+    let stale = put(&t, &board, &owner, None, &both, IfMatch::Revs(vec![1]))
+        .await
+        .unwrap_err();
+    assert!(stale.is(ErrorCode::RevMismatch));
+    assert_eq!(links_from(&t, &board).await, embeds_to(&[&x]));
+    // The board's own id is never linked; a target that does not exist is (nothing checks existence).
+    put(
+        &t,
+        &board,
+        &owner,
+        None,
+        &embed_board(&board, P1),
+        IfMatch::Any,
+    )
+    .await
+    .unwrap();
+    assert_eq!(links_from(&t, &board).await, embeds_to(&[P1]));
+    // Malformed values and non-rect boxes link nothing; a board without cards has no row.
+    let malformed = edit_objects(&embed_board(&x, &y), |o| {
+        o[0]["kind"]["embed"] = Value::from(5);
+        o[1]["kind"]["geom"] = Value::from("ellipse");
+    });
+    put(&t, &board, &owner, None, &malformed, IfMatch::Any)
+        .await
+        .unwrap();
+    assert_eq!(links_from(&t, &board).await, embeds_to(&[]));
+    // The targets' own links are untouched: only the board's rows change.
+    assert_eq!(links_from(&t, &x).await, embeds_to(&[]));
+}
+
+#[tokio::test]
+async fn init_with_records_embed_links() {
+    let t = TestDb::new();
+    let owner = t.owner().await;
+    let c = t.collection(&owner, "Embeds").await;
+    let board = new_in(&t, &owner, c.id, None, ItemKind::Board, "Seeded").await;
+    let x = new_in(&t, &owner, c.id, None, ItemKind::Doc, "X").await;
+    let (blobs, b, env) = (t.blobs.clone(), board.clone(), embed_board(&x, &board));
+    t.w(move |tx| boards::init_with(tx, &blobs, &b, &env, NOW))
+        .await
+        .unwrap();
+    assert_eq!(
+        links_from(&t, &board).await,
+        embeds_to(&[&x]),
+        "the board itself is left out"
+    );
+    // The stored body is the envelope byte for byte, cards included.
+    let b = board.clone();
+    let stored = t.r(move |c| boards::stored_envelope(c, &b)).await.unwrap();
+    assert_eq!(stored, embed_board(&x, &board));
+    // Initializing again replaces them: a board without cards has none.
+    let (blobs, b) = (t.blobs.clone(), board.clone());
+    t.w(move |tx| boards::init_with(tx, &blobs, &b, &boards::empty_envelope(false), NOW))
+        .await
+        .unwrap();
+    assert_eq!(links_from(&t, &board).await, embeds_to(&[]));
+    // So does `init_empty`.
+    let (blobs, b, env) = (t.blobs.clone(), board.clone(), embed_board(P1, P2));
+    t.w(move |tx| boards::init_with(tx, &blobs, &b, &env, NOW))
+        .await
+        .unwrap();
+    assert_eq!(links_from(&t, &board).await, embeds_to(&[P1, P2]));
+    let b = board.clone();
+    t.w(move |tx| boards::init_empty(tx, &b, false, NOW))
+        .await
+        .unwrap();
+    assert_eq!(links_from(&t, &board).await, embeds_to(&[]));
+    // A repeated `embed` key is refused there too (422 `invalid_board`), and nothing is stored.
+    let card = format!(r#""embed":{{"item":"{P1}"}}"#);
+    let repeated = embed_board(P1, P2).replacen(&card, &format!("{card},\"embed\":5"), 1);
+    let (blobs, b) = (t.blobs.clone(), board.clone());
+    let e = t
+        .w(move |tx| boards::init_with(tx, &blobs, &b, &repeated, NOW))
+        .await
+        .unwrap_err();
+    assert!(e.is(ErrorCode::InvalidBoard), "{e:?}");
+    assert_eq!(links_from(&t, &board).await, embeds_to(&[]));
+}
+
+#[tokio::test]
+async fn copy_copies_embed_links() {
+    let t = TestDb::new();
+    let owner = t.owner().await;
+    let c = t.collection(&owner, "Embeds").await;
+    let from = new_in(&t, &owner, c.id, None, ItemKind::Board, "From").await;
+    let to = new_in(&t, &owner, c.id, None, ItemKind::Board, "To").await;
+    let x = new_in(
+        &t,
+        &owner,
+        c.id,
+        Some(from.parse().unwrap()),
+        ItemKind::Doc,
+        "X",
+    )
+    .await;
+    put(&t, &from, &owner, None, &embed_board(&x, P2), IfMatch::Any)
+        .await
+        .unwrap();
+    // `to` had links of its own: the copy replaces them.
+    put(&t, &to, &owner, None, &embed_board(P1, P1), IfMatch::Any)
+        .await
+        .unwrap();
+    let (f, tid) = (from.clone(), to.clone());
+    t.w(move |tx| boards::copy(tx, &f, &tid, NOW))
+        .await
+        .unwrap();
+    assert_eq!(links_from(&t, &to).await, embeds_to(&[&x, P2]));
+    assert_eq!(
+        links_from(&t, &from).await,
+        embeds_to(&[&x, P2]),
+        "the source keeps its own"
+    );
+    // The copy's body shows the same documents.
+    let full = get(&t, &to).await;
+    assert_eq!(
+        full,
+        embed_board(&x, P2).replacen("\"Embed test\"", "\"To\"", 1)
+    );
+    // A link of the source to the copy itself is left out (a board never links itself).
+    put(&t, &from, &owner, None, &embed_board(&to, &x), IfMatch::Any)
+        .await
+        .unwrap();
+    let (f, tid) = (from.clone(), to.clone());
+    t.w(move |tx| boards::copy(tx, &f, &tid, NOW))
+        .await
+        .unwrap();
+    assert_eq!(links_from(&t, &to).await, embeds_to(&[&x]));
+    // Through `items::duplicate`, as the route runs it.
+    let (f, o) = (from.clone(), owner.clone());
+    let copy = t
+        .w(move |tx| quire_store::items::duplicate(tx, &f, &o, NOW))
+        .await
+        .unwrap();
+    assert_eq!(
+        links_from(&t, &copy.id.to_string()).await,
+        embeds_to(&[&to, &x])
+    );
+    assert_eq!(
+        copy.child_count, 0,
+        "children are not copied: X stays the original's"
+    );
+}
+
+#[tokio::test]
+async fn purging_a_board_drops_its_links_not_a_targets() {
+    let t = TestDb::new();
+    let owner = t.owner().await;
+    let c = t.collection(&owner, "Embeds").await;
+    let board = new_in(&t, &owner, c.id, None, ItemKind::Board, "Board").await;
+    let x = new_in(&t, &owner, c.id, None, ItemKind::Doc, "X").await;
+    let y = new_in(&t, &owner, c.id, None, ItemKind::Doc, "Y").await;
+    put(&t, &board, &owner, None, &embed_board(&x, &y), IfMatch::Any)
+        .await
+        .unwrap();
+    let purge = |id: &str| {
+        let (id, o) = (id.to_owned(), owner.clone());
+        t.w(move |tx| {
+            quire_store::items::trash(tx, &id, &o, NOW)?;
+            quire_store::items::purge(tx, &id)
+        })
+    };
+    // Purging a target leaves the board's row (`target_id` is no foreign key: the card shows "Page not found").
+    assert_eq!(purge(&y).await.unwrap(), 1);
+    assert_eq!(links_from(&t, &board).await, embeds_to(&[&x, &y]));
+    // Trashing the board keeps them (it can be restored); purging it removes them.
+    let (b, o) = (board.clone(), owner.clone());
+    t.w(move |tx| quire_store::items::trash(tx, &b, &o, NOW))
+        .await
+        .unwrap();
+    assert_eq!(links_from(&t, &board).await, embeds_to(&[&x, &y]));
+    let b = board.clone();
+    assert_eq!(
+        t.w(move |tx| quire_store::items::purge(tx, &b))
+            .await
+            .unwrap(),
+        1
+    );
+    assert_eq!(links_from(&t, &board).await, embeds_to(&[]));
+    assert_eq!(
+        count(
+            &t,
+            "SELECT count(*) FROM item_links WHERE target_id = ?1",
+            x.clone()
+        )
+        .await,
+        0
+    );
+    // The target itself is untouched.
+    assert_eq!(
+        count(&t, "SELECT count(*) FROM items WHERE id = ?1", x).await,
+        1
+    );
+}
+
+#[tokio::test]
+async fn discard_empty_keeps_embedded_items() {
+    let t = TestDb::new();
+    let owner = t.owner().await;
+    let c = t.collection(&owner, "Embeds").await;
+    let discard = |id: &str| {
+        let id = id.to_owned();
+        t.w(move |tx| quire_store::items::discard_empty(tx, &id, NOW))
+    };
+    let exists = |id: &str| {
+        count(
+            &t,
+            "SELECT count(*) FROM items WHERE id = ?1",
+            id.to_owned(),
+        )
+    };
+    // A "Text doc": a new, empty, untitled child document of the board, shown by one of its cards.
+    let board = new_in(&t, &owner, c.id, None, ItemKind::Board, "Board").await;
+    let text_doc = new_in(
+        &t,
+        &owner,
+        c.id,
+        Some(board.parse().unwrap()),
+        ItemKind::Doc,
+        "",
+    )
+    .await;
+    let with_card = embed_board(&text_doc, P2);
+    put(&t, &board, &owner, None, &with_card, IfMatch::Any)
+        .await
+        .unwrap();
+    let e = discard(&text_doc).await.unwrap_err();
+    assert!(e.is(ErrorCode::NotEmpty), "{e:?}");
+    assert!(e.message.contains("embeds"), "{}", e.message);
+    assert_eq!(exists(&text_doc).await, 1);
+    // A card on another board keeps it just the same, after this board's card is gone.
+    let other = new_in(&t, &owner, c.id, None, ItemKind::Board, "Other").await;
+    put(
+        &t,
+        &other,
+        &owner,
+        None,
+        &embed_board(P1, &text_doc),
+        IfMatch::Any,
+    )
+    .await
+    .unwrap();
+    let without = edit_objects(&with_card, |o| {
+        o.remove(0);
+    });
+    put(&t, &board, &owner, None, &without, IfMatch::Any)
+        .await
+        .unwrap();
+    assert!(
+        discard(&text_doc)
+            .await
+            .unwrap_err()
+            .is(ErrorCode::NotEmpty)
+    );
+    // Once no card shows it, it is discarded for good.
+    put(&t, &other, &owner, None, &embed_board(P1, P2), IfMatch::Any)
+        .await
+        .unwrap();
+    assert_eq!(discard(&text_doc).await.unwrap(), 1);
+    assert_eq!(exists(&text_doc).await, 0);
+    // A new, empty board that a document embeds is kept the same way.
+    let empty_board = new_in(&t, &owner, c.id, None, ItemKind::Board, "").await;
+    let page = new_in(&t, &owner, c.id, None, ItemKind::Doc, "Page").await;
+    let (p, state) = (page.clone(), ydoc_embedding(&empty_board));
+    t.w(move |tx| quire_store::docs::init_with(tx, &p, &state, NOW))
+        .await
+        .unwrap();
+    assert_eq!(links_from(&t, &page).await, embeds_to(&[&empty_board]));
+    assert!(
+        discard(&empty_board)
+            .await
+            .unwrap_err()
+            .is(ErrorCode::NotEmpty)
+    );
+    let p = page.clone();
+    t.w(move |tx| quire_store::docs::init_empty(tx, &p, NOW))
+        .await
+        .unwrap();
+    assert_eq!(discard(&empty_board).await.unwrap(), 1);
+    // Links of other kinds (a mention, a link) do not keep an item.
+    let mentioned = new_in(&t, &owner, c.id, None, ItemKind::Doc, "").await;
+    let (p, m) = (page.clone(), mentioned.clone());
+    t.w(move |tx| {
+        tx.execute(
+            "INSERT INTO item_links (source_id, target_id, kind) VALUES (?1, ?2, 'mention'), (?1, ?2, 'link')",
+            params![p, m],
+        )?;
+        Ok(())
+    })
+    .await
+    .unwrap();
+    assert_eq!(discard(&mentioned).await.unwrap(), 1);
+}
