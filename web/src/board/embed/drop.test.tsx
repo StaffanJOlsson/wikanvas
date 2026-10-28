@@ -1,0 +1,130 @@
+// Dropping a sidebar document (docs/ARCHITECTURE.md §18.6 (c), D70): the frame reports `onDropItem`; the host places
+// a card centred on the drop point, titled from the cached ItemDetail (the drag data's title is only a fallback); a
+// drop on the editing card is taken by the overlay in the capture phase, before ProseMirror.
+import { act, waitFor } from '@testing-library/react';
+import type { Editor } from '@tiptap/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { ItemDetail } from '../../api/gen/ItemDetail';
+import { itemKey } from '../../api/queries/items';
+import type { DraggedItem } from '../bridge';
+import {
+  boardItem,
+  boardRoutes,
+  cardEl,
+  DOC_1,
+  DOC_2,
+  docItem,
+  docRoutes,
+  mockFetch,
+  openBoardApp,
+  paragraphs,
+  type Rendered,
+} from '../testkit';
+import { embedController } from './controller';
+import { DRAG_ITEM_TYPE } from './dragItem';
+
+let app: Rendered | null = null;
+
+afterEach(async () => {
+  await embedController()?.settled();
+  app?.unmount();
+  app = null;
+});
+
+const dragged = (id: string, title = 'Old title'): DraggedItem => ({ v: 1, id, kind: 'doc', title });
+
+function setup(board: ItemDetail = boardItem(1)) {
+  vi.stubGlobal(
+    'fetch',
+    mockFetch({
+      ...boardRoutes(board),
+      ...docRoutes(docItem(DOC_1, { title: 'First page' }), paragraphs('kangaroo')),
+      ...docRoutes(docItem(DOC_2, { title: 'Renamed page' }), paragraphs('wombat')),
+    }).fetch,
+  );
+  return openBoardApp(board);
+}
+
+/** A native drag event with the sidebar's data at a viewport point. */
+function dragEvent(type: string, data: Record<string, string>, x: number, y: number): DragEvent {
+  const dt = new DataTransfer();
+  for (const [k, v] of Object.entries(data)) dt.setData(k, v);
+  const e = new Event(type, { bubbles: true, cancelable: true }) as DragEvent;
+  Object.defineProperty(e, 'dataTransfer', { value: dt });
+  Object.defineProperty(e, 'clientX', { value: x });
+  Object.defineProperty(e, 'clientY', { value: y });
+  return e;
+}
+
+describe('dropping a sidebar document', () => {
+  it('places a card at the drop point, titled from the cached detail, else from the drag data', async () => {
+    const r = (app = await setup());
+    r.queryClient.setQueryData(itemKey(DOC_2), docItem(DOC_2, { title: 'Renamed page' }));
+    const focusBefore = r.fake.calls.filter((c) => c.method === 'focus').length;
+    act(() => r.fake.dropItem(dragged(DOC_2, 'Old title'), { x: 120, y: 80 }));
+    expect(r.fake.inserted).toEqual([{ id: 'inserted1', item: DOC_2, title: 'Renamed page', at: { x: 120, y: 80 } }]);
+    act(() => r.fake.dropItem(dragged(DOC_1, '  '), { x: 300, y: 200 }));
+    expect(r.fake.inserted[1]).toEqual({ id: 'inserted2', item: DOC_1, title: 'Untitled', at: { x: 300, y: 200 } });
+    // Placed and selected, not opened; the frame keeps focus.
+    expect(r.fake.embedEditing()).toBeNull();
+    expect(r.fake.calls.filter((c) => c.method === 'focus').length).toBe(focusBefore + 2);
+  });
+
+  it('a non-UUID id, another board’s event, a board target or a read-only board place nothing', async () => {
+    const r = (app = await setup());
+    const BOARD = '0192f0e0-0000-7000-8000-0000000000b1';
+    r.queryClient.setQueryData(itemKey(BOARD), { ...docItem(BOARD), item: { ...docItem(BOARD).item, kind: 'board' } });
+    act(() => {
+      r.fake.dropItem(dragged('not-a-uuid'), { x: 1, y: 1 });
+      r.fake.dropItem(dragged(DOC_1.toUpperCase()), { x: 1, y: 1 });
+      r.fake.dropItem(dragged(BOARD), { x: 1, y: 1 });
+      r.fake.events()?.onDropItem?.({ itemId: 'board-2', item: dragged(DOC_1), point: { x: 1, y: 1 } });
+    });
+    expect(r.fake.calls.filter((c) => c.method === 'insertEmbed')).toHaveLength(0);
+    r.unmount();
+    app = null;
+
+    const ro = (app = await setup({ ...boardItem(1), trashed_at: '2026-10-28T10:00:00.000Z' }));
+    act(() => {
+      ro.fake.events()?.onDropItem?.({ itemId: 'board-1', item: dragged(DOC_1), point: { x: 1, y: 1 } });
+    });
+    expect(ro.fake.calls.filter((c) => c.method === 'insertEmbed')).toHaveLength(0);
+  });
+
+  it('a drop on the editing card is taken in the capture phase and placed at its frame point', async () => {
+    const r = (app = await setup());
+    const iframe = document.querySelector('iframe') as HTMLIFrameElement;
+    iframe.getBoundingClientRect = () => ({ left: 100, top: 50, right: 900, bottom: 650, width: 800, height: 600, x: 100, y: 50, toJSON: () => ({}) }) as DOMRect;
+    act(() => {
+      r.fake.layout({ embeds: [{ objectId: 'c1', item: DOC_1, x: 0, y: 0 }] });
+    });
+    await waitFor(() => expect(cardEl('c1')?.dataset.state).toBe('static'));
+    act(() => r.fake.openEmbed('c1', null));
+    const pm = await waitFor(() => {
+      const el = cardEl('c1')?.querySelector<HTMLElement>('.board-embed-editor .ProseMirror[contenteditable="true"]');
+      expect(el).toBeTruthy();
+      return el as HTMLElement;
+    });
+    const editor = (pm as unknown as { editor: Editor }).editor;
+    const reached = vi.fn();
+    pm.addEventListener('drop', reached);
+    pm.addEventListener('dragover', reached);
+    const data = { [DRAG_ITEM_TYPE]: JSON.stringify(dragged(DOC_2)), 'text/plain': 'Renamed page' };
+    const over = dragEvent('dragover', data, 400, 250);
+    pm.dispatchEvent(over);
+    expect(over.defaultPrevented).toBe(true);
+    const drop = dragEvent('drop', data, 400, 250);
+    act(() => {
+      pm.dispatchEvent(drop);
+    });
+    expect(drop.defaultPrevented).toBe(true);
+    expect(reached).not.toHaveBeenCalled();
+    expect(editor.getText()).toBe('kangaroo');
+    await waitFor(() => expect(r.fake.inserted).toHaveLength(1));
+    expect(r.fake.inserted[0]).toMatchObject({ item: DOC_2, at: { x: 300, y: 200 } });
+    // A drag without the type (a file, text) is left to the editor.
+    const plain = dragEvent('dragover', { 'text/plain': 'hello' }, 400, 250);
+    pm.dispatchEvent(plain);
+    expect(reached).toHaveBeenCalledTimes(1);
+  });
+});

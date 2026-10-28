@@ -1,7 +1,9 @@
 // One row of the collections tree (docs/ARCHITECTURE.md §9.3, §9.6.2): a collection row
 // [icon/caret][name][hover: sort ⇅, +, ⋯] or an item row [indent][caret][kind icon][title][hover: +, ⋯]. Rows are
 // ARIA treeitems with a roving tabindex; the label is a link, so middle-click and Mod+click open a new tab. Each row is a
-// pragmatic-dnd draggable and drop target; CollectionsTree's monitor decides what a drop means.
+// pragmatic-dnd draggable and drop target; CollectionsTree's monitor decides what a drop means. A document row also
+// carries native drag data (`application/x-quire-item`, docs/ARCHITECTURE.md §18.6 (c)), which only another document
+// reads: the board frame, where dropping it places a card. The tree's own drag and drop is unchanged.
 import { combine } from '@atlaskit/pragmatic-drag-and-drop/combine';
 import { draggable, dropTargetForElements } from '@atlaskit/pragmatic-drag-and-drop/adapter/element-adapter';
 import { ArrowUpDown, ChevronRight, Ellipsis, Plus } from 'lucide-react';
@@ -18,6 +20,7 @@ import type { DropIndicator } from '../tree/drop';
 import { indentX } from '../tree/hitZones';
 import type { Row } from '../tree/visibleRows';
 import { openDialog } from '../../state/dialogs';
+import { dragDataOf } from '../../board/embed/dragItem';
 
 export const DRAG_ITEM = 'item';
 export const DRAG_COLLECTION = 'collection';
@@ -80,6 +83,10 @@ export function TreeRow(props: TreeRowProps) {
   const [dragging, setDragging] = useState(false);
   const [menusOpen, setMenusOpen] = useState(0);
   const collectionId = row.kind === 'item' ? row.collectionId : row.collection.id;
+  const isDoc = row.kind === 'item' && row.item.kind === 'doc';
+  // Read when the drag starts, so a rename since the row mounted is carried.
+  const title = useRef('');
+  title.current = row.kind === 'item' ? row.item.title : '';
 
   useEffect(() => {
     const element = el.current;
@@ -87,10 +94,12 @@ export function TreeRow(props: TreeRowProps) {
     const data = row.kind === 'item'
       ? { quireDrag: DRAG_ITEM, itemId: row.key, collectionId }
       : { quireDrag: DRAG_COLLECTION, collectionId };
+    const id = row.key;
     return combine(
       draggable({
         element,
         getInitialData: () => data,
+        ...(isDoc ? { getInitialDataForExternal: () => dragDataOf({ id, title: title.current }) } : {}),
         onDragStart: () => setDragging(true),
         onDrop: () => setDragging(false),
       }),
@@ -100,7 +109,7 @@ export function TreeRow(props: TreeRowProps) {
         canDrop: ({ source }) => source.data.quireDrag === DRAG_ITEM || source.data.quireDrag === DRAG_COLLECTION,
       }),
     );
-  }, [row.key, row.kind, collectionId, renaming]);
+  }, [row.key, row.kind, isDoc, collectionId, renaming]);
 
   // Board rows warm the engine cache after a 300 ms hover (§9.5); W6 registers the warm-up.
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);

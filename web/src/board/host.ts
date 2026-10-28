@@ -9,9 +9,21 @@
 // - `flushPrevious(session)` waits for the board shown before (or the same board's earlier session, whose last PUT may
 //   still be running) to save; a page calls it before its GET (§9.5 "Open": 1. flush, 2. GET, then open).
 // - `openBoard(session, args)` flushes the previous board's session before it opens the next one (§9.5 "Open").
+// - Board document embeds (M1.1, §18.5): the current board's last `EmbedLayout` (dropped on every open, a frame
+//   reset or removal), and the overlay's `EmbedSink`, which gets the current board's embed events; after every
+//   `open()` the host asks the frame for a layout (`requestEmbedLayout`).
 import { create } from 'zustand';
 import { runHostShortcut } from '../app/hotkeys';
-import type { BoardFrameApi, FrameError, FrameEvents, OpenArgs } from './bridge';
+import type {
+  BoardFrameApi,
+  DropItemEvent,
+  EmbedEditEndEvent,
+  EmbedLayout,
+  EmbedOpenEvent,
+  FrameError,
+  FrameEvents,
+  OpenArgs,
+} from './bridge';
 
 /** Why boards open read-only in BoardPreview instead of the editor. */
 export type Failure = Pick<FrameError, 'kind' | 'message'>;
@@ -32,6 +44,8 @@ export interface HostState {
   shown: boolean;
   /** When each board was last saved (ms), for "Changes up to HH:MM were saved" after a panic. */
   savedAt: Readonly<Record<string, number>>;
+  /** The fixed layer holding the iframe and the embeds overlay (`.board-frame-layer`; Focus fullscreens it). */
+  layer: HTMLElement | null;
 }
 
 const initial: HostState = {
@@ -43,6 +57,7 @@ const initial: HostState = {
   surface: null,
   shown: false,
   savedAt: {},
+  layer: null,
 };
 
 export const useHostStore = create<HostState>(() => ({ ...initial }));
@@ -61,6 +76,58 @@ export interface BoardSession {
 
 let current: string | null = null;
 let active: BoardSession | null = null;
+
+/** Where the current board's embed events go (the overlay's controller, `embed/controller.ts`). */
+export interface EmbedSink {
+  layout(l: EmbedLayout): void;
+  open(e: EmbedOpenEvent): void;
+  editEnd(e: EmbedEditEndEvent): void;
+  drop(e: DropItemEvent): void;
+  /** A board is about to be opened (another one, or the same one again), or the frame was reset or removed: the
+   *  layout is gone, the overlay is emptied, editing ends. */
+  reset(): void;
+  /** `open()` of `itemId` resolved. */
+  opened(a: { itemId: string; readOnly: boolean }): void;
+}
+
+let sink: EmbedSink | null = null;
+let embedLayout: EmbedLayout | null = null;
+/** The `items` of each board's last layout (kept across a board switch: the page discards "Text doc" documents that
+ *  are on no card after it left the board, §18.6 (a)). */
+const itemsByBoard = new Map<string, readonly string[]>();
+
+/** Sets the overlay's sink (null: none). */
+export function setEmbedSink(s: EmbedSink | null): void {
+  sink = s;
+}
+
+/** The current board's last layout. */
+export function currentEmbedLayout(): EmbedLayout | null {
+  return embedLayout;
+}
+
+/** The `items` of `itemId`'s last layout, or null when none was reported. */
+export function lastEmbedItems(itemId: string): readonly string[] | null {
+  return itemsByBoard.get(itemId) ?? null;
+}
+
+function dropLayout(): void {
+  embedLayout = null;
+  sink?.reset();
+}
+
+/** `frame.open(args)` with the embed bookkeeping around it (BoardSurface's reopen of the same board uses it too). */
+export async function openInFrame(frame: BoardFrameApi, args: OpenArgs): Promise<void> {
+  dropLayout();
+  await frame.open(args);
+  if (current !== args.itemId) return;
+  try {
+    frame.requestEmbedLayout?.();
+  } catch (e) {
+    console.warn('requestEmbedLayout failed', e);
+  }
+  sink?.opened({ itemId: args.itemId, readOnly: args.readOnly });
+}
 
 /** The itemId the frame shows (or is about to show). */
 export function currentItem(): string | null {
@@ -92,6 +159,21 @@ export const frameEvents: FrameEvents = {
   onHostKey(k) {
     runHostShortcut(k);
   },
+  onEmbedLayout(e) {
+    if (e.itemId !== current) return;
+    embedLayout = e;
+    itemsByBoard.set(e.itemId, e.items);
+    sink?.layout(e);
+  },
+  onEmbedOpen(e) {
+    if (e.itemId === current && active?.itemId === e.itemId) sink?.open(e);
+  },
+  onEmbedEditEnd(e) {
+    if (e.itemId === current) sink?.editEnd(e);
+  },
+  onDropItem(e) {
+    if (e.itemId === current && active?.itemId === e.itemId) sink?.drop(e);
+  },
 };
 
 /**
@@ -119,7 +201,7 @@ export async function openBoard(session: BoardSession, args: OpenArgs): Promise<
   if (!frame) throw new Error('the board frame is not connected');
   active = session;
   current = args.itemId;
-  await frame.open(args);
+  await openInFrame(frame, args);
 }
 
 /** The page of `session` is gone: its events stop (its last flush is the page's job). */
@@ -149,6 +231,7 @@ export function noteSaved(itemId: string, at: number = Date.now()): void {
 export function resetFrame(): void {
   current = null;
   active = null;
+  dropLayout();
   useHostStore.setState({ iframe: null, frame: null, failure: null, progress: null, shown: false });
 }
 
@@ -156,5 +239,7 @@ export function resetFrame(): void {
 export function resetHost(): void {
   current = null;
   active = null;
+  dropLayout();
+  itemsByBoard.clear();
   useHostStore.setState({ ...initial });
 }

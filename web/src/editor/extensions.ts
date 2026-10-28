@@ -1,6 +1,9 @@
 // The live editor's extensions (docs/ARCHITECTURE.md §6.1, §9.6.5): schema v1 with its node views, Collaboration on
 // the session's Y.Doc, the placeholder, heading anchors, the slash and mention menus, image paste/drop/upload with
 // progress and retry, Quire URLs pasted as item links, and Backspace at the start of an empty body back to the title.
+// A board card's editor (`variant: 'embed'`, §18.5) has no heading anchors (two cards of one document would repeat the
+// ids) and goes back to the card's own title input. `viewerExtensions` are the read-only static card's: the schema
+// and the node views only.
 import Collaboration from '@tiptap/extension-collaboration';
 import FileHandler from '@tiptap/extension-file-handler';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -30,6 +33,10 @@ export interface EditorSetup {
   ctx: SlashContext;
   /** Follows a link (`LinkOpener`); without it, links are not followed from the editor. */
   openLink?(target: LinkTarget): void;
+  /** `'embed'`: the editor of a board card (no heading anchors). Default `'page'`. */
+  variant?: 'page' | 'embed';
+  /** Where Backspace at the start of an empty body goes; default the page's `#item-title`. */
+  titleInput?(): HTMLElement | null;
 }
 
 // ------------------------------------------------------------------------------------------------- uploads
@@ -218,22 +225,24 @@ export function openOutside(target: Exclude<LinkTarget, { kind: 'route' }>): voi
 
 // ------------------------------------------------------------------------------------------------- the rest
 
-const BackspaceToTitle = Extension.create({
-  name: 'backspaceToTitle',
-  addKeyboardShortcuts() {
-    return {
-      Backspace: ({ editor }) => {
-        const { selection, doc } = editor.state;
-        const empty = doc.childCount === 1 && doc.firstChild?.type.name === 'paragraph' && doc.firstChild.content.size === 0;
-        if (!empty || !selection.empty || selection.from > 1) return false;
-        const title = document.getElementById(TITLE_INPUT_ID);
-        if (!title) return false;
-        title.focus();
-        return true;
-      },
-    };
-  },
-});
+function BackspaceToTitle(titleInput: () => HTMLElement | null) {
+  return Extension.create({
+    name: 'backspaceToTitle',
+    addKeyboardShortcuts() {
+      return {
+        Backspace: ({ editor }) => {
+          const { selection, doc } = editor.state;
+          const empty = doc.childCount === 1 && doc.firstChild?.type.name === 'paragraph' && doc.firstChild.content.size === 0;
+          if (!empty || !selection.empty || selection.from > 1) return false;
+          const title = titleInput();
+          if (!title) return false;
+          title.focus();
+          return true;
+        },
+      };
+    },
+  });
+}
 
 export const mentionKey = new PluginKey('quireMention');
 
@@ -296,23 +305,34 @@ function show(popup: Popup, p: SuggestRenderProps) {
   });
 }
 
+/** The node views of the live editor and of the static viewers. */
+function nodeViews() {
+  return {
+    image: ReactNodeViewRenderer(ImageView),
+    boardEmbed: ReactNodeViewRenderer(BoardEmbedView),
+    mention: ReactNodeViewRenderer(MentionView, { as: 'span' }),
+    callout: ReactNodeViewRenderer(CalloutView),
+    codeBlock: ReactNodeViewRenderer(CodeBlockView),
+  };
+}
+
+/** The extensions of a read-only viewer (a board's static card, §18.5): the schema and its node views. */
+export function viewerExtensions(): AnyExtension[] {
+  return schemaExtensions({ lowlight: lazyLowlight, views: nodeViews() });
+}
+
 /** Every extension of the live editor. */
 export function editorExtensions(s: EditorSetup): AnyExtension[] {
+  const embed = s.variant === 'embed';
   return [
     ...schemaExtensions({
       lowlight: lazyLowlight,
       mentionSuggestion: mentionSuggestion(s.mention),
-      views: {
-        image: ReactNodeViewRenderer(ImageView),
-        boardEmbed: ReactNodeViewRenderer(BoardEmbedView),
-        mention: ReactNodeViewRenderer(MentionView, { as: 'span' }),
-        callout: ReactNodeViewRenderer(CalloutView),
-        codeBlock: ReactNodeViewRenderer(CodeBlockView),
-      },
+      views: nodeViews(),
     }),
     Collaboration.configure({ document: s.ydoc, field: YFIELD }),
     Placeholder.configure({ placeholder: 'Type / for commands', showOnlyWhenEditable: true }),
-    HeadingAnchors,
+    ...(embed ? [] : [HeadingAnchors]),
     UploadPlaceholders,
     FileHandler.configure({
       onPaste: (editor, files) => uploadImages(editor, s.itemId, files, editor.state.selection.from),
@@ -321,6 +341,6 @@ export function editorExtensions(s: EditorSetup): AnyExtension[] {
     QuireUrlPaste(typeof window !== 'undefined' ? window.location.origin : ''),
     ...(s.openLink ? [LinkOpener(s.openLink, typeof window !== 'undefined' ? window.location.origin : '')] : []),
     SlashCommand(s.slash, s.ctx),
-    BackspaceToTitle,
+    BackspaceToTitle(s.titleInput ?? (() => document.getElementById(TITLE_INPUT_ID))),
   ];
 }

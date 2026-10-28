@@ -1,6 +1,8 @@
 // The board page, lazily loaded at /board/:slugId (docs/ARCHITECTURE.md §9.1, §9.3, §9.5, §9.6.4): the top bar with
 // the editable title crumb, the star, the Nested popover, the Focus (full screen) button and the item menu (exports:
 // .inkboard and SVG), then either BoardSurface over the frame host or the read-only BoardPreview (fallback.ts).
+// M1.1 (§18.6): "Text doc" and "Embed page…" left of the star, when the connected frame has `insertEmbed`; the
+// "Text doc" documents left on no card are discarded when the page leaves the board, before the board's own discard.
 import { FileText, ListTree, Maximize2, Presentation } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
@@ -10,6 +12,9 @@ import type { ItemDetail } from '../api/gen/ItemDetail';
 import { boardDownloadUrl, useChildren } from '../api/queries/boards';
 import { useConfig, useCreateItem, useItem, useRecordView } from '../api/queries/items';
 import { BoardPreview } from '../board/BoardPreview';
+import { EmbedPageButton, TextDocButton, useCanAddCards } from '../board/embed/AddButtons';
+import { discardTextDocs } from '../board/embed/textDocs';
+import { lastEmbedItems } from '../board/host';
 import { BoardSurface } from '../board/BoardSurface';
 import { useBoardFrame, type BoardFrameContext } from '../board/BoardFrameHost';
 import { fallbackReason } from '../board/fallback';
@@ -65,31 +70,59 @@ export function BoardView({ item }: { item: ItemDetail }) {
   if (created.current?.id !== id) {
     created.current = { id, created: (location.state as { created?: boolean } | null)?.created === true };
   }
-  const { collection_id: collectionId, parent_id: parentId } = item.item;
+  // This page session's state of the board: the "Text doc" documents created on it (§18.6 (a) step 4), and where the
+  // board is now (a move changes the place while the page stays on it). A board switch starts a new object, so the
+  // cleanup of the board left reads that board's own place, never the next one's (rendered before the cleanup runs).
+  const session = useRef<{ id: string; docs: string[]; collectionId: string; parentId: string | null }>({
+    id,
+    docs: [],
+    collectionId: item.item.collection_id,
+    parentId: item.item.parent_id,
+  });
+  if (session.current.id !== id) {
+    session.current = { id, docs: [], collectionId: item.item.collection_id, parentId: item.item.parent_id };
+  } else {
+    session.current.collectionId = item.item.collection_id;
+    session.current.parentId = item.item.parent_id;
+  }
+  // Runs its cleanup only when the page leaves the board (unmount or a board switch), never on a move or a rename.
   useEffect(() => {
     const discard = created.current?.id === id && created.current.created;
+    const mine = session.current;
     return () => {
-      if (!discard) return;
-      // The save loop and the title input save first; the server decides (409 `not_empty` once the board has a
-      // title, an object or a child, which is ignored).
-      void flushPending(id).then(() =>
-        api('DELETE', `/items/${encodeURIComponent(id)}?discard_empty=true`).then(
+      const docs = mine.docs.splice(0);
+      const { collectionId, parentId } = mine;
+      void (async () => {
+        // First the created documents that are on no card (the server keeps embedded ones), then the board itself:
+        // its `has_children` check would otherwise keep it for a child about to go.
+        await discardTextDocs(qc, { id, collectionId }, docs, lastEmbedItems(id));
+        if (!discard) return;
+        // The save loop and the title input save first; the server decides (409 `not_empty` once the board has a
+        // title, an object or a child, which is ignored).
+        await flushPending(id);
+        await api('DELETE', `/items/${encodeURIComponent(id)}?discard_empty=true`).then(
           () => {
             void qc.invalidateQueries({ queryKey: ['tree', collectionId] });
             void qc.invalidateQueries({ queryKey: ['sidebar'] });
             if (parentId) void qc.invalidateQueries({ queryKey: ['children', parentId] });
           },
           () => undefined,
-        ),
-      );
+        );
+      })();
     };
-  }, [id, qc, collectionId, parentId]);
+  }, [id, qc]);
+  const canAdd = useCanAddCards(id);
+  const createdDocs = session.current;
   const reason = fallbackReason({
     config: config.isError ? null : config.data,
     failure: host?.failure ?? null,
     hostless: host === null,
     phone: phone && !editorOnPhone,
   });
+
+  const readOnly = item.trashed_at !== null || item.archived_at !== null;
+  const embeds = reason === null && host?.frame?.insertEmbed !== undefined;
+  const addDisabled = readOnly || !canAdd;
 
   const exports: ExtraExport[] = [
     {
@@ -115,6 +148,12 @@ export function BoardView({ item }: { item: ItemDetail }) {
         titleCrumb="editable"
         actions={
           <>
+            {embeds && (
+              <>
+                <TextDocButton item={item} disabled={addDisabled} onCreated={(doc) => createdDocs.docs.push(doc)} />
+                <EmbedPageButton boardId={id} disabled={addDisabled} />
+              </>
+            )}
             <StarToggle item={item} />
             <NestedPopover item={item} />
             <FocusButton host={host} disabled={reason !== null} />
@@ -137,7 +176,7 @@ export function BoardView({ item }: { item: ItemDetail }) {
   );
 }
 
-/** Focus: the board full screen (the iframe's own fullscreen, `allow="fullscreen"`). */
+/** Focus: the board full screen (the frame layer: the iframe and the embeds overlay, §18.5). */
 function FocusButton({ host, disabled }: { host: BoardFrameContext | null; disabled: boolean }) {
   return (
     <button
