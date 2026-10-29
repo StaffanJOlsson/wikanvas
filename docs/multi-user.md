@@ -1,7 +1,7 @@
 # Multi-user Wikanvas: research and a proposed path
 
-**Status: a proposal for the owner's review** (2026-10-29). Nothing here is decided until the owner answers §6; the
-accepted parts then move into docs/ARCHITECTURE.md as decisions, as M2 did (§19). It combines three studies made the
+**Status: a proposal; the owner answered questions 1, 2 and 4 on 2026-10-29** (§6). The accepted parts move into
+docs/ARCHITECTURE.md as decisions when their phase starts, as M2 did (§19). It combines three studies made the
 same day: how others handle several people editing at once, what Wikanvas has and lacks, and what upstream Inkboard
 offers. Sources are numbered in brackets (§8).
 
@@ -128,28 +128,31 @@ before M2 starts, or D143 is amended.
 | 2 | **Accounts**: migration 0002 (`invites`), users and invite routes with a public accept page, disable and delete with content kept, `admin create-user`/`set-role`, a Members page in Settings, `multi_user` from the user count | M | A pre-migration backup on the live wiki; D143 (§6 Q1). |
 | 3 | **Permissions**: workspace roles plus per-collection membership (read, write, manage); the item filter, search, tree ETag, title lookups, backlinks, attachments and board card labels all filtered by viewer | L | Leaks through any missed query are the risk: test every list per role. |
 | 4 | **Per-user details**: author names in the API, "Alex updated 5 minutes ago", drafts private to their author (D23), the client caches keyed by user | M | |
-| 5 | **Live documents**: a room per open document holding its yrs doc, push of accepted updates (including API writes) over the transport of Q4, authorisation per message, client ids bound to users, the search-text walk moved off the hot path | L | The server part carries over to M2 unchanged. |
+| 5 | **Live documents** (in M2, Q4): a room per open document holding its yrs doc, push of accepted updates (including API writes) over one event stream per client, authorisation per message, client ids bound to users, the search-text walk moved off the hot path | L | Built with M2's client. |
 | 6 | **Presence**: cursors, selections and who is here, with the identity stamped by the server; the live title | M | |
 | 7 | **History**: named versions from checkpoints, attribution per update, restore as a new change | M | |
 | 8 | **Live boards**: Inkboard's sequencer in the server, one room per board, presence and engine checks; the `If-Match` path stays for the API | L–XL | Needs the Inkboard patches of §4. |
 
-## 6. Questions for the owner (with the proposed default)
+## 6. Questions for the owner
 
-1. **Order against M2.** Default: phases 1–4 before M2 starts, as migration 0002, so M2's "no schema change" baseline
-   includes them.
-2. **Who may see what.** Default: workspace roles plus membership per collection; per-page sharing later.
-3. **How people get accounts.** Default: invite links made by the owner or an admin (no email server needed); no open
-   sign-up.
-4. **Live documents in the current web client, or only in M2.** Default: in the current client, because M2 has no
-   date yet and the server side carries over; push over one server-sent-event stream per client plus the existing POST
-   writes, as §19.4.6 plans, so the egui client can use the same server.
-5. **Live boards.** Default: through Inkboard's session layer in the server, after live documents, proposing a headless
-   host to Inkboard's author first.
-6. **Inkboard upgrade.** Default: at the next upstream tag.
+1. **Order against M2. Answered: before M2.** Phases 1–4 land first, as migration 0002, so M2's "no schema change"
+   baseline (D143) starts after them.
+2. **Who may see what. Answered: workspace roles plus membership per collection** (read, write, manage); per-page
+   sharing later.
+3. **How people get accounts.** Open; default: invite links made by the owner or an admin (no email server needed),
+   no open sign-up.
+4. **Live documents in the current web client, or only in M2. Answered: wait for M2.** Live documents and presence
+   (phases 5 and 6) are built in M2's client and data layer, not in the React client M2 replaces; push over one
+   server-sent-event stream per client plus the existing POST writes, as §19.4.6 plans.
+5. **Live boards.** Open; default: through Inkboard's session layer in the server, after live documents, proposing a
+   headless host to Inkboard's author first.
+6. **Inkboard upgrade.** Open; default: at the next upstream tag.
 
-## 7. What can start now
+## 7. The resulting order
 
-Phase 1 needs no decision: it changes nothing for the owner and is a precondition for everything else.
+Phases 1–4 (role check everywhere, accounts and invites, per-collection permissions, per-user details) now, on the
+server and in the current web client; then M2; live documents and presence inside M2; history and live boards after.
+Phase 1 is under way: it needs no decision and changes nothing for the owner.
 
 ## 8. Sources
 
