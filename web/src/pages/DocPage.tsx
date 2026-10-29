@@ -1,11 +1,11 @@
 // The document page, lazily loaded at /doc/:slugId (docs/ARCHITECTURE.md §9.1, §9.3, §9.4, §9.6.4, §9.6.5): the top
 // bar with the Contents popover and the item menu (Markdown and HTML exports), the Contents column (≥2 headings,
-// docked from 1280 px), the item header, the editor on its doc session, the read-only banner for trashed and archived
+// docked in the margin once the document pane is 1280 px wide), the item header, the editor on its doc session, the read-only banner for trashed and archived
 // items, the nested-items list, and the new-empty-item discard on leave (D23).
 import { useQueryClient } from '@tanstack/react-query';
 import type { Editor } from '@tiptap/react';
 import { FileText, ListTree, PenTool, Plus } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router';
 import { api, isApiError } from '../api/client';
 import { searchTitles, useChildren } from '../api/queries/docs';
@@ -15,7 +15,7 @@ import type { TitleHit } from '../api/gen/TitleHit';
 import { ItemHeader } from '../components/item/ItemHeader';
 import { fullWidthOf, ItemMenu } from '../components/item/ItemMenu';
 import { TopBar } from '../components/topbar/TopBar';
-import { activeHeading, headingAnchor, showContents, type Heading } from '../editor/contents';
+import { activeHeading, headingAnchor, scrolledToEnd, showContents, type Heading } from '../editor/contents';
 import { DocSession } from '../editor/docSession';
 import { docExports } from '../editor/exports';
 import { WikanvasEditor } from '../editor/WikanvasEditor';
@@ -25,24 +25,26 @@ import { useCanonicalPath } from '../lib/useCanonicalPath';
 import NotFound from './NotFound';
 import { PlaceholderPage } from './PlaceholderPage';
 
-/** The Contents column docks from this width (§9.6.4). */
-const DOCK_QUERY = '(min-width: 1280px)';
+/**
+ * The document pane width from which the Contents column docks in the left margin, beside the centred 720 px text:
+ * 720 + 2 × (200 + 32) + 2 × 48 (§9.6.4, D147). Measured on the pane, not the window, so an open sidebar counts.
+ */
+export const CONTENTS_DOCK_WIDTH = 1280;
 
-function useMedia(query: string): boolean {
-  const subscribe = useCallback(
-    (cb: () => void) => {
-      if (typeof window === 'undefined' || !window.matchMedia) return () => undefined;
-      const m = window.matchMedia(query);
-      m.addEventListener('change', cb);
-      return () => m.removeEventListener('change', cb);
-    },
-    [query],
-  );
-  return useSyncExternalStore(
-    subscribe,
-    () => typeof window !== 'undefined' && !!window.matchMedia?.(query).matches,
-    () => false,
-  );
+/** Whether the element is at least `min` px wide, kept current by a ResizeObserver. */
+function useAtLeastWide(ref: RefObject<HTMLElement | null>, min: number): boolean {
+  const [wide, setWide] = useState(false);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const check = () => setWide(el.getBoundingClientRect().width >= min);
+    check();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(check);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [ref, min]);
+  return wide;
 }
 
 export default function DocPage() {
@@ -182,7 +184,8 @@ function DocView({ detail }: { detail: ItemDetail }) {
   const qc = useQueryClient();
   const location = useLocation();
   const create = useCreateItem();
-  const docked = useMedia(DOCK_QUERY);
+  const layoutRef = useRef<HTMLDivElement>(null);
+  const docked = useAtLeastWide(layoutRef, CONTENTS_DOCK_WIDTH);
   const [session, setSession] = useState<DocSession | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [headings, setHeadings] = useState<Heading[]>([]);
@@ -241,7 +244,8 @@ function DocView({ detail }: { detail: ItemDetail }) {
       const tops = headings
         .map((h) => ({ blockId: h.blockId, top: document.getElementById(headingAnchor(h.blockId))?.getBoundingClientRect().top }))
         .filter((t): t is { blockId: string; top: number } => typeof t.top === 'number');
-      setActive(activeHeading(tops, window.innerHeight));
+      const first = document.getElementById(headingAnchor(headings[0].blockId));
+      setActive(activeHeading(tops, window.innerHeight, scrolledToEnd(first)));
     };
     onScroll();
     document.addEventListener('scroll', onScroll, { capture: true, passive: true });
@@ -261,7 +265,7 @@ function DocView({ detail }: { detail: ItemDetail }) {
         leading={contents && !docked ? <ContentsPopover headings={headings} active={active} /> : undefined}
         actions={<ItemMenu item={detail} extraExports={exports} />}
       />
-      <div className="doc-layout" data-contents={contents && docked ? 'docked' : undefined}>
+      <div ref={layoutRef} className="doc-layout" data-contents={contents && docked ? 'docked' : undefined}>
         {contents && docked && (
           <aside className="contents-column">
             <ContentsList headings={headings} active={active} />

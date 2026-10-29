@@ -77,8 +77,9 @@ img.ProseMirror-separator {
   padding: 0 48px 64px;
 }
 
+/* Docked Contents (§9.6.4, D147): the text keeps the centre it has without them, the column sits in the left margin. */
 .doc-layout[data-contents='docked'] {
-  grid-template-columns: 220px minmax(0, 720px);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 720px) minmax(0, 1fr);
 }
 
 .doc-column {
@@ -89,7 +90,7 @@ img.ProseMirror-separator {
 
 /* "Full width" (§9.6.1: the viewport minus 2×48 px, the layout's own padding). */
 .doc-page[data-full-width] .doc-layout[data-contents='docked'] {
-  grid-template-columns: 220px minmax(0, 1fr);
+  grid-template-columns: 200px minmax(0, 1fr);
 }
 
 .doc-page[data-full-width] .doc-column,
@@ -97,11 +98,14 @@ img.ProseMirror-separator {
   max-width: none;
 }
 
+/* Sticky below the top bar, which is sticky in the same scroller (.app-main) and would cover the first entries. */
 .contents-column {
   position: sticky;
-  top: 24px;
+  top: calc(var(--topbar-height) + 16px);
   align-self: start;
-  max-height: calc(100vh - 100px);
+  justify-self: end;
+  width: 200px;
+  max-height: calc(100vh - var(--topbar-height) - 32px);
   overflow-y: auto;
 }
 

@@ -59,10 +59,19 @@ export function showContents(headings: readonly Heading[]): boolean {
 
 /**
  * The active heading: the last one whose top (relative to the viewport) is above 30% of its height, else the first.
- * `tops` are in document order.
+ * Once the page is scrolled to its end (`atEnd`), the last heading in view is active instead: the headings of the last
+ * screen can never reach the 30% line (D147). `tops` are in document order.
  */
-export function activeHeading(tops: readonly { blockId: string; top: number }[], viewportHeight: number): string | null {
+export function activeHeading(
+  tops: readonly { blockId: string; top: number }[],
+  viewportHeight: number,
+  atEnd = false,
+): string | null {
   if (tops.length === 0) return null;
+  if (atEnd) {
+    const inView = tops.filter((t) => t.top < viewportHeight);
+    if (inView.length > 0) return inView[inView.length - 1].blockId;
+  }
   const line = viewportHeight * SPY_THRESHOLD;
   let active = tops[0].blockId;
   for (const t of tops) {
@@ -70,6 +79,21 @@ export function activeHeading(tops: readonly { blockId: string; top: number }[],
     else break;
   }
   return active;
+}
+
+/**
+ * Whether the scroller that holds `el` (its nearest ancestor that scrolls vertically and overflows, else the document)
+ * is scrolled to its end. Browsers round scroll positions (Chrome stopped at 392 of 393 on a live page), so the last
+ * 2 px count as the end. A scroller with nothing to scroll is never at its end.
+ */
+export function scrolledToEnd(el: Element | null): boolean {
+  const atEnd = (s: Element) => s.scrollTop + s.clientHeight >= s.scrollHeight - 2;
+  for (let p = el?.parentElement ?? null; p; p = p.parentElement) {
+    const overflow = getComputedStyle(p).overflowY;
+    if ((overflow === 'auto' || overflow === 'scroll') && p.scrollHeight > p.clientHeight) return atEnd(p);
+  }
+  const root = document.scrollingElement;
+  return !!root && root.scrollHeight > root.clientHeight && atEnd(root);
 }
 
 /** Element ids `h-<blockId>` on heading elements, as node decorations. */

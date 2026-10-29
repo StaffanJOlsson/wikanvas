@@ -1080,6 +1080,65 @@ test('smoke: setup to export (PLAN W7 steps 1-15, the review fixes, M1.1 board e
     await expect(editor(page).locator('.board-embed', { hasText: BOARD_TITLE }).locator('.board-embed-title')).toHaveText(BOARD_TITLE);
   });
 
+  await test.step('19. Contents: docked beside the centred text, below the top bar, the last heading active at the end (D147)', async () => {
+    const viewport = page.viewportSize();
+    if (!viewport) throw new Error('no viewport');
+    const aRef = /\/doc\/(?:[^/]*-)?([0-9A-Za-z]{10})\/?$/.exec(new URL(aUrl).pathname)?.[1] ?? '';
+    const a = await detail(page, aRef);
+    // Five sections; the last is one line, so its heading never reaches the 30% line however far the page scrolls.
+    const para = 'Wombats dig long burrows with their claws. '.repeat(30);
+    const md = ['First', 'Second', 'Third', 'Fourth', 'Fifth']
+      .map((h, i) => `## ${h}\n\n${i < 4 ? `${para}\n\n${para}\n` : 'The end.\n'}`)
+      .join('\n');
+    const written = await page.evaluate(async ({ collection, body }) => {
+      const created = await fetch('/api/v1/items', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ collection_id: collection, kind: 'doc', title: 'Contents' }),
+      });
+      const item = await created.json();
+      const put = await fetch(`/api/v1/items/${item.id}/doc/markdown`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'text/markdown', 'If-Match': '*' },
+        body,
+      });
+      return { url_id: item.url_id as string, created: created.status, put: put.status };
+    }, { collection: a.item.collection_id, body: md });
+    expect(written).toMatchObject({ created: 201, put: 200 });
+
+    // A 1700 px window less the sidebar leaves a pane of over 1280 px: docked, and the text keeps its centre.
+    await page.setViewportSize({ width: 1700, height: 900 });
+    await page.goto(`/doc/${written.url_id}`);
+    const column = page.locator('.contents-column');
+    await expect(column.locator('li')).toHaveCount(5);
+    await expect(page.getByRole('button', { name: 'Contents', exact: true })).toHaveCount(0);
+    const layout = await page.locator('.doc-layout').boundingBox();
+    const text = await page.locator('.doc-column').boundingBox();
+    const docked = await column.boundingBox();
+    if (!layout || !text || !docked) throw new Error('no box for the layout, the text or the Contents');
+    expect(Math.abs(text.x + text.width / 2 - (layout.x + layout.width / 2))).toBeLessThan(2);
+    expect(docked.x + docked.width).toBeLessThanOrEqual(text.x);
+
+    // At the end of the page: every entry below the top bar, the last heading active, the first one a click away.
+    await page.locator('.app-main').evaluate((m) => {
+      m.scrollTop = m.scrollHeight;
+    });
+    await expect(column.locator('li').last()).toHaveAttribute('aria-current', 'location');
+    const bar = await page.locator('.top-bar').boundingBox();
+    const first = await column.locator('li').first().boundingBox();
+    if (!bar || !first) throw new Error('no box for the top bar or the first entry');
+    expect(first.y).toBeGreaterThanOrEqual(bar.y + bar.height);
+    await column.getByRole('link', { name: 'First' }).click();
+    await expect(editor(page).getByRole('heading', { name: 'First' })).toBeInViewport();
+    await expect(column.locator('li').first()).toHaveAttribute('aria-current', 'location');
+
+    // A 1400 px window leaves a pane under 1280 px: the popover in the top bar instead of the column.
+    await page.setViewportSize({ width: 1400, height: 900 });
+    await expect(column).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Contents', exact: true })).toBeVisible();
+    await page.setViewportSize(viewport);
+  });
+
   if (pageErrors.length > 0) testInfo.annotations.push({ type: 'page errors', description: pageErrors.join('\n') });
   await test.step('No CSP violation on any page of the run', async () => {
     expect(cspViolations).toEqual([]);

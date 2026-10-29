@@ -218,7 +218,7 @@ listed under group I. P-115 (L) counts 0 days, because M2 builds nothing for it 
 | P-106 | Block handle: drag to reorder; Turn into, Duplicate, Copy link (headings), Delete | M | C5 | L2 editor::menus::block_handle_drag_keeps_block_id; L2 editor::menus::copy_link_heading; L2 ui::items::desktop_copy_item_link_without_listener | same on the web; changed on the desktop: a heading's Copy link only while browser access is on (§19.7.6) |
 | P-107 | Placeholder "Type / for commands" | S | C4 | L2 editor::typing::placeholder_on_empty | same (new) |
 | P-108 | Title ↔ body (Enter into the body, Backspace at an empty body's start to the title) | S | C4 (C3) | L2 ui::items::header_enter_moves_to_body; L2 editor::typing::backspace_empty_body_to_title | same |
-| P-109 | Heading anchors, Contents from 2 headings (docked ≥ 1280 px, else a popover), scroll spy | M | C5 | L1 editor::contents::tests (3); L2 ui::docs::contents_docked_at_1280 | same |
+| P-109 | Heading anchors, Contents from 2 headings (docked in the margin while the pane is ≥ 1280 px, else a popover; sticky below the top bar), scroll spy with the last heading at the end (D147) | M | C5 | L1 editor::contents::tests (5); L2 ui::docs::contents_docked_at_1280; L2 ui::docs::contents_last_heading_at_end | same |
 | P-110 | Read-only document with the Trash or Archive banner and Restore / Unarchive | S | C3 | L2 ui::docs::trashed_doc_read_only_banner | same (new) |
 | P-111 | Nested list under the body with "+ Add a page" | S | C3 | L2 ui::docs::children_list_and_add_page | same (new) |
 | P-112 | Exports: Markdown (server), HTML | S | C3 | L3 flows::docs::export_markdown; L7 api::read_view::export_html_self_contained | changed: HTML from the server's renderer (D113) |
@@ -351,7 +351,7 @@ listed under group I. P-115 (L) counts 0 days, because M2 builds nothing for it 
 | P-184 | Reduced motion | S | C2 | L2 ui::theme::reduced_motion_zero_animation | changed: web from `matchMedia`, desktop a setting (new) |
 | P-185 | 12 collection colours and 48 icons | M | C2 | L1 app::icons::tests::collection_icon_set_complete | changed: resvg-rendered SVGs (D133) |
 | P-186 | 35 UI icons | S | C2 | L1 app::icons::tests::all_ui_icons_embedded | changed: resvg-rendered SVGs (new) |
-| P-187 | Breakpoints (1024 drawer, 1280 Contents, phones) | S | C2 | L2 ui::shell::breakpoints_1024_1280; L5 B12 | changed: phones open the read view (D130) |
+| P-187 | Breakpoints (1024 drawer, a 1280 px pane for Contents, phones) | S | C2 | L2 ui::shell::breakpoints_1024_1280; L5 B12 | changed: phones open the read view (D130) |
 
 ## U. Internationalisation
 
@@ -483,8 +483,9 @@ expands each into one row per call site, each naming a new test `path::name` or 
 | `components/tree/visibleRows.test.ts` | 6 | L1 app::tree::visible_rows::tests |
 | `components/ui/menuPlacement.test.ts` | 4 | L2 ui::menus::placement_flips_and_caps_height |
 | `editor/baseStyles.test.ts` | 1 | L4 snapshot::doc_every_block_light |
+| `editor/boardDrop.test.ts` | 3 | L2 editor::blocks::sidebar_board_drop_embeds (D145) |
 | `editor/boardEmbed.test.tsx` | 2 | L2 editor::blocks::board_embed_card_states |
-| `editor/contents.test.ts` | 3 | L1 editor::contents::tests |
+| `editor/contents.test.ts` | 5 | L1 editor::contents::tests |
 | `editor/docSession.test.ts` | 11 | L1 client::doc_sync::tests |
 | `editor/embedVariant.test.tsx` | 4 | L2 board::cards::variant_without_handle_and_board_items |
 | `editor/exportMarkdown.test.ts` | 2 | L3 flows::docs::export_markdown |
