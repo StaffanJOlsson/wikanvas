@@ -1853,10 +1853,11 @@ From the host: `docker compose exec wikanvas wikanvas admin create-token --name 
     up. Both deadlines answer the 408 envelope.
   - Tokio runs `worker_threads=2` (one per CPU of the 2-CPU cap, D25) and `max_blocking_threads=16` (both from env).
   - `MALLOC_ARENA_MAX=2`.
-- **Secrets in logs and exports.** tower-http `SensitiveHeaders` hides `Authorization`, `Cookie` and `Set-Cookie`.
-  Passwords and tokens are never logged. The access log is one span per request, `request{method, path, client_ip,
-  token_id}`, with an info line for the status and latency and a debug line for the headers (the three above shown as
-  `Sensitive`); colours only on a terminal, so `docker compose logs` is plain text. Exports carry no
+- **Secrets in logs and exports.** tower-http `SensitiveHeaders` hides `Authorization`, `Cookie`, `Set-Cookie` and
+  `Referer` (the invite page's requests carry its link there, D148). Passwords and tokens are never logged. The access
+  log is one span per request, `request{method, path, client_ip, token_id}`, with an info line for the status and
+  latency and a debug line for the headers (the four above shown as `Sensitive`); a path segment that is an invite
+  token is logged as `qinv_***` (`app::log_path`); colours only on a terminal, so `docker compose logs` is plain text. Exports carry no
   sessions, no API tokens and no password hashes (D34). Backups keep token hashes, which are useless without the
   238-bit secrets.
 

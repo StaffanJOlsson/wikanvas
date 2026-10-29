@@ -79,7 +79,7 @@ pub fn app(state: AppState) -> Router {
                     tracing::info_span!(
                         "request",
                         method = %req.method(),
-                        path = %req.uri().path(),
+                        path = %log_path(req.uri().path()),
                         client_ip = tracing::field::Empty,
                         token_id = tracing::field::Empty,
                     )
@@ -99,8 +99,30 @@ pub fn app(state: AppState) -> Router {
             header::AUTHORIZATION,
             header::COOKIE,
             header::SET_COOKIE,
+            // The invite page's requests carry its link (D148) in `Referer`.
+            header::REFERER,
         ]))
         .with_state(state)
+}
+
+/// The request path as the access log shows it: a path segment that is an invite token (`qinv_…`, D148: the invite
+/// page and its two routes carry the link's secret in the path) becomes `qinv_***`, so no link reaches the log.
+pub fn log_path(path: &str) -> std::borrow::Cow<'_, str> {
+    let prefix = wikanvas_api::token::INVITE_PREFIX;
+    if !path.contains(prefix) {
+        return std::borrow::Cow::Borrowed(path);
+    }
+    let masked: Vec<&str> = path
+        .split('/')
+        .map(|seg| {
+            if seg.starts_with(prefix) {
+                "qinv_***"
+            } else {
+                seg
+            }
+        })
+        .collect();
+    std::borrow::Cow::Owned(masked.join("/"))
 }
 
 /// Marks a response to a board-page request, which [`compressible`] may gzip as SVG.
@@ -338,6 +360,20 @@ pub async fn serve(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn invite_tokens_never_reach_the_log() {
+        let t = wikanvas_api::token::encode_invite(&[7; 32]);
+        assert_eq!(log_path(&format!("/invite/{t}")), "/invite/qinv_***");
+        assert_eq!(
+            log_path(&format!("/api/v1/invites/{t}/accept")),
+            "/api/v1/invites/qinv_***/accept"
+        );
+        assert!(matches!(
+            log_path("/api/v1/invites/0192f3a4-5b6c-7d8e-9f01-23456789abcd"),
+            std::borrow::Cow::Borrowed(_)
+        ));
+    }
 
     #[test]
     fn deadlines() {

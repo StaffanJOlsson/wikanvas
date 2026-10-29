@@ -1,10 +1,10 @@
 # Multi-user Wikanvas: research and a proposed path
 
-**Status: a proposal; the owner answered questions 1, 2 and 4 on 2026-10-29** (§6). **Phases 1 and 2 are
-implemented** (§5): the role check in every handler, and accounts with invite links (docs/ARCHITECTURE.md D148–D151). The accepted parts move into
-docs/ARCHITECTURE.md as decisions when their phase starts, as M2 did (§19). It combines three studies made the
-same day: how others handle several people editing at once, what Wikanvas has and lacks, and what upstream Inkboard
-offers. Sources are numbered in brackets (§8).
+**Status: a proposal; the owner answered questions 1, 2, 3 and 4 on 2026-10-29** (§6). **Phases 1 and 2 are
+implemented** (§5): the role check in every handler, and accounts with invite links (docs/ARCHITECTURE.md D148–D151).
+The accepted parts move into docs/ARCHITECTURE.md as decisions when their phase starts, as M2 did (§19). It combines
+three studies made the same day: how others handle several people editing at once, what Wikanvas has and lacks, and
+what upstream Inkboard offers. Sources are numbered in brackets (§8).
 
 ## 1. Summary
 

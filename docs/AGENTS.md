@@ -108,7 +108,8 @@ are resolved as a pair: a profile's token is never sent to a URL from somewhere 
 ignores `WIKANVAS_URL`, `WIKANVAS_TOKEN` and `WIKANVAS_TOKEN_FILE`. Scopes: `read` (every GET except tokens, sessions
 and export), `write` (content and structure), `admin` (tokens, sessions, `me update`, workspace settings, accounts and
 invites, purge, export, backup). A token is also limited by its account's role: a `member`'s token never purges, a
-`viewer`'s never writes, whatever its scope. A token never creates an `admin` token, and never one that outlives it: pass a shorter `--expires`.
+`viewer`'s never writes, whatever its scope. A token never creates an `admin` token, and never one that outlives it:
+pass a shorter `--expires`.
 `auth logout --revoke` revokes the profile's own token at the profile's URL, never a `WIKANVAS_TOKEN` you exported. For
 a LAN install on Caddy's local CA, add `--ca-file wikanvas-local-ca.crt`; plain `http://` works only for this machine
 (or with `WIKANVAS_ALLOW_HTTP=1`).
