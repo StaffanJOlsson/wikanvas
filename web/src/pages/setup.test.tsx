@@ -42,8 +42,10 @@ describe('Setup', () => {
     fill('Password', 'a long password');
     fill('Repeat the password', 'a long password');
     fireEvent.click(screen.getByRole('button', { name: 'Create workspace' }));
-    await waitFor(() => expect(api.calls('GET', '/setup').length).toBeGreaterThanOrEqual(2));
-    await waitFor(() => expect(fetches).toBe(2));
+    // The refetches after the POST took over a second on a loaded 4-CPU CI runner (main, 7b76978): the default 1 s
+    // of waitFor timed out with the button still busy.
+    await waitFor(() => expect(api.calls('GET', '/setup').length).toBeGreaterThanOrEqual(2), { timeout: 4000 });
+    await waitFor(() => expect(fetches).toBe(2), { timeout: 4000 });
     // The status said "set up" while the owner was still on this page: no detour to /login.
     await new Promise((r) => setTimeout(r, 50));
     release(2);
