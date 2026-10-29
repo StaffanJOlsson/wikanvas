@@ -1272,7 +1272,7 @@ test('smoke: setup to export (PLAN W7 steps 1-15, the review fixes, M1.1 board e
     await setTitle(page, page.locator('#item-title'), 'Secret plan');
     await editor(page).click();
     const saved = page.waitForResponse((r) => isDocUpdate(r) && r.ok(), { timeout: SAVE_TIMEOUT });
-    await page.keyboard.type('A wombat budget.');
+    await page.keyboard.type('A pangolin budget.');
     await saved;
     await expect(saveStatus(page)).toHaveText('Saved', { timeout: SAVE_TIMEOUT });
     const secretUrl = page.url();
@@ -1297,8 +1297,10 @@ test('smoke: setup to export (PLAN W7 steps 1-15, the review fixes, M1.1 board e
     await expect(treeItem(member, 'Private')).toHaveCount(0);
     expect((await member.request.get(`/api/v1/collections/${privateCollection.id}`)).status()).toBe(404);
     expect((await member.request.get(`/api/v1/items/${secretId}`)).status()).toBe(404);
-    const found = await (await member.request.get('/api/v1/search?q=wombat')).json();
+    const found = await (await member.request.get('/api/v1/search?q=pangolin')).json();
     expect(found.items).toEqual([]);
+    const ownersHits = await (await page.request.get('/api/v1/search?q=pangolin')).json();
+    expect(ownersHits.items.map((h: Json) => h.item.id)).toEqual([secretId]);
     await member.goto(secretUrl);
     await expect(member.getByRole('heading', { name: 'Page not found' })).toBeVisible();
 
@@ -1320,7 +1322,7 @@ test('smoke: setup to export (PLAN W7 steps 1-15, the review fixes, M1.1 board e
     await expect(treeItem(member, 'Private')).toBeVisible();
     await member.goto(secretUrl);
     await expect(member.getByText('You can read this collection but not change it.')).toBeVisible();
-    await expect(editor(member).locator('p', { hasText: 'A wombat budget.' })).toHaveCount(1);
+    await expect(editor(member).locator('p', { hasText: 'A pangolin budget.' })).toHaveCount(1);
     await expect(member.locator('.wikanvas-editor [contenteditable="true"]')).toHaveCount(0);
     expect((await member.request.patch(`/api/v1/items/${secretId}`, { data: { title: 'Taken' } })).status()).toBe(403);
 
@@ -1330,7 +1332,7 @@ test('smoke: setup to export (PLAN W7 steps 1-15, the review fixes, M1.1 board e
     expect((await changed).status()).toBe(200);
     await member.reload();
     await expect(member.getByText('You can read this collection but not change it.')).toHaveCount(0);
-    await editor(member).locator('p', { hasText: 'A wombat budget.' }).click();
+    await editor(member).locator('p', { hasText: 'A pangolin budget.' }).click();
     await settle(member);
     await member.keyboard.press('End');
     const edited = member.waitForResponse((r) => isDocUpdate(r) && r.ok(), { timeout: SAVE_TIMEOUT });
@@ -1338,7 +1340,7 @@ test('smoke: setup to export (PLAN W7 steps 1-15, the review fixes, M1.1 board e
     await edited;
     await expect(saveStatus(member)).toHaveText('Saved', { timeout: SAVE_TIMEOUT });
     const text = await (await page.request.get(`/api/v1/items/${secretId}/text`)).json();
-    expect(text.body).toContain('A wombat budget. Approved.');
+    expect(text.body).toContain('A pangolin budget. Approved.');
     await memberContext.close();
   });
 
