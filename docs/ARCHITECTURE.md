@@ -32,7 +32,7 @@ Hard rules (from CLAUDE.md, repeated because they constrain the design):
 
 Single owner. One workspace. Left sidebar of collections. Inside each collection, a tree of items nested to any depth;
 an item is a document (TipTap) or a board (Inkboard), and either kind can have children. M1 also includes autosave,
-full-text search, stars, archive, trash, login (one owner account), and Docker hosting with runtime limits behind a
+full-text search, stars, archive, trash, login, and Docker hosting with runtime limits behind a
 Caddy HTTPS front (D57). Items are published on create; the draft state exists in the data model and the API only, with
 no draft UI (D23). Every stored format must allow live multi-user co-editing to be added later without converting data.
 
@@ -49,7 +49,12 @@ M1.1 adds **board document embeds** (§18): a text document is placed on a board
 place with the document editor, while it stays a real document in the tree; it is added from the board ("Text doc",
 a new child), from a picker ("Embed page…") or by dragging a document from the sidebar onto the canvas.
 
-Not built in M1: templates, sharing, invites, avatars or "Viewed by N", comments, the version-history UI, backlinks UI,
+Before M2, **accounts** (docs/multi-user.md phase 2, D148–D151): the owner and admins invite people by link as admins,
+members or viewers, change their roles, and disable and enable them (Settings → Members, `/api/v1/users`,
+`/api/v1/invites`, `wikanvas user`, `wikanvas invite`, `wikanvas-server admin create-user`). Roles are workspace-wide:
+until per-collection permissions (phase 3), every member and viewer sees every collection.
+
+Not built in M1: templates, sharing, avatars or "Viewed by N", comments, the version-history UI, backlinks UI,
 imports (including server-side board import from draw.io, Excalidraw, Mermaid or JSON Canvas, D52), Markdown-zip export
 of the whole workspace, PNG thumbnails, and board images as attachments. For these, M1 only reserves columns, routes or
 layout slots (§15).
@@ -62,7 +67,7 @@ layout slots (§15).
 
 | # | Decision | Rationale |
 |---|---|---|
-| D1 | Rust 2024, axum 0.8.9, tokio 1.54. One server binary `wikanvas-server` with subcommands `serve`, `healthcheck` and `admin {create-owner, create-token, list-tokens, revoke-token, reset-password, backup, check}` (§7.8); the CLI is a second binary, `wikanvas` (D54, D55) | Single self-hosted server artifact; the distroless image has no shell, so the binary does its own healthcheck. Admin commands need the database, so they live in the server binary. |
+| D1 | Rust 2024, axum 0.8.9, tokio 1.54. One server binary `wikanvas-server` with subcommands `serve`, `healthcheck` and `admin {create-owner, create-token, list-tokens, revoke-token, reset-password, list-users, create-user, set-role, disable-user, enable-user, backup, check}` (§7.8); the CLI is a second binary, `wikanvas` (D54, D55) | Single self-hosted server artifact; the distroless image has no shell, so the binary does its own healthcheck. Admin commands need the database, so they live in the server binary. |
 | D2 | **rusqlite 0.40.2** (bundled SQLite with FTS5) plus deadpool-sqlite 0.14: one writer pool of size 1 using `BEGIN IMMEDIATE`, one reader pool of size 4 (`query_only`), and an on-demand **maintenance connection** (same PRAGMAs, no `query_only`, never used for app writes) for `VACUUM INTO`. Not sqlx. rusqlite, deadpool-sqlite and rusqlite_migration must resolve to one `libsqlite3-sys` (W0b checks with `cargo tree -i`). If deadpool-sqlite or rusqlite_migration lag rusqlite 0.40, W0b replaces them with a ~100-line pool in `db.rs` or a `user_version` runner in `migrate.rs` and records it in §16. | Matches SQLite's single-writer model. Gives synchronous transactions for tree logic, and the backup and hooks APIs. Compiles lighter under the 6-CPU cap. `VACUUM INTO` fails with SQLITE_READONLY on a `query_only` connection (checked on SQLite 3.46.1). |
 | D3 | Migrations use `rusqlite_migration` 2.6 `from_directory`: `crates/wikanvas-store/migrations/NNNN-name/up.sql`, embedded with `include_dir`. Until the first release, `0001-init` holds the whole M1 schema and only its owner (W1) edits it (PLAN rule R5). After the first release, migrations are append-only. | No registry file to edit, consecutive numbering, and nothing shipped that would need a migration chain before M1. |
 | D4 | IDs are UUIDv7 TEXT primary keys. Items and collections also get a `url_id` (10 random base62 characters, UNIQUE) used only in URLs | UUIDv7 is standard, sortable and readable in tools. The short id keeps URLs like `/doc/<slug>-<url_id>`. |
@@ -131,6 +136,10 @@ layout slots (§15).
 | D145 | **A board dragged from the sidebar onto a document is embedded there** (owner request, 2026-10-29). A board row's pragmatic-dnd draggable carries `application/x-wikanvas-board` as native data (`{v: 1, id, kind: "board", title}`, `boardDragDataOf` in `dragItem.ts`, beside the document row's type of D70). The editor's `BoardDrop` plugin (`handleDrop`, in a board card's editor too) takes a drag with that type, inserts `boardEmbed{itemId}` where ProseMirror places a dropped node (`dropPoint` of the drop position: before the block for a drop in its first half, after it in its second) and selects it. Data under the type that does not parse (another `v` or `kind`, an id that is not a canonical UUID) inserts nothing, and a read-only editor never gets the drop. The id is not fetched first: the sidebar lists only live items, and a card whose target is not a board shows its own states (§9.6.5). The board frame and the editing card's overlay (§18.6 (c)) do not know the type, so a board dropped on a board places nothing. | A type of its own, not `application/x-wikanvas-item` with `kind: "board"`: the frame and the overlay accept their type from `dataTransfer.types` alone, before the data can be read, so a board would show as droppable on a board and the editing card would swallow it. Inserting at once keeps the drop synchronous; fetching first would need the drop position mapped through every collaborative change meanwhile, for a check the sidebar already made. A document that is a card on the board it embeds nests nothing: the embed is the board's preview image, in which the card is a box with its title. |
 | D146 | **Changes reach `main` through pull requests, with CI** (owner, 2026-10-29: Wikanvas is live). Work is pushed often on branches from `origin/main`; a pull request runs `.github/workflows/ci.yml` (§14.2) and lands once every job is green, as a fast-forward of `main` to the branch, so the commits and the image tags built from them stay the same. Stable releases are cut now and then, not per change. Actions are pinned by commit SHA, with the release tag in a comment. | CI catches what a local run can miss before a live wiki updates to `main`'s image; fast-forwards keep `main` linear and every `wikanvas:<commit>` tag a commit of `main`. |
 | D147 | **The docked Contents sit in the margin, below the top bar, and follow the page to its end** (owner, 2026-10-29: the column scrolled away, the last heading was never highlighted, and it took a lot of space). The column is sticky at the top bar's height plus 16 px, since the top bar is sticky in the same scroller (`.app-main`) and covered the first entries at the old 24 px. The grid is `1fr 720px 1fr`, so the text stays centred and the 200 px column sits at the end of the left margin; it docks when the document pane, measured with a ResizeObserver, is at least 1280 px wide. At the scroller's end (`scrolledToEnd`, 2 px of rounding) the scroll spy takes the last heading in view, since the headings of the last screen can never reach the 30% line. | Docking by the window width (`min-width: 1280px`) left a pane of 1020 px beside a 260 px sidebar, so the column pushed the text 126 px off centre; a right-hand column would move the Contents away from where Outline-style readers expect them. |
+| D148 | **Accounts join only through invite links** (owner, 2026-10-29: accounts before M2, workspace roles now, per-collection access in phase 3, no open sign-up, no email server; docs/multi-user.md phase 2). Migration 0002 (append-only, D3; `user_version` 2) adds `invites` (§5): a sha256 of a `qinv_` token drawn, encoded and checked like an API token (D42, another prefix), a role (`admin`, `member` or `viewer`, never `owner`), an optional note, the inviter, `expires_at` (7 days by default, 1–30), `used_at`/`used_by` and `revoked_at`. `POST /invites` returns the link `<public URL>/invite/<token>` once (the web client keeps it only in the dialog's state); an invite is single-use, at most 100 are pending, and the only other way to an account is `wikanvas-server admin create-user`. Accepting creates the user with the invite's role and signs it in like setup. Until phase 3 every member and viewer sees every collection | An invite link needs no SMTP and no public sign-up form, and a hash of a 238-bit secret is useless in a backup. The token format's checksum lets the server refuse a mistyped link without a lookup, and its prefix keeps an invite from ever passing for an API token |
+| D149 | **The account rules live in the store** (`users::change`, `invites::create`), for the API and the admin commands alike: the owner's role never changes and the owner cannot be disabled; nobody changes their own role or disables themselves; only the owner makes, changes, disables or invites an admin; admins manage members, viewers and invites (they may revoke any pending invite). Disabling deletes the account's sessions and revokes its API tokens and the pending invites it made in the same transaction; taking the admin role away revokes those invites too. The admin commands act as the operator: the owner's say over every account, but no account of its own. `authz::require` stays a role match (`Action::Admin` on `Resource::User` / `Resource::Invite`); the rules that need the target's role are the store's (403 `forbidden`) | One copy of the rules for every caller; an operator at the database could change the owner anyway, but the commands keep the one-owner invariant (`users_single_owner`) and the live wiki's owner safe from a typo. Revoking a disabled or demoted inviter's invites keeps their authority from outliving them |
+| D150 | **The invite page's routes are public and take the token as `{id}`**: `GET /invites/{id}` (the state, the workspace name, the role and the expiry, never the inviter) and `POST /invites/{id}/accept` (name, email, password: setup's rules). axum allows one name per path position (§7.1), and `DELETE /invites/{id}` holds that position. The accept shares the per-IP login and setup limiter and their CSRF and Host rules, answers 404 for any token that is not a pending invite (the message names used, expired or revoked) and 409 `conflict` (`field: "email"`) for a taken email; a lookup of an unknown token counts against the IP like a failed bearer authentication (30 per minute, then 429 `auth_failures`; real invites are still served). Both are web-only for the CLI (§7.6) | The page needs the state to say why a link does not work; the accept, which signs a browser in, gets exactly the defences of setup and login. A 404 for every unusable token keeps accept's answers small, and the GET already tells the holder why |
+| D151 | **`config.multi_user` is derived**: true while more than one user is not disabled. Exports also drop `invites` (manifest `without`), and the hourly job deletes revoked invites, and expired ones nobody used, 30 days on; used ones stay (who invited whom). Migration 0002 means an image before it refuses the database (`migrate.rs`), so going back to one needs the pre-migration backup (§12) | The flag the web client already has switches the multi-user UI as accounts come and go. A pending invite is a way in, like a token; a used one is history |
 
 ### 2.2 Alternatives considered
 
@@ -663,6 +672,26 @@ CREATE TRIGGER items_text_del BEFORE DELETE ON items BEGIN
 END;
 ```
 
+Migration `0002-invites` (D148), the first after the first release (append-only, D3), raises `user_version` to 2:
+
+```sql
+CREATE TABLE invites (
+  id          TEXT PRIMARY KEY,                                      -- UUIDv7
+  token_hash  BLOB NOT NULL UNIQUE CHECK (length(token_hash) = 32),  -- sha256 of the whole 51-character 'qinv_' token
+  role        TEXT NOT NULL REFERENCES user_roles(role) CHECK (role <> 'owner'),
+  note        TEXT CHECK (length(note) BETWEEN 1 AND 200),           -- for the inviters only
+  created_by  TEXT REFERENCES users(id) ON DELETE SET NULL,
+  created_at  INTEGER NOT NULL,
+  expires_at  INTEGER NOT NULL,
+  used_at     INTEGER,                                               -- single use: set once, by the accept
+  used_by     TEXT REFERENCES users(id) ON DELETE SET NULL,          -- the user the accept created
+  revoked_at  INTEGER
+) STRICT;
+CREATE INDEX invites_pending ON invites(created_at DESC, id DESC) WHERE used_at IS NULL AND revoked_at IS NULL;
+CREATE INDEX invites_created_by ON invites(created_by);
+CREATE INDEX invites_used_by ON invites(used_by);
+```
+
 Rules for the data model:
 - **Visibility.** Every list, tree, sidebar, search and backlink query selects items through
   `shared::visible_items(viewer)`, a SQL fragment that in M1 means "live item in a live collection"
@@ -761,6 +790,15 @@ Rules for the data model:
   by `token_hash` on a reader connection, with no liveness filter and no cache, then classifies it as live, expired,
   revoked or disabled (§7.3). A revoke also revokes, in the same statement, the live tokens whose `parent_token_id` is
   the revoked one (D42).
+- **Accounts** (D148, D149). Beside the one owner, `users::create` inserts admins, members and viewers (an accepted
+  invite, `admin create-user`); an email another user has, ignoring ASCII case (`COLLATE NOCASE`), is 409 `conflict`
+  (`field: "email"`). `users::change` applies a role and a disabled flag under the rules of D149 and, on disabling,
+  deletes the sessions and revokes the tokens and pending invites of the account in the same transaction.
+- **Invites** (D148). Pending: `used_at IS NULL AND revoked_at IS NULL AND expires_at > now`; at most 100 pending (422,
+  `field: "invites"`). `invites::lookup` refuses a string that fails the `qinv_` format check without a query.
+  `invites::accept` re-reads the invite in the writer transaction, creates the user and sets `used_at`/`used_by` in that
+  transaction, so one invite makes one account. Revoked invites, and expired ones nobody used, are deleted 30 days
+  later by the hourly job (§12); used ones stay.
 - **Recovery points** (D53). `revisions::pre_api` runs before a token's content write: it writes a `pre-api` revision of
   the current state (with `source_seq`) unless `last_token_id` of the doc or board state is that token, or the newest
   revision's `source_seq` equals the current seq (doc) or rev (board). Every content write sets `last_token_id` (NULL
@@ -1175,7 +1213,8 @@ MiB, JSON 4 MiB, nesting depth 100 (D33).
   M1) ‖ the keyset or offset ‖ a 4-byte sha256 check; input over 8192 characters is refused without decoding.
   Unpaginated by design, and bounded: `/collections`,
   `/collections/{id}/tree` (D21), `/items/{id}/children`, `/trash` (roots only), `/tokens` (at most 100),
-  `/auth/sessions` and `/search/titles` (`limit` at most 20).
+  `/auth/sessions`, `/users` (a workspace's people), `/invites` (at most 100 pending) and `/search/titles` (`limit`
+  at most 20).
 - **Concurrency** (D45). Content writes require `If-Match` (428 `precondition_required` without it); `If-Match: *`
   means "whatever is current", a deliberate last-write-wins. GETs with a matching `If-None-Match` answer 304, except
   `GET /items/{id}`, the Markdown GET and the board GET (D45). A `W/` prefix on a tag is ignored. The JSON `etag`
@@ -1217,6 +1256,8 @@ MiB, JSON 4 MiB, nesting depth 100 (D33).
   - `Scope = "read"|"write"|"admin"`;
     `ApiToken{id,name,prefix,scopes:[Scope],created_at,created_via,parent_token_id?,expires_at?,last_used_at?,last_used_ip?}`
   - `Me{user, workspace:{name, logo_url}, must_change_password, auth:{method:"session"|"token", token?:ApiToken}}`
+  - `UserInfo{id,email,name,role,created_at,disabled_at?}`; `Invite{id,role,note?,created_by?,created_at,expires_at}`
+    (never its token); `InviteState = "pending"|"used"|"expired"|"revoked"` (D148)
   - `DocJson{schema_version, seq, doc}` (`doc` is normalized ProseMirror JSON `{type:"doc", content}`, §6.4)
   - `DocWriteResult{seq, etag, updated_at, changed, merged, warnings:[ConversionWarning]}`;
     `ConversionWarning{code, path?, count}`
@@ -1228,7 +1269,7 @@ Auth: *public*, *session*, *token*, or the scope a token needs (a session has ev
 | Method | Path | Auth | Request | Response | Owner |
 |---|---|---|---|---|---|
 | GET | `/healthz` | *public* | none | `{"status":"ok"}` after `SELECT 1`. Exempt from the Host allowlist | W0b |
-| GET | `/api/v1/config` | *public* | none | `{version, commit, api_version, openapi_url:"/api/v1/openapi.json", setup_required, multi_user:false, inkboard: null \| {base:"/inkboard/<build>/", engine_version, format_version, wasm_bytes:{raw,br,gz}}, limits:{max_upload_mb, max_board_mb, max_doc_mb, max_update_bytes, max_markdown_bytes, max_json_bytes, max_body_bytes, json_depth, q_max_chars, page_max, token_rate_per_min, token_burst, token_bytes_per_hour}}`. `inkboard` is null when no manifest is embedded, for the stub dist (`engine_version: "stub"`, whose files are still served) and for a dist without a `.wasm`. The `limits` are the ones the routes enforce (`config::MAX_*`) | W2 |
+| GET | `/api/v1/config` | *public* | none | `{version, commit, api_version, openapi_url:"/api/v1/openapi.json", setup_required, multi_user, inkboard: null \| {base:"/inkboard/<build>/", engine_version, format_version, wasm_bytes:{raw,br,gz}}, limits:{max_upload_mb, max_board_mb, max_doc_mb, max_update_bytes, max_markdown_bytes, max_json_bytes, max_body_bytes, json_depth, q_max_chars, page_max, token_rate_per_min, token_burst, token_bytes_per_hour}}`. `inkboard` is null when no manifest is embedded, for the stub dist (`engine_version: "stub"`, whose files are still served) and for a dist without a `.wasm`. The `limits` are the ones the routes enforce (`config::MAX_*`). `multi_user`: more than one user that is not disabled (D151) | W2 |
 | GET | `/api/v1/openapi.json` | *public* | `If-None-Match` | The OpenAPI 3.1 spec (§7.4), `Cache-Control: no-cache`, ETag | W2 (each route owner documents its own handlers) |
 | GET | `/api/v1/setup` | *public* | none | `{needs_setup}` | W2 |
 | POST | `/api/v1/setup` | *public* | `{code, workspace_name, name, email, password}` | 201 `{user}` + a browser-session cookie. Seeds "Getting started". Checked in this order: the per-IP limiter (429), 409 `already_setup`, the code (a wrong one is 401 `invalid_credentials`), then the fields (`email`, `name`, `workspace_name`, `password`; 422) | W2 |
@@ -1243,6 +1284,12 @@ Auth: *public*, *session*, *token*, or the scope a token needs (a session has ev
 | POST | `/api/v1/tokens` | `admin` | `{name, scopes:[Scope], expires_in_days?: 1–3650 \| null, password?}` (omitted: 90; `null`: never) | 201 `{token:"qpat_…", api_token:ApiToken}`; the only response that contains the secret. 422 when the expiry is later than a calling token's (`field: "expires_in_days"`) or 100 live tokens exist (`field: "tokens"`); a scope above the caller's (`field: "scopes"`) can only arise in the store, since the route needs `admin`. A calling token gets 403 `session_required` for `admin` scope. A session must send `password` for an `admin` or never-expiring token (422, `field: "password"`, when missing or wrong) | W2 |
 | DELETE | `/api/v1/tokens/{id}` | `admin` | none | 204; also revokes the tokens it created | W2 |
 | DELETE | `/api/v1/tokens/current` | *token* | none | 204: the calling token revokes itself | W2 |
+| GET | `/api/v1/users` | `admin` | none | `[UserInfo]`: every account, the owner first, then in the order they joined, disabled ones included. The owner and admins only (403 `forbidden` for a member or viewer) | D148 |
+| PATCH | `/api/v1/users/{id}` | `admin` | `{role?: "admin"\|"member"\|"viewer", disabled?: bool}` | `UserInfo`. The rules of D149 (403 `forbidden`): never the owner's account or the caller's own; an admin's, or a new admin, only by the owner. `role: "owner"` is 422 (`field: "role"`). Disabling deletes the account's sessions and revokes its tokens and pending invites at once; an empty body, or what the account already is, changes nothing | D148 |
+| GET / POST | `/api/v1/invites` | `admin` | POST `{role, expires_in_days?: 1–30 (7), note?: ≤ 200 characters}` | `[Invite]`: the pending invites, newest first, never a token / 201 `{invite: Invite, url}`, the only response with the link `<public URL>/invite/<token>`. An admin invite only by the owner (403); 422 for `role` (`owner`), `expires_in_days`, `note`, or `invites` at 100 pending | D148 |
+| DELETE | `/api/v1/invites/{id}` | `admin` | none | 204; 404 unless the invite is pending | D148 |
+| GET | `/api/v1/invites/{id}` | *public* | none (`id` is the token, D150) | `{valid, state, workspace_name, role, expires_at}` for an invite in any state, never its inviter; 404 for any other token, which counts against the IP like a failed bearer authentication (30 per minute, then 429 `auth_failures`) | D148 |
+| POST | `/api/v1/invites/{id}/accept` | *public* | `{name, email, password}` (`id` is the token) | 201 `{user}` + a browser-session cookie, as setup. Checked in this order: the per-IP limiter of login and setup (429), the invite (404 unless pending; the message names used, expired or revoked), the fields (`email`, `name`, `password`; 422), a taken email (409 `conflict`, `field: "email"`) | D148 |
 | GET / PATCH | `/api/v1/workspace` | `read` / `admin` | `{name?, logo_attachment_id?: string\|null}` | `{name, logo_url}`. The logo must be an existing PNG, JPEG, GIF, WebP or AVIF attachment (422, `field: "logo_attachment_id"`) | W2 |
 | GET | `/api/v1/sidebar` | `read` | none | `{collections:[Collection], stars:[ItemSummary], drafts_count}` | W1 |
 | GET / POST | `/api/v1/collections` | `read` / `write` | POST `{name, icon?, color?, description?, position?}` | `[Collection]` / 201 `Collection` | W1 |
@@ -1326,8 +1373,9 @@ Reserved and not implemented in M1: `/api/v1/items/{id}/revisions*`, `/api/v1/bl
   `wikanvas auth logout --revoke`) or `wikanvas admin revoke-token`; revoking a token also revokes the tokens it
   created. It takes effect on the next request, because lookups are never cached. A password change revokes sessions,
   not tokens (separate credentials); `wikanvas admin reset-password --revoke-tokens` and
-  `wikanvas admin revoke-token --all --yes` are the switches for a compromise. Deleting or disabling a user (later) ends
-  their tokens (FK cascade, `disabled_at` check).
+  `wikanvas admin revoke-token --all --yes` are the switches for a compromise. Disabling a user (`PATCH /users/{id}`,
+  `admin disable-user`, D149) revokes their tokens and deletes their sessions in the same transaction (lookups also
+  refuse a disabled user); deleting a user (later) ends them by FK cascade.
 - **Rate limits** (D47): keyed governor limiters per token, `WIKANVAS_TOKEN_RATE` requests per minute (default 600,
   burst 120) and `WIKANVAS_TOKEN_BYTES_PER_HOUR` of body (default 1 GiB); over either, 429 `rate_limited` with
   `Retry-After`. Bearer authentication failures count per IP (30 per minute). Over that, a token that fails lookup gets
@@ -1340,7 +1388,8 @@ Reserved and not implemented in M1: `/api/v1/items/{id}/revisions*`, `/api/v1/bl
 - **What each scope covers** (the Auth column of §7.2): `read`, every GET except token and session management and
   export; `write`,
   content and structure (create, edit, move, publish, archive, trash, restore, stars, uploads); `admin`, permanent
-  deletion (Trash purge), workspace and account settings, sessions, tokens, export and backup. Password change and
+  deletion (Trash purge), workspace and account settings, accounts and invites (`/users`, `/invites`), sessions,
+  tokens, export and backup. Password change and
   logout are session-only.
 
 ### 7.4 OpenAPI spec (`wikanvas-server::openapi`, D41)
@@ -1374,7 +1423,8 @@ Reserved and not implemented in M1: `/api/v1/items/{id}/revisions*`, `/api/v1/bl
     one scope below the declared one, 403 `insufficient_scope`; on session-only routes, any token gets 403
     `session_required`; on token-only routes, a session gets 403 `forbidden`;
   - `security::public_operations_are_exactly` fails unless the operations with security `[]` are exactly
-    `GET /config`, `GET /openapi.json`, `GET /setup`, `POST /setup` and `POST /auth/login`;
+    `GET /config`, `GET /openapi.json`, `GET /setup`, `POST /setup`, `POST /auth/login`, `GET /invites/{id}` and
+    `POST /invites/{id}/accept` (D150);
   - `roles::every_operation_checks_the_role` calls every operation with the session of the owner, an `admin`, a
     `member` and a `viewer` (inserted beside the owner; each role in its own app, on fixtures the owner made), with
     real ids and bodies that would change something: an allowed call must succeed (2xx), a refused one must be 403
@@ -1497,6 +1547,8 @@ references the file as `![alt](/api/v1/attachments/<id>)` in Markdown or as `ima
   | `me update [--name N] [--email E] [--theme light\|dark\|system]` | `PATCH /auth/me` (`--email` needs a session: exit 6 with a token) | `{user}` |
   | `session list` · `session revoke (<id> \| --others)` | `/auth/sessions` | the list · ok |
   | `token list` · `token create --name N --scope read\|write\|admin [--expires 30d\|never] [--token-out F]` · `token revoke <id>` | `/tokens` | `[ApiToken]` · `{token, api_token}`, or with `--token-out` (F written 0600) `{token_file, api_token}` · ok |
+  | `user list` · `user set-role <user> --role admin\|member\|viewer` · `user disable <user>` · `user enable <user>` | `GET /users`, `PATCH /users/{id}`; `<user>` is an id, or an email looked up in `GET /users` ignoring ASCII case (none: exit 7) | `[UserInfo]` · `UserInfo` |
+  | `invite create --role admin\|member\|viewer [--expires 7d] [--note T] [--url-out F]` · `invite list` · `invite revoke <id>` | `/invites`; `--expires` is `<n>d`, 1–30 (exit 2 otherwise). Without `--json`, `invite create` prints only the link | `{invite, url}`, or with `--url-out` (F written 0600) `{url_file, invite}` · `[Invite]` · ok |
   | `config show` · `config path` | local. The sources are named by flag or variable: `url_source` is `--url`, `WIKANVAS_URL`, `profile` or `WIKANVAS_LISTEN`; `token_source` is `--token-stdin`, `--token-file`, `WIKANVAS_TOKEN`, `WIKANVAS_TOKEN_FILE` or `profile` | `{profile, url, url_source, token_source, token_prefix}` · `{path}` |
   | `workspace get` · `workspace set [--name N] [--logo <attachment> \| --no-logo]` · `sidebar` | `/workspace`, `/sidebar` | the body |
   | `collection list` · `get <c>` · `create --name N [--description D] [--icon I] [--color '#RRGGBB'] [position]` · `update <c> [--name N] [--description D] [--icon I] [--color C] [--sort manual\|title\|updated\|created]` · `move <c> position` · `delete <c>` · `restore <c>` · `updated <c>` | `/collections…` | the body |
@@ -1533,7 +1585,8 @@ references the file as `![alt](/api/v1/attachments/<id>)` in Markdown or as `ima
     none gives exit 3.
 - **Coverage.** Every operation of the spec has a command, except this allow-list of web-only operations, which stay
   reachable through `api`: `GET`/`POST /setup`, `POST /auth/login`, `POST /auth/logout`, `POST /auth/password`,
-  `POST /items/{id}/view`, `GET …/doc` and `POST …/doc/updates`; and two that need no command of their own,
+  `POST /items/{id}/view`, `GET …/doc`, `POST …/doc/updates`, and the invite page's `GET /invites/{id}` and
+  `POST /invites/{id}/accept` (accepting signs a browser in, D150); and two that need no command of their own,
   `GET /openapi.json` (the spec itself) and `GET /items/{id}/board.inkboard` (the browser download; `board get` reads
   the same content). A test checks the spec against the clap tree and this list.
 
@@ -1600,8 +1653,11 @@ prints secrets only to stdout or `--token-out`, never to the log. The CLI's `wik
 |---|---|
 | `create-owner --email E --name N --workspace W (--password-stdin \| --generate-password) [--no-seed]` | The `POST /setup` transaction without the setup code: creates the owner and the workspace settings and seeds "Getting started" (unless `--no-seed`). A generated password is printed once and sets `must_change_password`. Exit 8 when an owner exists. Exit 3 (code `conflict`), creating nothing, while no owner exists and `/data/files` holds any regular file (D144) |
 | `create-token --name N --scope read\|write\|admin [--expires 90d\|never] [--email E] [--token-out F]` | Creates a token for the owner (or for E) with `created_via = 'admin'` and prints it once (`--json`: `{token, api_token}`; with `--token-out` the token goes to F, written 0600, and stdout has `{token_file, api_token}`) |
-| `list-tokens` · `revoke-token (<id> \| --all --yes)` | As the API, without HTTP |
+| `list-tokens [--email E]` · `revoke-token (<id> \| --all --yes) [--email E]` | As the API, without HTTP, for the owner (or for E) |
 | `reset-password --email E [--revoke-tokens]` | D35; `--revoke-tokens` also revokes every API token of that user |
+| `list-users` | Every account, as `GET /users` |
+| `create-user --email E --name N --role admin\|member\|viewer (--password-stdin \| --generate-password)` | An account beside the owner, the way besides an invite (D148); the password as `create-owner` takes it (a generated one is printed once and sets `must_change_password`). Needs an owner (exit 8, `setup_required`); a taken email is exit 8 (`conflict`) |
+| `set-role --email E --role admin\|member\|viewer` · `disable-user --email E` · `enable-user --email E` | As `PATCH /users/{id}`, under the rules of D149 with the operator's authority: the owner's role never changes and the owner is never disabled (exit 6, `forbidden`); disabling ends the account's sessions, tokens and pending invites at once |
 | `backup [--out PATH]` | `VACUUM INTO` on the maintenance connection, then `quick_check` (§12) |
 | `check` | §5 |
 
@@ -1613,8 +1669,12 @@ With `--json` the result is one JSON document on stdout; an error is one stderr 
 - `create-token`: `{token, api_token}`, or `{token_file, api_token}` with `--token-out`. `--expires` is `<n>d` (1–3650)
   or `never`, 90 days by default; an unknown `--email` exits 7, no owner exits 8. Without `--json` stdout holds only the
   token.
-- `list-tokens`: `[ApiToken]`. `revoke-token`: `{revoked}`; an id that is not a UUID is 404 (exit 7).
+- `list-tokens`: `[ApiToken]`. `revoke-token`: `{revoked}`; an id that is not a UUID is 404 (exit 7). An unknown
+  `--email` exits 7.
 - `reset-password`: `{user, password, sessions_revoked, tokens_revoked}`.
+- `list-users`: `[UserInfo]`. `create-user`: `{user: UserInfo, generated_password}` (`null` with `--password-stdin`).
+  `set-role`, `enable-user`: `{user: UserInfo}`. `disable-user`: `{user, sessions_revoked, tokens_revoked,
+  invites_revoked}`. An unknown `--email` exits 7.
 - `backup`: `{path, size}` (`BackupResult`). `--out` refuses an existing file (exit 10); a backup already running, in
   this or another process, is 429 `busy` (exit 11).
 - `check`: `{ok, quick_check, foreign_key_violations, cycles, fts, missing_blobs}`; when something is wrong it exits 1,
@@ -1671,6 +1731,26 @@ From the host: `docker compose exec wikanvas wikanvas admin create-token --name 
   - The limiters run on one injectable clock, so tests need no sleeps. `Retry-After` is in whole seconds, at least 1.
     A request without a peer address (an in-process transport) is keyed as `0.0.0.0`: such requests fail closed and
     share one budget.
+- **Accounts and invites** (D148–D151). There is no sign-up: the owner or an admin makes an invite link in Settings →
+  Members (`POST /invites`, the owner alone for an admin), and the person opens `<public URL>/invite/<token>`, a page
+  outside the shell like setup and sign-in.
+  - The token is `qinv_` + 40 base62 random characters + a 6-character CRC32, drawn like an API token (D42); only its
+    sha256 is stored, and the create response is the one place the link appears. An invite works once, for 1–30 days
+    (7 by default), and can be revoked.
+  - `POST /invites/{id}/accept` (the `id` is the token) counts against the per-IP login and setup limiter, passes the
+    CSRF and Host rules below like any cookie mutation, checks the invite, then the fields with setup's rules (a valid
+    email, a name of 1–200 characters, a password of 12–1024 bytes), hashes the password, and in one writer
+    transaction creates the user with the invite's role and marks the invite used; then it signs the user in with a
+    browser-session cookie, as setup does. `GET /invites/{id}` tells the page the invite's state, the workspace name,
+    the role and the expiry, never who made it; a token that no invite has counts against the client IP like a failed
+    bearer authentication.
+  - The account rules (D149): the owner's role never changes and the owner cannot be disabled; nobody changes their
+    own role or disables themselves; only the owner makes, changes, disables or invites an admin; admins manage
+    members, viewers and invites. Disabling deletes the account's sessions and revokes its tokens and the invites it
+    made at once, so its next request is 401; login refuses it, and enabling it lets it sign in again (what was
+    revoked stays revoked). The role is read on every request (§7.3), so a role change applies to the next one.
+  - Roles are workspace-wide until per-collection permissions (docs/multi-user.md phase 3): every member and viewer
+    sees every collection, its items, attachments, search results and titles.
 - **Client address and scheme** (`wikanvas-server::config` parses `WIKANVAS_TRUSTED_PROXIES`: comma-separated IPs or
   CIDRs). Wikanvas has no TLS of its own (D29); Caddy terminates it (D57).
   - The client IP is the socket peer, and the request counts as plain HTTP, unless the peer is in
@@ -1733,24 +1813,27 @@ From the host: `docker compose exec wikanvas wikanvas admin create-token --name 
   `X-Request-Id`, `Wikanvas-Api-Version` and `Wikanvas-Conversion-Warnings`, uses `max-age` 600, and never sends
   `Access-Control-Allow-Credentials`. An allowed origin is not trusted by the CSRF check: cross-origin cookie requests
   stay rejected.
-- **Rate limits.** Login and setup as above; per token (requests and body bytes) and per IP for failed bearer
-  authentications (D47, §7.3).
+- **Rate limits.** Login, setup and accepting an invite share the per-IP limit above, login also the per-email one;
+  per token (requests and body bytes) and per IP for failed bearer authentications and unknown invite tokens (D47,
+  §7.3, D150).
 - **Authorization seam.** Every handler takes `Auth<S>` as its first extractor (D44), which yields the `Actor`, and calls
   `authz::require(&actor, Action, Resource)` right after it, before it reads a body or touches the database. Every
   handler with credentials does so, including the lists, the tree and search (on the workspace, or on the collection
   the call is limited to), so a refused call is 403 `forbidden` and changes nothing. The token's scope and the
   account's role are separate layers and a request needs both; a session has every scope, so for a session the role is
-  the only limit. The rule: the owner and `admin` may do everything, `member` reads and writes, `viewer` reads (M1 has
-  only the owner); the caller's own account (`Resource::OwnAccount`) is open to every role. The action per route group:
+  the only limit. The rule: the owner and `admin` may do everything, `member` reads and writes, `viewer` reads; the
+  caller's own account (`Resource::OwnAccount`) is open to every role. Which accounts an admin may change is the
+  store's (D149), since it needs the target's role. The action per route group:
 
   | Action | Routes |
   |---|---|
   | Read | Every GET of content and structure: items with `…/text` and `…/children`, documents, boards and their pages, attachments, collections, the tree, the sidebar, the lists, `GET /trash`, search, `GET /workspace`, `GET /schema/doc`. Also `PUT`/`DELETE /items/{id}/star` and `POST /items/{id}/view`, which change only the caller's own stars and views |
   | Write | Creating, editing, moving (also `Write` on the target collection when `collection_id` is sent), duplicating, publishing and unpublishing, archiving and unarchiving, trashing and restoring items and collections, with `DELETE /items/{id}?discard_empty=true`; document and board content; uploads (on the `item_id` item, otherwise the workspace) |
-  | Admin | Purging (`DELETE /trash/items/{id}`, `/trash/collections/{id}` and `/trash`), `PATCH /workspace`, `GET /export`, `POST /admin/backup`; other users' tokens once a route can reach them |
+  | Admin | Purging (`DELETE /trash/items/{id}`, `/trash/collections/{id}` and `/trash`), `PATCH /workspace`, `GET /export`, `POST /admin/backup`, `GET /users`, `PATCH /users/{id}` (`Resource::User`), `GET`/`POST /invites`, `DELETE /invites/{id}` (`Resource::Invite`); other users' tokens once a route can reach them |
   | Read or Write on `OwnAccount` (every role) | `/auth/me`, `/auth/password`, `/auth/logout`, `/auth/sessions…`, `/tokens…`: the store scopes each one to the caller's `user_id` |
 
-  The public routes (`/config`, `/openapi.json`, `/setup`, `/auth/login`) have no actor.
+  The public routes (`/config`, `/openapi.json`, `/setup`, `/auth/login`, `GET /invites/{id}`,
+  `POST /invites/{id}/accept`) have no actor.
   `roles::every_operation_checks_the_role` (§7.4) holds every operation to this table. List-shaped store functions also
   take a `Viewer` and go through `shared::visible_items` (§5), which is where per-item visibility will go. Store
   functions take `actor_id`; content writes take `WriteBy{user_id, token_id}` (D53). Once per-item permissions exist,
@@ -1785,10 +1868,10 @@ From the host: `docker compose exec wikanvas wikanvas admin create-token --name 
 
 | Path | Component (owner) |
 |---|---|
-| `/setup`, `/login` | `pages/Setup`, `pages/Login` (W3). These sit outside `AuthGate`. |
+| `/setup`, `/login`, `/invite/:token` | `pages/Setup`, `pages/Login` (W3), `pages/Invite` (D148). These sit outside `AuthGate`. |
 | `/` → redirect to `/home` | |
 | `/home`, `/search`, `/starred`, `/archive`, `/trash` | `pages/*` (W3). No `/drafts` page in M1 (D23): the path falls through to `NotFound` |
-| `/settings/:section` (`account`, `appearance`, `workspace`, `tokens`, `data` or `about`) | `pages/Settings` (W3) |
+| `/settings/:section` (`account`, `appearance`, `workspace`, `members`, `tokens`, `data` or `about`) | `pages/Settings` (W3); `members` is listed for the owner and admins only (D148) |
 | `/collection/:slugId` | `pages/Collection` (W3) |
 | `/item/:id` (a UUID) | `pages/ItemRedirect`: loads the item and replaces the URL with its `/doc/…` or `/board/…` page (Back skips it); unknown is `NotFound`. The DOM `href` of a document's item links (§9.6.5) |
 | `/doc/:slugId` | `pages/DocPage` (W4), lazily imported |
@@ -1816,8 +1899,9 @@ How the pieces behave:
 
 - **Server state:** TanStack Query. The keys are `['me']`, `['config']`, `['sidebar']`, `['tree', collectionId]`,
   `['item', id]`, `['children', id]`, `['list', 'recent'|'updated'|'starred'|'archive'|'trash']`,
-  `['search', params]`, `['titles', q]` and `['tokens']`. A newly created token's secret is never put in the query
-  cache: it lives only in the dialog's component state until the dialog closes.
+  `['search', params]`, `['titles', q]`, `['tokens']`, `['users']`, `['invites']` and `['invite', token]` (the invite
+  page). A newly created token's secret, and a new invite's link, are never put in the query cache: each lives only
+  in its dialog's component state until the dialog closes.
   - Mutations (create, move, rename, star, trash) update `['tree']`, `['sidebar']` and `['item']`
     optimistically and roll back on error. Every mutation response replaces the affected rows with the server's rows,
     which carry the server `sort_key`.
@@ -2146,9 +2230,11 @@ shortcuts dialog. (Mod+Shift+P, publish or unpublish, comes back with the draft 
   per opened item (`useRecordView`, fire and forget), the only source of `/recent`; the quick switcher's empty state
   shows the same list. Search: query box, filters (collection, kind, updated after,
   include archived; no drafts filter, the API default `include_drafts=true` applies, D23), sort, results with path and
-  marked snippets. Starred, Archive: lists with path. Trash: roots with "+N nested", purge date, Restore and Delete forever (confirmation shows the count).
+  marked snippets. Starred, Archive: lists with path. Trash: roots with "+N nested", purge date, Restore and Delete forever (confirmation shows the count);
+  a member or viewer sees no Delete forever and no Empty Trash, only "Only the owner and admins can delete them
+  sooner" (purging is `Action::Admin`, §8).
   Settings: Account (name, email, password, sessions; `?force=1` puts the password form first), Appearance (theme),
-  Workspace (name, logo), API tokens, Data (Export as a plain `<a download>` of `/api/v1/export`, "Back up now", the
+  Workspace (name, logo), Members (the owner and admins, below), API tokens, Data (Export as a plain `<a download>` of `/api/v1/export`, "Back up now", the
   backup note), About (version, commit, API version, engine version, and the licences: the generated `/licenses.txt`,
   shown on demand, §13.2, and links to the engine's `THIRD_PARTY_LICENSES.md` and `ICONS-LICENSES.txt` under
   `config.inkboard.base`). Collection: description, sort, the top-level items.
@@ -2163,6 +2249,24 @@ shortcuts dialog. (Mod+Shift+P, publish or unpublish, comes back with the draft 
   in a monospace field with Copy and the line "You won't see this token again"; closing it drops the secret. A short
   note under the list shows how to use a token with the CLI without putting it in argv or shell history:
   `wikanvas auth login --url <public URL> --token-stdin`, then paste the token and press Ctrl-D (§7.6).
+- Settings → Members (D148), in the navigation for the owner and admins only (anyone else who opens it reads "Only
+  the owner and admins manage the workspace's members."): "People", a table of name (with "(you)" and a "Disabled"
+  chip), email, role and when they joined, and a note that everyone sees every collection until access per collection
+  arrives. The role is a select where the caller may change it (the owner: admin, member or viewer for anyone but
+  the owner and themselves; an admin: member or viewer for members and viewers), else plain text; the same rows have
+  Disable (a confirmation that names the email and says sessions, tokens and invites end at once) or Enable. "Invite
+  people" opens a dialog: the role (Member by default, Viewer, and Admin for the owner, with one line each), "Link
+  expires after" (1, 7 (default), 14 or 30 days) and an optional note; "Create link" shows the link once in a
+  monospace field with Copy and "You won't see it again"; closing the dialog drops it. "Pending invites" lists role,
+  note, inviter and expiry, with Revoke (a confirmation).
+- The invite page `/invite/<token>` (D148), in the setup and sign-in card: while `GET /invites/{token}` loads,
+  "Checking the invite link…"; for a pending invite the heading "Join <workspace>", "You are invited to <workspace>
+  as a member" (or an admin, a viewer), and Your name, Email, Password and Repeat the password (12 bytes at least,
+  checked before sending, as setup); "Join <workspace>" accepts, refetches as after a sign-in and goes to Home. A used,
+  expired or revoked invite, an unknown token, or an accept that answers 404 shows "This invite was used", "This
+  invite has expired", "This invite was revoked" or "This invite link is not valid", with a line on what to do and a
+  Sign in button; a taken email is the inline "Another account has this email. Sign in instead, or use another
+  address."
 
 #### 9.6.7 "Getting started" seed (W4 writes the text, original English)
 
@@ -2484,13 +2588,19 @@ One tokio task per job, each using the writer through `Db`:
   that was dropped (the client left) keeps the flag until its copy is done.
 - **Pre-migration backup:** if migrations are pending at startup, `migrate` calls `backup::pre_migration`, which runs
   `VACUUM INTO '/data/backups/pre-migrate-v{N}-{ts}.db'` on the maintenance connection; then it migrates in one
-  transaction and runs `foreign_key_check`.
+  transaction and runs `foreign_key_check`. A new database (version 0) is migrated without one. Migration 0002
+  (invites, D148) is the first that an existing wiki meets: the first start of an image with it (`serve`, or any
+  `wikanvas-server admin` command, which open the database the same way) writes `pre-migrate-v1-<ts>.db` and then
+  raises `user_version` to 2, after which an older image refuses the database (D151); going back means stopping, putting
+  that backup in place as `wikanvas.db` (deleting `-wal` and `-shm`) and starting the older image. Pre-migration backups
+  are not counted against `WIKANVAS_BACKUP_KEEP`. A store test runs it on a version-1 database.
 - **Export** (on request, single-flight, after the free-space check): `VACUUM INTO '/data/tmp/export-….db'` on the
   maintenance connection (never `/tmp`, which is a 32 MB tmpfs). Then open the copy on its own connection, not through
   the §5 PRAGMA path, with `journal_mode=DELETE` and `secure_delete=ON`; run `DELETE FROM sessions; DELETE FROM
-  api_token_scopes; DELETE FROM api_tokens; UPDATE users SET password_hash = NULL;`, and delete the `sqlite_stat1` and
-  `sqlite_stat4` rows of `sessions`, `api_tokens`, `api_token_scopes` and `users` (`PRAGMA optimize` samples their index
-  keys, token and session hashes among them, into those tables); close it, so no `-wal` or `-journal` file remains next
+  api_token_scopes; DELETE FROM api_tokens; DELETE FROM invites; UPDATE users SET password_hash = NULL;` (a pending
+  invite is a way in, D151), and delete the `sqlite_stat1` and `sqlite_stat4` rows of `sessions`, `api_tokens`,
+  `api_token_scopes`, `invites` and `users` (`PRAGMA optimize` samples their index keys, token, session and invite
+  hashes among them, into those tables); close it, so no `-wal` or `-journal` file remains next
   to it. Then `VACUUM INTO` a second `/data/tmp/export-….db` from that scrubbed copy, delete the first copy and check
   that the new file is in `DELETE` journal mode: `secure_delete` zeroes the deleted cells, but the first `VACUUM INTO`
   builds its b-trees without clearing unused page space, where older copies of deleted rows (stat4 samples of token
@@ -2502,7 +2612,7 @@ One tokio task per job, each using the writer through `Db`:
   so it is released when the stream ends or the client goes away, and a request dropped during the copy keeps the
   flag until the copy is done and deleted.
 - **Optimize:** `PRAGMA optimize` every hour. Expired sessions are deleted at the same time, and so are API tokens 30
-  days after they were revoked or expired (§5); the keyed rate limiters and the token last-use map drop idle keys
+  days after they were revoked or expired (§5), and revoked invites and expired ones nobody used, 30 days on (D151); the keyed rate limiters and the token last-use map drop idle keys
   (`retain_recent`).
 
 ---
@@ -3220,7 +3330,7 @@ with push protection, CodeQL default setup, and private vulnerability reporting 
 |---|---|
 | Live doc co-editing | Yjs log in `doc_updates` with a `user_id` per update, and `doc_clients` for attribution after compaction. Later: `GET /api/v1/items/{id}/doc/ws` speaking y-protocols sync and awareness (yrs `sync`), one room per open doc evicted after 60 s idle (the room is also the doc cache that replaces `doc_work` loads), the same persistence and compaction, the server-seeded `Y.Text('title')`, and an explicit Host and Origin check on the upgrade (the CSRF middleware does not cover GET). Caddy's `reverse_proxy` passes WebSocket upgrades through as they are (D57). Client: y-websocket 3.1.0 and CollaborationCaret. |
 | Server-owned board sync | `board_state` + `board_assets` = Sequencer snapshot + asset manifest; `seq` column. Needs upstream patches: a headless session host extracted from `session_host.rs`, `Sequencer::with_seq`, a browser WebSocket `Connection` (`ws-transport` feature), and trusted-server mode without link E2E. Log budgets use the existing `Sequencer::set_budgets`. Server and wasm come from the same submodule pin, and `scripts/check-pins.sh` keeps the shared crate versions equal (exact protocol match). |
-| Multi-user, roles, invites | `users.role` lookup table, `created_by`/`updated_by`, per-user stars and views, the draft state with derived visibility and its API (publish, unpublish, `/drafts`, `drafts_count`, `include_drafts`; D23), so draft-first creation and the Drafts UI become a default change plus UI behind `config.multi_user`, the `Actor` + `authz::require` seam, `Viewer` + `shared::visible_items` on every list query, the per-viewer `viewer_epoch` in the tree ETag, attachment authorization through `item_attachments`, and the `multiUser` capability flag hiding avatars, Share, Invite and "Viewed by N". Later tables: `groups`, `collection_members`, `item_permissions`, `invites`, `shares`. |
+| Multi-user, roles, invites | `users.role` lookup table, `created_by`/`updated_by`, per-user stars and views, the draft state with derived visibility and its API (publish, unpublish, `/drafts`, `drafts_count`, `include_drafts`; D23), so draft-first creation and the Drafts UI become a default change plus UI behind `config.multi_user`, the `Actor` + `authz::require` seam, `Viewer` + `shared::visible_items` on every list query, the per-viewer `viewer_epoch` in the tree ETag, attachment authorization through `item_attachments`, and the `multiUser` capability flag hiding avatars, Share, Invite and "Viewed by N". Accounts and invite links exist (D148–D151: `invites`, `/users`, `/invites`, Settings → Members, `config.multi_user` derived); roles are workspace-wide, so every member and viewer sees every collection. Later (docs/multi-user.md phases 3 and 4): `collection_members` with read, write and manage, a viewer-aware `visible_items`, title lookups and attachments, then `groups`, `item_permissions`, `shares`, drafts private to their author and the client caches keyed by user. |
 | OIDC/SSO | `users.password_hash` is nullable. Later: an `identities(user_id, issuer, subject)` table. Sessions are unchanged. |
 | Version history UI | `revisions` is written from M1, with format and GC roots; restore is defined in §6.1. |
 | Backlinks | `item_links` is maintained from M1; from M1.1 it also holds board → document embeds (§18.8). |
@@ -4620,7 +4730,7 @@ until the cutover (§19.13), because the React client keeps running beside the e
 | D140 | **The app's shortcuts suppress the browser's own action for the same keys.** `wikanvas-web` installs one capture-phase `keydown` listener (web-sys) that calls `preventDefault` for exactly the chords of the app's shortcut table (`wikanvas_app::hotkeys::TABLE`, the keymap's one source), never for Mod+C, Mod+X, Mod+V or reload. eframe 0.37 suppresses only Mod with `,` `O` `P` `S`, and Space, Tab, Backspace and the arrows (`src/web/events.rs:237-279`), so Mod+K, Mod+F, Mod+U, Mod+E and Mod+Shift+B would also run the browser's search, find bar, view-source and bookmarks-bar actions (https://support.google.com/chrome/answer/157179). Mod+P opens the read view of the current item in a new tab (web) or runs "Print" (desktop). A key-event hook is offered to eframe upstream | `WebOptions::should_prevent_default` (eframe consults it for text, clipboard and wheel events but not for `Key` events, whose default it decides alone, `events.rs:165-171`, `:214`); leaving the browser's actions (Mod+K and Mod+F move the focus out of the page) |
 | D141 | **App assets are served under `/app/{build}/`** (`boot.js`, `wikanvas_web.js`, `wikanvas_web_bg.wasm`, `icons.bin`, the licence files; `{build}` hashes the dist, as `/inkboard/{build}/` does today), immutable for a year; every app path's `index.html` is `no-cache`; another `{build}` answers 404 | Fixed names with an immutable cache (an upgraded server keeps serving the old client from the browser cache, and "Reload", P-010, reloads the old build) |
 | D142 | **What keeps its name in M2: everything D100 named, except the CLI's binary (D127).** `compose.yaml` keeps `name: wikanvas`, the service `wikanvas`, the volumes `wikanvas-data`, `caddy-data` and `caddy-config`, and its `WIKANVAS_*` variables, because the owner's live wiki runs from that file and its `.env` (`compose.yaml:1`, `:3`, `:30`, `:78-81`): renaming the project, service or volume would start the next `docker compose up` on empty volumes and a new local CA. The container's environment keys stay `WIKANVAS_*` too. The build infrastructure keeps its internal names: the lock `~/.cache/wikanvas/build.lock`, `WIKANVAS_BUILD_*`, `WIKANVAS_LOCK_HELD`, `WIKANVAS_SHARED_CARGO_HOME`, `WIKANVAS_DEV_*`, the image `wikanvas-toolchain`, the builder `wikanvas-limited` and `wikanvas-buildkit`, the slices `wikanvas.slice` and `wikanvas-build.slice` (`scripts/lib/lock.sh:21`, `scripts/toolchain.sh:126`, `scripts/install-build-slice.sh:2-9`). The export tar's database entry stays `wikanvas.db` (agent scenario 09, smoke step 13 and the API test assert it, `e2e/agent/scenarios/09-export.sh:9`, `crates/wikanvas-server/tests/api/export.rs:80`) | Renaming any of them in M2 (worktrees on the old scripts would take a different lock, so two builds would run at once; the slice rename needs the privileged install step; the owner's wiki would move to new volumes) |
-| D143 | **No schema change in M2.** The store keeps `PRAGMA user_version` at 1, so an M1 image can still open a database an M2 build used (§19.13 "Rollback"). The desktop's agent token is an ordinary `api_tokens` row with `created_via = 'admin'` (a local process with direct database access, as `wikanvas admin` is), named "Wikanvas Desktop: agents", whose id is kept in the `settings` key `desktop.agent_token_id`; a workspace `language`, if the owner wants it, is the `settings` key `workspace.language` (the table is key-value, `crates/wikanvas-store/migrations/0001-init/up.sql:1`) | Migration 0002 widening the `created_via` `CHECK` with `desktop` (a table rebuild that raises the schema version, after which the M1 binary refuses the database, `crates/wikanvas-store/src/migrate.rs:53-60`, so a rollback would need the pre-migrate backup) |
+| D143 | **No schema change in M2.** The store keeps `PRAGMA user_version` at 2, the schema of migration 0002 (accounts and invites, D148, which landed before M2 by the owner's answer to docs/multi-user.md question 1), so an M1 image of that schema can still open a database an M2 build used (§19.13 "Rollback"). The desktop's agent token is an ordinary `api_tokens` row with `created_via = 'admin'` (a local process with direct database access, as `wikanvas admin` is), named "Wikanvas Desktop: agents", whose id is kept in the `settings` key `desktop.agent_token_id`; a workspace `language`, if the owner wants it, is the `settings` key `workspace.language` (the table is key-value, `crates/wikanvas-store/migrations/0001-init/up.sql:1`) | Migration 0002 widening the `created_via` `CHECK` with `desktop` (a table rebuild that raises the schema version, after which the M1 binary refuses the database, `crates/wikanvas-store/src/migrate.rs:53-60`, so a rollback would need the pre-migrate backup) |
 
 Where the six research reports disagreed:
 
@@ -5590,7 +5700,7 @@ cutover (D142), so the same file runs the M1 and the M2 image.
 #### Rollback of the live wiki
 
 M2 changes no schema (D143) and renames no database file (D127), so the M1 image can open a database an M2 build has
-served. Steps, for the owner (R16: only the owner runs compose against the live wiki):
+served, as long as it is an image with migration 0002 (D148): one from before it refuses the database (§12). Steps, for the owner (R16: only the owner runs compose against the live wiki):
 1. Before switching to an M2 image: "Back up now" in Settings (or `admin backup`), and note the running image's tag
    (`docker compose ps --format '{{.Image}}'`).
 2. Switch: set `WIKANVAS_IMAGE=wikanvas:<commit>` in `.env`, then `docker compose up -d`.
@@ -5601,7 +5711,7 @@ served. Steps, for the owner (R16: only the owner runs compose against the live 
 4. If the M1 image refuses the database anyway (a schema version above its own,
    `crates/wikanvas-store/src/migrate.rs:53-60`, which M2 should never cause), stop it, copy the step 1 backup over
    `/data/wikanvas.db`, delete `-wal` and `-shm` (§13.3), and start it.
-A store test asserts that an M2 run leaves `PRAGMA user_version` at 1.
+A store test asserts that an M2 run leaves `PRAGMA user_version` at 2 (migration 0002, D148, came before M2).
 
 ### 19.14 Risks and mitigations
 

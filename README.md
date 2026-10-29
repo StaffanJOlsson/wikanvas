@@ -80,7 +80,15 @@ resource-capped containers (see [Building](#building-and-the-build-caps)).
    ```
 
 Upgrading is `git pull`, `git submodule update`, `scripts/image.sh` and `docker compose up -d`. The server migrates
-the database at startup and writes a pre-migration backup first (§12).
+the database at startup and writes a pre-migration backup first (§12). The accounts release (migration 0002, D148)
+raises the schema to version 2: its first start writes `/data/backups/pre-migrate-v1-<time>.db`, and an older image
+then refuses the database, so going back means putting that backup in place as `wikanvas.db`.
+
+**Inviting people.** There is no sign-up: the owner or an admin opens Settings → Members, chooses "Invite people"
+(a role, admin only for the owner, and how long the link works, 7 days by default), and sends the link
+(`https://<your domain>/invite/<token>`), which works once. The person picks a name, an email and a password and is
+signed in. Members read and write every collection, viewers read every collection, admins also manage members,
+invites, the workspace and the trash; until access per collection arrives, everyone sees every collection.
 
 ## Configuration
 
@@ -346,15 +354,23 @@ through the CLI in the container (`--json` gives machine-readable output; exit c
 docker compose exec wikanvas wikanvas admin reset-password --email you@example.org    # prints a temporary password
 docker compose exec wikanvas wikanvas admin create-owner --email … --name … --workspace … --generate-password
 docker compose exec -T wikanvas wikanvas admin create-token --name ci --scope write --expires 1d > ci.token
-docker compose exec wikanvas wikanvas admin list-tokens
-docker compose exec wikanvas wikanvas admin revoke-token <id>                       # and the tokens it created
+docker compose exec wikanvas wikanvas admin list-tokens [--email E]                 # the owner's, or E's
+docker compose exec wikanvas wikanvas admin revoke-token <id> [--email E]           # and the tokens it created
+docker compose exec wikanvas wikanvas admin list-users
+docker compose exec wikanvas wikanvas admin create-user --email … --name … --role member --generate-password
+docker compose exec wikanvas wikanvas admin set-role --email … --role viewer        # admin, member or viewer
+docker compose exec wikanvas wikanvas admin disable-user --email …                  # or enable-user
 docker compose exec wikanvas wikanvas admin backup
 docker compose exec wikanvas wikanvas admin check                                   # integrity, FTS, missing files
 ```
 
 `reset-password` sets a random temporary password, prints it once, requires a new one at the next sign-in and signs out
 every session. `create-token` prints the token once (`--token-out F` writes it to a 0600 file inside the container);
-`--expires` is `<days>d` or `never`, 90 days by default.
+`--expires` is `<days>d` or `never`, 90 days by default. `create-user` makes an admin, member or viewer without an
+invite (the password from stdin with `--password-stdin`, or generated, printed once and changed at the first
+sign-in). `set-role`, `disable-user` and `enable-user` follow the web's rules, except that they may change admins:
+the owner's role never changes and the owner is never disabled, and `disable-user` signs the account out everywhere
+and revokes its tokens and pending invites at once.
 
 **If a password or a token may be compromised:**
 
@@ -375,7 +391,9 @@ routes. Within v1, changes are additive only.
   Create tokens in Settings → API tokens, with `wikanvas token create`, or with `wikanvas admin create-token`. A token
   is shown once; the server keeps only its hash.
 - **Scopes:** `read` (every GET except tokens, sessions and export), `write` (content and structure), `admin`
-  (tokens, sessions, account and workspace settings, permanent deletion, export, backup). A token can create tokens
+  (tokens, sessions, account and workspace settings, accounts and invites, permanent deletion, export, backup). A
+  token is also limited by its account's role: owner and admin everything, member reading and writing, viewer
+  reading. A token can create tokens
   with no broader scope that expire no later than itself, and never an `admin` token.
 - **Spec:** `GET /api/v1/openapi.json` (OpenAPI 3.1); the same file is committed as
   [`docs/api/openapi.json`](docs/api/openapi.json). Documents are readable and writable as Markdown and ProseMirror
