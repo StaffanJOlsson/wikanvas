@@ -1,6 +1,8 @@
 // The COLLECTIONS tree (docs/ARCHITECTURE.md §9.3, §9.6.2, §9.6.3): role=tree over the flat visible-row model
 // (virtualized above 300 rows, D21), with persisted expand state, the current item highlighted and its ancestors
-// expanded, hover menus, inline rename, the ARIA tree keyboard and drag and drop (pragmatic-dnd).
+// expanded, hover menus, inline rename, the ARIA tree keyboard and drag and drop (pragmatic-dnd). The server lists
+// only the collections the caller may read; rename, delete, moves and drops need `write` on the item's collection, and
+// a collection's own menu and reorder need what its row offers (D152, TreeRow).
 import { monitorForElements } from '@atlaskit/pragmatic-drag-and-drop/adapter/element-adapter';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import {
@@ -19,6 +21,7 @@ import type { Collection } from '../../api/gen/Collection';
 import { useItem } from '../../api/queries/items';
 import { useTrees, type TreeData } from '../../api/queries/tree';
 import { hostKeyOf, MAIN_ID } from '../../app/hotkeys';
+import { canManage, canWrite } from '../../lib/access';
 import { collectionPath, itemPath, urlIdFromSlugId } from '../../lib/urls';
 import { expandAll, setExpanded, toggleExpanded, useExpandedIds } from '../../state/expanded';
 import { useCollectionActions } from '../collection/useCollectionActions';
@@ -27,7 +30,7 @@ import { buildTree, type Forest } from '../tree/buildTree';
 import { resolveItemDrop, type DropIndicator, type DropInstruction } from '../tree/drop';
 import { edgeZone } from '../tree/hitZones';
 import { keyboardInstruction } from '../tree/positions';
-import { VIRTUALIZE_ABOVE, visibleRows, type Row } from '../tree/visibleRows';
+import { rowAccess, VIRTUALIZE_ABOVE, visibleRows, type Row } from '../tree/visibleRows';
 import { AutoExpandTimer, autoExpandKey } from './autoExpand';
 import { DRAG_COLLECTION, DRAG_ITEM, TreeRow } from './TreeRow';
 import { TypeAhead, treeKeyAction } from './treeKeyboard';
@@ -191,6 +194,10 @@ export function CollectionsTree({ collections, starredIds, scrollRef, labelledBy
       return;
     }
     const row = rows[action.index]!;
+    // Renaming, deleting and moving change the collection; a collection the caller may only read has no menu either.
+    const writable = canWrite(rowAccess(row));
+    if (!writable && (action.type === 'rename' || action.type === 'delete' || action.type === 'move'
+      || (action.type === 'menu' && row.kind === 'collection'))) return;
     switch (action.type) {
       case 'focus':
         focusRow(row.key);
@@ -261,7 +268,7 @@ export function CollectionsTree({ collections, starredIds, scrollRef, labelledBy
         const resolved = resolveItemDrop({
           rows: rs,
           index,
-          dragged: { id: itemId, collectionId },
+          dragged: { id: itemId, collectionId, writable: source.data.writable !== false },
           forests: fs,
           clientX,
           clientY,
@@ -279,7 +286,8 @@ export function CollectionsTree({ collections, starredIds, scrollRef, labelledBy
         let end = start + 1;
         while (end < rs.length && rs[end]!.kind !== 'collection') end++;
         const crow = rs[start]!;
-        if (crow.kind !== 'collection' || crow.key === draggedId) {
+        const dragged = live.current.collections.find((c) => c.id === draggedId);
+        if (crow.kind !== 'collection' || crow.key === draggedId || !canManage(dragged?.my_access)) {
           pending = null;
           setIndicator(null);
           return;

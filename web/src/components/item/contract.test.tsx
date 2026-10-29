@@ -36,6 +36,8 @@ const detail: ItemDetail = {
     child_order: 'manual',
     item_count: 2,
     updated_at: '2026-10-28T09:00:00.000Z',
+    default_access: 'write',
+    my_access: 'manage',
   },
   breadcrumbs: [{ id: 'parent-1', url_id: 'Pp11Pp11Pp', kind: 'doc', title: 'Handbook' }],
   starred: false,

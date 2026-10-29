@@ -3,6 +3,8 @@
 // .inkboard and SVG), then either BoardSurface over the frame host or the read-only BoardPreview (fallback.ts).
 // M1.1 (§18.6): "Text doc" and "Embed page…" left of the star, when the connected frame has `insertEmbed`; the
 // "Text doc" documents left on no card are discarded when the page leaves the board, before the board's own discard.
+// A board of a collection the caller may only read (D152) opens read-only like a trashed or archived one, under a
+// banner that says so, with a plain title crumb and no "+ Add a page".
 import { FileText, ListTree, Maximize2, Presentation } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
@@ -22,6 +24,7 @@ import { PHONE_QUERY, useMediaQuery } from '../board/theme';
 import { ItemMenu, type ExtraExport } from '../components/item/ItemMenu';
 import { StarToggle } from '../components/item/StarToggle';
 import { TopBar } from '../components/topbar/TopBar';
+import { itemWritable, READ_ONLY_COLLECTION } from '../lib/access';
 import { itemPath, slugify, urlIdFromSlugId } from '../lib/urls';
 import { useCanonicalPath } from '../lib/useCanonicalPath';
 import { flushPending } from '../state/pending';
@@ -121,7 +124,8 @@ export function BoardView({ item }: { item: ItemDetail }) {
     phone: phone && !editorOnPhone,
   });
 
-  const readOnly = item.trashed_at !== null || item.archived_at !== null;
+  const writable = itemWritable(item);
+  const readOnly = item.trashed_at !== null || item.archived_at !== null || !writable;
   const embeds = reason === null && host?.frame?.insertEmbed !== undefined;
   const addDisabled = readOnly || !canAdd;
 
@@ -146,7 +150,7 @@ export function BoardView({ item }: { item: ItemDetail }) {
     <article className="board-page">
       <TopBar
         item={item}
-        titleCrumb="editable"
+        titleCrumb={readOnly ? undefined : 'editable'}
         actions={
           <>
             {embeds && (
@@ -156,12 +160,17 @@ export function BoardView({ item }: { item: ItemDetail }) {
               </>
             )}
             <StarToggle item={item} />
-            <NestedPopover item={item} />
+            <NestedPopover item={item} canAdd={!readOnly} />
             <FocusButton host={host} disabled={reason !== null} />
             <ItemMenu item={item} extraExports={exports} />
           </>
         }
       />
+      {!writable && (
+        <div role="status" className="board-banner board-read-only">
+          {READ_ONLY_COLLECTION}
+        </div>
+      )}
       {reason !== null || host === null ? (
         <BoardPreview
           item={item}
@@ -193,8 +202,8 @@ function FocusButton({ host, disabled }: { host: BoardFrameContext | null; disab
   );
 }
 
-/** Nested: the board's child pages, and "+ Add a page" (a child document). */
-function NestedPopover({ item }: { item: ItemDetail }) {
+/** Nested: the board's child pages, and "+ Add a page" (a child document) when the board can change. */
+function NestedPopover({ item, canAdd }: { item: ItemDetail; canAdd: boolean }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const children = useChildren(item.item.id, open);
@@ -248,19 +257,21 @@ function NestedPopover({ item }: { item: ItemDetail }) {
           ) : (
             <p className="empty">{children.isPending ? 'Loading…' : 'No nested pages'}</p>
           )}
-          <button
-            type="button"
-            className="add-page"
-            disabled={create.isPending}
-            onClick={() =>
-              create.mutate(
-                { collection_id: item.item.collection_id, parent_id: item.item.id, kind: 'doc' },
-                { onSuccess: (c) => void navigate(itemPath(c), { state: { created: true } }) },
-              )
-            }
-          >
-            + Add a page
-          </button>
+          {canAdd && (
+            <button
+              type="button"
+              className="add-page"
+              disabled={create.isPending}
+              onClick={() =>
+                create.mutate(
+                  { collection_id: item.item.collection_id, parent_id: item.item.id, kind: 'doc' },
+                  { onSuccess: (c) => void navigate(itemPath(c), { state: { created: true } }) },
+                )
+              }
+            >
+              + Add a page
+            </button>
+          )}
         </div>
       )}
     </div>

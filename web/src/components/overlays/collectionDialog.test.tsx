@@ -54,7 +54,7 @@ describe('collection dialog', () => {
     });
     await waitFor(() => expect(api.calls('POST', '/collections')).toHaveLength(1));
     expect(api.calls('POST', '/collections')[0]!.body).toEqual({
-      name: 'Plans', description: '', icon: 'rocket', color: '#46A758',
+      name: 'Plans', description: '', icon: 'rocket', color: '#46A758', default_access: 'write',
     } satisfies NewCollection);
     await waitFor(() => expect(router.state.location.pathname).toBe(collectionPath(created)));
     expect(screen.queryByRole('dialog', { name: 'New collection' })).toBeNull();

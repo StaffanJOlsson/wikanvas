@@ -23,6 +23,7 @@ import type { ItemDetail } from '../../api/gen/ItemDetail';
 import { docJsonKey, type CachedDocJson } from '../../api/queries/docs';
 import { fetchItem, itemKey } from '../../api/queries/items';
 import type { DocSession } from '../../editor/docSession';
+import { itemWritable } from '../../lib/access';
 import { setSaveStatus } from '../../state/saveStatus';
 import { toast } from '../../state/toasts';
 import type {
@@ -84,9 +85,9 @@ export interface InsertOptions {
   board?: string;
 }
 
-/** A target a card may be edited for: a live, unarchived document. */
+/** A target a card may be edited for: a live, unarchived document of a collection the caller may change (D152). */
 export function isEditableTarget(d: ItemDetail): boolean {
-  return d.item.kind === 'doc' && d.trashed_at === null && d.archived_at === null;
+  return d.item.kind === 'doc' && d.trashed_at === null && d.archived_at === null && itemWritable(d);
 }
 
 interface Editing {

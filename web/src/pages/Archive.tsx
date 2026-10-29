@@ -1,8 +1,11 @@
-// Archive (docs/ARCHITECTURE.md §9.6.6): archived items with their paths, and Unarchive.
+// Archive (docs/ARCHITECTURE.md §9.6.6): archived items with their paths, and Unarchive where the caller may change
+// the item's collection (D152; until the sidebar answers, the server decides).
+import { useAccessLookup } from '../api/queries/access';
 import { flattenPages, useList } from '../api/queries/lists';
 import { useUnarchiveItem } from '../api/queries/items';
 import { ItemList, LoadMore } from '../components/list/ItemList';
 import { PageHeader } from '../components/topbar/PageHeader';
+import { canWrite } from '../lib/access';
 import { relativeTime } from '../lib/time';
 import { errorToast, toast } from '../state/toasts';
 
@@ -10,6 +13,11 @@ export default function Archive() {
   const list = useList('archive');
   const unarchive = useUnarchiveItem().mutateAsync;
   const items = flattenPages(list.data);
+  const access = useAccessLookup();
+  const canUnarchive = (collectionId: string) => {
+    const a = access.of(collectionId);
+    return a === undefined ? !access.loaded : canWrite(a);
+  };
   return (
     <div className="page">
       <PageHeader title="Archive" />
@@ -22,7 +30,7 @@ export default function Archive() {
             item: i,
             path: i.path,
             meta: i.archived_at ? `Archived ${relativeTime(i.archived_at)}` : undefined,
-            actions: (
+            actions: canUnarchive(i.collection_id) && (
               <button
                 type="button"
                 className="button small"

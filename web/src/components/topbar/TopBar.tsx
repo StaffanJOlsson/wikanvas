@@ -2,12 +2,14 @@
 // current title), save status, the "+ New doc" split button (Document, Board; a sibling, or a child with Alt), and the
 // page's `actions`. Props are frozen (PLAN W0b). Pages put their `<ItemMenu item extraExports/>` into `actions`,
 // since only the page knows its export formats; W4 puts its Contents popover button into `leading` or `actions`.
-// There is no Publish button (D23); the avatars, Share and "Viewed by" slots are hidden in M1.
+// There is no Publish button (D23); the avatars, Share and "Viewed by" slots are hidden in M1. In a collection the
+// caller may only read (D152) there is no "+ New doc" and the title crumb is plain text.
 import { ChevronDown, Plus } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
 import type { ItemDetail } from '../../api/gen/ItemDetail';
 import type { ItemKind } from '../../api/gen/ItemKind';
+import { itemWritable } from '../../lib/access';
 import { collectionPath, itemPath } from '../../lib/urls';
 import { CollectionIcon } from '../collection/CollectionIcon';
 import { useItemActions } from '../item/useItemActions';
@@ -82,6 +84,7 @@ function NewSplitButton({ item }: { item: ItemDetail }) {
 
 export function TopBar({ item, titleCrumb, actions, leading }: TopBarProps) {
   const crumbs = item.breadcrumbs;
+  const writable = itemWritable(item);
   return (
     <div className="top-bar">
       <SidebarToggle />
@@ -100,12 +103,12 @@ export function TopBar({ item, titleCrumb, actions, leading }: TopBarProps) {
         {titleCrumb !== 'none' && (
           <span aria-current="page">
             {' / '}
-            {titleCrumb === 'editable' ? <EditableTitle item={item} /> : item.item.title || 'Untitled'}
+            {titleCrumb === 'editable' && writable ? <EditableTitle item={item} /> : item.item.title || 'Untitled'}
           </span>
         )}
       </nav>
       <SaveStatus itemId={item.item.id} />
-      <NewSplitButton item={item} />
+      {writable && <NewSplitButton item={item} />}
       {actions}
     </div>
   );

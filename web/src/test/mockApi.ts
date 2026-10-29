@@ -8,7 +8,9 @@
 import { vi } from 'vitest';
 import type { ChildOrder } from '../api/gen/ChildOrder';
 import type { Collection } from '../api/gen/Collection';
+import type { CollectionMember } from '../api/gen/CollectionMember';
 import type { Config } from '../api/gen/Config';
+import type { DirectoryUser } from '../api/gen/DirectoryUser';
 import type { ItemDetail } from '../api/gen/ItemDetail';
 import type { ItemSummary } from '../api/gen/ItemSummary';
 import type { Me } from '../api/gen/Me';
@@ -139,6 +141,9 @@ export function makeCollection(over: Partial<Collection> & { id: string }): Coll
     child_order: 'manual' as ChildOrder,
     item_count: 0,
     updated_at: T0,
+    default_access: 'write',
+    // The fixture user (`makeMe`) is the owner, who manages every collection (D152).
+    my_access: 'manage',
     ...over,
   };
 }
@@ -168,6 +173,16 @@ export function makeMe(over: Partial<Me> = {}): Me {
     auth: { method: 'session', token: null },
     ...over,
   };
+}
+
+export function makeDirectoryUser(over: Partial<DirectoryUser> & { id: string }): DirectoryUser {
+  return { name: over.id, role: 'member', ...over };
+}
+
+/** A membership; `effective_access` is the membership's own unless given. */
+export function makeMember(user: DirectoryUser, over: Partial<CollectionMember> = {}): CollectionMember {
+  const access = over.access ?? 'write';
+  return { user, access, effective_access: access, disabled: false, updated_at: T0, ...over };
 }
 
 export function makeSidebar(collections: Collection[], stars: ItemSummary[] = [], drafts_count = 0): Sidebar {

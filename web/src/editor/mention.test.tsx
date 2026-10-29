@@ -17,7 +17,8 @@ function detail(over: Partial<ItemDetail> = {}, title = 'Live title'): ItemDetai
     },
     collection: {
       id: 'c', url_id: 'CcCcCcCcCc', name: 'Notes', description: '', icon: null, color: '#8D8D8D', sort_key: 'a',
-      child_order: 'manual', item_count: 1, updated_at: '2026-10-28T09:00:00.000Z',
+      child_order: 'manual', item_count: 1, updated_at: '2026-10-28T09:00:00.000Z', default_access: 'write',
+      my_access: 'manage',
     },
     breadcrumbs: [], starred: false, effectively_published: true, trashed_at: null, purge_at: null, archived_at: null,
     full_width: false, board: null, meta_version: 1,

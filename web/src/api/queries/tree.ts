@@ -271,7 +271,10 @@ export interface PatchCollectionVars {
   patch: CollectionPatch;
 }
 
-/** `PATCH /collections/{id}` (name, icon, colour, description, sort), optimistic everywhere it is cached. */
+/**
+ * `PATCH /collections/{id}` (name, icon, colour, description, sort, default access; `manage`, D152), optimistic
+ * everywhere it is cached.
+ */
 export function usePatchCollection(): UseMutationResult<Collection, ApiError, PatchCollectionVars, { snap: Snapshot }> {
   const qc = useQueryClient();
   return useMutation<Collection, ApiError, PatchCollectionVars, { snap: Snapshot }>({
@@ -285,6 +288,7 @@ export function usePatchCollection(): UseMutationResult<Collection, ApiError, Pa
       if (patch.color != null) next.color = patch.color;
       if (patch.icon !== undefined) next.icon = patch.icon;
       if (patch.child_order != null) next.child_order = patch.child_order;
+      if (patch.default_access != null) next.default_access = patch.default_access;
       replaceCachedCollection(qc, next);
       return { snap };
     },
@@ -292,8 +296,15 @@ export function usePatchCollection(): UseMutationResult<Collection, ApiError, Pa
     onSuccess: (c) => replaceCachedCollection(qc, c),
     onSettled: (_c, _e, { collection, patch }) => {
       void qc.invalidateQueries({ queryKey: sidebarKey });
-      if (patch.child_order != null) void qc.invalidateQueries({ queryKey: treeKey(collection.id) });
+      if (patch.child_order != null || patch.default_access != null) {
+        void qc.invalidateQueries({ queryKey: treeKey(collection.id) });
+      }
       void qc.invalidateQueries({ queryKey: ['collection'] });
+      if (patch.default_access != null) {
+        // The members' effective access follows the default (queries/access.ts `membersKey`).
+        void qc.invalidateQueries({ queryKey: ['members', collection.id] });
+        void qc.invalidateQueries({ queryKey: ['item'] });
+      }
     },
   });
 }

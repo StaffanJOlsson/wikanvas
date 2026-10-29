@@ -1,9 +1,14 @@
 // The collection dialog (docs/ARCHITECTURE.md §9.6.1, §9.6.2): name, description, one of 48 icons (or the letter
-// tile) and one of 12 colours. Creates a collection or edits one.
+// tile) and one of 12 colours. Creates a collection or edits one. The Access section (D152, CollectionAccess.tsx) is
+// shown when creating and to whoever manages the collection: its default access is saved with the rest, its people at
+// once.
 import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router';
 import type { Collection } from '../../api/gen/Collection';
+import type { CollectionPatch } from '../../api/gen/CollectionPatch';
+import type { DefaultAccess } from '../../api/gen/DefaultAccess';
 import { useCreateCollection, usePatchCollection } from '../../api/queries/tree';
+import { canManage } from '../../lib/access';
 import { collectionPath } from '../../lib/urls';
 import { closeDialog } from '../../state/dialogs';
 import { expandAll } from '../../state/expanded';
@@ -11,6 +16,7 @@ import { errorMessage } from '../../state/toasts';
 import { CollectionIcon } from '../collection/CollectionIcon';
 import { COLLECTION_COLORS, COLLECTION_ICONS, COLLECTION_ICON_NAMES, DEFAULT_COLLECTION_COLOR } from '../collection/icons';
 import { Dialog } from '../ui/Dialog';
+import { AccessSection } from './CollectionAccess';
 
 export function CollectionDialog({ collection }: { collection: Collection | null }) {
   const navigate = useNavigate();
@@ -20,8 +26,10 @@ export function CollectionDialog({ collection }: { collection: Collection | null
   const [description, setDescription] = useState(collection?.description ?? '');
   const [icon, setIcon] = useState<string | null>(collection?.icon ?? null);
   const [color, setColor] = useState(collection?.color ?? DEFAULT_COLLECTION_COLOR);
+  const [defaultAccess, setDefaultAccess] = useState<DefaultAccess>(collection?.default_access ?? 'write');
   const [error, setError] = useState<string | null>(null);
   const busy = create.isPending || patch.isPending;
+  const showAccess = collection === null || canManage(collection.my_access);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -33,10 +41,12 @@ export function CollectionDialog({ collection }: { collection: Collection | null
     setError(null);
     try {
       if (collection) {
-        await patch.mutateAsync({ collection, patch: { name: n, description, icon, color } });
+        const changes: CollectionPatch = { name: n, description, icon, color };
+        if (showAccess && defaultAccess !== collection.default_access) changes.default_access = defaultAccess;
+        await patch.mutateAsync({ collection, patch: changes });
         closeDialog();
       } else {
-        const c = await create.mutateAsync({ name: n, description, icon, color });
+        const c = await create.mutateAsync({ name: n, description, icon, color, default_access: defaultAccess });
         closeDialog();
         expandAll([c.id]);
         void navigate(collectionPath(c));
@@ -109,6 +119,9 @@ export function CollectionDialog({ collection }: { collection: Collection | null
             })}
           </div>
         </fieldset>
+        {showAccess && (
+          <AccessSection collection={collection} defaultAccess={defaultAccess} onDefaultAccess={setDefaultAccess} />
+        )}
         {error && <p className="form-error" role="alert">{error}</p>}
         <div className="form-actions">
           <button type="button" className="button" onClick={closeDialog}>Cancel</button>

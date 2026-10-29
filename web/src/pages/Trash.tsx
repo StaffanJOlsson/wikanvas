@@ -1,9 +1,11 @@
 // Trash (docs/ARCHITECTURE.md §9.6.6): trashed collections and item roots with "+N nested" and the purge date,
 // Restore, and Delete forever (the confirmation names the count). Everything is purged after 30 days (§12). Deleting
 // forever is the owner's and admins' (`Action::Admin`, §8): a member or viewer sees no Delete forever and no Empty
-// Trash.
+// Trash. Restoring an item needs `write` on its collection (the sidebar's, or the trashed collection's own), restoring
+// a collection `manage` (D152).
 import { Link } from 'react-router';
 import { isApiError } from '../api/client';
+import { useAccessLookup } from '../api/queries/access';
 import { useMe } from '../api/queries/auth';
 import type { TrashedCollection } from '../api/gen/TrashedCollection';
 import type { TrashedItem } from '../api/gen/TrashedItem';
@@ -14,6 +16,7 @@ import { CollectionIcon } from '../components/collection/CollectionIcon';
 import { KindIcon } from '../components/item/KindIcon';
 import { ItemPath } from '../components/list/ItemPath';
 import { PageHeader } from '../components/topbar/PageHeader';
+import { canManage, canWrite } from '../lib/access';
 import { itemPath } from '../lib/urls';
 import { confirmAction } from '../state/dialogs';
 import { errorToast, toast } from '../state/toasts';
@@ -47,6 +50,12 @@ export default function Trash() {
   const restoreItem = useRestoreItem().mutateAsync;
   const restoreCollection = useRestoreCollection().mutateAsync;
   const data = trash.data;
+  const access = useAccessLookup();
+  /** Until the sidebar answers, the server's check alone decides (as for `canPurge`). */
+  const canRestore = (i: TrashedItem): boolean => {
+    const a = data?.collections.find((c) => c.id === i.collection_id)?.my_access ?? access.of(i.collection_id);
+    return a === undefined ? !access.loaded : canWrite(a);
+  };
   const total = data
     ? data.items.reduce((n, i) => n + itemCount(i), 0) + data.collections.reduce((n, c) => n + c.item_count, 0)
     : 0;
@@ -124,11 +133,13 @@ export default function Trash() {
                 </span>
                 <span className="item-list-meta">{purgeText(c.purge_at)}</span>
                 <span className="item-list-actions">
-                  <button type="button" className="button small"
-                    onClick={() => void restoreCollection(c.id).then(() => toast({ message: 'Restored', kind: 'success' }),
-                      (e: unknown) => errorToast(e))}>
-                    Restore
-                  </button>
+                  {canManage(c.my_access) && (
+                    <button type="button" className="button small"
+                      onClick={() => void restoreCollection(c.id).then(() => toast({ message: 'Restored', kind: 'success' }),
+                        (e: unknown) => errorToast(e))}>
+                      Restore
+                    </button>
+                  )}
                   {canPurge && (
                     <button type="button" className="button small danger" onClick={() => void purgeCollection(c)}>Delete forever</button>
                   )}
@@ -156,7 +167,9 @@ export default function Trash() {
                 </Link>
                 <span className="item-list-meta">{purgeText(i.purge_at)}</span>
                 <span className="item-list-actions">
-                  <button type="button" className="button small" onClick={() => void restore(i)}>Restore</button>
+                  {canRestore(i) && (
+                    <button type="button" className="button small" onClick={() => void restore(i)}>Restore</button>
+                  )}
                   {canPurge && (
                     <button type="button" className="button small danger" onClick={() => void purgeItem(i)}>Delete forever</button>
                   )}

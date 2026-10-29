@@ -3,10 +3,12 @@
 // - on an item row: before / inside / after by zone, "after" outdented by pointer x on a last child;
 // - in a sibling group whose sort is not manual, before/after collapse to "into the parent" (the sort decides the
 //   position) and the indicator highlights the parent;
-// - the dragged item and its descendants are invalid targets (no indicator).
+// - the dragged item and its descendants are invalid targets (no indicator);
+// - an item of a collection the caller may not change does not move, and nothing drops into one (D152).
+import { canWrite } from '../../lib/access';
 import { descendantIds, type Forest } from './buildTree';
 import { itemZone, outdentTarget, pointerLevel, type RowRect } from './hitZones';
-import type { Row } from './visibleRows';
+import { rowAccess, type Row } from './visibleRows';
 
 export type DropInstruction =
   | { type: 'before'; targetId: string }
@@ -34,6 +36,8 @@ export interface ResolvedDrop {
 export interface DraggedItem {
   id: string;
   collectionId: string;
+  /** False when the caller may not change the item's collection (it then drops nowhere in the tree). Default true. */
+  writable?: boolean;
 }
 
 /** True when `targetId` is the dragged item or one of its descendants (§9.6.3). */
@@ -78,6 +82,7 @@ function boxFor(rows: readonly Row[], instruction: DropInstruction): DropIndicat
 export function resolveItemDrop({ rows, index, dragged, forests, clientX, clientY, rect }: ItemDropInput): ResolvedDrop | null {
   const row = rows[index];
   if (!row) return null;
+  if (dragged.writable === false || !canWrite(rowAccess(row))) return null;
   if (row.kind === 'collection') {
     const instruction: DropInstruction = { type: 'collection', collectionId: row.collection.id };
     return { instruction, indicator: { rowKey: row.key, kind: 'box', depth: 0 } };

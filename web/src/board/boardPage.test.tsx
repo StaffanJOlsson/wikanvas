@@ -2,6 +2,7 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ItemSummary } from '../api/gen/ItemSummary';
 import { onHostShortcut } from '../app/hotkeys';
+import { READ_ONLY_COLLECTION } from '../lib/access';
 import { itemPath } from '../lib/urls';
 import {
   boardItem,
@@ -247,5 +248,35 @@ describe('board page', () => {
     const star = screen.getByRole('button', { name: /star/i });
     expect(text.compareDocumentPosition(star) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(embed.compareDocumentPosition(star) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('a board in a collection the caller may only read opens read-only, under a banner (D152)', async () => {
+    const base = boardItem(1, { child_count: 1 });
+    const a = { ...base, collection: { ...base.collection, my_access: 'read' as const } };
+    const child: ItemSummary = { ...a.item, id: 'doc-5', url_id: 'DoCiD00005', kind: 'doc', title: 'Notes', parent_id: 'board-1' };
+    const { fetch, requests } = mockFetch({
+      ...boardRoutes(a),
+      'GET /api/v1/items/board-1/children': [200, [child]],
+      'POST /api/v1/items/board-1/view': [204],
+    });
+    vi.stubGlobal('fetch', fetch);
+    const r = (app = renderBoardApp(boardPath(a)));
+    await waitFor(() => expect(r.fake.api.current()).toBe('board-1'));
+    await waitFor(() => expect(r.fake.readOnly()).toBe(true));
+    expect(r.fake.calls.find((c) => c.method === 'open')?.args[0]).toMatchObject({ readOnly: true });
+    expect(screen.getByText(READ_ONLY_COLLECTION)).toBeTruthy();
+    // The title crumb is text, and there is nothing to create.
+    expect(screen.queryByRole('textbox', { name: 'Title' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /New doc/ })).toBeNull();
+    expect(((await screen.findByRole('button', { name: 'Text doc' })) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: 'Embed page…' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: /Nested pages/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Nested pages' });
+    await within(dialog).findByRole('link', { name: /Notes/ });
+    expect(within(dialog).queryByRole('button', { name: '+ Add a page' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Item menu' }));
+    const items = [...document.querySelectorAll('[role^="menuitem"]')].map((b) => b.textContent);
+    expect(items).toEqual(['Star', 'Export .inkboard', 'Export SVG']);
+    expect(puts(requests)).toHaveLength(0);
   });
 });

@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
+import type { CollectionAccess } from '../api/gen/CollectionAccess';
 import type { TrashList } from '../api/gen/TrashList';
 import { Overlays } from '../components/overlays/Overlays';
 import type { Role } from '../api/gen/Role';
@@ -21,11 +22,11 @@ function trashList(): TrashList {
   };
 }
 
-function setup(role: Role = 'owner') {
+function setup(role: Role = 'owner', access: CollectionAccess = 'manage', list: TrashList = trashList()) {
   const api = mockApi()
     .on('GET', '/auth/me', [200, makeMe({ user: { ...makeMe().user, role } })])
-    .on('GET', '/sidebar', [200, makeSidebar([c1])])
-    .on('GET', '/trash', [200, trashList()])
+    .on('GET', '/sidebar', [200, makeSidebar([{ ...c1, my_access: access }])])
+    .on('GET', '/trash', [200, list])
     .on('POST', '/items/:id/restore', (req) => [200, { ...makeItem({ id: req.params.id!, collection_id: 'c1' }), moved_to_top: false }])
     .on('DELETE', '/trash/items/:id', [204])
     .on('DELETE', '/trash/collections/:id', [204])
@@ -37,12 +38,12 @@ function setup(role: Role = 'owner') {
 const row = async (name: RegExp) => (await screen.findByText(name)).closest('li') as HTMLElement;
 
 describe('Trash', () => {
-  it('a member or viewer restores but never deletes forever (D148)', async () => {
-    for (const role of ['member', 'viewer'] as const) {
-      const api = setup(role);
+  it('a member or viewer never deletes forever (D148); a member with write restores', async () => {
+    for (const [role, access] of [['member', 'write'], ['viewer', 'read']] as const) {
+      const api = setup(role, access);
       const big = await row(/^Roadmap/);
       await waitFor(() => expect(within(big).queryByRole('button', { name: 'Delete forever' })).toBeNull());
-      expect(within(big).getByRole('button', { name: 'Restore' })).toBeTruthy();
+      if (access === 'write') expect(within(big).getByRole('button', { name: 'Restore' })).toBeTruthy();
       expect(screen.queryByRole('button', { name: 'Empty Trash' })).toBeNull();
       expect(screen.getByText(/Only the owner and admins can delete them sooner/)).toBeTruthy();
       expect(api.calls('DELETE')).toHaveLength(0);
@@ -104,5 +105,25 @@ describe('Trash', () => {
     expect(dialog.textContent).toContain('This deletes 12 pages and 1 collection forever');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Delete forever' }));
     await waitFor(() => expect(api.calls('DELETE', '/trash')).toHaveLength(1));
+  });
+
+  it('restores an item only with write on its collection, a collection only with manage (D152)', async () => {
+    const list = trashList();
+    list.collections = [
+      { ...list.collections[0]!, my_access: 'write' },
+      { ...makeCollection({ id: 'mine', name: 'My old notes', my_access: 'manage' }), deleted_at: inDays(-1), purge_at: inDays(29) },
+    ];
+    list.items.push(
+      { ...makeItem({ id: 'inside', collection_id: 'mine', title: 'Draft' }), deleted_at: inDays(-2), purge_at: inDays(28), descendant_count: 0, path: [] },
+    );
+    // A viewer reads Handbook only.
+    setup('viewer', 'read', list);
+    const big = await row(/^Roadmap/);
+    await waitFor(() => expect(within(big).queryByRole('button', { name: 'Restore' })).toBeNull());
+    expect(within(await row(/^Scratch/)).queryByRole('button', { name: 'Restore' })).toBeNull();
+    // An item of a trashed collection goes by that collection's own access.
+    expect(within(await row(/^Draft/)).getByRole('button', { name: 'Restore' })).toBeTruthy();
+    expect(within(await row(/^Old projects/)).queryByRole('button', { name: 'Restore' })).toBeNull();
+    expect(within(await row(/^My old notes/)).getByRole('button', { name: 'Restore' })).toBeTruthy();
   });
 });

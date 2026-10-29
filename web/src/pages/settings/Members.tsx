@@ -2,8 +2,8 @@
 // select where the caller may change it), Disable and Enable, "Invite people" (role and expiry; the link is shown once
 // with Copy, held only in the dialog's state and dropped when it closes, like a token's secret, §9.2), and the pending
 // invites with Revoke. The rules are the server's (only the owner makes or unmakes an admin; nobody changes the owner
-// or themselves); the page only offers what they allow. Until per-collection permissions, everyone sees every
-// collection, which the page says.
+// or themselves); the page only offers what they allow. What each person may do in a collection is set in that
+// collection's settings under Access (D152), which the page says.
 import { useState, type FormEvent } from 'react';
 import type { Invite } from '../../api/gen/Invite';
 import type { Role } from '../../api/gen/Role';
@@ -11,22 +11,18 @@ import type { UserInfo } from '../../api/gen/UserInfo';
 import { useMe } from '../../api/queries/auth';
 import { useCreateInvite, useInvites, usePatchUser, useRevokeInvite, useUsers } from '../../api/queries/users';
 import { Dialog } from '../../components/ui/Dialog';
+import { ROLE_LABELS } from '../../lib/access';
 import { relativeTime } from '../../lib/time';
 import { confirmAction } from '../../state/dialogs';
 import { errorMessage, errorToast, toast } from '../../state/toasts';
 import { errorField } from '../AuthLayout';
 
-export const ROLE_LABELS: Record<Role, string> = {
-  owner: 'Owner',
-  admin: 'Admin',
-  member: 'Member',
-  viewer: 'Viewer',
-};
+export { ROLE_LABELS };
 
 export const ROLE_HINTS: Record<Exclude<Role, 'owner'>, string> = {
-  admin: 'Everything a member can, and manage members, invites, the workspace and the trash.',
-  member: 'Read, write and organize every collection.',
-  viewer: 'Read every collection.',
+  admin: 'Manage every collection, the members, invites, the workspace and the trash.',
+  member: 'Read and write the collections open to them, and create collections.',
+  viewer: 'Read the collections open to them, never more.',
 };
 
 export const INVITE_EXPIRY: { days: number; label: string }[] = [
@@ -323,8 +319,9 @@ export function Members() {
           <button type="button" className="button primary" onClick={() => setInviting(true)}>Invite people</button>
         </div>
         <p>
-          People join with an invite link. Members read and write every collection, viewers read every collection;
-          admins also manage members and invites. Access per collection comes later.
+          People join with an invite link. What each person may do in a collection is set in that collection's
+          settings, under Access: the owner and admins manage every collection, and a viewer never does more than
+          read.
         </p>
         {users.isError && <p className="form-error" role="alert">{users.error.message}</p>}
         {list.length > 0 && <PeopleTable me={self} users={list} />}

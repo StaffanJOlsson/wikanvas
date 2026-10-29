@@ -2,6 +2,7 @@
 // its expanded subtrees. The tree renders these rows (virtualized above 300, D21) and the keyboard and drag and drop
 // work on them.
 import type { Collection } from '../../api/gen/Collection';
+import type { CollectionAccess } from '../../api/gen/CollectionAccess';
 import type { ItemSummary } from '../../api/gen/ItemSummary';
 import type { Forest, TreeNode } from './buildTree';
 
@@ -26,6 +27,8 @@ export interface ItemRow {
   item: ItemSummary;
   node: TreeNode;
   collectionId: string;
+  /** The caller's access to the item's collection (D152): its edit controls and drops need `write`. */
+  access: CollectionAccess;
   /** 1 for a top-level item. */
   depth: number;
   /** The indentation level: the depth, capped at MAX_INDENT_LEVEL. */
@@ -86,6 +89,7 @@ export function visibleRows({ collections, forests, expanded, forceCollapsed }: 
         item: node.item,
         node,
         collectionId: collection.id,
+        access: collection.my_access,
         depth: node.depth,
         indent: indentLevel(node.depth),
         expanded: nodeOpen,
@@ -97,6 +101,11 @@ export function visibleRows({ collections, forests, expanded, forceCollapsed }: 
     }
   }
   return rows;
+}
+
+/** The caller's access to the row's collection. */
+export function rowAccess(row: Row): CollectionAccess {
+  return row.kind === 'collection' ? row.collection.my_access : row.access;
 }
 
 /** The label a row is found by in type-ahead. */

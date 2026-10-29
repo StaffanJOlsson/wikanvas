@@ -116,6 +116,8 @@ export function EmbedCard({ card, editing, readOnly, controller }: EmbedCardProp
   else if (docJson.isError && !docJson.data) state = 'error';
   else state = editing ? 'editing' : 'static';
   const isEditing = editing !== null;
+  // A card of a writable board edits only a document the caller may change (D152; the controller checks it too).
+  const editable = !readOnly && detail !== undefined && isEditableTarget(detail);
 
   const ref = useCallback(
     (node: HTMLDivElement | null) => {
@@ -241,12 +243,12 @@ export function EmbedCard({ card, editing, readOnly, controller }: EmbedCardProp
         {header}
         {state === 'trashed' && <span className="board-embed-badge">In Trash</span>}
         {state === 'archived' && <span className="board-embed-badge">Archived</span>}
-        {state === 'static' && card.selected && !readOnly && <span className="board-embed-hint">Double-click to edit</span>}
+        {state === 'static' && card.selected && editable && <span className="board-embed-hint">Double-click to edit</span>}
         {live && (
           <SaveState
             itemId={target}
             editing={isEditing}
-            writable={!readOnly && (state === 'static' || state === 'editing')}
+            writable={!readOnly && (state === 'editing' || (state === 'static' && editable))}
             onRetry={() => controller.retrySave(target)}
           />
         )}

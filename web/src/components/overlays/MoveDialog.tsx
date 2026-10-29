@@ -1,8 +1,11 @@
 // The Move dialog (docs/ARCHITECTURE.md §9.3, §9.6.2 "Move…"): pick a collection's top level or any item as the new
-// parent; the item itself and its descendants are not offered. The item goes last under the new parent.
+// parent; the item itself and its descendants are not offered. The item goes last under the new parent. Only the
+// collections the caller may change are offered (D152: a move needs `write` on both collections).
 import { useMemo, useState } from 'react';
+import type { Collection } from '../../api/gen/Collection';
 import type { ItemSummary } from '../../api/gen/ItemSummary';
 import { useSidebar, useTrees } from '../../api/queries/tree';
+import { canWrite } from '../../lib/access';
 import { closeDialog } from '../../state/dialogs';
 import { CollectionIcon } from '../collection/CollectionIcon';
 import { KindIcon } from '../item/KindIcon';
@@ -22,7 +25,8 @@ interface Target {
 
 export function MoveDialog({ item }: { item: ItemSummary }) {
   const sidebar = useSidebar();
-  const collections = sidebar.data?.collections ?? [];
+  const all = sidebar.data?.collections;
+  const collections = useMemo<Collection[]>(() => (all ?? []).filter((c) => canWrite(c.my_access)), [all]);
   const trees = useTrees(collections.map((c) => c.id));
   const actions = useItemActions();
   const [filter, setFilter] = useState('');

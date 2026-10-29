@@ -104,6 +104,8 @@ export function boardItem(n = 1, over: Partial<ItemDetail['item']> = {}): ItemDe
       child_order: 'manual',
       item_count: 2,
       updated_at: t,
+      default_access: 'write',
+      my_access: 'manage',
     },
     breadcrumbs: [],
     starred: false,

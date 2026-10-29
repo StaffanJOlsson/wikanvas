@@ -5,6 +5,9 @@
 // carries native drag data (`application/x-wikanvas-item`, docs/ARCHITECTURE.md §18.6 (c)), which only another document
 // reads: the board frame, where dropping it places a card. A board row carries `application/x-wikanvas-board` (D145),
 // which only the document editor reads, where dropping it embeds the board. The tree's own drag and drop is unchanged.
+// Access per collection (D152): the create, rename, move, duplicate, archive and delete controls need `write` on the
+// row's collection (an item of a read-only collection keeps only Star, and drags only to a board or a document, never
+// within the tree); the collection's sort, Edit…, Delete… and its drag reorder need `manage`.
 import { combine } from '@atlaskit/pragmatic-drag-and-drop/combine';
 import { draggable, dropTargetForElements } from '@atlaskit/pragmatic-drag-and-drop/adapter/element-adapter';
 import { ArrowUpDown, ChevronRight, Ellipsis, Plus } from 'lucide-react';
@@ -19,9 +22,10 @@ import type { ItemActions } from '../item/useItemActions';
 import { Menu, type MenuEntry } from '../ui/Menu';
 import type { DropIndicator } from '../tree/drop';
 import { indentX } from '../tree/hitZones';
-import type { Row } from '../tree/visibleRows';
+import { rowAccess, type Row } from '../tree/visibleRows';
 import { openDialog } from '../../state/dialogs';
 import { boardDragDataOf, dragDataOf } from '../../board/embed/dragItem';
+import { canManage, canWrite } from '../../lib/access';
 
 export const DRAG_ITEM = 'item';
 export const DRAG_COLLECTION = 'collection';
@@ -86,6 +90,9 @@ export function TreeRow(props: TreeRowProps) {
   const collectionId = row.kind === 'item' ? row.collectionId : row.collection.id;
   const isDoc = row.kind === 'item' && row.item.kind === 'doc';
   const isBoard = row.kind === 'item' && row.item.kind === 'board';
+  const access = rowAccess(row);
+  const writable = canWrite(access);
+  const manageable = canManage(access);
   // Read when the drag starts, so a rename since the row mounted is carried.
   const title = useRef('');
   title.current = row.kind === 'item' ? row.item.title : '';
@@ -94,9 +101,19 @@ export function TreeRow(props: TreeRowProps) {
     const element = el.current;
     if (!element || renaming) return;
     const data = row.kind === 'item'
-      ? { wikanvasDrag: DRAG_ITEM, itemId: row.key, collectionId }
+      ? { wikanvasDrag: DRAG_ITEM, itemId: row.key, collectionId, writable }
       : { wikanvasDrag: DRAG_COLLECTION, collectionId };
     const id = row.key;
+    const target = dropTargetForElements({
+      element,
+      getData: () => ({ wikanvasRow: row.key }),
+      // An item drops only into a collection the caller may change, and only when it may leave its own (D152).
+      canDrop: ({ source }) => (source.data.wikanvasDrag === DRAG_ITEM && writable && source.data.writable !== false)
+        || source.data.wikanvasDrag === DRAG_COLLECTION,
+    });
+    // A collection row drags only to reorder, which needs `manage`; an item row always drags (to a board or a
+    // document), and the drop targets above decide what the tree takes.
+    if (row.kind === 'collection' && !manageable) return target;
     return combine(
       draggable({
         element,
@@ -106,13 +123,9 @@ export function TreeRow(props: TreeRowProps) {
         onDragStart: () => setDragging(true),
         onDrop: () => setDragging(false),
       }),
-      dropTargetForElements({
-        element,
-        getData: () => ({ wikanvasRow: row.key }),
-        canDrop: ({ source }) => source.data.wikanvasDrag === DRAG_ITEM || source.data.wikanvasDrag === DRAG_COLLECTION,
-      }),
+      target,
     );
-  }, [row.key, row.kind, isDoc, isBoard, collectionId, renaming]);
+  }, [row.key, row.kind, isDoc, isBoard, collectionId, renaming, writable, manageable]);
 
   // Board rows warm the engine cache after a 300 ms hover (§9.5); W6 registers the warm-up.
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -173,43 +186,54 @@ export function TreeRow(props: TreeRowProps) {
       checked: c.child_order === order,
       onSelect: () => void collectionActions.setOrder(c, order),
     }));
+    const moreEntries: MenuEntry[] = [
+      ...(manageable ? [{ label: 'Edit…', onSelect: () => collectionActions.edit(c) }] : []),
+      ...(writable ? [
+        { label: 'New document', onSelect: () => void actions.create(c.id, null, 'doc') },
+        { label: 'New board', onSelect: () => void actions.create(c.id, null, 'board') },
+      ] : []),
+      ...(manageable ? [
+        { heading: 'Sort' },
+        ...sortEntries,
+        { separator: true },
+        { label: 'Delete…', danger: true, onSelect: () => void collectionActions.remove(c) },
+      ] satisfies MenuEntry[] : []),
+    ];
     menus = (
       <span className="row-actions">
-        <Menu label="Sort" entries={sortEntries} onOpenChange={trackMenu}>
-          <ArrowUpDown size={14} aria-hidden />
-        </Menu>
-        <Menu
-          label={`New in ${c.name}`}
-          title="New…"
-          onOpenChange={trackMenu}
-          entries={[
-            { label: 'Document', accel: 'D', onSelect: () => void actions.create(c.id, null, 'doc') },
-            { label: 'Board', accel: 'B', onSelect: () => void actions.create(c.id, null, 'board') },
-          ]}
-        >
-          <Plus size={14} aria-hidden />
-        </Menu>
-        <Menu
-          label={`${c.name} menu`}
-          title="More"
-          align="end"
-          open={menuOpen ? true : undefined}
-          onOpenChange={(o) => {
-            trackMenu(o);
-            if (!o) props.onMenuClosed();
-          }}
-          entries={[
-            { label: 'Edit…', onSelect: () => collectionActions.edit(c) },
-            { label: 'New document', onSelect: () => void actions.create(c.id, null, 'doc') },
-            { label: 'New board', onSelect: () => void actions.create(c.id, null, 'board') },
-            { heading: 'Sort' },
-            ...sortEntries,
-            { separator: true },
-            { label: 'Delete…', danger: true, onSelect: () => void collectionActions.remove(c) },
-          ]}
-        >
-          <Ellipsis size={14} aria-hidden />
-        </Menu>
+        {manageable && (
+          <Menu label="Sort" entries={sortEntries} onOpenChange={trackMenu}>
+            <ArrowUpDown size={14} aria-hidden />
+          </Menu>
+        )}
+        {writable && (
+          <Menu
+            label={`New in ${c.name}`}
+            title="New…"
+            onOpenChange={trackMenu}
+            entries={[
+              { label: 'Document', accel: 'D', onSelect: () => void actions.create(c.id, null, 'doc') },
+              { label: 'Board', accel: 'B', onSelect: () => void actions.create(c.id, null, 'board') },
+            ]}
+          >
+            <Plus size={14} aria-hidden />
+          </Menu>
+        )}
+        {moreEntries.length > 0 && (
+          <Menu
+            label={`${c.name} menu`}
+            title="More"
+            align="end"
+            open={menuOpen ? true : undefined}
+            onOpenChange={(o) => {
+              trackMenu(o);
+              if (!o) props.onMenuClosed();
+            }}
+            entries={moreEntries}
+          >
+            <Ellipsis size={14} aria-hidden />
+          </Menu>
+        )}
       </span>
     );
   } else {
@@ -222,19 +246,22 @@ export function TreeRow(props: TreeRowProps) {
         <span className="row-icon"><KindIcon kind={it.kind} /></span>
       </>
     );
+    const star: MenuEntry = { label: starred ? 'Unstar' : 'Star', onSelect: () => void actions.setStarred(it, !starred) };
     menus = (
       <span className="row-actions">
-        <Menu
-          label={`New inside ${label}`}
-          title="New nested…"
-          onOpenChange={trackMenu}
-          entries={[
-            { label: 'Document', accel: 'D', onSelect: () => void actions.create(row.collectionId, it.id, 'doc') },
-            { label: 'Board', accel: 'B', onSelect: () => void actions.create(row.collectionId, it.id, 'board') },
-          ]}
-        >
-          <Plus size={14} aria-hidden />
-        </Menu>
+        {writable && (
+          <Menu
+            label={`New inside ${label}`}
+            title="New nested…"
+            onOpenChange={trackMenu}
+            entries={[
+              { label: 'Document', accel: 'D', onSelect: () => void actions.create(row.collectionId, it.id, 'doc') },
+              { label: 'Board', accel: 'B', onSelect: () => void actions.create(row.collectionId, it.id, 'board') },
+            ]}
+          >
+            <Plus size={14} aria-hidden />
+          </Menu>
+        )}
         <Menu
           label={`${label} menu`}
           title="More"
@@ -244,17 +271,17 @@ export function TreeRow(props: TreeRowProps) {
             trackMenu(o);
             if (!o) props.onMenuClosed();
           }}
-          entries={[
+          entries={writable ? [
             { label: 'Rename', onSelect: () => props.onRename(row) },
             { label: 'New child document', onSelect: () => void actions.create(row.collectionId, it.id, 'doc') },
             { label: 'New child board', onSelect: () => void actions.create(row.collectionId, it.id, 'board') },
             { label: 'Duplicate', onSelect: () => void actions.duplicate(it) },
             { label: 'Move…', onSelect: () => openDialog({ kind: 'move', item: it }) },
-            { label: starred ? 'Unstar' : 'Star', onSelect: () => void actions.setStarred(it, !starred) },
+            star,
             { label: 'Archive', onSelect: () => void actions.archive(it) },
             { separator: true },
             { label: 'Delete', danger: true, onSelect: () => void actions.trash(it) },
-          ]}
+          ] : [star]}
         >
           <Ellipsis size={14} aria-hidden />
         </Menu>
@@ -288,7 +315,7 @@ export function TreeRow(props: TreeRowProps) {
       onMouseLeave={onLeave}
     >
       {icon}
-      {renaming && row.kind === 'item' ? (
+      {renaming && row.kind === 'item' && writable ? (
         <RenameInput initial={row.item.title} onDone={(t) => props.onRenameDone(row, t)} />
       ) : (
         <Link className="row-label" to={to} tabIndex={-1} draggable={false} onClick={() => props.onFocusRow(row.key)}>

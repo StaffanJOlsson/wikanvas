@@ -1,6 +1,7 @@
 // The sidebar (docs/ARCHITECTURE.md §9.3, §9.6.2): workspace header, nav (Home, Search, Starred; no Drafts entry or
 // badge in M1, D23), STARRED, COLLECTIONS with "+ New collection…", the footer (Archive, Trash, Settings; Invite is
-// hidden) and the resize handle. Below 1024 px it is a drawer (AppShell).
+// hidden) and the resize handle. Below 1024 px it is a drawer (AppShell). Creating a collection is for members and up
+// (D152: `Write` on the workspace), so a viewer has no "+ New collection…".
 import { autoScrollForElements } from '@atlaskit/pragmatic-drag-and-drop-auto-scroll/element';
 import { Archive, House, Plus, Search, Settings, Star, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useRef, type ReactNode } from 'react';
@@ -66,14 +67,16 @@ export function Sidebar() {
               labelledBy="sidebar-collections"
             />
           )}
-          <button
-            type="button"
-            className="sidebar-row new-collection"
-            onClick={() => openDialog({ kind: 'collection', collection: null })}
-          >
-            <Plus size={16} aria-hidden />
-            <span className="row-text">New collection…</span>
-          </button>
+          {me.data?.user.role !== 'viewer' && (
+            <button
+              type="button"
+              className="sidebar-row new-collection"
+              onClick={() => openDialog({ kind: 'collection', collection: null })}
+            >
+              <Plus size={16} aria-hidden />
+              <span className="row-text">New collection…</span>
+            </button>
+          )}
         </section>
       </div>
       <nav className="sidebar-footer" aria-label="Archive, Trash and Settings">

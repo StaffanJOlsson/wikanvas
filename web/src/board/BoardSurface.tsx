@@ -3,7 +3,8 @@
 // ConflictBanner, the restore prompt for an unsaved snapshot, the large-board warning, and a visually hidden list of
 // the board's text (`BoardMeta.text_excerpt`) for screen readers. M1.1 (§18.5): it tells the embeds overlay the board's
 // read-only state and when the page leaves the board (any card editing ends), and reopens the board in the frame
-// through `openInFrame`, which asks for a new embed layout.
+// through `openInFrame`, which asks for a new embed layout. A board is read-only while trashed or archived, and in a
+// collection the caller may only read (D152).
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
@@ -11,6 +12,7 @@ import type { ItemDetail } from '../api/gen/ItemDetail';
 import { fetchBoard, putBoard } from '../api/queries/boards';
 import { useConfig } from '../api/queries/config';
 import { updateCachedItem, useCreateItem } from '../api/queries/items';
+import { itemWritable } from '../lib/access';
 import { itemPath } from '../lib/urls';
 import { BoardLoading } from './BoardLoading';
 import type { BoardFrameContext } from './BoardFrameHost';
@@ -69,7 +71,7 @@ export function BoardSurface({ item, host }: BoardSurfaceProps) {
   const create = useCreateItem();
   const config = useConfig();
   const theme = useResolvedTheme();
-  const readOnly = item.trashed_at !== null || item.archived_at !== null;
+  const readOnly = item.trashed_at !== null || item.archived_at !== null || !itemWritable(item);
   const limitBytes = (config.data?.limits.max_board_mb ?? 50) * 1024 * 1024;
   const canvas = useRef<HTMLDivElement>(null);
   const [s, setS] = useState<SessionState>(fresh);

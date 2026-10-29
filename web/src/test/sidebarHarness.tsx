@@ -4,6 +4,7 @@ import { screen, waitFor } from '@testing-library/react';
 import type { Collection } from '../api/gen/Collection';
 import type { ItemDetail } from '../api/gen/ItemDetail';
 import type { ItemSummary } from '../api/gen/ItemSummary';
+import type { Me } from '../api/gen/Me';
 import { useStar } from '../api/queries/items';
 import { MAIN_ID } from '../app/hotkeys';
 import { useCollectionActions } from '../components/collection/useCollectionActions';
@@ -38,11 +39,13 @@ export interface SidebarSetup {
   /** The item the route shows (for `/doc/…` routes). */
   detail?: ItemDetail;
   api?: MockApi;
+  /** `GET /auth/me` (default: the owner). */
+  me?: Me;
 }
 
 export function renderSidebar(setup: SidebarSetup) {
   const api = setup.api ?? mockApi();
-  api.on('GET', '/auth/me', [200, makeMe()]);
+  api.on('GET', '/auth/me', [200, setup.me ?? makeMe()]);
   api.on('GET', '/sidebar', [200, makeSidebar(setup.collections, setup.stars ?? [], setup.draftsCount ?? 0)]);
   for (const c of setup.collections) {
     api.on('GET', `/collections/${c.id}/tree`, treeReply(c, setup.trees?.[c.id] ?? []));

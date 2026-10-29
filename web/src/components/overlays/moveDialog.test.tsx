@@ -67,4 +67,19 @@ describe('Move dialog', () => {
     expect(screen.queryByRole('dialog', { name: 'Move “A1”' })).toBeNull();
     expect((await screen.findByRole('status')).textContent).toContain('Moved to X');
   });
+
+  it('offers only the collections the caller may change (D152)', async () => {
+    const c3 = makeCollection({ id: 'c3', name: 'Shared', item_count: 1, my_access: 'read' });
+    const c4 = makeCollection({ id: 'c4', name: 'Team', item_count: 0, my_access: 'write' });
+    const api = mockApi()
+      .on('GET', '/sidebar', [200, makeSidebar([c1, c3, c4])])
+      .on('GET', '/collections/c1/tree', treeReply(c1, t1))
+      .on('GET', '/collections/c3/tree', treeReply(c3, items('c3', 'S')))
+      .on('GET', '/collections/c4/tree', treeReply(c4, []));
+    render(<Overlays />);
+    act(() => openDialog({ kind: 'move', item: item('B') }));
+    await waitFor(() => expect(places()).toEqual(['Docs (top level)', 'A', 'A1', 'A1a', 'A2', 'Team (top level)']));
+    // The read-only collection's tree is not even loaded.
+    expect(api.calls('GET', '/collections/c3/tree')).toHaveLength(0);
+  });
 });

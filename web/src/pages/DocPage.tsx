@@ -1,7 +1,8 @@
 // The document page, lazily loaded at /doc/:slugId (docs/ARCHITECTURE.md §9.1, §9.3, §9.4, §9.6.4, §9.6.5): the top
 // bar with the Contents popover and the item menu (Markdown and HTML exports), the Contents column (≥2 headings,
 // docked in the margin once the document pane is 1280 px wide), the item header, the editor on its doc session, the read-only banner for trashed and archived
-// items, the nested-items list, and the new-empty-item discard on leave (D23).
+// items and for documents of a collection the caller may only read (D152: no Restore or Unarchive there either), the
+// nested-items list, and the new-empty-item discard on leave (D23).
 import { useQueryClient } from '@tanstack/react-query';
 import type { Editor } from '@tiptap/react';
 import { FileText, ListTree, PenTool, Plus } from 'lucide-react';
@@ -19,6 +20,7 @@ import { activeHeading, headingAnchor, scrolledToEnd, showContents, type Heading
 import { DocSession } from '../editor/docSession';
 import { docExports } from '../editor/exports';
 import { WikanvasEditor } from '../editor/WikanvasEditor';
+import { itemWritable, READ_ONLY_COLLECTION } from '../lib/access';
 import { relativeTime } from '../lib/time';
 import { itemPath, urlIdFromSlugId } from '../lib/urls';
 import { useCanonicalPath } from '../lib/useCanonicalPath';
@@ -91,18 +93,28 @@ function ContentsPopover({ headings, active }: { headings: Heading[]; active: st
 function ReadOnlyBanner({ detail }: { detail: ItemDetail }) {
   const qc = useQueryClient();
   const trashed = detail.trashed_at !== null;
+  const archived = detail.archived_at !== null;
+  const writable = itemWritable(detail);
   const run = async () => {
     await api('POST', `/items/${encodeURIComponent(detail.item.id)}/${trashed ? 'restore' : 'unarchive'}`);
     await qc.invalidateQueries({ queryKey: ['item'] });
     void qc.invalidateQueries({ queryKey: ['tree', detail.item.collection_id] });
     void qc.invalidateQueries({ queryKey: ['sidebar'] });
   };
+  if (!trashed && !archived) {
+    return <div className="read-only-banner" role="status">{READ_ONLY_COLLECTION}</div>;
+  }
   return (
     <div className="read-only-banner" role="status">
-      {trashed ? 'This document is in the Trash.' : 'This document is archived.'}{' '}
-      <button type="button" onClick={() => void run()}>
-        {trashed ? 'Restore' : 'Unarchive'}
-      </button>
+      {trashed ? 'This document is in the Trash.' : 'This document is archived.'}
+      {writable && (
+        <>
+          {' '}
+          <button type="button" onClick={() => void run()}>
+            {trashed ? 'Restore' : 'Unarchive'}
+          </button>
+        </>
+      )}
     </div>
   );
 }
@@ -127,7 +139,7 @@ function NestedList({ detail }: { detail: ItemDetail }) {
           ))}
         </ul>
       )}
-      {detail.trashed_at === null && detail.archived_at === null && (
+      {detail.trashed_at === null && detail.archived_at === null && itemWritable(detail) && (
         <button
           type="button"
           className="add-page"
@@ -180,7 +192,7 @@ function BoardPicker({ onPick, onClose }: { onPick(id: string): void; onClose():
 
 function DocView({ detail }: { detail: ItemDetail }) {
   const id = detail.item.id;
-  const readOnly = detail.trashed_at !== null || detail.archived_at !== null;
+  const readOnly = detail.trashed_at !== null || detail.archived_at !== null || !itemWritable(detail);
   const qc = useQueryClient();
   const location = useLocation();
   const create = useCreateItem();
