@@ -17,9 +17,9 @@ WebAssembly. A board can hold documents as cards: each is a real page of the tre
 with a double-click (§18). It has a versioned HTTP API (`/api/v1`, with personal access tokens and an OpenAPI 3.1 spec) and a
 command-line client, `wikanvas`.
 
-**Status:** milestone 1, single owner. The design is in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) (cited below
-as §n) and the implementation plan in [`docs/PLAN.md`](docs/PLAN.md). Wikanvas is not affiliated with Atlassian,
-Miro or Canva.
+**Status:** v0.1.0-alpha.1, milestone 1, single owner. The design is in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+(cited below as §n) and the implementation plan in [`docs/PLAN.md`](docs/PLAN.md); the next milestone, a Rust/egui
+client for desktop and browser, is proposed in §19. Wikanvas is not affiliated with Atlassian, Miro or Canva.
 
 Contents: [Install](#install) · [Configuration](#configuration) · [Runtime limits](#runtime-limits) ·
 [HTTPS](#https) · [Ports 80 or 443 taken](#when-port-80-or-443-is-taken) ·
@@ -39,7 +39,7 @@ resource-capped containers (see [Building](#building-and-the-build-caps)).
 1. Get the source, with the Inkboard submodule:
 
    ```sh
-   git clone --recurse-submodules <repository> wikanvas && cd wikanvas
+   git clone --recurse-submodules https://github.com/StaffanJOlsson/wikanvas.git && cd wikanvas
    # or, in an existing clone: git submodule update --init vendor/inkboard
    ```
 

@@ -24,8 +24,8 @@ clean. No new dependency.
 **The owner's live wiki was never touched.** Until the cut-over it still runs under the old names: its compose project,
 two containers, network and three volumes, and the `.env` of the main checkout, on the rollback image of commit
 `95b452a` (`33ea96a36093`, patchset 2). The old builder, its container and state volume, the old toolchain tag and the
-old images are as they were. The renamed docs describe the state after the cut-over (D100), which has not happened
-yet. Every build, server, browser and compose project of this stage ran in the scripts' own `wikanvas-*` projects or
+old images are as they were. The renamed docs describe the state after the cut-over (D100), which had not happened
+yet (it ran later the same day: "The live cut-over" below). Every build, server, browser and compose project of this stage ran in the scripts' own `wikanvas-*` projects or
 in rehearsal-only names, and was removed afterwards; no host port 80, 443 or 8443 was used.
 
 This note is committed after the gate, so the gate's image `wikanvas:42ce845` is one commit behind the branch tip.
@@ -271,6 +271,32 @@ Not rehearsed: the owner's steps (C1, C10); the merge and the `.env` install in 
 `docker compose create`/`up` (rehearsed as `docker run` with the same image, caps and environment); the live Caddy CA;
 the rollback's `git worktree add` and `up` (its render was rehearsed); Phase A's A4 and A5 (root).
 
+## The live cut-over (2026-10-29, after this note)
+
+The owner chose to switch at once. The coordinator ran Phase C of the cut-over runbook against the live wiki, with the
+pins moved to this note's commit `484905c` (`wikanvas:484905c`, the image of the handoff stage).
+
+- **C0 and C2:** the read-only checks passed (fast-forward, nothing in the way, the Caddy image by digest, the new
+  image and the rollback image present). An extra backup, a one-day write token made with the old admin CLI, the root
+  CA and leaf fingerprints, and a GET-only baseline of 4 collections and 28 items (24 documents, 4 boards).
+- **C4 to C8, one script:** the downtime ran from 13:50:52.8 to 13:50:56.3 UTC, 3.5 seconds. It stopped and removed the
+  old containers and network (never their volumes), fast-forwarded main to `484905c`, installed the new `.env` (the
+  same ports, `WIKANVAS_IMAGE=wikanvas:484905c` pinned), created the project, copied the three volumes, renamed the
+  database and the backups (the check printed nothing) and started both containers healthy.
+- **C8 checks:** no first-run setup; `admin check` ok with no missing blob; `/api/v1/config` 0.1.0-alpha.1 `484905c`,
+  engine `0.2.0-beta.3+embed.wikanvas.3`, `setup_required` false; the token made on the old server answered 200; the
+  next scheduled backup was due in 24 h less the age of the newest renamed backup. Against the baseline every item,
+  document (ProseMirror JSON, and Markdown up to the expected `wikanvas://` link scheme), board body and search was
+  equal (`PROBLEMS: 0`). The same root CA and the same leaf certificate, and the chain verified.
+- **C9:** no stored link held the old scheme. Wiki pass 2 changed 12 pages through the API (every edit verified, a
+  second run changed nothing); the two lines that call `wikanvas-build.slice` installed wait for the slice. One
+  Dogfooding-log entry was updated by hand to say the pass is done. The token was revoked (401 afterwards).
+- **C11:** `inkboard.sh src --force` rebuilt the main checkout's patched copy; the name sweep lists only the README
+  NOTE and the D100 row.
+
+The rollback copy stays until the owner confirms the new wiki: the three old volumes, the rollback image and the old
+`.env` under the ignored `.cache/`.
+
 ## What remains
 
 - **The build slice (owner, root).** `scripts/install-build-slice.sh --check` exits 3 until the owner installs
@@ -278,13 +304,8 @@ the rollback's `git worktree add` and `up` (its render was rehearsed); Phase A's
   after it, A5 recreates the builder with the slice as its cgroup parent (`docker buildx rm wikanvas-limited; docker rm
   -f wikanvas-buildkit; scripts/toolchain.sh --builder-only`, never the plain `scripts/toolchain.sh` that the refusal
   prints), and gate line 1 is run again. Until then every build runs with the per-container caps only.
-- **The live cut-over (coordinator, the cut-over runbook, after the owner agrees).** Phase C: C0's read-only checks,
-  the owner drains the browser (C1), the downtime script (C4 to C8, which also merges `ws/R-rename` into main as a
-  fast-forward and installs the new `.env`), the data fixes (C9), the owner's checks (C10), C11's `src --force` and
-  sweep in the main checkout. The runbook pins `wikanvas:42ce845` and checks for that commit after the merge; this
-  note moves the tip, so the coordinator pins the new tip's image in C0, C3, the downtime script, C8 and the
-  verification, as C0 says when the tip has moved. The main checkout stays at `000fb0b` until the downtime script
-  (the live Caddy bind-mounts its Caddyfile).
+- **The owner's checks (C10):** signing in again, a document with an item link, a board with a card, Settings → About.
+  The cut-over itself is done (above).
 - **Removing the old resources (coordinator, after the owner confirms the new wiki; Phase D).** The old volumes after
   the rollback window; the old builder, its container and state volume; the two old slices (root, the owner's
   dialog); the old toolchain tag, and the old images after the rollback window (the rollback image among them); the
@@ -294,13 +315,15 @@ the rollback's `git worktree add` and `up` (its render was rehearsed); Phase A's
   carry the old name. Renaming them needs `git worktree repair`; nothing in the repo names either path.
 - **The workspace name (owner).** The live workspace's name holds the old name; renaming it needs the admin scope, so
   the owner does it in Settings (C10).
-- **Owner decisions left open:** the version number or its wording (finding 18).
+- **Decided since:** the version stays `0.1.0-alpha.1` (finding 18; the owner, 2026-10-29: no earlier version was
+  released or tagged, and nothing orders versions).
 - **Done since: the code guard of finding 15** (approved by the owner on 2026-10-29), `9d22746` and `b9034e2` on
   `ws/G-guard`, D144: `wikanvas-server serve` exits 1 before it listens, starts the jobs or logs the setup code while
   `/data/files` holds any file and no owner exists (no `wikanvas.db`, or an empty one); `wikanvas-server admin
   create-owner`, the only other way to make the first owner, refuses the same way (exit 3, creating nothing); and
   `gc::blobs` skips the orphan sweep without an owner. README "Data from before v0.1.0-alpha.1" describes the refusal
   and its two ways out.
-- **At the merge:** whether to squash `5a4ed05` into `329834c` (only if every commit on main must build).
+- **Not squashed:** main was fast-forwarded to the branch at the cut-over, so `5a4ed05` (path moves only) stays a
+  commit of its own that does not build alone.
 - **The owner's earlier open questions** are untouched: the engine's fonts' licences and the base image's OS-layer
   licences.
