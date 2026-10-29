@@ -960,3 +960,216 @@ fn backup_schedule_follows_the_newest_backup() {
         Some(BACKUP_STARTUP_DELAY)
     );
 }
+
+#[tokio::test]
+async fn account_commands_follow_the_account_rules() {
+    let app = TestApp::with_owner().await;
+    let dir = app.dir.path();
+    // create-user: a generated password must be changed; stdin takes 12–1024 bytes; a taken email is exit 8.
+    let out = admin(
+        dir,
+        &[
+            "--json",
+            "create-user",
+            "--email",
+            "Bea@wikanvas.invalid",
+            "--name",
+            "Bea",
+            "--role",
+            "member",
+            "--generate-password",
+        ],
+        None,
+    );
+    ok(&out);
+    let created = stdout_json(&out);
+    assert_eq!(created["user"]["role"], "member");
+    assert_eq!(created["user"]["disabled_at"], serde_json::Value::Null);
+    let password = created["generated_password"].as_str().unwrap().to_owned();
+    assert_eq!(password.len(), 24);
+    let bea = created["user"]["id"].as_str().unwrap().to_owned();
+    let login = app
+        .anon_client()
+        .post("/api/v1/auth/login")
+        .json(&json!({"email": "bea@wikanvas.invalid", "password": password}))
+        .await;
+    login.assert_status_ok();
+    let cookie = crate::common::cookie_from(&login, "wikanvas_session").unwrap();
+    let me: Me = app
+        .cookie_client(&cookie)
+        .get("/api/v1/auth/me")
+        .await
+        .json();
+    assert!(me.must_change_password);
+    let viewer = [
+        "--json",
+        "create-user",
+        "--email",
+        "cy@wikanvas.invalid",
+        "--name",
+        "Cy",
+        "--role",
+        "viewer",
+        "--password-stdin",
+    ];
+    assert_eq!(admin(dir, &viewer, Some("short\n")).status.code(), Some(10));
+    ok(&admin(dir, &viewer, Some("a long enough password\n")));
+    let taken = admin(dir, &viewer, Some("a long enough password\n"));
+    assert_eq!(taken.status.code(), Some(8));
+    assert_eq!(error_line(&taken)["error"]["code"], "conflict");
+    let usage = admin(
+        dir,
+        &[
+            "create-user",
+            "--email",
+            "d@x",
+            "--name",
+            "D",
+            "--role",
+            "owner",
+            "--generate-password",
+        ],
+        None,
+    );
+    assert_eq!(usage.status.code(), Some(2));
+    // list-users: the owner first.
+    let out = admin(dir, &["--json", "list-users"], None);
+    ok(&out);
+    let list = stdout_json(&out);
+    let roles: Vec<&str> = list
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|u| u["role"].as_str().unwrap())
+        .collect();
+    assert_eq!(roles, ["owner", "member", "viewer"]);
+    // set-role: the operator may make an admin; never changes the owner (exit 6).
+    let out = admin(
+        dir,
+        &[
+            "--json",
+            "set-role",
+            "--email",
+            "bea@wikanvas.invalid",
+            "--role",
+            "admin",
+        ],
+        None,
+    );
+    ok(&out);
+    assert_eq!(stdout_json(&out)["user"]["role"], "admin");
+    for args in [
+        &[
+            "--json",
+            "set-role",
+            "--email",
+            OWNER_EMAIL,
+            "--role",
+            "admin",
+        ][..],
+        &["--json", "disable-user", "--email", OWNER_EMAIL][..],
+    ] {
+        let refused = admin(dir, args, None);
+        assert_eq!(refused.status.code(), Some(6), "{args:?}");
+        assert_eq!(error_line(&refused)["error"]["code"], "forbidden");
+    }
+    let unknown = admin(
+        dir,
+        &["--json", "disable-user", "--email", "no@wikanvas.invalid"],
+        None,
+    );
+    assert_eq!(unknown.status.code(), Some(7));
+    // disable-user ends the sessions and tokens at once; list-tokens and revoke-token take --email.
+    let token = app.mint_token(&bea, Scope::Read).await;
+    let out = admin(
+        dir,
+        &["--json", "list-tokens", "--email", "bea@wikanvas.invalid"],
+        None,
+    );
+    ok(&out);
+    assert_eq!(stdout_json(&out).as_array().unwrap().len(), 1);
+    let owners = admin(dir, &["--json", "list-tokens"], None);
+    ok(&owners);
+    assert!(stdout_json(&owners).as_array().unwrap().is_empty());
+    let out = admin(
+        dir,
+        &["--json", "disable-user", "--email", "bea@wikanvas.invalid"],
+        None,
+    );
+    ok(&out);
+    let disabled = stdout_json(&out);
+    assert!(disabled["user"]["disabled_at"].is_string());
+    assert_eq!(
+        (
+            disabled["sessions_revoked"].as_u64(),
+            disabled["tokens_revoked"].as_u64(),
+            disabled["invites_revoked"].as_u64()
+        ),
+        (Some(1), Some(1), Some(0))
+    );
+    assert_error(
+        &app.cookie_client(&cookie).get("/api/v1/auth/me").await,
+        401,
+        ErrorCode::Unauthenticated,
+    );
+    assert_error(
+        &app.token_client(&token).get("/api/v1/auth/me").await,
+        401,
+        ErrorCode::InvalidToken,
+    );
+    let out = admin(
+        dir,
+        &["--json", "enable-user", "--email", "bea@wikanvas.invalid"],
+        None,
+    );
+    ok(&out);
+    assert_eq!(
+        stdout_json(&out)["user"]["disabled_at"],
+        serde_json::Value::Null
+    );
+    let second = app.mint_token(&bea, Scope::Read).await;
+    let out = admin(
+        dir,
+        &[
+            "--json",
+            "revoke-token",
+            "--all",
+            "--yes",
+            "--email",
+            "bea@wikanvas.invalid",
+        ],
+        None,
+    );
+    ok(&out);
+    assert_eq!(stdout_json(&out)["revoked"], 1);
+    assert_error(
+        &app.token_client(&second).get("/api/v1/auth/me").await,
+        401,
+        ErrorCode::InvalidToken,
+    );
+    let text = admin(dir, &["list-users"], None);
+    ok(&text);
+    assert!(String::from_utf8_lossy(&text.stdout).contains("cy@wikanvas.invalid"));
+}
+
+#[test]
+fn create_user_needs_an_owner_first() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = admin(
+        dir.path(),
+        &[
+            "--json",
+            "create-user",
+            "--email",
+            "m@wikanvas.invalid",
+            "--name",
+            "M",
+            "--role",
+            "member",
+            "--generate-password",
+        ],
+        None,
+    );
+    assert_eq!(out.status.code(), Some(8));
+    assert_eq!(error_line(&out)["error"]["code"], "setup_required");
+}

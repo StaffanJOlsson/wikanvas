@@ -61,9 +61,13 @@ pub enum AdminCommand {
     CreateOwner(CreateOwnerArgs),
     /// Create a personal access token for the owner (or for --email) and print it once.
     CreateToken(CreateTokenArgs),
-    /// List the owner's tokens.
-    ListTokens,
-    /// Revoke a token (and the tokens it created), or every token with --all --yes.
+    /// List the owner's tokens (or those of --email).
+    ListTokens {
+        /// The user (default: the owner).
+        #[arg(long)]
+        email: Option<String>,
+    },
+    /// Revoke a token (and the tokens it created), or every token with --all --yes, of the owner (or of --email).
     #[command(group(ArgGroup::new("target").required(true).args(["id", "all"])))]
     RevokeToken {
         /// The token's id.
@@ -74,6 +78,30 @@ pub enum AdminCommand {
         /// Confirm --all.
         #[arg(long)]
         yes: bool,
+        /// The user (default: the owner).
+        #[arg(long)]
+        email: Option<String>,
+    },
+    /// List every account, the owner first, disabled ones included.
+    ListUsers,
+    /// Create an admin, member or viewer (the way besides an invite link). Exit 8 when the email is taken.
+    CreateUser(CreateUserArgs),
+    /// Give an account another role (never the owner's).
+    SetRole {
+        #[arg(long)]
+        email: String,
+        #[arg(long, value_parser = ["admin", "member", "viewer"])]
+        role: String,
+    },
+    /// Disable an account: its sessions, API tokens and pending invites end at once (never the owner).
+    DisableUser {
+        #[arg(long)]
+        email: String,
+    },
+    /// Enable a disabled account again.
+    EnableUser {
+        #[arg(long)]
+        email: String,
     },
     /// Set a random temporary password, print it, require a change, and revoke every session.
     ResetPassword {
@@ -112,6 +140,23 @@ pub struct CreateOwnerArgs {
     /// Do not seed the "Getting started" collection.
     #[arg(long)]
     pub no_seed: bool,
+}
+
+#[derive(Debug, Args)]
+#[command(group(ArgGroup::new("password").required(true).args(["password_stdin", "generate_password"])))]
+pub struct CreateUserArgs {
+    #[arg(long)]
+    pub email: String,
+    #[arg(long)]
+    pub name: String,
+    #[arg(long, value_parser = ["admin", "member", "viewer"])]
+    pub role: String,
+    /// Read the password (12–1024 bytes) from stdin.
+    #[arg(long)]
+    pub password_stdin: bool,
+    /// Generate a password, print it once, and require a change at the first sign-in.
+    #[arg(long)]
+    pub generate_password: bool,
 }
 
 #[derive(Debug, Args)]
@@ -377,6 +422,60 @@ mod tests {
                 .is_ok()
         );
         assert!(Cli::try_parse_from(["wikanvas-server", "admin", "revoke-token"]).is_err());
+        let revoke = Cli::try_parse_from([
+            "wikanvas-server",
+            "admin",
+            "revoke-token",
+            "--all",
+            "--yes",
+            "--email",
+            "m@x",
+        ])
+        .unwrap();
+        let Command::Admin(AdminArgs {
+            command: AdminCommand::RevokeToken { email, all, .. },
+            ..
+        }) = revoke.command
+        else {
+            panic!();
+        };
+        assert_eq!((email.as_deref(), all), (Some("m@x"), true));
+        // Accounts: create-user needs one way to the password, and never makes an owner.
+        let user = |extra: &[&str]| {
+            let mut argv = vec![
+                "wikanvas-server",
+                "admin",
+                "create-user",
+                "--email",
+                "m@x",
+                "--name",
+                "M",
+            ];
+            argv.extend_from_slice(extra);
+            Cli::try_parse_from(argv)
+        };
+        assert!(user(&["--role", "member", "--generate-password"]).is_ok());
+        assert!(user(&["--role", "viewer", "--password-stdin"]).is_ok());
+        assert!(user(&["--role", "member"]).is_err());
+        assert!(user(&["--role", "owner", "--generate-password"]).is_err());
+        assert!(
+            Cli::try_parse_from([
+                "wikanvas-server",
+                "admin",
+                "set-role",
+                "--email",
+                "m@x",
+                "--role",
+                "owner"
+            ])
+            .is_err()
+        );
+        for cmd in ["disable-user", "enable-user"] {
+            assert!(
+                Cli::try_parse_from(["wikanvas-server", "admin", cmd, "--email", "m@x"]).is_ok()
+            );
+            assert!(Cli::try_parse_from(["wikanvas-server", "admin", cmd]).is_err());
+        }
     }
 
     #[test]

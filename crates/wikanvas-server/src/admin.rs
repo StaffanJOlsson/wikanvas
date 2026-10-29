@@ -7,9 +7,12 @@
 //! - `create-owner`: the `POST /setup` transaction without the code (owner, workspace settings, the "Getting started"
 //!   seed unless `--no-seed`); exit 8 when an owner exists, and exit 3 (`conflict`), with nothing created, while no
 //!   owner exists and `files/` holds any regular file (D144, as `serve` refuses to start);
-//! - `create-token`, `list-tokens`, `revoke-token (<id> | --all --yes)`: as the API, for the owner;
+//! - `create-token`, `list-tokens`, `revoke-token (<id> | --all --yes)`: as the API, for the owner or `--email`;
 //! - `reset-password --email E [--revoke-tokens]`: a random temporary password (printed once, must be changed), every
 //!   session revoked, and with `--revoke-tokens` every API token too (D35);
+//! - `list-users`, `create-user`, `set-role`, `disable-user`, `enable-user` (D148): the accounts, under the rules of
+//!   `wikanvas_store::users::change` with the operator's authority (the owner's say, but no account of its own): the
+//!   owner's role never changes and the owner cannot be disabled; disabling ends sessions, tokens and invites;
 //! - `backup [--out PATH]`: `VACUUM INTO` on the maintenance connection and `quick_check` (§12); without `--out` it is
 //!   counted against `WIKANVAS_BACKUP_KEEP`;
 //! - `check`: `quick_check`, `foreign_key_check`, a bounded cycle scan, the FTS `integrity-check`, and blob rows whose
@@ -21,10 +24,13 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use wikanvas_api::cli::ExitCode;
 use wikanvas_api::tokens::{MAX_EXPIRY_DAYS, NewToken};
-use wikanvas_api::{ApiToken, BackupResult, CreatedToken, ErrorCode, Scope, User, Workspace};
+use wikanvas_api::{
+    ApiToken, BackupResult, CreatedToken, ErrorCode, Role, Scope, User, UserInfo, Workspace,
+};
 use wikanvas_store::tokens::CreatedVia;
+use wikanvas_store::users::{Manager, NewUser, UserChange};
 
-use crate::cli::{AdminArgs, AdminCommand, CreateOwnerArgs, CreateTokenArgs};
+use crate::cli::{AdminArgs, AdminCommand, CreateOwnerArgs, CreateTokenArgs, CreateUserArgs};
 use crate::config::Config;
 use crate::error::ApiError;
 use crate::routes::auth::load_workspace;
@@ -74,6 +80,29 @@ pub struct PasswordReset {
     pub password: String,
     pub sessions_revoked: u64,
     pub tokens_revoked: u64,
+}
+
+/// `create-user --json` on stdout.
+#[derive(Clone, Debug, Serialize)]
+pub struct UserCreated {
+    pub user: UserInfo,
+    /// The generated password (`--generate-password`), shown once; `null` with `--password-stdin`.
+    pub generated_password: Option<String>,
+}
+
+/// `set-role --json` and `enable-user --json` on stdout.
+#[derive(Clone, Debug, Serialize)]
+pub struct UserChanged {
+    pub user: UserInfo,
+}
+
+/// `disable-user --json` on stdout.
+#[derive(Clone, Debug, Serialize)]
+pub struct UserDisabled {
+    pub user: UserInfo,
+    pub sessions_revoked: u64,
+    pub tokens_revoked: u64,
+    pub invites_revoked: u64,
 }
 
 /// `check --json` on stdout.
@@ -311,9 +340,48 @@ async fn dispatch(command: AdminCommand, json: bool) -> Result<(), Failure> {
     match command {
         AdminCommand::CreateOwner(args) => create_owner_command(args, json).await,
         AdminCommand::CreateToken(args) => create_token_command(args, json).await,
-        AdminCommand::ListTokens => list_tokens_command(json).await,
-        AdminCommand::RevokeToken { id, all, yes } => {
-            revoke_token_command(id, all && yes, json).await
+        AdminCommand::ListTokens { email } => list_tokens_command(email, json).await,
+        AdminCommand::RevokeToken {
+            id,
+            all,
+            yes,
+            email,
+        } => revoke_token_command(id, all && yes, email, json).await,
+        AdminCommand::ListUsers => list_users_command(json).await,
+        AdminCommand::CreateUser(args) => create_user_command(args, json).await,
+        AdminCommand::SetRole { email, role } => {
+            let role = parse_role(&role)?;
+            change_user_command(
+                email,
+                UserChange {
+                    role: Some(role),
+                    disabled: None,
+                },
+                json,
+            )
+            .await
+        }
+        AdminCommand::DisableUser { email } => {
+            change_user_command(
+                email,
+                UserChange {
+                    role: None,
+                    disabled: Some(true),
+                },
+                json,
+            )
+            .await
+        }
+        AdminCommand::EnableUser { email } => {
+            change_user_command(
+                email,
+                UserChange {
+                    role: None,
+                    disabled: Some(false),
+                },
+                json,
+            )
+            .await
         }
         AdminCommand::ResetPassword {
             email,
@@ -324,9 +392,10 @@ async fn dispatch(command: AdminCommand, json: bool) -> Result<(), Failure> {
     }
 }
 
-async fn create_owner_command(args: CreateOwnerArgs, json: bool) -> Result<(), Failure> {
-    validate_owner(&args.email, &args.name, &args.workspace)?;
-    let (password, generated) = if args.generate_password {
+/// The password of `create-owner` and `create-user`: generated (returned twice: to hash, and to print once), or read
+/// from stdin with one trailing newline stripped; 12–1024 bytes either way (422 `password`, exit 10).
+fn read_password(generate: bool) -> Result<(String, Option<String>), Failure> {
+    let (password, generated) = if generate {
         let password = generate_password()?;
         (password.clone(), Some(password))
     } else {
@@ -342,6 +411,12 @@ async fn create_owner_command(args: CreateOwnerArgs, json: bool) -> Result<(), F
         (password, None)
     };
     state::check_password(&password)?;
+    Ok((password, generated))
+}
+
+async fn create_owner_command(args: CreateOwnerArgs, json: bool) -> Result<(), Failure> {
+    validate_owner(&args.email, &args.name, &args.workspace)?;
+    let (password, generated) = read_password(args.generate_password)?;
     // D144: never the first owner over another database's files. Without a database, before one is created; with one,
     // before the owner is (an owner that exists already still gives exit 8 below).
     let config = config()?;
@@ -441,9 +516,9 @@ async fn create_token_command(args: CreateTokenArgs, json: bool) -> Result<(), F
     }
 }
 
-async fn list_tokens_command(json: bool) -> Result<(), Failure> {
+async fn list_tokens_command(email: Option<String>, json: bool) -> Result<(), Failure> {
     let state = open().await?;
-    let user_id = find_user(&state, None).await?;
+    let user_id = find_user(&state, email).await?;
     let now = state.now();
     let tokens: Vec<ApiToken> = state
         .db
@@ -470,9 +545,14 @@ async fn list_tokens_command(json: bool) -> Result<(), Failure> {
     Ok(())
 }
 
-async fn revoke_token_command(id: Option<String>, all: bool, json: bool) -> Result<(), Failure> {
+async fn revoke_token_command(
+    id: Option<String>,
+    all: bool,
+    email: Option<String>,
+    json: bool,
+) -> Result<(), Failure> {
     let state = open().await?;
-    let user_id = find_user(&state, None).await?;
+    let user_id = find_user(&state, email).await?;
     let now = state.now();
     let revoked = match id {
         Some(id) if !all => {
@@ -500,6 +580,114 @@ async fn revoke_token_command(id: Option<String>, all: bool, json: bool) -> Resu
     } else {
         println!("Revoked {revoked} token(s).");
         Ok(())
+    }
+}
+
+/// `--role`: `admin`, `member` or `viewer` (clap already refuses anything else).
+fn parse_role(role: &str) -> Result<Role, Failure> {
+    role.parse::<Role>()
+        .ok()
+        .filter(|r| *r != Role::Owner)
+        .ok_or_else(|| ApiError::validation("role", "expected admin, member or viewer").into())
+}
+
+fn print_user_line(u: &UserInfo) {
+    let disabled = if u.disabled_at.is_some() {
+        "  (disabled)"
+    } else {
+        ""
+    };
+    println!("{}  {}  {}  {}{disabled}", u.id, u.role, u.email, u.name);
+}
+
+async fn list_users_command(json: bool) -> Result<(), Failure> {
+    let state = open().await?;
+    let users: Vec<UserInfo> = state
+        .db
+        .read(|conn| {
+            wikanvas_store::users::list(conn)?
+                .iter()
+                .map(|u| u.to_info())
+                .collect()
+        })
+        .await
+        .map_err(ApiError::from)?;
+    if json {
+        return print_json(&users);
+    }
+    users.iter().for_each(print_user_line);
+    Ok(())
+}
+
+async fn create_user_command(args: CreateUserArgs, json: bool) -> Result<(), Failure> {
+    let role = parse_role(&args.role)?;
+    wikanvas_store::users::check_email(args.email.trim()).map_err(ApiError::from)?;
+    wikanvas_store::users::check_name(&args.name).map_err(ApiError::from)?;
+    let (password, generated) = read_password(args.generate_password)?;
+    let state = open().await?;
+    // The owner comes first (setup or create-owner): until then the server is in setup mode.
+    find_user(&state, None).await?;
+    let password_hash = state.hash_password(password).await?;
+    let now = state.now();
+    let new = NewUser {
+        email: args.email,
+        name: args.name,
+        password_hash,
+        role,
+        must_change_password: generated.is_some(),
+    };
+    let user = state
+        .db
+        .write(move |tx| wikanvas_store::users::create(tx, &new, now)?.to_info())
+        .await
+        .map_err(ApiError::from)?;
+    if json {
+        print_json(&UserCreated {
+            user,
+            generated_password: generated,
+        })
+    } else {
+        println!("Created the {} {}.", user.role, user.email);
+        if let Some(password) = generated {
+            println!("Password (shown once; it must be changed after signing in): {password}");
+        }
+        Ok(())
+    }
+}
+
+async fn change_user_command(email: String, change: UserChange, json: bool) -> Result<(), Failure> {
+    let state = open().await?;
+    let user_id = find_user(&state, Some(email)).await?;
+    let now = state.now();
+    let (user, changed) = state
+        .db
+        .write(move |tx| {
+            let changed =
+                wikanvas_store::users::change(tx, Manager::Operator, &user_id, &change, now)?;
+            Ok((changed.user.to_info()?, changed))
+        })
+        .await
+        .map_err(ApiError::from)?;
+    match (json, change.disabled) {
+        (true, Some(true)) => print_json(&UserDisabled {
+            user,
+            sessions_revoked: changed.sessions_revoked,
+            tokens_revoked: changed.tokens_revoked,
+            invites_revoked: changed.invites_revoked,
+        }),
+        (true, _) => print_json(&UserChanged { user }),
+        (false, Some(true)) => {
+            print_user_line(&user);
+            println!(
+                "Signed out {} session(s); revoked {} token(s) and {} invite(s).",
+                changed.sessions_revoked, changed.tokens_revoked, changed.invites_revoked
+            );
+            Ok(())
+        }
+        (false, _) => {
+            print_user_line(&user);
+            Ok(())
+        }
     }
 }
 
