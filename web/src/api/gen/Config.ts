@@ -15,7 +15,7 @@ version: string,
  */
 commit: string, 
 /**
- * `quire_api::API_VERSION`.
+ * `wikanvas_api::API_VERSION`.
  */
 api_version: string, 
 /**

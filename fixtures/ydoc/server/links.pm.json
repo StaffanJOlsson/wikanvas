@@ -93,7 +93,7 @@
           "marks": [
             {
               "attrs": {
-                "href": "quire://item/0192f0a0-1111-7000-8000-00000000000a",
+                "href": "wikanvas://item/0192f0a0-1111-7000-8000-00000000000a",
                 "itemId": "0192f0a0-1111-7000-8000-00000000000a"
               },
               "type": "link"
@@ -144,7 +144,7 @@
           "marks": [
             {
               "attrs": {
-                "href": "quire://item/0192f0a0-9999-7000-8000-000000000099",
+                "href": "wikanvas://item/0192f0a0-9999-7000-8000-000000000099",
                 "itemId": null
               },
               "type": "link"

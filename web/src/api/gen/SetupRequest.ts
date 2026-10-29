@@ -5,7 +5,7 @@
  */
 export type SetupRequest = { 
 /**
- * The setup code from the server log (`XXXX-XXXX-XXXX`) or `QUIRE_SETUP_TOKEN`.
+ * The setup code from the server log (`XXXX-XXXX-XXXX`) or `WIKANVAS_SETUP_TOKEN`.
  */
 code: string, workspace_name: string, name: string, email: string, 
 /**

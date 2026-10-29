@@ -1,5 +1,5 @@
 Name	Kind	Notes
-Quire	Wiki	Self-hosted
+Wikanvas	Wiki	Self-hosted
 Spans two columns	One Two
 	bold	right
 After the table.

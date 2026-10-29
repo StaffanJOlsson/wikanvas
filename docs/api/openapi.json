@@ -1,8 +1,8 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "Quire API",
-    "description": "The public API of Quire, a self-hosted wiki. The web client uses it with its session cookie; external clients and the `quire` CLI use personal access tokens (`Authorization: Bearer qpat_…`). Errors have the shape `{\"error\": {\"code\", \"message\", \"details\"?}, \"request_id\"}`; clients treat an unknown `code` by its HTTP status. Within v1, changes are additive only.",
+    "title": "Wikanvas API",
+    "description": "The public API of Wikanvas, a self-hosted wiki. The web client uses it with its session cookie; external clients and the `wikanvas` CLI use personal access tokens (`Authorization: Bearer qpat_…`). Errors have the shape `{\"error\": {\"code\", \"message\", \"details\"?}, \"request_id\"}`; clients treat an unknown `code` by its HTTP status. Within v1, changes are additive only.",
     "license": {
       "name": "MIT",
       "identifier": "MIT"
@@ -15,7 +15,7 @@
         "tags": [
           "admin"
         ],
-        "summary": "Writes a backup of the database on the server (`<data dir>/backups/quire-<time>.db`).",
+        "summary": "Writes a backup of the database on the server (`<data dir>/backups/wikanvas-<time>.db`).",
         "operationId": "backup",
         "responses": {
           "200": {
@@ -444,7 +444,7 @@
         "tags": [
           "auth"
         ],
-        "summary": "Signs in with email and password and sets the session cookie (`__Host-quire_session; Secure` over HTTPS behind\nthe proxy, `quire_session` otherwise; `Max-Age` only with `remember`).",
+        "summary": "Signs in with email and password and sets the session cookie (`__Host-wikanvas_session; Secure` over HTTPS behind\nthe proxy, `wikanvas_session` otherwise; `Max-Age` only with `remember`).",
         "operationId": "login",
         "requestBody": {
           "content": {
@@ -2003,7 +2003,7 @@
         "tags": [
           "admin"
         ],
-        "summary": "Downloads the whole workspace: a tar of `manifest.json`, `quire.db` (without sessions, API tokens or password\nhashes) and `files/**`.",
+        "summary": "Downloads the whole workspace: a tar of `manifest.json`, `wikanvas.db` (without sessions, API tokens or password\nhashes) and `files/**`.",
         "operationId": "export",
         "responses": {
           "200": {
@@ -2013,7 +2013,7 @@
                 "schema": {
                   "type": "string"
                 },
-                "description": "attachment; filename=\"quire-export-<time>.tar\""
+                "description": "attachment; filename=\"wikanvas-export-<time>.tar\""
               }
             },
             "content": {
@@ -2734,7 +2734,7 @@
             }
           },
           {
-            "name": "X-Quire-Engine",
+            "name": "X-Wikanvas-Engine",
             "in": "header",
             "description": "The writing engine's version (the web client sends its `engineVersion`); stored as `api` when absent. At most 128 printable ASCII characters",
             "required": false,
@@ -2857,7 +2857,7 @@
             }
           },
           "422": {
-            "description": "`invalid_board` (also JSON nested deeper than `limits.json_depth`), `board_too_new`, `validation` (`field`: `kind` for a document, `X-Quire-Engine`, `body`)",
+            "description": "`invalid_board` (also JSON nested deeper than `limits.json_depth`), `board_too_new`, `validation` (`field`: `kind` for a document, `X-Wikanvas-Engine`, `body`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -3367,7 +3367,7 @@
         "tags": [
           "documents"
         ],
-        "summary": "The document as Quire Markdown 1 (§6.4). Never 304: it prints live titles. The lossy steps are listed in\n`Quire-Conversion-Warnings`.",
+        "summary": "The document as Wikanvas Markdown 1 (§6.4). Never 304: it prints live titles. The lossy steps are listed in\n`Wikanvas-Conversion-Warnings`.",
         "operationId": "get_doc_markdown",
         "parameters": [
           {
@@ -3400,7 +3400,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Markdown, with `ETag: \"d{seq}\"` and `Quire-Conversion-Warnings`",
+            "description": "Markdown, with `ETag: \"d{seq}\"` and `Wikanvas-Conversion-Warnings`",
             "content": {
               "text/markdown": {
                 "schema": {
@@ -3506,7 +3506,7 @@
           }
         ],
         "requestBody": {
-          "description": "Quire Markdown 1, up to 1 MiB",
+          "description": "Wikanvas Markdown 1, up to 1 MiB",
           "content": {
             "text/markdown": {
               "schema": {
@@ -5821,7 +5821,7 @@
         "tags": [
           "tokens"
         ],
-        "summary": "Revokes the calling token itself (`quire auth logout --revoke`), and the tokens it created.",
+        "summary": "Revokes the calling token itself (`wikanvas auth logout --revoke`), and the tokens it created.",
         "operationId": "revoke_current_token",
         "responses": {
           "204": {
@@ -6884,7 +6884,7 @@
         "properties": {
           "api_version": {
             "type": "string",
-            "description": "`quire_api::API_VERSION`."
+            "description": "`wikanvas_api::API_VERSION`."
           },
           "commit": {
             "type": "string",
@@ -7067,7 +7067,7 @@
       },
       "DocSchema": {
         "type": "object",
-        "description": "Response of `GET /schema/doc`: schema v1 as data (`quire-core::schema`, §6.4), byte for byte\n`fixtures/schema/v1.json`, which the web fixture writer dumps from the live TipTap schema.",
+        "description": "Response of `GET /schema/doc`: schema v1 as data (`wikanvas-core::schema`, §6.4), byte for byte\n`fixtures/schema/v1.json`, which the web fixture writer dumps from the live TipTap schema.",
         "required": [
           "schema_version",
           "top_node",
@@ -7315,7 +7315,7 @@
           },
           "engine_version": {
             "type": "string",
-            "description": "`0.2.0-beta.3+embed.quire.<patchset>`."
+            "description": "`0.2.0-beta.3+embed.wikanvas.<patchset>`."
           },
           "format_version": {
             "type": "integer",
@@ -8359,7 +8359,7 @@
         "properties": {
           "code": {
             "type": "string",
-            "description": "The setup code from the server log (`XXXX-XXXX-XXXX`) or `QUIRE_SETUP_TOKEN`."
+            "description": "The setup code from the server log (`XXXX-XXXX-XXXX`) or `WIKANVAS_SETUP_TOKEN`."
           },
           "email": {
             "type": "string"
@@ -8682,8 +8682,8 @@
       "session": {
         "type": "apiKey",
         "in": "cookie",
-        "name": "quire_session",
-        "description": "The web client's session cookie. Over HTTPS (behind the proxy) it is named `__Host-quire_session`. A session has every scope; cookie-authenticated mutations must pass the Fetch-Metadata / Origin check."
+        "name": "wikanvas_session",
+        "description": "The web client's session cookie. Over HTTPS (behind the proxy) it is named `__Host-wikanvas_session`. A session has every scope; cookie-authenticated mutations must pass the Fetch-Metadata / Origin check."
       }
     }
   }

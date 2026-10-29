@@ -10,7 +10,7 @@ export type InkboardInfo = {
  */
 base: string, 
 /**
- * `0.2.0-beta.3+embed.quire.<patchset>`.
+ * `0.2.0-beta.3+embed.wikanvas.<patchset>`.
  */
 engine_version: string, 
 /**

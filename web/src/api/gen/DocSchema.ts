@@ -3,7 +3,7 @@ import type { MarkSpec } from "./MarkSpec";
 import type { NodeSpec } from "./NodeSpec";
 
 /**
- * Response of `GET /schema/doc`: schema v1 as data (`quire-core::schema`, §6.4), byte for byte
+ * Response of `GET /schema/doc`: schema v1 as data (`wikanvas-core::schema`, §6.4), byte for byte
  * `fixtures/schema/v1.json`, which the web fixture writer dumps from the live TipTap schema.
  */
 export type DocSchema = { schema_version: number, 

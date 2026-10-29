@@ -9,7 +9,7 @@ Markdown shortcuts
 Try a to-do
 Tick it off
 Mentions and links
-Type @ and a few letters to mention another page. Mentions always show the page's current title. Paste a link to a Quire page and it stays a link to that page, even after a rename.
+Type @ and a few letters to mention another page. Mentions always show the page's current title. Paste a link to a Wikanvas page and it stays a link to that page, even after a rename.
 Images
 Paste or drop an image, or choose Image in the slash menu. Drag the handles to resize it and add a caption.
 Callouts
