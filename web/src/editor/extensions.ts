@@ -1,20 +1,23 @@
 // The live editor's extensions (docs/ARCHITECTURE.md §6.1, §9.6.5): schema v1 with its node views, Collaboration on
 // the session's Y.Doc, the placeholder, heading anchors, the slash and mention menus, image paste/drop/upload with
-// progress and retry, Wikanvas URLs pasted as item links, and Backspace at the start of an empty body back to the
-// title. A board card's editor (`variant: 'embed'`, §18.5) has no heading anchors (two cards of one document would
-// repeat the ids) and goes back to the card's own title input. `viewerExtensions` are the read-only static card's: the
-// schema and the node views only.
+// progress and retry, Wikanvas URLs pasted as item links, a board dropped from the sidebar as a board card, and
+// Backspace at the start of an empty body back to the title. A board card's editor (`variant: 'embed'`, §18.5) has no
+// heading anchors (two cards of one document would repeat the ids) and goes back to the card's own title input.
+// `viewerExtensions` are the read-only static card's: the schema and the node views only.
 import Collaboration from '@tiptap/extension-collaboration';
 import FileHandler from '@tiptap/extension-file-handler';
 import Placeholder from '@tiptap/extension-placeholder';
 import { Extension, ReactNodeViewRenderer, type AnyExtension, type Editor } from '@tiptap/react';
-import { Plugin, PluginKey } from '@tiptap/pm/state';
+import { Fragment, Slice } from '@tiptap/pm/model';
+import { NodeSelection, Plugin, PluginKey } from '@tiptap/pm/state';
+import { dropPoint } from '@tiptap/pm/transform';
 import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view';
 import { exitSuggestion } from '@tiptap/suggestion';
 import type * as Y from 'yjs';
 import { api } from '../api/client';
 import { searchTitles } from '../api/queries/docs';
 import type { ItemDetail } from '../api/gen/ItemDetail';
+import { DRAG_BOARD_TYPE, parseDraggedBoard } from '../board/embed/dragItem';
 import { TITLE_INPUT_ID } from '../components/item/ItemHeader';
 import { HeadingAnchors } from './contents';
 import { isAllowedLink, linkTarget, sameInstanceUrlId, type LinkTarget } from './links';
@@ -178,6 +181,42 @@ function WikanvasUrlPaste(origin: string) {
     },
   });
 }
+
+// ------------------------------------------------------------------------------------------------- dropped boards
+
+/**
+ * A sidebar board row dropped on the document becomes `boardEmbed{itemId}` (§9.6.5, D145), placed and selected the
+ * way ProseMirror places a dropped node: at the nearest block boundary of the drop point (`dropPoint`). A drag with the
+ * type whose data does not parse inserts nothing. A read-only editor never gets the drop (ProseMirror's drop handler
+ * runs only while the view is editable).
+ */
+export const BoardDrop = Extension.create({
+  name: 'wikanvasBoardDrop',
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: new PluginKey('wikanvasBoardDrop'),
+        props: {
+          handleDrop(view, event) {
+            const data = event.dataTransfer;
+            if (!data || !Array.from(data.types).includes(DRAG_BOARD_TYPE)) return false;
+            const board = parseDraggedBoard(data.getData(DRAG_BOARD_TYPE));
+            const at = view.posAtCoords({ left: event.clientX, top: event.clientY });
+            if (!board || !at) return true;
+            const node = view.state.schema.nodes.boardEmbed.create({ itemId: board.id });
+            const pos = dropPoint(view.state.doc, at.pos, new Slice(Fragment.from(node), 0, 0)) ?? at.pos;
+            const tr = view.state.tr.replaceRangeWith(pos, pos, node);
+            const $pos = tr.doc.resolve(pos);
+            if ($pos.nodeAfter?.sameMarkup(node)) tr.setSelection(new NodeSelection($pos));
+            view.focus();
+            view.dispatch(tr.setMeta('uiEvent', 'drop'));
+            return true;
+          },
+        },
+      }),
+    ];
+  },
+});
 
 // ------------------------------------------------------------------------------------------------- following links
 
@@ -361,6 +400,7 @@ export function editorExtensions(s: EditorSetup): AnyExtension[] {
       onDrop: (editor, files, pos) => uploadImages(editor, s.itemId, files, pos),
     }),
     WikanvasUrlPaste(typeof window !== 'undefined' ? window.location.origin : ''),
+    BoardDrop,
     ...(s.openLink ? [LinkOpener(s.openLink, typeof window !== 'undefined' ? window.location.origin : '')] : []),
     SlashCommand(s.slash, s.ctx),
     BackspaceToTitle(s.titleInput ?? (() => document.getElementById(TITLE_INPUT_ID))),

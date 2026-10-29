@@ -1038,6 +1038,47 @@ test('smoke: setup to export (PLAN W7 steps 1-15, the review fixes, M1.1 board e
     console.log('smoke: step 17 ran on the engine: Text doc, Embed page…, a real sidebar drag, double-click editing, reload');
   });
 
+  await test.step('18. A board row dragged from the sidebar onto a document embeds the board there (D145)', async () => {
+    await page.goto(cUrl);
+    await expect(page.locator('#item-title')).toHaveValue('C');
+    await expect(editor(page)).toContainText('quokka');
+    const aRow = treeItem(page, 'A');
+    if ((await aRow.getAttribute('aria-expanded')) !== 'true') await aRow.locator('.row-caret').click();
+    const boardRow = treeItem(page, BOARD_TITLE);
+    await expect(boardRow).toBeVisible();
+    const parentBefore = (await detail(page, boardId)).item.parent_id as string;
+    const cards = editor(page).locator('.board-embed');
+    const count = await cards.count();
+
+    // A real drag (mouse down on the row, moves, up) to the end of C's last paragraph: the board goes after it.
+    const last = await editor(page).locator('p').last().boundingBox();
+    const rowBox = await boardRow.locator('.row-label').boundingBox();
+    if (!last || !rowBox) throw new Error('no box for the last paragraph of C or the board row');
+    const from = { x: rowBox.x + Math.min(20, rowBox.width / 2), y: rowBox.y + rowBox.height / 2 };
+    const to = { x: last.x + last.width - 4, y: last.y + last.height / 2 };
+    const saved = page.waitForResponse((r) => isDocUpdate(r) && r.ok(), { timeout: SAVE_TIMEOUT });
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    for (let i = 1; i <= 20; i++) {
+      await page.mouse.move(from.x + ((to.x - from.x) * i) / 20, from.y + ((to.y - from.y) * i) / 20);
+      await page.waitForTimeout(30);
+    }
+    await page.mouse.up();
+    await expect(cards).toHaveCount(count + 1);
+    await expect(cards.last().locator('.board-embed-title')).toHaveText(BOARD_TITLE);
+    await saved;
+    await expect(saveStatus(page)).toHaveText('Saved', { timeout: SAVE_TIMEOUT });
+
+    // Stored: the embed is C's last block, after the text; the tree moved nothing.
+    const stored = await (await page.request.get(`/api/v1/items/${cId}/doc/prosemirror`)).json();
+    const blocks = stored.doc.content as Json[];
+    expect(blocks.at(-1)).toMatchObject({ type: 'boardEmbed', attrs: { itemId: boardId } });
+    expect(JSON.stringify(blocks.slice(0, -1))).toContain('quokka');
+    expect((await detail(page, boardId)).item.parent_id).toBe(parentBefore);
+    await page.reload();
+    await expect(editor(page).locator('.board-embed').last().locator('.board-embed-title')).toHaveText(BOARD_TITLE);
+  });
+
   if (pageErrors.length > 0) testInfo.annotations.push({ type: 'page errors', description: pageErrors.join('\n') });
   await test.step('No CSP violation on any page of the run', async () => {
     expect(cspViolations).toEqual([]);

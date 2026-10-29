@@ -23,7 +23,7 @@ import {
   type Rendered,
 } from '../testkit';
 import { embedController, INSERT_FAILED } from './controller';
-import { DRAG_ITEM_TYPE } from './dragItem';
+import { boardDragDataOf, DRAG_ITEM_TYPE } from './dragItem';
 import { MAX_SNAPSHOT_CHARS } from './titles';
 
 let app: Rendered | null = null;
@@ -178,5 +178,10 @@ describe('dropping a sidebar document', () => {
     const plain = dragEvent('dragover', { 'text/plain': 'hello' }, 400, 250);
     pm.dispatchEvent(plain);
     expect(reached).toHaveBeenCalledTimes(1);
+    // So is a sidebar board (D145): the card's editor embeds it in the document, the board places no card.
+    const board = dragEvent('dragover', boardDragDataOf({ id: '0192f0a0-5555-7000-8000-00000000000b', title: 'Plan' }), 400, 250);
+    pm.dispatchEvent(board);
+    expect(reached).toHaveBeenCalledTimes(2);
+    expect(r.fake.inserted).toHaveLength(1);
   });
 });

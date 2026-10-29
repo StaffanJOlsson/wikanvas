@@ -118,7 +118,7 @@ listed under group I. P-115 (L) counts 0 days, because M2 builds nothing for it 
 | P-047 | Optimistic move with a display-only key; rollback with a toast on any error | M | C2 | L2 ui::sidebar::optimistic_move_rolls_back_on_409 | same |
 | P-048 | "Moved to <parent> · Undo" toast (8 s); keyboard moves show none | S | C2 | L2 ui::sidebar::move_toast_undo | same |
 | P-049 | Collection reorder by drag, optimistic with rollback | M | C2 | L2 ui::sidebar::collection_reorder (3 cases) | same |
-| P-050 | Document rows are drag sources for boards; board and collection rows carry nothing | S | C2 | L2 ui::sidebar::doc_row_carries_item_payload; L3 flows::board_embeds::sidebar_drag | changed: an egui drag payload, no native drag type (D132) |
+| P-050 | Document rows are drag sources for boards, board rows for documents (D145); collection rows carry nothing | S | C2 | L2 ui::sidebar::doc_row_carries_item_payload; L2 ui::sidebar::board_row_carries_board_payload; L3 flows::board_embeds::sidebar_drag | changed: an egui drag payload, no native drag type (D132) |
 | P-051 | Tree keys (↑/↓, Home/End, →/←, Enter, Mod+Enter, Shift+F10, Esc) | M | C2 | L2 ui::sidebar::keyboard_navigation (the cases of keyboard.test.tsx) | same |
 | P-052 | Alt+Shift+arrows indent, outdent and reorder; focus stays on the row | S | C2 | L2 ui::sidebar::alt_shift_moves; L1 app::tree::positions::tests::keyboard | same |
 | P-053 | Delete moves to Trash (confirmation with nested pages), focus to the next row | S | C2 | L2 ui::sidebar::delete_confirms_nested_and_focuses_next | same |
@@ -211,7 +211,7 @@ listed under group I. P-115 (L) counts 0 days, because M2 builds nothing for it 
 | P-099 | Mentions: `@` search (8), chip with live title, trashed, deleted and unavailable states | M | C5 | L2 editor::mentions::search_insert_live_title_states | same |
 | P-100 | Board embed node: page-0 preview card, title, link, states; never starts the engine | M | C5 | L2 editor::blocks::board_embed_card_states; L3 flows::boards::board_reload_and_doc_embed; L3 flows::boards::seeded_board_preview_on_demand (`TestServer` with the seed, "Welcome to Wikanvas", its board card holds a decoded raster while `preview_rev` is null) | changed: the preview is a resvg raster of page 0 (D123) |
 | P-101 | Slash menu: 18 items, filter, closes after 3 dead characters, keys | M | C5 | L1 editor::slash::tests::filter (5); L2 editor::menus::slash_keys | same |
-| P-102 | "Embed board…" picker and "New board" | S | C5 | L3 flows::boards::board_reload_and_doc_embed | same |
+| P-102 | "Embed board…" picker, "New board", and a board row dropped from the sidebar (D145) | S | C5 | L3 flows::boards::board_reload_and_doc_embed; L3 flows::boards::sidebar_board_drop_embeds | same |
 | P-103 | Markdown input rules (headings, lists, tasks, quote, code, rule, marks, callouts) | M | C4 | L1 editor::input_rules::tests (every rule) | same (hand-written matchers) |
 | P-104 | TipTap's default editing shortcuts | S | C4 | L1 editor::keymap::tests::tiptap_defaults_table | same (new) |
 | P-105 | Bubble menu on a text selection (marks, link, "Turn into"), not in code or images | M | C5 | L2 editor::menus::bubble_on_selection_not_in_code | same |
