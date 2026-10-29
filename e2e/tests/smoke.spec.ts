@@ -24,6 +24,7 @@
 //   so the synthetic drop PLAN allows as a fallback is not used.
 // - Before the double-click, a single click on C's card checks that it selects ("Double-click to edit") without editing.
 // - "Ctrl+Z ten times … leave the text as it was": C's stored text equals the text saved before the ten Enters.
+// Step 20 (accounts and invites, D148) runs a second browser context for the invited member, with its own cookies.
 import { expect, test, type Locator, type Page, type Response } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 
@@ -265,7 +266,7 @@ async function expectAboveCanvas(page: Page, overlay: Locator, what: string): Pr
   expect(inside, `${what} is the topmost element at (${point.x}, ${point.y}), over the board iframe`).toBe(true);
 }
 
-test('smoke: setup to export (PLAN W7 steps 1-15, the review fixes, M1.1 board embeds)', async ({ page, context, request }, testInfo) => {
+test('smoke: setup to export (PLAN W7 steps 1-15, the review fixes, M1.1 board embeds)', async ({ page, context, request, browser }, testInfo) => {
   test.setTimeout(15 * 60_000);
   const pageErrors: string[] = [];
   page.on('pageerror', (e) => pageErrors.push(e.message));
@@ -1137,6 +1138,111 @@ test('smoke: setup to export (PLAN W7 steps 1-15, the review fixes, M1.1 board e
     await expect(column).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Contents', exact: true })).toBeVisible();
     await page.setViewportSize(viewport);
+  });
+
+  await test.step('20. Members: the owner invites a member, who reads and edits C but cannot empty the trash; disabled, their session ends (D148)', async () => {
+    const MEMBER = { name: 'Smoke Member', email: 'member@example.com', password: 'member-password-123' };
+    await page.goto('/settings/account');
+    await page.getByRole('navigation', { name: 'Settings' }).getByRole('link', { name: 'Members' }).click();
+    await page.waitForURL('**/settings/members');
+    await expect(page.locator('.members-table tbody tr')).toHaveCount(1);
+    await page.getByRole('button', { name: 'Invite people' }).click();
+    const create = page.getByRole('dialog', { name: 'Invite people' });
+    await expect(create.getByRole('radio', { name: /^Member/ })).toBeChecked();
+    const created = page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname === '/api/v1/invites');
+    await create.getByRole('button', { name: 'Create link' }).click();
+    expect((await created).status()).toBe(201);
+    const shown = page.getByRole('dialog', { name: 'Invite link' });
+    const link = await shown.getByRole('textbox', { name: 'Invite link' }).inputValue();
+    expect(link).toMatch(/^http:\/\/wikanvas:8080\/invite\/qinv_[0-9A-Za-z]{46}$/);
+    await shown.getByRole('button', { name: 'Done' }).click();
+    await expect(shown).toHaveCount(0);
+    // Shown once: the pending invite is listed, its link is gone from the page.
+    await expect(page.locator('.invites-table tbody tr')).toHaveCount(1);
+    expect(await page.content()).not.toContain(link);
+
+    // The invited person, in a browser of their own.
+    const origin = new URL(page.url()).origin;
+    const memberContext = await browser.newContext({ baseURL: origin });
+    memberContext.on('console', (m) => {
+      if (/Content Security Policy/i.test(m.text())) cspViolations.push(`${m.location().url}: ${m.text()}`);
+    });
+    const member = await memberContext.newPage();
+    member.on('pageerror', (e) => pageErrors.push(`member: ${e.message}`));
+    await member.goto(link);
+    await expect(member.getByRole('heading', { name: `Join ${OWNER.workspace}` })).toBeVisible();
+    await expect(member.getByText(/as a member/)).toBeVisible();
+    await member.getByLabel('Your name').fill(MEMBER.name);
+    await member.getByLabel('Email').fill(MEMBER.email);
+    await member.getByLabel('Password', { exact: true }).fill(MEMBER.password);
+    await member.getByLabel('Repeat the password').fill(MEMBER.password);
+    const accepted = member.waitForResponse((r) => r.request().method() === 'POST' && /\/api\/v1\/invites\/[^/]+\/accept$/.test(new URL(r.url()).pathname));
+    await member.getByRole('button', { name: `Join ${OWNER.workspace}` }).click();
+    expect((await accepted).status()).toBe(201);
+    await member.waitForURL('**/home');
+    await expect(member.getByRole('heading', { name: 'Home', level: 1 })).toBeVisible();
+    const me = await (await member.request.get('/api/v1/auth/me')).json();
+    expect(me.user).toMatchObject({ email: MEMBER.email, role: 'member' });
+    // The link worked once.
+    const again = await member.request.get(`/api/v1/invites/${link.split('/').pop()}`);
+    expect((await again.json()).state).toBe('used');
+
+    // The member reads and edits C.
+    await member.goto(cUrl);
+    await expect(editor(member).locator('h1')).toHaveText('Plan');
+    // C's paragraph is "quokka", or "quokka numbat" after step 17 on the engine: the member adds to its end.
+    await editor(member).locator('p', { hasText: 'quokka' }).first().click();
+    await settle(member);
+    await member.keyboard.press('End');
+    const edited = member.waitForResponse((r) => isDocUpdate(r) && r.ok(), { timeout: SAVE_TIMEOUT });
+    await member.keyboard.type(' and a possum');
+    await edited;
+    await expect(saveStatus(member)).toHaveText('Saved', { timeout: SAVE_TIMEOUT });
+    const text = await (await page.request.get(`/api/v1/items/${cId}/text`)).json();
+    expect(text.body).toMatch(/quokka[^\n]* and a possum/);
+
+    // The member trashes a page of their own, but never empties the trash: the UI offers no purge, and the API refuses.
+    const collection = (await detail(page, cRef)).item.collection_id;
+    const tried = await member.evaluate(async (collectionId) => {
+      const made = await fetch('/api/v1/items', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ collection_id: collectionId, kind: 'doc', title: 'Member scratch' }),
+      });
+      const item = await made.json();
+      const trashed = await fetch(`/api/v1/items/${item.id}`, { method: 'DELETE' });
+      const purge = await fetch('/api/v1/trash', { method: 'DELETE' });
+      return { made: made.status, trashed: trashed.status, purge: purge.status, code: (await purge.json()).error.code };
+    }, collection);
+    expect(tried).toEqual({ made: 201, trashed: 200, purge: 403, code: 'forbidden' });
+    await member.goto('/trash');
+    const scratch = member.locator('.item-list-row', { hasText: 'Member scratch' });
+    await expect(scratch).toHaveCount(1);
+    await expect(scratch.getByRole('button', { name: 'Restore' })).toBeVisible();
+    await expect(scratch.getByRole('button', { name: 'Delete forever' })).toHaveCount(0);
+    await expect(member.getByRole('button', { name: 'Empty Trash' })).toHaveCount(0);
+    // Members cannot manage members either.
+    await member.goto('/settings/account');
+    await expect(member.getByRole('navigation', { name: 'Settings' }).getByRole('link', { name: 'Members' })).toHaveCount(0);
+
+    // The owner disables the member: their session stops working at once.
+    await page.reload();
+    const row = page.locator('.members-table tbody tr', { hasText: MEMBER.email });
+    await expect(row.getByRole('combobox', { name: `Role of ${MEMBER.name}` })).toHaveValue('member');
+    await row.getByRole('button', { name: `Disable ${MEMBER.name}` }).click();
+    const disabled = page.waitForResponse((r) => r.request().method() === 'PATCH' && /\/api\/v1\/users\/[^/]+$/.test(new URL(r.url()).pathname));
+    await page.getByRole('alertdialog', { name: `Disable ${MEMBER.name}?` }).getByRole('button', { name: 'Disable', exact: true }).click();
+    expect((await disabled).status()).toBe(200);
+    await expect(row.getByText('Disabled')).toBeVisible();
+    expect((await member.request.get('/api/v1/auth/me')).status()).toBe(401);
+    await member.reload();
+    await member.waitForURL('**/login**');
+    const login = member.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname === '/api/v1/auth/login');
+    await member.getByLabel('Email').fill(MEMBER.email);
+    await member.getByLabel('Password').fill(MEMBER.password);
+    await member.getByRole('button', { name: 'Sign in' }).click();
+    expect((await login).status()).toBe(401);
+    await memberContext.close();
   });
 
   if (pageErrors.length > 0) testInfo.annotations.push({ type: 'page errors', description: pageErrors.join('\n') });
