@@ -325,10 +325,13 @@ docker compose exec wikanvas wikanvas admin create-token --name cli --scope writ
 **Data from before v0.1.0-alpha.1.** A data volume, backup or export made before the rename (the note at the top)
 keeps its database under the old name, which no later release reads. Put that file in place as `wikanvas.db` before the
 first start: in a volume, rename the old `.db` file together with its `-wal` and `-shm` files; from a backup or an
-export, copy its `.db` file as above. A server started without `wikanvas.db` creates an empty wiki, and its cleanup (at
-startup and every 6 h, §12) then deletes every file under `/data/files` that the empty database does not list; only
-the copy you restored from still has them. Old backups in `/data/backups` are neither listed nor pruned under the old
-name: rename them to `wikanvas-<time>.db` to have them counted.
+export, copy its `.db` file as above. A server that finds files in `/data/files` but no owner (no `wikanvas.db`, or
+an empty one that an earlier start created) refuses to start, before it shows the first-run setup, and leaves both
+untouched: the app keeps restarting, and `docker compose logs wikanvas` shows an error with the database path and the
+number of files. Either put the right `wikanvas.db` in place (over an empty one: delete its `-wal` and `-shm` files
+too), or, to start a new wiki on purpose, move `/data/files` away. The cleanup that deletes files the database does not
+list (at startup and every 6 h) never runs while there is no owner. Old backups in `/data/backups` are neither listed
+nor pruned under the old name: rename them to `wikanvas-<time>.db` to have them counted.
 
 **Bind mounts.** The app runs as uid 65532. Named volumes take that ownership from the image; if you replace
 `wikanvas-data` with a bind mount, `chown -R 65532:65532` the host directory first.

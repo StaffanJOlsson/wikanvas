@@ -218,7 +218,7 @@ settings all checked).
 | 12 | A4's review diff cannot show the slices' values unchanged (operations) | holds | the diff names the old and new paths with `-M30%` |
 | 13 | The sweep patterns as written in R1's report carry table escapes and match nothing (operations) | holds | the copyable sweep is in the runbook's C11 and above |
 | 14 | D3's askpass text differs from the command it approves (operations) | holds | the text names the command exactly |
-| 15 | A first start without `wikanvas.db` makes an empty database, and the purge job's orphan sweep then deletes every attachment and board image of the copied volume (docs and data, high) | holds | C7's `test -s` gate already stops the downtime script before such a start; C8 now also runs `admin check --json` (`ok`, no missing blob) and its recovery rebuilds the volume from the untouched old one; README warns in `42ce845`. An optional code guard is owner-pending (below) |
+| 15 | A first start without `wikanvas.db` makes an empty database, and the purge job's orphan sweep then deletes every attachment and board image of the copied volume (docs and data, high) | holds | C7's `test -s` gate already stops the downtime script before such a start; C8 now also runs `admin check --json` (`ok`, no missing blob) and its recovery rebuilds the volume from the untouched old one; README warns in `42ce845`. The code guard is done in `9d22746` (D144, approved by the owner on 2026-10-29): `serve` refuses to start while `files/` holds files and no owner exists, and the orphan sweep never runs without an owner |
 | 16 | README has no upgrade path for an instance from before the rename (docs and data) | rejected | the only such instance is the owner's live wiki, migrated once by the runbook (D100); the repository was not published yet; the data-safety part is 17 |
 | 17 | Restoring an export or backup from before the rename is neither handled nor documented (docs and data) | holds | `42ce845`: README "Data from before v0.1.0-alpha.1": rename the database file (with its `-wal` and `-shm`) or the backup's or export's database to `wikanvas.db` before the first start, and why; old backups are neither listed nor pruned until renamed |
 | 18 | The version goes backwards in semver: `0.1.0-alpha.1` sorts before the earlier `0.1.0` (docs and data) | holds, **owner-pending** | no code orders versions (the update banner compares equality); the wording or number is the owner's choice |
@@ -294,8 +294,11 @@ the rollback's `git worktree add` and `up` (its render was rehearsed); Phase A's
   carry the old name. Renaming them needs `git worktree repair`; nothing in the repo names either path.
 - **The workspace name (owner).** The live workspace's name holds the old name; renaming it needs the admin scope, so
   the owner does it in Settings (C10).
-- **Owner decisions left open:** the version number or its wording (finding 18); an optional code guard against the
-  startup orphan sweep on a new, empty database while `/data/files` is not empty (finding 15).
+- **Owner decisions left open:** the version number or its wording (finding 18).
+- **Done since: the code guard of finding 15** (approved by the owner on 2026-10-29), `9d22746` on `ws/G-guard`, D144:
+  `wikanvas-server serve` exits 1 before it listens, starts the jobs or logs the setup code while `/data/files` holds
+  any file and no owner exists (no `wikanvas.db`, or an empty one), and `gc::blobs` skips the orphan sweep without an
+  owner; README "Data from before v0.1.0-alpha.1" describes the refusal and its two ways out.
 - **At the merge:** whether to squash `5a4ed05` into `329834c` (only if every commit on main must build).
 - **The owner's earlier open questions** are untouched: the engine's fonts' licences and the base image's OS-layer
   licences.
