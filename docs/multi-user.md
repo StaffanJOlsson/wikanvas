@@ -1,7 +1,8 @@
 # Multi-user Wikanvas: research and a proposed path
 
-**Status: a proposal; the owner answered questions 1, 2, 3 and 4 on 2026-10-29** (§6). **Phases 1 and 2 are
-implemented** (§5): the role check in every handler, and accounts with invite links (docs/ARCHITECTURE.md D148–D151).
+**Status: a proposal; the owner answered questions 1, 2, 3 and 4 on 2026-10-29** (§6). **Phases 1, 2 and 3 are
+implemented** (§5): the role check in every handler, accounts with invite links (docs/ARCHITECTURE.md D148–D151), and
+access per collection (D152–D156).
 The accepted parts move into docs/ARCHITECTURE.md as decisions when their phase starts, as M2 did (§19). It combines
 three studies made the same day: how others handle several people editing at once, what Wikanvas has and lacks, and
 what upstream Inkboard offers. Sources are numbered in brackets (§8).
@@ -126,8 +127,8 @@ before M2 starts, or D143 is amended.
 | Phase | What | Size | Notes |
 |---|---|---|---|
 | 1 | **Role check everywhere**: `authz::require` in every handler; purge by role (admin); a per-role test matrix | S–M | No change for the owner. Can start at once. |
-| 2 | **Accounts** (implemented, D148–D151): migration 0002 (`invites`), `GET`/`PATCH /users`, invite create, list and revoke, a public invite page and accept, disable and enable (deleting an account, with its content kept, is left for later), `admin list-users`/`create-user`/`set-role`/`disable-user`/`enable-user` and `--email` on the token commands, `wikanvas user` and `wikanvas invite`, Settings → Members, `multi_user` from the count of enabled users | M | A pre-migration backup on the live wiki; D143 amended: M2's baseline is `user_version` 2 (§6 Q1). Until phase 3, every member and viewer sees every collection. |
-| 3 | **Permissions**: workspace roles plus per-collection membership (read, write, manage); the item filter, search, tree ETag, title lookups, backlinks, attachments and board card labels all filtered by viewer | L | Leaks through any missed query are the risk: test every list per role. |
+| 2 | **Accounts** (implemented, D148–D151): migration 0002 (`invites`), `GET`/`PATCH /users`, invite create, list and revoke, a public invite page and accept, disable and enable (deleting an account, with its content kept, is left for later), `admin list-users`/`create-user`/`set-role`/`disable-user`/`enable-user` and `--email` on the token commands, `wikanvas user` and `wikanvas invite`, Settings → Members, `multi_user` from the count of enabled users | M | A pre-migration backup on the live wiki; D143 amended: M2's baseline is the last migration of phases 1–4 (§6 Q1). |
+| 3 | **Permissions** (implemented, D152–D156): migration 0003 (`collections.default_access` none/read/write, `collection_members` read/write/manage, `users.access_epoch`; existing collections `write`, their creators `manage`); `authz::require` looks up the collection's access (404 for what one may not read, 403 for what one may read but not change); the item filter, search and snippets, tree, lists, trash, stars, title lookups and exports, attachments and board card labels all filtered by viewer; a board's text leaves its cards out; the tree ETag's `viewer_epoch`; members routes and `GET /directory`; `wikanvas collection member`; the collection's Access settings and read-only collections in the web client | L | `user_version` 3, M2's baseline unless phase 4 adds one more (D143). A leak suite and a second role matrix over every operation (docs/ARCHITECTURE.md §7.4). |
 | 4 | **Per-user details**: author names in the API, "Alex updated 5 minutes ago", drafts private to their author (D23), the client caches keyed by user | M | |
 | 5 | **Live documents** (in M2, Q4): a room per open document holding its yrs doc, push of accepted updates (including API writes) over one event stream per client, authorisation per message, client ids bound to users, the search-text walk moved off the hot path | L | Built with M2's client. |
 | 6 | **Presence**: cursors, selections and who is here, with the identity stamped by the server; the live title | M | |
@@ -153,8 +154,8 @@ before M2 starts, or D143 is amended.
 
 Phases 1–4 (role check everywhere, accounts and invites, per-collection permissions, per-user details) now, on the
 server and in the current web client; then M2; live documents and presence inside M2; history and live boards after.
-Phases 1 and 2 are done; phase 3 (per-collection permissions) is next. Until it lands, every member and viewer sees
-every collection, and members can change them: invite only people who may.
+Phases 1, 2 and 3 are done; phase 4 (per-user details: drafts private to their author, author names, the client caches
+keyed by user) is next.
 
 ## 8. Sources
 

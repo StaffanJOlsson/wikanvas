@@ -82,13 +82,22 @@ resource-capped containers (see [Building](#building-and-the-build-caps)).
 Upgrading is `git pull`, `git submodule update`, `scripts/image.sh` and `docker compose up -d`. The server migrates
 the database at startup and writes a pre-migration backup first (§12). The accounts release (migration 0002, D148)
 raises the schema to version 2: its first start writes `/data/backups/pre-migrate-v1-<time>.db`, and an older image
-then refuses the database, so going back means putting that backup in place as `wikanvas.db`.
+then refuses the database, so going back means putting that backup in place as `wikanvas.db`. The access-per-collection
+release (migration 0003, D152) raises it to version 3 the same way (`pre-migrate-v2-<time>.db`); every collection
+keeps today's access (members edit, viewers read), and whoever made a collection manages it.
 
 **Inviting people.** There is no sign-up: the owner or an admin opens Settings → Members, chooses "Invite people"
 (a role, admin only for the owner, and how long the link works, 7 days by default), and sends the link
 (`https://<your domain>/invite/<token>`), which works once. The person picks a name, an email and a password and is
-signed in. Members read and write every collection, viewers read every collection, admins also manage members,
-invites, the workspace and the trash; until access per collection arrives, everyone sees every collection.
+signed in. Admins also manage members, invites, the workspace and the trash.
+
+**Who sees which collection.** Each collection has a default access for members and viewers, in its settings under
+Access: "Members edit, viewers read" (the default, and what every collection had before), "Everyone can read", or
+"Only members". There you also add people with read, write or manage access: more than the default, or any access to a
+collection only its members see. The owner and admins manage every collection, and a viewer never does more than
+read. Whoever creates a collection manages it: they can change its settings, access and members. Someone without
+access to a collection does not see it anywhere, not in the sidebar, search, lists or links; a document or board they
+can only read opens read-only. A board shows "Page not found" on a card whose document they may not read.
 
 ## Configuration
 
@@ -392,8 +401,8 @@ routes. Within v1, changes are additive only.
   is shown once; the server keeps only its hash.
 - **Scopes:** `read` (every GET except tokens, sessions and export), `write` (content and structure), `admin`
   (tokens, sessions, account and workspace settings, accounts and invites, permanent deletion, export, backup). A
-  token is also limited by its account's role: owner and admin everything, member reading and writing, viewer
-  reading. A token can create tokens
+  token is also limited by its account's role and, per collection, by its access (D152): what it may not read is
+  404, as if it did not exist. A token can create tokens
   with no broader scope that expire no later than itself, and never an `admin` token.
 - **Spec:** `GET /api/v1/openapi.json` (OpenAPI 3.1); the same file is committed as
   [`docs/api/openapi.json`](docs/api/openapi.json). Documents are readable and writable as Markdown and ProseMirror

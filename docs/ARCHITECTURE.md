@@ -51,8 +51,12 @@ a new child), from a picker ("Embed page…") or by dragging a document from the
 
 Before M2, **accounts** (docs/multi-user.md phase 2, D148–D151): the owner and admins invite people by link as admins,
 members or viewers, change their roles, and disable and enable them (Settings → Members, `/api/v1/users`,
-`/api/v1/invites`, `wikanvas user`, `wikanvas invite`, `wikanvas-server admin create-user`). Roles are workspace-wide:
-until per-collection permissions (phase 3), every member and viewer sees every collection.
+`/api/v1/invites`, `wikanvas user`, `wikanvas invite`, `wikanvas-server admin create-user`). Then **access per
+collection** (phase 3, D152–D156): each collection has a default access for members and viewers (`none`, `read` or
+`write`) and memberships (`read`, `write`, `manage`) that give a person more; the owner and admins manage every
+collection, and a viewer never does more than read. What someone may not read is left out of every list, search and
+title lookup, and is 404 like a missing item (the collection's settings → Access, `/api/v1/collections/{id}/members`,
+`/api/v1/directory`, `wikanvas collection member`).
 
 Not built in M1: templates, sharing, avatars or "Viewed by N", comments, the version-history UI, backlinks UI,
 imports (including server-side board import from draw.io, Excalidraw, Mermaid or JSON Canvas, D52), Markdown-zip export
@@ -87,7 +91,7 @@ layout slots (§15).
 | D18 | Sessions are opaque 32-byte tokens; only their sha256 is stored. The cookie is `__Host-wikanvas_session; Secure` on a request that arrived over HTTPS (`X-Forwarded-Proto: https` from the trusted proxy, §8, D57), and `wikanvas_session` on a plain-HTTP request | No JWT, and sessions can be revoked. The cookie follows how the browser actually reached Wikanvas, so the direct plain-HTTP paths (e2e, agent harness) keep working. |
 | D19 | First-run setup requires a setup code, printed in the log (or set with `WIKANVAS_SETUP_TOKEN`). `/api/v1/setup` shares the login per-IP rate limiter. | A fresh container on a LAN cannot be claimed by whoever opens `/setup` first. |
 | D20 | Frontend: React 19, TypeScript, Vite 8, React Router (data router), TanStack Query for server state, Zustand for UI state, lucide-react icons (ISC), `@atlaskit/pragmatic-drag-and-drop` (Apache-2.0) | All permissively licensed, small, and well known. |
-| D21 | The sidebar loads **a whole collection's live tree as one flat list** (`GET /api/v1/collections/{id}/tree`, with ETag `"t{tree_version}.{viewer_epoch}"` and 304) and builds the tree on the client. Rows are virtualized when there are more than 300 visible. | One request, and no recursive lazy-load states. Enough for a personal wiki: 5k items is about 150 KB gzipped. `viewer_epoch` is 0 in M1 and becomes a per-user permission epoch later. |
+| D21 | The sidebar loads **a whole collection's live tree as one flat list** (`GET /api/v1/collections/{id}/tree`, with ETag `"t{tree_version}.{viewer_epoch}"` and 304) and builds the tree on the client. Rows are virtualized when there are more than 300 visible. | One request, and no recursive lazy-load states. Enough for a personal wiki: 5k items is about 150 KB gzipped. `viewer_epoch` was 0 in M1; since D155 it is the caller's `users.access_epoch`, which moves when their access may have changed. |
 | D22 | API DTOs are Rust structs in the crate `wikanvas-api` (D40), re-exported as `wikanvas-core::api::*`. They are exported to TypeScript with ts-rs 12 into `web/src/api/gen/` (one file per type, committed) and to the OpenAPI spec with utoipa (D41). CI fails on a diff of either. | One source of truth for the contract between parallel workstreams, the web client, the CLI and external clients. |
 | D23 | **Items are published on create** (`published_at = created_at`; owner decision 2026-10-28, §17.3). The draft state stays in the data model and the API, so a Drafts workflow can be switched on with multi-user: `published_at IS NULL` is a draft, which in M1 only `POST …/unpublish` (API or CLI) makes; `POST …/publish` (`with_ancestors` publishes draft ancestors too), `GET /drafts`, `drafts_count` and `include_drafts` work as specified. Visibility is **derived**: an item is *effectively published* when it and every ancestor are published; unpublish, move, restore and unarchive need no publish rules. The M1 web client has no draft UI: no Publish button or step, no Draft pill, no Drafts entry or page, no publish shortcut; an unpublished item looks like any other (single-user visibility ignores publication, §5). When multi-user arrives, new items may start as drafts again, drafts stay private to their author, the draft UI appears with `config.multi_user`, and the upgrade offers "Publish all drafts". | A single owner gains nothing from a Publish step. Keeping the column, routes and derived rule costs little and turns the multi-user workflow into a default change plus UI, not a migration. A derived rule cannot be broken by moves or restores, so nothing needs enforcing. |
 | D24 | Soft states are timestamps (`published_at`, `archived_at`, `deleted_at`) plus a root pointer (`archive_root_id`, `trash_root_id`), so a subtree is restored as one unit. Deleting a collection sets `trash_root_id = <collection id>` on its live items. | Trash, Archive and Drafts are queries. Nothing is copied. |
@@ -136,10 +140,15 @@ layout slots (§15).
 | D145 | **A board dragged from the sidebar onto a document is embedded there** (owner request, 2026-10-29). A board row's pragmatic-dnd draggable carries `application/x-wikanvas-board` as native data (`{v: 1, id, kind: "board", title}`, `boardDragDataOf` in `dragItem.ts`, beside the document row's type of D70). The editor's `BoardDrop` plugin (`handleDrop`, in a board card's editor too) takes a drag with that type, inserts `boardEmbed{itemId}` where ProseMirror places a dropped node (`dropPoint` of the drop position: before the block for a drop in its first half, after it in its second) and selects it. Data under the type that does not parse (another `v` or `kind`, an id that is not a canonical UUID) inserts nothing, and a read-only editor never gets the drop. The id is not fetched first: the sidebar lists only live items, and a card whose target is not a board shows its own states (§9.6.5). The board frame and the editing card's overlay (§18.6 (c)) do not know the type, so a board dropped on a board places nothing. | A type of its own, not `application/x-wikanvas-item` with `kind: "board"`: the frame and the overlay accept their type from `dataTransfer.types` alone, before the data can be read, so a board would show as droppable on a board and the editing card would swallow it. Inserting at once keeps the drop synchronous; fetching first would need the drop position mapped through every collaborative change meanwhile, for a check the sidebar already made. A document that is a card on the board it embeds nests nothing: the embed is the board's preview image, in which the card is a box with its title. |
 | D146 | **Changes reach `main` through pull requests, with CI** (owner, 2026-10-29: Wikanvas is live). Work is pushed often on branches from `origin/main`; a pull request runs `.github/workflows/ci.yml` (§14.2) and lands once every job is green, as a fast-forward of `main` to the branch, so the commits and the image tags built from them stay the same. Stable releases are cut now and then, not per change. Actions are pinned by commit SHA, with the release tag in a comment. | CI catches what a local run can miss before a live wiki updates to `main`'s image; fast-forwards keep `main` linear and every `wikanvas:<commit>` tag a commit of `main`. |
 | D147 | **The docked Contents sit in the margin, below the top bar, and follow the page to its end** (owner, 2026-10-29: the column scrolled away, the last heading was never highlighted, and it took a lot of space). The column is sticky at the top bar's height plus 16 px, since the top bar is sticky in the same scroller (`.app-main`) and covered the first entries at the old 24 px. The grid is `1fr 720px 1fr`, so the text stays centred and the 200 px column sits at the end of the left margin; it docks when the document pane, measured with a ResizeObserver, is at least 1280 px wide. At the scroller's end (`scrolledToEnd`, 2 px of rounding) the scroll spy takes the last heading in view, since the headings of the last screen can never reach the 30% line. | Docking by the window width (`min-width: 1280px`) left a pane of 1020 px beside a 260 px sidebar, so the column pushed the text 126 px off centre; a right-hand column would move the Contents away from where Outline-style readers expect them. |
-| D148 | **Accounts join only through invite links** (owner, 2026-10-29: accounts before M2, workspace roles now, per-collection access in phase 3, no open sign-up, no email server; docs/multi-user.md phase 2). Migration 0002 (append-only, D3; `user_version` 2) adds `invites` (§5): a sha256 of a `qinv_` token drawn, encoded and checked like an API token (D42, another prefix), a role (`admin`, `member` or `viewer`, never `owner`), an optional note, the inviter, `expires_at` (7 days by default, 1–30), `used_at`/`used_by` and `revoked_at`. `POST /invites` returns the link `<public URL>/invite/<token>` once (the web client keeps it only in the dialog's state); an invite is single-use, at most 100 are pending, and the only other way to an account is `wikanvas-server admin create-user`. Accepting creates the user with the invite's role and signs it in like setup. Until phase 3 every member and viewer sees every collection | An invite link needs no SMTP and no public sign-up form, and a hash of a 238-bit secret is useless in a backup. The token format's checksum lets the server refuse a mistyped link without a lookup, and its prefix keeps an invite from ever passing for an API token |
+| D148 | **Accounts join only through invite links** (owner, 2026-10-29: accounts before M2, workspace roles now, per-collection access in phase 3, no open sign-up, no email server; docs/multi-user.md phase 2). Migration 0002 (append-only, D3; `user_version` 2) adds `invites` (§5): a sha256 of a `qinv_` token drawn, encoded and checked like an API token (D42, another prefix), a role (`admin`, `member` or `viewer`, never `owner`), an optional note, the inviter, `expires_at` (7 days by default, 1–30), `used_at`/`used_by` and `revoked_at`. `POST /invites` returns the link `<public URL>/invite/<token>` once (the web client keeps it only in the dialog's state); an invite is single-use, at most 100 are pending, and the only other way to an account is `wikanvas-server admin create-user`. Accepting creates the user with the invite's role and signs it in like setup. What each role may do in each collection is phase 3's (D152) | An invite link needs no SMTP and no public sign-up form, and a hash of a 238-bit secret is useless in a backup. The token format's checksum lets the server refuse a mistyped link without a lookup, and its prefix keeps an invite from ever passing for an API token |
 | D149 | **The account rules live in the store** (`users::change`, `invites::create`), for the API and the admin commands alike: the owner's role never changes and the owner cannot be disabled; nobody changes their own role or disables themselves; only the owner makes, changes, disables or invites an admin; admins manage members, viewers and invites (they may revoke any pending invite). Disabling deletes the account's sessions and revokes its API tokens and the pending invites it made in the same transaction; taking the admin role away revokes those invites too. The admin commands act as the operator: the owner's say over every account, but no account of its own. `authz::require` stays a role match (`Action::Admin` on `Resource::User` / `Resource::Invite`); the rules that need the target's role are the store's (403 `forbidden`) | One copy of the rules for every caller; an operator at the database could change the owner anyway, but the commands keep the one-owner invariant (`users_single_owner`) and the live wiki's owner safe from a typo. Revoking a disabled or demoted inviter's invites keeps their authority from outliving them |
 | D150 | **The invite page's routes are public and take the token as `{id}`**: `GET /invites/{id}` (the state, the workspace name, the role and the expiry, never the inviter) and `POST /invites/{id}/accept` (name, email, password: setup's rules). axum allows one name per path position (§7.1), and `DELETE /invites/{id}` holds that position. The accept shares the per-IP login and setup limiter and their CSRF and Host rules, answers 404 for any token that is not a pending invite (the message names used, expired or revoked) and 409 `conflict` (`field: "email"`) for a taken email; a lookup of an unknown token counts against the IP like a failed bearer authentication (30 per minute, then 429 `auth_failures`; real invites are still served). Both are web-only for the CLI (§7.6) | The page needs the state to say why a link does not work; the accept, which signs a browser in, gets exactly the defences of setup and login. A 404 for every unusable token keeps accept's answers small, and the GET already tells the holder why |
 | D151 | **`config.multi_user` is derived**: true while more than one user is not disabled. Exports also drop `invites` (manifest `without`), and the hourly job deletes revoked invites, and expired ones nobody used, 30 days on; used ones stay (who invited whom). Migration 0002 means an image before it refuses the database (`migrate.rs`), so going back to one needs the pre-migration backup (§12) | The flag the web client already has switches the multi-user UI as accounts come and go. A pending invite is a way in, like a token; a used one is history |
+| D152 | **Access is per collection: a default for members and viewers, and memberships** (owner, 2026-10-29: workspace roles plus membership per collection, read, write or manage; per-page sharing later; docs/multi-user.md phase 3). Migration 0003 (append-only, D3; `user_version` 3; the pre-migration backup of §12) adds `collections.default_access` (`none`, `read`, `write`; existing collections `write`), `collection_members(collection_id, user_id, access)` (`read`, `write`, `manage`; the creators of existing collections get `manage`) and `users.access_epoch` (D155). The effective access: the owner and admins `manage` every collection; anyone else the greater of the default and the membership, capped by the role (a viewer never above `read`); a disabled account none. Read needs `read`, Write `write`, `Action::Manage` (the collection's settings, default access, members, place, trash and restore) `manage`; creating a collection stays Write on the workspace and its creator gets a `manage` membership; a move between collections needs `write` on both; purging stays Admin by role. `authz::require` is async and looks up the access of the collection, an item's collection or an attachment (its uploader, the workspace logo, or a readable item that shows it, D36) in one reader query; the owner and admins are not looked up. API: `Collection.default_access` and `my_access`, `default_access` on create and `PATCH`, `GET/PUT/DELETE /collections/{id}/members[/{user_id}]`, `GET /directory` (D156) | `write` by default is what every member and viewer had, so the live wiki behaves the same after the upgrade; `none` plus memberships makes a private collection. Groups and per-page sharing later add rows of their own that the same rule takes the greatest of. The levels are ordered `CHECK`s rather than a lookup table (D37): a new level is a change to the rule in Rust anyway |
+| D153 | **What someone may not read does not exist for them.** A collection, item or attachment the caller may not read is 404 `not_found`, worded as for a missing one, and a missing one is 404 for them too, before the handler runs; 403 is only for what they may read but not change. Every list-shaped query binds a viewer filter in SQL (`shared::visible_items`, `shared::readable_collections`: the viewer's id as a bound parameter): the sidebar, the collection list, tree, children, the lists, the trash, search with its snippets, title search, stars, and the converters' lookup (`DbLookup`: an export prints an unreadable mention as "Deleted item" and an embed as "Board", and a Markdown write cannot resolve them). A collection position that names one is 422 as for a missing one; breadcrumbs stop at a parent in another collection (only a corrupt tree has one) | A 403 for an id would confirm that it exists. Filtering in SQL keeps pages, counts and ranks right, with nothing filtered after the fact; cursors stay unbound to the viewer because every page is filtered |
+| D154 | **Board cards and attachments carry no other collection's content.** A board's search text and `meta.text_excerpt` leave its cards out (a card's label is a title snapshot, §18.2), and migration 0003 re-derives the stored texts. For a caller who may not read a card's target (never the owner or an admin), `GET …/board`, `…/board.inkboard` and `…/board/pages/{n}` replace that card's label with "Page not found" (`board::redact_cards`, span edits, D9); such a preview is rendered for the request, `no-store`, without an ETag, never cached. A document save records an attachment it did not show before only when the writer may read it | The snapshot was written by someone who could read the target, and the text is indexed with no reader in mind: leaving cards out is the only filter that survives a later move of the target into a private collection. So searching for a document's title finds the document, not the boards it is on (§18.8). Without the attachment rule, naming another collection's image in one's own document would make it readable through `item_attachments` |
+| D155 | **`viewer_epoch` is `users.access_epoch`** (D21): moved by every membership change of the user, a role change, disabling and enabling; a new default access bumps the collection's `tree_version`; creating a collection moves nobody's | The tree response holds `default_access` and the caller's `my_access`, so a 304 across a change of access would keep stale edit controls (a lost collection is a 404 anyway). One counter per user is cheap: a change refetches each of that user's trees once |
+| D156 | **The directory shows id, name and role, never an email** (`GET /directory`, every role; disabled accounts left out); a collection's members list shows the same of each person | Picking a member needs a name, and the role says why a viewer stays at `read`. An email is personal data that members and viewers have no use for here; the owner and admins see it in `/users` |
 
 ### 2.2 Alternatives considered
 
@@ -692,11 +701,46 @@ CREATE INDEX invites_created_by ON invites(created_by);
 CREATE INDEX invites_used_by ON invites(used_by);
 ```
 
+Migration `0003-collection-access` (D152) raises `user_version` to 3; existing collections keep today's access
+(`write`: members edit, viewers read), and their creators get `manage`, as a new collection's creator does:
+
+```sql
+ALTER TABLE collections ADD COLUMN default_access TEXT NOT NULL DEFAULT 'write'
+  CHECK (default_access IN ('none','read','write'));
+CREATE TABLE collection_members (
+  collection_id TEXT NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+  user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  access        TEXT NOT NULL CHECK (access IN ('read','write','manage')),
+  created_by    TEXT REFERENCES users(id) ON DELETE SET NULL,  -- who added the person; NULL for the migration
+  created_at    INTEGER NOT NULL,
+  updated_at    INTEGER NOT NULL,
+  PRIMARY KEY (collection_id, user_id)
+) STRICT, WITHOUT ROWID;
+CREATE INDEX collection_members_user ON collection_members(user_id, collection_id);
+INSERT INTO collection_members (collection_id, user_id, access, created_by, created_at, updated_at)
+  SELECT id, created_by, 'manage', NULL, created_at, created_at FROM collections WHERE created_by IS NOT NULL;
+ALTER TABLE users ADD COLUMN access_epoch INTEGER NOT NULL DEFAULT 0;  -- the tree ETag's viewer_epoch (D21, D155)
+```
+
+The access levels are `CHECK`s, not a lookup table (D37): they are ordered, and a new level changes the rule in Rust,
+not only the data. Groups, later, get a table of their own beside `collection_members`.
+
 Rules for the data model:
-- **Visibility.** Every list, tree, sidebar, search and backlink query selects items through
-  `shared::visible_items(viewer)`, a SQL fragment that in M1 means "live item in a live collection"
-  (`c.deleted_at IS NULL AND i.deleted_at IS NULL`). Multi-user later changes only this helper (§15). The tree and
-  default search also filter on `i.archived_at IS NULL`.
+- **Visibility** (D152, D153). Every list, tree, sidebar, search and title query selects items through
+  `shared::visible_items(viewer)`: a live item in a live collection the viewer may read (`c.deleted_at IS NULL AND
+  i.deleted_at IS NULL AND <readable>`), where `shared::readable_collections(viewer)` is `1` for the owner and admins
+  and otherwise `c.default_access <> 'none' OR EXISTS (a membership of c for the viewer)`, with the viewer's id as a
+  bound parameter. Both return a `Filter {sql, args}` that the query binds where it stands (anonymous `?` only). The
+  collection list and the trash use `readable_collections`. The tree and default search also filter on
+  `i.archived_at IS NULL`.
+- **Access** (D152, `wikanvas_store::access`). `collection`, `item` (an item has its collection's access, in any state)
+  and `attachment_readable` are what `authz::require` asks; `CollectionAccess::effective(role, default, membership)`
+  is the rule. An attachment is readable by the owner and admins, by its uploader (`created_by`), by everyone as the
+  workspace logo, and otherwise through a readable item that shows it (`item_attachments`, D36), never through
+  `attachments.item_id`. A document save records an attachment it did not show before only when the writer may read
+  it (D154). Memberships: `set_member` (404 for a missing collection or user, 422 `user_id` for a disabled account)
+  and `remove_member` bump the user's `access_epoch` when they change something, as does `users::change`; a new
+  collection's creator membership does not.
 - **Effective publication.** `shared::effectively_published(item)`: the item and every ancestor have `published_at`.
   M1 uses it only in tests and in the ItemDetail hint "Hidden until the parent is published" (not shown in single-user).
 - **Tree queries** are recursive CTEs with `UNION`, not `UNION ALL` (they terminate even on a corrupt cycle):
@@ -793,7 +837,8 @@ Rules for the data model:
 - **Accounts** (D148, D149). Beside the one owner, `users::create` inserts admins, members and viewers (an accepted
   invite, `admin create-user`); an email another user has, ignoring ASCII case (`COLLATE NOCASE`), is 409 `conflict`
   (`field: "email"`). `users::change` applies a role and a disabled flag under the rules of D149 and, on disabling,
-  deletes the sessions and revokes the tokens and pending invites of the account in the same transaction.
+  deletes the sessions and revokes the tokens and pending invites of the account in the same transaction; any change
+  bumps `access_epoch` (D155).
 - **Invites** (D148). Pending: `used_at IS NULL AND revoked_at IS NULL AND expires_at > now`; at most 100 pending (422,
   `field: "invites"`). `invites::lookup` refuses a string that fails the `qinv_` format check without a query.
   `invites::accept` re-reads the invite in the writer transaction, creates the user and sets `used_at`/`used_by` in that
@@ -1209,12 +1254,12 @@ MiB, JSON 4 MiB, nesting depth 100 (D33).
   `Page<T> = {items: [T], next_cursor: string|null}`. Cursors are opaque, stable under concurrent inserts and deletes,
   and valid only with the parameters that produced them (otherwise 422 `validation` with `details.field = "cursor"`).
   Relevance-sorted search pages by offset, up to 1,000 results. A cursor is base64url without padding over version ‖
-  kind ‖ the 8-byte hash of the list's name and normalized parameters (never `cursor` or `limit`; not the viewer in
-  M1) ‖ the keyset or offset ‖ a 4-byte sha256 check; input over 8192 characters is refused without decoding.
+  kind ‖ the 8-byte hash of the list's name and normalized parameters (never `cursor` or `limit`; not the viewer, so a
+  cursor is no secret: every page is filtered for the caller, D153) ‖ the keyset or offset ‖ a 4-byte sha256 check; input over 8192 characters is refused without decoding.
   Unpaginated by design, and bounded: `/collections`,
   `/collections/{id}/tree` (D21), `/items/{id}/children`, `/trash` (roots only), `/tokens` (at most 100),
-  `/auth/sessions`, `/users` (a workspace's people), `/invites` (at most 100 pending) and `/search/titles` (`limit`
-  at most 20).
+  `/auth/sessions`, `/users` and `/directory` (a workspace's people), `/collections/{id}/members`, `/invites` (at
+  most 100 pending) and `/search/titles` (`limit` at most 20).
 - **Concurrency** (D45). Content writes require `If-Match` (428 `precondition_required` without it); `If-Match: *`
   means "whatever is current", a deliberate last-write-wins. GETs with a matching `If-None-Match` answer 304, except
   `GET /items/{id}`, the Markdown GET and the board GET (D45). A `W/` prefix on a tag is ignored. The JSON `etag`
@@ -1226,7 +1271,7 @@ MiB, JSON 4 MiB, nesting depth 100 (D33).
   | Document body (`…/doc/markdown`, `…/doc/prosemirror`) | `"d{seq}"`: the newest stored update, 0 for a new document (§5). Markdown: never 304 (it prints live titles) | `If-Match` required; stale → 412 (200 `changed: false` when the target already equals the current state), or a CRDT merge with `?merge=true` (D50) |
   | Document Yjs updates (`POST …/doc/updates`) | none | No precondition: updates commute (CRDT) |
   | Item metadata (`GET`/`PATCH /items/{id}`) | `"m{meta_version}"`; never 304 (the body also carries stars, breadcrumbs and board meta) | `If-Match` optional; stale → 412; without it the last write wins (the web client sends none) |
-  | Tree (`GET …/tree`) | `"t{tree_version}.{viewer_epoch}"` | Read-only |
+  | Tree (`GET …/tree`) | `"t{tree_version}.{viewer_epoch}"`: `viewer_epoch` is the caller's `users.access_epoch` (D21, D155) | Read-only |
 - **Request limits** (D33). Bodies are limited to 1 MiB unless §7.2 says otherwise: Yjs update 16 MiB, ProseMirror
   JSON PUT 4 MiB, Markdown PUT 1 MiB, board PUT `WIKANVAS_MAX_BOARD_MB`, attachment `WIKANVAS_MAX_UPLOAD_MB`. Over the
   limit: 413 `payload_too_large` with `details.limit_bytes`. `q` is at most 500 characters; JSON nesting at most 100
@@ -1246,7 +1291,11 @@ MiB, JSON 4 MiB, nesting depth 100 (D33).
   `ErrorCode` is a strict enum in Rust, so a client that must tolerate future codes reads `code` as a string.
 - **Shared shapes** (`wikanvas-api`, re-exported as `wikanvas-core::api`):
   - `User{id,email,name,role,theme}`
-  - `Collection{id,url_id,name,description,icon,color,sort_key,child_order,item_count,updated_at}`
+  - `Collection{id,url_id,name,description,icon,color,sort_key,child_order,item_count,updated_at,default_access,my_access}`
+    (`default_access`: `DefaultAccess = "none"|"read"|"write"`; `my_access`, the caller's: `CollectionAccess =
+    "none"|"read"|"write"|"manage"`, never `none` in a response, D152)
+  - `CollectionMember{user:DirectoryUser, access:MemberAccess, effective_access:CollectionAccess, disabled, updated_at}`;
+    `DirectoryUser{id,name,role}` (never an email); `MemberAccess = "read"|"write"|"manage"` (D152, D156)
   - `ItemSummary{id,url_id,collection_id,parent_id,kind,title,sort_key,child_count,published,archived,updated_at,content_at,created_at}`
   - `Crumb{id,url_id,kind,title}`
   - `ItemDetail{item:ItemSummary, collection:Collection, breadcrumbs:[Crumb], starred, effectively_published, trashed_at?, purge_at?, archived_at?, full_width, board?:BoardMeta, meta_version}` (`full_width` is additive, §17.4; `board` is `boards::board_meta`, the same `BoardMeta` a board PUT returns, §5 "Previews")
@@ -1292,12 +1341,15 @@ Auth: *public*, *session*, *token*, or the scope a token needs (a session has ev
 | POST | `/api/v1/invites/{id}/accept` | *public* | `{name, email, password}` (`id` is the token) | 201 `{user}` + a browser-session cookie, as setup. Checked in this order: the per-IP limiter of login and setup (429), the invite (404 unless pending; the message names used, expired or revoked), the fields (`email`, `name`, `password`; 422), a taken email (409 `conflict`, `field: "email"`) | D148 |
 | GET / PATCH | `/api/v1/workspace` | `read` / `admin` | `{name?, logo_attachment_id?: string\|null}` | `{name, logo_url}`. The logo must be an existing PNG, JPEG, GIF, WebP or AVIF attachment (422, `field: "logo_attachment_id"`) | W2 |
 | GET | `/api/v1/sidebar` | `read` | none | `{collections:[Collection], stars:[ItemSummary], drafts_count}` | W1 |
-| GET / POST | `/api/v1/collections` | `read` / `write` | POST `{name, icon?, color?, description?, position?}` | `[Collection]` / 201 `Collection` | W1 |
+| GET / POST | `/api/v1/collections` | `read` / `write` | POST `{name, icon?, color?, description?, position?, default_access?: "none"\|"read"\|"write" (write)}` | `[Collection]`: those the caller may read / 201 `Collection`; the creator gets a `manage` membership (D152). A `position` naming a collection the caller may not read is 422 (`field: "position"`), as for a missing one | W1, D152 |
 | GET | `/api/v1/collections/{id}` | `read` | none (`id` may be a `url_id`) | `Collection` | W1 |
-| PATCH | `/api/v1/collections/{id}` | `write` | `{name?, icon?, color?, description?, child_order?}` | `Collection` | W1 |
-| POST | `/api/v1/collections/{id}/move` | `write` | `{position}` | `Collection` | W1 |
-| DELETE | `/api/v1/collections/{id}` | `write` | none | `{trashed_items:n}`. Soft delete, appears in Trash | W1 |
-| POST | `/api/v1/collections/{id}/restore` | `write` | none | `Collection` | W1 |
+| PATCH | `/api/v1/collections/{id}` | `write`, `manage` | `{name?, icon?, color?, description?, child_order?, default_access?}` | `Collection`. A new `default_access` bumps `tree_version` | W1, D152 |
+| POST | `/api/v1/collections/{id}/move` | `write`, `manage` | `{position}` | `Collection` | W1 |
+| DELETE | `/api/v1/collections/{id}` | `write`, `manage` | none | `{trashed_items:n}`. Soft delete, appears in Trash | W1 |
+| POST | `/api/v1/collections/{id}/restore` | `write`, `manage` | none | `Collection` | W1 |
+| GET | `/api/v1/collections/{id}/members` | `read`, `manage` | none | `[CollectionMember]` by name: who has more than the default access, what it gives them (`effective_access`, capped by the role; `none` while disabled) | D152 |
+| PUT / DELETE | `/api/v1/collections/{id}/members/{user_id}` | `write`, `manage` | PUT `{access: "read"\|"write"\|"manage"}` | `CollectionMember` / 204 (also when there was none). 404 for an unknown user, 422 (`field: "user_id"`) for a disabled one. Moves the user's `access_epoch` when it changes something | D152 |
+| GET | `/api/v1/directory` | `read` | none | `[DirectoryUser]`: every account that can sign in, by name, for any role; never an email (D156) | D152 |
 | GET | `/api/v1/collections/{id}/tree` | `read` | `If-None-Match` | `{collection, items:[ItemSummary]}`, flat, visible, unarchived, sorted by `child_order`. ETag `"t{tree_version}.{viewer_epoch}"` | W1 |
 | GET | `/api/v1/collections/{id}/updated` | `read` | `?cursor&limit` | `Page<ItemSummary + path>`, all depths, newest first | W1 |
 | POST | `/api/v1/items` | `write` | `{collection_id, parent_id?, kind:"doc"\|"board", title?, position?}` | 201 `ItemSummary`, published (`published_at = created_at`, D23). Creates `doc_state` or `board_state` in the same transaction | W1 (+ W4/W6 initializers) |
@@ -1430,7 +1482,14 @@ Reserved and not implemented in M1: `/api/v1/items/{id}/revisions*`, `/api/v1/bl
     real ids and bodies that would change something: an allowed call must succeed (2xx), a refused one must be 403
     `forbidden` and leave every table (except `board_previews` and the last-seen and last-use columns) and every file
     under `files/` and `backups/` as it was. `roles::the_matrix_names_every_operation_once` fails unless its table
-    names every operation of the spec with its action (§8).
+    names every operation of the spec with its action (§8);
+  - `roles::every_operation_checks_collection_access` (D152) makes every collection private (`none`) and calls every
+    operation as a `member` and a `viewer` with each membership in turn (none, `read`, `write`, `manage`): on a
+    collection, an item or an attachment, 404 `not_found` (worded as for a missing one) without read access, 403
+    with less than the operation needs, 2xx with enough, and a refusal changes nothing; the workspace operations run
+    as the role allows. `access::a_private_collection_leaks_nowhere` is the leak suite (D153): a marker word in a
+    private collection's titles and text, pointed at from a readable collection, shows in no response to a member
+    without a membership, then everything shows with `read` (and stays read-only), and `write` lets it edit.
 - utoipa's maps are ordered (`preserve_order` and `preserve_path_order` stay off), so the output does not depend on which route module registers
   first, and a merge conflict in the committed file is resolved by regenerating it (PLAN R4).
 - No interactive documentation UI in M1; any OpenAPI viewer can open the file.
@@ -1547,11 +1606,12 @@ references the file as `![alt](/api/v1/attachments/<id>)` in Markdown or as `ima
   | `me update [--name N] [--email E] [--theme light\|dark\|system]` | `PATCH /auth/me` (`--email` needs a session: exit 6 with a token) | `{user}` |
   | `session list` · `session revoke (<id> \| --others)` | `/auth/sessions` | the list · ok |
   | `token list` · `token create --name N --scope read\|write\|admin [--expires 30d\|never] [--token-out F]` · `token revoke <id>` | `/tokens` | `[ApiToken]` · `{token, api_token}`, or with `--token-out` (F written 0600) `{token_file, api_token}` · ok |
-  | `user list` · `user set-role <user> --role admin\|member\|viewer` · `user disable <user>` · `user enable <user>` | `GET /users`, `PATCH /users/{id}`; `<user>` is an id, or an email looked up in `GET /users` ignoring ASCII case (none: exit 7) | `[UserInfo]` · `UserInfo` |
+  | `user list` · `user set-role <user> --role admin\|member\|viewer` · `user disable <user>` · `user enable <user>` · `user directory` | `GET /users`, `PATCH /users/{id}`, `GET /directory` (every role, D156); `<user>` is an id, or an email looked up in `GET /users` ignoring ASCII case (none: exit 7) | `[UserInfo]` · `UserInfo` · `[DirectoryUser]` |
   | `invite create --role admin\|member\|viewer [--expires 7d] [--note T] [--url-out F]` · `invite list` · `invite revoke <id>` | `/invites`; `--expires` is `<n>d`, 1–30 (exit 2 otherwise). Without `--json`, `invite create` prints only the link | `{invite, url}`, or with `--url-out` (F written 0600) `{url_file, invite}` · `[Invite]` · ok |
   | `config show` · `config path` | local. The sources are named by flag or variable: `url_source` is `--url`, `WIKANVAS_URL`, `profile` or `WIKANVAS_LISTEN`; `token_source` is `--token-stdin`, `--token-file`, `WIKANVAS_TOKEN`, `WIKANVAS_TOKEN_FILE` or `profile` | `{profile, url, url_source, token_source, token_prefix}` · `{path}` |
   | `workspace get` · `workspace set [--name N] [--logo <attachment> \| --no-logo]` · `sidebar` | `/workspace`, `/sidebar` | the body |
-  | `collection list` · `get <c>` · `create --name N [--description D] [--icon I] [--color '#RRGGBB'] [position]` · `update <c> [--name N] [--description D] [--icon I] [--color C] [--sort manual\|title\|updated\|created]` · `move <c> position` · `delete <c>` · `restore <c>` · `updated <c>` | `/collections…` | the body |
+  | `collection list` · `get <c>` · `create --name N [--description D] [--icon I] [--color '#RRGGBB'] [--access none\|read\|write] [position]` · `update <c> [--name N] [--description D] [--icon I] [--color C] [--sort manual\|title\|updated\|created] [--access none\|read\|write]` · `move <c> position` · `delete <c>` · `restore <c>` · `updated <c>` | `/collections…`; `--access` is `default_access` (D152) | the body |
+  | `collection member list <c>` · `collection member set <c> <user> --access read\|write\|manage` · `collection member remove <c> <user>` | `/collections/{id}/members…` (`manage`); `<user>` is an id, an email (through `GET /users`: the owner and admins), or a name exactly one account has in `GET /directory`, ignoring case (none: exit 7; several: exit 2) | `[CollectionMember]` · `CollectionMember` · ok |
   | `item get <i>` | `GET /items/{id}` | `ItemDetail` |
   | `item create --collection <c> --kind doc\|board [--parent <i>] [--title T] [position] [--md F\|- [--title-h1]]` | `POST /items`. The item is published on create (D23; `item unpublish` makes it a draft). With `--md` (docs only): the item is created without a title, then `PUT …/doc/markdown` with `If-Match: "d0"`, then `PATCH` of `--title` only once the PUT succeeded. If the PUT fails, the new empty item is discarded (`DELETE ?discard_empty=true`; a failed discard adds `discard_failed`) and the PUT's error is reported; a failed title PATCH after a good PUT is the warning `item_created`. The file is read before the POST (an unreadable one creates nothing), `--kind board` with `--md` is exit 2, and `--title-h1` without `--title` prints the item from `GET /items/{id}` | `ItemSummary`; with `--md` `{item: ItemSummary, doc: DocWriteResult}` |
   | `item update <i> [--title T] [--full-width true\|false] [--if-match E]` | `PATCH /items/{id}` | `ItemSummary` |
@@ -1749,8 +1809,22 @@ From the host: `docker compose exec wikanvas wikanvas admin create-token --name 
     members, viewers and invites. Disabling deletes the account's sessions and revokes its tokens and the invites it
     made at once, so its next request is 401; login refuses it, and enabling it lets it sign in again (what was
     revoked stays revoked). The role is read on every request (§7.3), so a role change applies to the next one.
-  - Roles are workspace-wide until per-collection permissions (docs/multi-user.md phase 3): every member and viewer
-    sees every collection, its items, attachments, search results and titles.
+- **Access per collection** (D152–D156, docs/multi-user.md phase 3). A role is workspace-wide; what a person may do in
+  a collection is its access:
+  - Every collection has a `default_access` for members and viewers: `none`, `read` or `write` (migrated and new
+    collections: `write`, members edit and viewers read). A membership (`collection_members`) gives a person `read`,
+    `write` or `manage` there: more than the default, or any access to a `none` collection.
+  - The effective access (`CollectionAccess::effective`): the owner and admins have `manage` on every collection;
+    anyone else the greater of the default and their membership, capped by the role: a `viewer` never more than `read`.
+    A disabled account has none (it cannot sign in).
+  - `read` opens the collection, its items and the attachments they show, finds them in lists, search and title
+    lookups, and stars them; `write` creates, edits, moves, trashes and restores its items (a move between collections
+    needs `write` on both); `manage` also changes the collection itself (its settings and default access, its members,
+    its place, trashing and restoring it). Creating a collection is `Write` on the workspace, so any member may, and the
+    creator gets a `manage` membership. Purging stays the owner's and admins' (`Action::Admin`).
+  - What someone may not read does not exist for them: its routes are 404 `not_found`, worded as for a missing one
+    (`no such item`, `no such collection`, `no such attachment`), and every list, search, title lookup, export lookup and
+    board card leaves it out (D153). What they may read but not change is 403 `forbidden`.
 - **Client address and scheme** (`wikanvas-server::config` parses `WIKANVAS_TRUSTED_PROXIES`: comma-separated IPs or
   CIDRs). Wikanvas has no TLS of its own (D29); Caddy terminates it (D57).
   - The client IP is the socket peer, and the request counts as plain HTTP, unless the peer is in
@@ -1817,27 +1891,36 @@ From the host: `docker compose exec wikanvas wikanvas admin create-token --name 
   per token (requests and body bytes) and per IP for failed bearer authentications and unknown invite tokens (D47,
   §7.3, D150).
 - **Authorization seam.** Every handler takes `Auth<S>` as its first extractor (D44), which yields the `Actor`, and calls
-  `authz::require(&actor, Action, Resource)` right after it, before it reads a body or touches the database. Every
-  handler with credentials does so, including the lists, the tree and search (on the workspace, or on the collection
-  the call is limited to), so a refused call is 403 `forbidden` and changes nothing. The token's scope and the
-  account's role are separate layers and a request needs both; a session has every scope, so for a session the role is
-  the only limit. The rule: the owner and `admin` may do everything, `member` reads and writes, `viewer` reads; the
-  caller's own account (`Resource::OwnAccount`) is open to every role. Which accounts an admin may change is the
-  store's (D149), since it needs the target's role. The action per route group:
+  `authz::require(&state, &actor, Action, Resource).await` right after it, before it reads a body or changes anything.
+  Every handler with credentials does so, including the lists, the tree and search (on the workspace, or on the
+  collection the call is limited to), so a refused call is 403 `forbidden` or 404 `not_found` and changes nothing. The
+  token's scope and the account's role are separate layers and a request needs both; a session has every scope, so
+  for a session the role and the collection access are the only limits. The rule (D152): the caller's own account
+  (`Resource::OwnAccount`) is open to every role; `Action::Admin` is the owner's and admins' on any resource; on the
+  workspace, every role reads and the owner, admins and members write. On a collection, an item (by its collection)
+  or an attachment (readable as §5 says), `require` looks up the caller's access in one reader query, except for the
+  owner and admins, who manage everything: below `read` it answers 404 (also for one that does not exist, so a member
+  creating an item in a missing collection gets 404 where the owner gets 409 `parent_invalid`), below what the action
+  needs 403. Which accounts an admin may change is the store's (D149), since it needs the target's role. The action
+  per route group:
 
   | Action | Routes |
   |---|---|
-  | Read | Every GET of content and structure: items with `…/text` and `…/children`, documents, boards and their pages, attachments, collections, the tree, the sidebar, the lists, `GET /trash`, search, `GET /workspace`, `GET /schema/doc`. Also `PUT`/`DELETE /items/{id}/star` and `POST /items/{id}/view`, which change only the caller's own stars and views |
-  | Write | Creating, editing, moving (also `Write` on the target collection when `collection_id` is sent), duplicating, publishing and unpublishing, archiving and unarchiving, trashing and restoring items and collections, with `DELETE /items/{id}?discard_empty=true`; document and board content; uploads (on the `item_id` item, otherwise the workspace) |
+  | Read | Every GET of content and structure: items with `…/text` and `…/children`, documents, boards and their pages, attachments, collections, the tree, the sidebar, the lists, `GET /trash`, search, `GET /directory`, `GET /workspace`, `GET /schema/doc`. Also `PUT`/`DELETE /items/{id}/star` and `POST /items/{id}/view`, which change only the caller's own stars and views. On the item, attachment or collection a route names (search with `collection_id`: that collection), otherwise the workspace |
+  | Write | Creating a collection (the workspace); creating (on the collection), editing, moving (also `Write` on the target collection when `collection_id` is sent), duplicating, publishing and unpublishing, archiving and unarchiving, trashing and restoring items, with `DELETE /items/{id}?discard_empty=true`; document and board content; uploads (on the `item_id` item, otherwise the workspace) |
+  | Manage | On the collection: `PATCH`, move, `DELETE` and restore of `/collections/{id}`, and `GET`/`PUT`/`DELETE …/members` |
   | Admin | Purging (`DELETE /trash/items/{id}`, `/trash/collections/{id}` and `/trash`), `PATCH /workspace`, `GET /export`, `POST /admin/backup`, `GET /users`, `PATCH /users/{id}` (`Resource::User`), `GET`/`POST /invites`, `DELETE /invites/{id}` (`Resource::Invite`); other users' tokens once a route can reach them |
   | Read or Write on `OwnAccount` (every role) | `/auth/me`, `/auth/password`, `/auth/logout`, `/auth/sessions…`, `/tokens…`: the store scopes each one to the caller's `user_id` |
 
   The public routes (`/config`, `/openapi.json`, `/setup`, `/auth/login`, `GET /invites/{id}`,
   `POST /invites/{id}/accept`) have no actor.
-  `roles::every_operation_checks_the_role` (§7.4) holds every operation to this table. List-shaped store functions also
-  take a `Viewer` and go through `shared::visible_items` (§5), which is where per-item visibility will go. Store
-  functions take `actor_id`; content writes take `WriteBy{user_id, token_id}` (D53). Once per-item permissions exist,
-  `GET /api/v1/attachments/{id}` authorizes through the items in `item_attachments`; until then it is the role's Read.
+  `roles::every_operation_checks_the_role` (§7.4) holds every operation to this table for the four roles, and
+  `roles::every_operation_checks_collection_access` holds every operation on a collection, an item or an attachment to
+  the access rule, for a member and a viewer with each membership of private collections; `access::a_private_collection_leaks_nowhere`
+  checks that a private collection's titles and text show nowhere (D153). List-shaped store functions take a `Viewer`
+  and go through `shared::visible_items` or `shared::readable_collections` (§5), where groups and per-item permissions
+  will go too. Store functions take `actor_id` (collection writes the `Viewer`, as their `Collection` carries the
+  caller's `my_access`); content writes take `WriteBy{user_id, token_id}` (D53).
 - **Uploads.** After the free-space check (D33), uploads stream to `/data/tmp` under the `upload_work` permit, hashed as
   they arrive (`BlobStore::stage_stream`), and are never buffered whole. The stored filename strips control characters (including CR and LF), `"`, `\` and `/`, is cut to 200
   characters, and defaults to `file`. Downloads send `Content-Disposition: <inline|attachment>; filename="<ASCII
@@ -1900,7 +1983,8 @@ How the pieces behave:
 
 - **Server state:** TanStack Query. The keys are `['me']`, `['config']`, `['sidebar']`, `['tree', collectionId]`,
   `['item', id]`, `['children', id]`, `['list', 'recent'|'updated'|'starred'|'archive'|'trash']`,
-  `['search', params]`, `['titles', q]`, `['tokens']`, `['users']`, `['invites']` and `['invite', token]` (the invite
+  `['search', params]`, `['titles', q]`, `['tokens']`, `['users']`, `['members', collectionId]`, `['directory']`,
+  `['invites']` and `['invite', token]` (the invite
   page). A newly created token's secret, and a new invite's link, are never put in the query cache: each lives only
   in its dialog's component state until the dialog closes.
   - Mutations (create, move, rename, star, trash) update `['tree']`, `['sidebar']` and `['item']`
@@ -2109,6 +2193,22 @@ Outline's source or theme.
   Star, Archive, Delete). "+ New collection…" ends the list. Every menu (`components/ui/Menu.tsx`, `placeMenu`) opens
   below its button when it fits, above it when it fits there (a row near the bottom of the window), and otherwise on the
   roomier side with its height capped to that side, so every item stays reachable with the mouse.
+- **Access** (D152). The sidebar lists only the collections the caller may read (the server filters). A collection's
+  `my_access` decides its controls (`lib/access.ts`): with `read`, no "+", no create, rename, move, duplicate, archive
+  or delete entry (the item menus keep Star), no keyboard edits, and no drop into or within it (its items can still be
+  dragged onto a board or a document); with `write` the item controls; with `manage` also the collection's own (Edit…,
+  the sort menu, Delete…, and dragging it to another place). A viewer has no "+ New collection…". The collection page
+  follows the same rule (create buttons with `write`, its menu and sort with `manage`), the Move dialog offers only
+  collections the caller may write, and the Trash page offers Restore for an item only with `write` on its collection
+  and for a collection only with `manage` (until the sidebar has loaded, the server's check alone decides).
+- **The collection dialog's Access section** (D152). "New collection" has a "Default access" select ("Only members",
+  "Everyone can read", or "Members edit, viewers read", the default, each with a hint), and a note that the creator
+  manages the new collection. "Edit collection", for those with `manage`, has the same select (saved with the
+  dialog) and "People": the members by name with their role, an "Access of <name>" select (Read, Write, Manage) and
+  "Remove <name>", a note when what applies differs from the membership ("reads only (viewer)", "can edit (default
+  access)", "manages (admin)"), "(disabled)" for a disabled account, and "Add a person" ("Person to add" from
+  `GET /directory`, "<name> (<Role>)", leaving out the members, the owner and admins; "Access to give", Write by
+  default; Add). People changes apply at once; a note says that the owner and admins manage every collection.
 - **Sibling order.** The client sorts every sibling group itself (`buildTree`): Manual by `sort_key` (code-unit
   order), then `id`; A–Z by the title key; Last updated and Created newest first; ties by `sort_key`, then `id`. The
   server sorts the same way (§5), so an optimistic reorder agrees with the next tree fetch. The **title key** is
@@ -2222,7 +2322,12 @@ shortcuts dialog. (Mod+Shift+P, publish or unpublish, comes back with the draft 
   The preview is requested whenever the board has a page, also while `preview_rev` is null (a seeded or duplicated
   board has no stored preview until the page route renders it on demand, §12); an empty page (204) or an error shows
   the placeholder icon.
-- Empty-body placeholder: "Type / for commands". Read-only (trashed, archived): a banner with Restore / Unarchive.
+- Empty-body placeholder: "Type / for commands". Read-only (trashed, archived): a banner with Restore / Unarchive. In a
+  collection the caller may only read (`ItemDetail.collection.my_access` is `read`, D152) a document or board is
+  read-only the same way, with the banner "You can read this collection but not change it." (and, when it is also in
+  the Trash or archived, no Restore or Unarchive): the editor and the board engine in their read-only modes, the title
+  not editable, no "Add a page", and the item menu without its changes (move, duplicate, archive, trash, full width),
+  only exports and links.
 - Nested list below the body: the item's children (title, kind icon, updated time), "+ Add a page".
 
 #### 9.6.6 Pages
@@ -2252,8 +2357,8 @@ shortcuts dialog. (Mod+Shift+P, publish or unpublish, comes back with the draft 
   `wikanvas auth login --url <public URL> --token-stdin`, then paste the token and press Ctrl-D (§7.6).
 - Settings → Members (D148), in the navigation for the owner and admins only (anyone else who opens it reads "Only
   the owner and admins manage the workspace's members."): "People", a table of name (with "(you)" and a "Disabled"
-  chip), email, role and when they joined, and a note that everyone sees every collection until access per collection
-  arrives. The role is a select where the caller may change it (the owner: admin, member or viewer for anyone but
+  chip), email, role and when they joined, and a note that what each person may do in a collection is set in that
+  collection's settings under Access (D152). The role is a select where the caller may change it (the owner: admin, member or viewer for anyone but
   the owner and themselves; an admin: member or viewer for members and viewers), else plain text; the same rows have
   Disable (a confirmation that names the email and says sessions, tokens and invites end at once) or Enable. "Invite
   people" opens a dialog: the role (Member by default, Viewer, and Admin for the owner, with one line each), "Link
@@ -2593,8 +2698,12 @@ One tokio task per job, each using the writer through `Db`:
   (invites, D148) is the first that an existing wiki meets: the first start of an image with it (`serve`, or any
   `wikanvas-server admin` command, which open the database the same way) writes `pre-migrate-v1-<ts>.db` and then
   raises `user_version` to 2, after which an older image refuses the database (D151); going back means stopping, putting
-  that backup in place as `wikanvas.db` (deleting `-wal` and `-shm`) and starting the older image. Pre-migration backups
-  are not counted against `WIKANVAS_BACKUP_KEEP`. A store test runs it on a version-1 database.
+  that backup in place as `wikanvas.db` (deleting `-wal` and `-shm`) and starting the older image. Migration 0003
+  (access per collection, D152) works the same way: `pre-migrate-v2-<ts>.db` (or `-v1-` for a wiki that skipped an
+  image), then `user_version` 3; in the same start, after the SQL, its data step (`boards::take_cards_out_of_text`, in
+  one transaction on the maintenance connection) re-derives the search text and excerpt of every board that holds a
+  card (D154), one board in memory at a time. Pre-migration backups are not counted against `WIKANVAS_BACKUP_KEEP`.
+  Store tests run them on a version-1 and a version-2 database.
 - **Export** (on request, single-flight, after the free-space check): `VACUUM INTO '/data/tmp/export-….db'` on the
   maintenance connection (never `/tmp`, which is a 32 MB tmpfs). Then open the copy on its own connection, not through
   the §5 PRAGMA path, with `journal_mode=DELETE` and `secure_delete=ON`; run `DELETE FROM sessions; DELETE FROM
@@ -3331,7 +3440,7 @@ with push protection, CodeQL default setup, and private vulnerability reporting 
 |---|---|
 | Live doc co-editing | Yjs log in `doc_updates` with a `user_id` per update, and `doc_clients` for attribution after compaction. Later: `GET /api/v1/items/{id}/doc/ws` speaking y-protocols sync and awareness (yrs `sync`), one room per open doc evicted after 60 s idle (the room is also the doc cache that replaces `doc_work` loads), the same persistence and compaction, the server-seeded `Y.Text('title')`, and an explicit Host and Origin check on the upgrade (the CSRF middleware does not cover GET). Caddy's `reverse_proxy` passes WebSocket upgrades through as they are (D57). Client: y-websocket 3.1.0 and CollaborationCaret. |
 | Server-owned board sync | `board_state` + `board_assets` = Sequencer snapshot + asset manifest; `seq` column. Needs upstream patches: a headless session host extracted from `session_host.rs`, `Sequencer::with_seq`, a browser WebSocket `Connection` (`ws-transport` feature), and trusted-server mode without link E2E. Log budgets use the existing `Sequencer::set_budgets`. Server and wasm come from the same submodule pin, and `scripts/check-pins.sh` keeps the shared crate versions equal (exact protocol match). |
-| Multi-user, roles, invites | `users.role` lookup table, `created_by`/`updated_by`, per-user stars and views, the draft state with derived visibility and its API (publish, unpublish, `/drafts`, `drafts_count`, `include_drafts`; D23), so draft-first creation and the Drafts UI become a default change plus UI behind `config.multi_user`, the `Actor` + `authz::require` seam, `Viewer` + `shared::visible_items` on every list query, the per-viewer `viewer_epoch` in the tree ETag, attachment authorization through `item_attachments`, and the `multiUser` capability flag hiding avatars, Share, Invite and "Viewed by N". Accounts and invite links exist (D148–D151: `invites`, `/users`, `/invites`, Settings → Members, `config.multi_user` derived); roles are workspace-wide, so every member and viewer sees every collection. Later (docs/multi-user.md phases 3 and 4): `collection_members` with read, write and manage, a viewer-aware `visible_items`, title lookups and attachments, then `groups`, `item_permissions`, `shares`, drafts private to their author and the client caches keyed by user. |
+| Multi-user, roles, invites | `users.role` lookup table, `created_by`/`updated_by`, per-user stars and views, the draft state with derived visibility and its API (publish, unpublish, `/drafts`, `drafts_count`, `include_drafts`; D23), so draft-first creation and the Drafts UI become a default change plus UI behind `config.multi_user`, the `Actor` + `authz::require` seam, `Viewer` + `shared::visible_items` on every list query, the per-viewer `viewer_epoch` in the tree ETag, attachment authorization through `item_attachments`, and the `multiUser` capability flag hiding avatars, Share, Invite and "Viewed by N". Accounts and invite links exist (D148–D151: `invites`, `/users`, `/invites`, Settings → Members, `config.multi_user` derived), and access per collection (D152–D156: `default_access`, `collection_members` with read, write and manage, a viewer-aware `visible_items` and `readable_collections`, title lookups, attachments, board cards, the real `viewer_epoch`). Later (docs/multi-user.md phase 4 and after): drafts private to their author and the client caches keyed by user (and the browser's HTTP cache of `immutable` attachments and previews across accounts on one browser, e.g. `Clear-Site-Data` on sign-out), then `groups` (a membership table of their own that `access` and `readable_collections` take the greatest of), `item_permissions` and `shares`. |
 | OIDC/SSO | `users.password_hash` is nullable. Later: an `identities(user_id, issuer, subject)` table. Sessions are unchanged. |
 | Version history UI | `revisions` is written from M1, with format and GC roots; restore is defined in §6.1. |
 | Backlinks | `item_links` is maintained from M1; from M1.1 it also holds board → document embeds (§18.8). |
@@ -4404,10 +4513,11 @@ its button.
   board or a page embeds this item, so it is not discarded; remove it from there, or move it to the trash instead".
   Links of kind `mention` and `link` do not keep an item; a link from a source in the trash still does (the source can
   be restored); a purged source's rows are gone with it.
-- **Previews, text, search, meta** are unchanged in code: the unpatched model renders a card as its titled box, the
-  board's text and `text_excerpt` hold the title snapshot (a box label, §6.2 `inspect`), so searching for a document's
-  title also finds the boards it is on. A board's text never includes its targets' bodies: each document is its own
-  search hit.
+- **Previews, text, search, meta.** The unpatched model renders a card as its titled box. Since D154 the board's text
+  and `text_excerpt` leave cards out (`inspect` drops the lines of every object the card scan finds, §18.2's test), so
+  searching for a document's title finds the document, not the boards it is on (before D154 it found both); a board's
+  text never includes its targets' bodies either: each document is its own search hit. The previews still draw the
+  snapshot, and for a reader who may not open a card's target they are rendered redacted (§18.12).
 - **Routes and DTOs** are unchanged: no new route, field or error code; `docs/api/openapi.json` does not change.
 
 ### 18.9 Tree operations
@@ -4468,12 +4578,19 @@ its button.
   window can start a drag with this type: a drop only ever places a card for a canonical UUID of a live document, whose
   detail and content the host fetches with the user's own rights, and both the title shown and the stored snapshot are
   the target's own, at most 200 characters (§18.6 (c), D98).
-- Authorization (future multi-user, §15): drawing a card needs `read` on the target (`GET /items/{id}`,
-  `GET …/doc/prosemirror`), editing needs `write` on it, and both go through `authz::require` like every route; a
-  viewer without access sees "Page not found". The board itself stores the target's id and title snapshot, readable by
-  anyone who can read the board; when per-item permissions arrive, the board GET should replace the labels of cards
-  whose target the viewer cannot read (as it replaces `document.name`, D31), and backlinks built on `item_links` must
-  filter targets and sources through `shared::visible_items`.
+- Authorization (D152–D154): drawing a card needs `read` on the target's collection (`GET /items/{id}`,
+  `GET …/doc/prosemirror`), editing needs `write` there, and both go through `authz::require` like every route; a
+  reader without access gets 404 and sees "Page not found". The board itself stores the target's id and title
+  snapshot, readable by anyone who can read the board, so for a caller who may not read a card's target (never the
+  owner or an admin) the board GET, `…/board.inkboard` and `…/board/pages/{n}` replace that card's label with "Page
+  not found" (`board::redact_cards`: span edits of the label values only, D9; the card, its `embed.item` and every
+  other byte stay). Which targets the caller may read comes from the board's `embed` links (§18.8); a board at
+  `EMBED_LINKS_MAX` links is redacted for every card whose canonical target is not linked and readable. A redacted
+  preview is rendered for the request (under the `board_work` permit), sent `no-store` without an ETag and never
+  stored; the other previews are the cached ones. The board's search text and excerpt leave cards out for everyone
+  (§18.8). Limitation: a caller who may write the board but not read a card's target saves the redacted label with
+  their next save; the snapshot is right again once someone who may read the target saves the board (§18.7). Backlinks
+  built on `item_links` (no route yet) must filter targets and sources through `shared::visible_items`.
 
 ### 18.13 Limitations (documented, not bugs)
 
@@ -4731,7 +4848,7 @@ until the cutover (§19.13), because the React client keeps running beside the e
 | D140 | **The app's shortcuts suppress the browser's own action for the same keys.** `wikanvas-web` installs one capture-phase `keydown` listener (web-sys) that calls `preventDefault` for exactly the chords of the app's shortcut table (`wikanvas_app::hotkeys::TABLE`, the keymap's one source), never for Mod+C, Mod+X, Mod+V or reload. eframe 0.37 suppresses only Mod with `,` `O` `P` `S`, and Space, Tab, Backspace and the arrows (`src/web/events.rs:237-279`), so Mod+K, Mod+F, Mod+U, Mod+E and Mod+Shift+B would also run the browser's search, find bar, view-source and bookmarks-bar actions (https://support.google.com/chrome/answer/157179). Mod+P opens the read view of the current item in a new tab (web) or runs "Print" (desktop). A key-event hook is offered to eframe upstream | `WebOptions::should_prevent_default` (eframe consults it for text, clipboard and wheel events but not for `Key` events, whose default it decides alone, `events.rs:165-171`, `:214`); leaving the browser's actions (Mod+K and Mod+F move the focus out of the page) |
 | D141 | **App assets are served under `/app/{build}/`** (`boot.js`, `wikanvas_web.js`, `wikanvas_web_bg.wasm`, `icons.bin`, the licence files; `{build}` hashes the dist, as `/inkboard/{build}/` does today), immutable for a year; every app path's `index.html` is `no-cache`; another `{build}` answers 404 | Fixed names with an immutable cache (an upgraded server keeps serving the old client from the browser cache, and "Reload", P-010, reloads the old build) |
 | D142 | **What keeps its name in M2: everything D100 named, except the CLI's binary (D127).** `compose.yaml` keeps `name: wikanvas`, the service `wikanvas`, the volumes `wikanvas-data`, `caddy-data` and `caddy-config`, and its `WIKANVAS_*` variables, because the owner's live wiki runs from that file and its `.env` (`compose.yaml:1`, `:3`, `:30`, `:78-81`): renaming the project, service or volume would start the next `docker compose up` on empty volumes and a new local CA. The container's environment keys stay `WIKANVAS_*` too. The build infrastructure keeps its internal names: the lock `~/.cache/wikanvas/build.lock`, `WIKANVAS_BUILD_*`, `WIKANVAS_LOCK_HELD`, `WIKANVAS_SHARED_CARGO_HOME`, `WIKANVAS_DEV_*`, the image `wikanvas-toolchain`, the builder `wikanvas-limited` and `wikanvas-buildkit`, the slices `wikanvas.slice` and `wikanvas-build.slice` (`scripts/lib/lock.sh:21`, `scripts/toolchain.sh:126`, `scripts/install-build-slice.sh:2-9`). The export tar's database entry stays `wikanvas.db` (agent scenario 09, smoke step 13 and the API test assert it, `e2e/agent/scenarios/09-export.sh:9`, `crates/wikanvas-server/tests/api/export.rs:80`) | Renaming any of them in M2 (worktrees on the old scripts would take a different lock, so two builds would run at once; the slice rename needs the privileged install step; the owner's wiki would move to new volumes) |
-| D143 | **No schema change in M2.** The store keeps `PRAGMA user_version` at 2, the schema of migration 0002 (accounts and invites, D148, which landed before M2 by the owner's answer to docs/multi-user.md question 1), so an M1 image of that schema can still open a database an M2 build used (§19.13 "Rollback"). The desktop's agent token is an ordinary `api_tokens` row with `created_via = 'admin'` (a local process with direct database access, as `wikanvas admin` is), named "Wikanvas Desktop: agents", whose id is kept in the `settings` key `desktop.agent_token_id`; a workspace `language`, if the owner wants it, is the `settings` key `workspace.language` (the table is key-value, `crates/wikanvas-store/migrations/0001-init/up.sql:1`) | Migration 0002 widening the `created_via` `CHECK` with `desktop` (a table rebuild that raises the schema version, after which the M1 binary refuses the database, `crates/wikanvas-store/src/migrate.rs:53-60`, so a rollback would need the pre-migrate backup) |
+| D143 | **No schema change in M2.** M2's baseline is the schema of the last migration of docs/multi-user.md phases 1–4, which land before M2 by the owner's answer to its question 1: `user_version` 3 since migration 0003 (access per collection, D152; 0002 is accounts and invites, D148), and phase 4 may add one more, which then becomes the baseline. The store keeps `PRAGMA user_version` at that version, so an M1 image of that schema can still open a database an M2 build used (§19.13 "Rollback"). The desktop's agent token is an ordinary `api_tokens` row with `created_via = 'admin'` (a local process with direct database access, as `wikanvas admin` is), named "Wikanvas Desktop: agents", whose id is kept in the `settings` key `desktop.agent_token_id`; a workspace `language`, if the owner wants it, is the `settings` key `workspace.language` (the table is key-value, `crates/wikanvas-store/migrations/0001-init/up.sql:1`) | Migration 0002 widening the `created_via` `CHECK` with `desktop` (a table rebuild that raises the schema version, after which the M1 binary refuses the database, `crates/wikanvas-store/src/migrate.rs:53-60`, so a rollback would need the pre-migrate backup) |
 
 Where the six research reports disagreed:
 
@@ -5701,7 +5818,8 @@ cutover (D142), so the same file runs the M1 and the M2 image.
 #### Rollback of the live wiki
 
 M2 changes no schema (D143) and renames no database file (D127), so the M1 image can open a database an M2 build has
-served, as long as it is an image with migration 0002 (D148): one from before it refuses the database (§12). Steps, for the owner (R16: only the owner runs compose against the live wiki):
+served, as long as it is an image with the baseline's migrations (0003 today, D143, D152): one from before them refuses
+the database (§12). Steps, for the owner (R16: only the owner runs compose against the live wiki):
 1. Before switching to an M2 image: "Back up now" in Settings (or `admin backup`), and note the running image's tag
    (`docker compose ps --format '{{.Image}}'`).
 2. Switch: set `WIKANVAS_IMAGE=wikanvas:<commit>` in `.env`, then `docker compose up -d`.
@@ -5712,7 +5830,8 @@ served, as long as it is an image with migration 0002 (D148): one from before it
 4. If the M1 image refuses the database anyway (a schema version above its own,
    `crates/wikanvas-store/src/migrate.rs:53-60`, which M2 should never cause), stop it, copy the step 1 backup over
    `/data/wikanvas.db`, delete `-wal` and `-shm` (§13.3), and start it.
-A store test asserts that an M2 run leaves `PRAGMA user_version` at 2 (migration 0002, D148, came before M2).
+A store test asserts that an M2 run leaves `PRAGMA user_version` at the baseline (3 today: migrations 0002 and 0003,
+D148 and D152, came before M2; D143).
 
 ### 19.14 Risks and mitigations
 
