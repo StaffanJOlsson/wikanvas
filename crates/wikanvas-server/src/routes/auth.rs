@@ -14,12 +14,12 @@ use axum::Json;
 use axum::extract::{Query, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use quire_api::{
+use wikanvas_api::{
     AuthMethodKind, ErrorBody, ErrorCode, LoginRequest, Me, MeAuth, MePatch, PasswordChange,
     RateLimitReason, SessionInfo, SessionRevokeQuery, User, UserEnvelope, Workspace,
 };
-use quire_store::sessions::NewSession;
-use quire_store::users::ProfilePatch;
+use wikanvas_store::sessions::NewSession;
+use wikanvas_store::users::ProfilePatch;
 use rusqlite::Connection;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -45,14 +45,14 @@ pub fn router() -> OpenApiRouter<AppState> {
 }
 
 /// A user row: the API shape plus `must_change_password`.
-pub fn load_user(conn: &Connection, user_id: &str) -> quire_store::Result<(User, bool)> {
-    let row = quire_store::users::get(conn, user_id)?;
+pub fn load_user(conn: &Connection, user_id: &str) -> wikanvas_store::Result<(User, bool)> {
+    let row = wikanvas_store::users::get(conn, user_id)?;
     Ok((row.to_api()?, row.must_change_password))
 }
 
 /// The workspace's name and logo URL from the settings.
-pub fn load_workspace(conn: &Connection) -> quire_store::Result<Workspace> {
-    quire_store::settings::workspace(conn)
+pub fn load_workspace(conn: &Connection) -> wikanvas_store::Result<Workspace> {
+    wikanvas_store::settings::workspace(conn)
 }
 
 /// The `User-Agent` of a request, for `sessions.user_agent`.
@@ -84,18 +84,18 @@ pub async fn sign_in(
         .db
         .write(move |tx| {
             if let Some(old) = previous
-                && let Some(old) = quire_store::sessions::lookup(tx, &old, now)?
+                && let Some(old) = wikanvas_store::sessions::lookup(tx, &old, now)?
             {
-                quire_store::sessions::delete(tx, &old.user_id, &old.id)?;
+                wikanvas_store::sessions::delete(tx, &old.user_id, &old.id)?;
             }
-            quire_store::sessions::create(tx, &new, now)
+            wikanvas_store::sessions::create(tx, &new, now)
         })
         .await?;
     Ok(session_cookie(client.https, &cookie, row.max_age_secs(now)))
 }
 
-/// Signs in with email and password and sets the session cookie (`__Host-quire_session; Secure` over HTTPS behind
-/// the proxy, `quire_session` otherwise; `Max-Age` only with `remember`).
+/// Signs in with email and password and sets the session cookie (`__Host-wikanvas_session; Secure` over HTTPS behind
+/// the proxy, `wikanvas_session` otherwise; `Max-Age` only with `remember`).
 #[utoipa::path(
     post,
     path = "/auth/login",
@@ -132,7 +132,7 @@ async fn login(
     };
     // An address no account can have (over 254 bytes, no `@`, …) gets the same answer after the same work, and is
     // never recorded: the per-email map holds only addresses that could be real (§8).
-    if quire_store::users::check_email(req.email.trim()).is_err() {
+    if wikanvas_store::users::check_email(req.email.trim()).is_err() {
         state
             .verify_password(state.dummy_hash().await?, req.password)
             .await?;
@@ -146,7 +146,7 @@ async fn login(
     let email = req.email.clone();
     let user = state
         .db
-        .read(move |conn| quire_store::users::by_email(conn, &email))
+        .read(move |conn| wikanvas_store::users::by_email(conn, &email))
         .await?;
     let usable = user
         .as_ref()
@@ -193,7 +193,7 @@ async fn logout(
     let session = actor.session_id().unwrap_or_default().to_owned();
     state
         .db
-        .write(move |tx| quire_store::sessions::delete(tx, &actor.user_id, &session))
+        .write(move |tx| wikanvas_store::sessions::delete(tx, &actor.user_id, &session))
         .await?;
     let mut res = StatusCode::NO_CONTENT.into_response();
     res.headers_mut()
@@ -226,7 +226,7 @@ async fn get_me(auth: Auth<Read>, State(state): State<AppState>) -> Result<Json<
                 AuthMethod::Session { .. } => (AuthMethodKind::Session, None),
                 AuthMethod::Token { token_id, .. } => (
                     AuthMethodKind::Token,
-                    quire_store::tokens::get(conn, &actor.user_id, token_id)?,
+                    wikanvas_store::tokens::get(conn, &actor.user_id, token_id)?,
                 ),
             };
             Ok(Me {
@@ -270,17 +270,17 @@ async fn patch_me(
     let user = state
         .db
         .write(move |tx| {
-            let current = quire_store::users::get(tx, &actor.user_id)?;
+            let current = wikanvas_store::users::get(tx, &actor.user_id)?;
             if let Some(email) = &patch.email
                 && !email.trim().eq_ignore_ascii_case(&current.email)
                 && is_token
             {
-                return Err(quire_store::Error::new(
+                return Err(wikanvas_store::Error::new(
                     ErrorCode::SessionRequired,
                     "changing the email needs a signed-in session, not a token",
                 ));
             }
-            let row = quire_store::users::update_profile(
+            let row = wikanvas_store::users::update_profile(
                 tx,
                 &actor.user_id,
                 &ProfilePatch {
@@ -324,7 +324,7 @@ async fn change_password(
     let user_id = actor.user_id.clone();
     let user = state
         .db
-        .read(move |conn| quire_store::users::get(conn, &user_id))
+        .read(move |conn| wikanvas_store::users::get(conn, &user_id))
         .await?;
     let ok = match user.password_hash {
         Some(hash) => state.verify_password(hash, change.current).await?,
@@ -342,8 +342,8 @@ async fn change_password(
     state
         .db
         .write(move |tx| {
-            quire_store::users::set_password(tx, &actor.user_id, &hash, false, now)?;
-            quire_store::sessions::delete_others(tx, &actor.user_id, keep.as_deref())?;
+            wikanvas_store::users::set_password(tx, &actor.user_id, &hash, false, now)?;
+            wikanvas_store::sessions::delete_others(tx, &actor.user_id, keep.as_deref())?;
             Ok(())
         })
         .await?;
@@ -373,7 +373,7 @@ async fn list_sessions(
     let sessions = state
         .db
         .read(move |conn| {
-            quire_store::sessions::list(conn, &actor.user_id, now)?
+            wikanvas_store::sessions::list(conn, &actor.user_id, now)?
                 .iter()
                 .map(|s| s.to_api(actor.session_id() == Some(s.id.as_str())))
                 .collect()
@@ -413,7 +413,7 @@ async fn revoke_sessions(
     let keep = actor.session_id().map(str::to_owned);
     state
         .db
-        .write(move |tx| quire_store::sessions::delete_others(tx, &actor.user_id, keep.as_deref()))
+        .write(move |tx| wikanvas_store::sessions::delete_others(tx, &actor.user_id, keep.as_deref()))
         .await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -443,7 +443,7 @@ async fn revoke_session(
     let id = id.to_string();
     let n = state
         .db
-        .write(move |tx| quire_store::sessions::delete(tx, &user_id, &id))
+        .write(move |tx| wikanvas_store::sessions::delete(tx, &user_id, &id))
         .await?;
     if n == 0 {
         return Err(ApiError::not_found("no such session"));

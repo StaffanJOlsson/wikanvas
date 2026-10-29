@@ -1,4 +1,4 @@
-// "Quire was updated. Reload" (docs/ARCHITECTURE.md §9.1), and the error boundary of the page routes: a chunk that
+// "Wikanvas was updated. Reload" (docs/ARCHITECTURE.md §9.1), and the error boundary of the page routes: a chunk that
 // fails to load triggers the update check, and shows the banner instead of an error when the server is a new build.
 import { useEffect, useState } from 'react';
 import { isRouteErrorResponse, useRouteError } from 'react-router';
@@ -9,7 +9,7 @@ export function UpdateBanner() {
   if (!available) return null;
   return (
     <div className="update-banner" role="alert">
-      <span>Quire was updated.</span>
+      <span>Wikanvas was updated.</span>
       <button type="button" className="button primary" onClick={reloadPage}>Reload</button>
     </div>
   );
@@ -36,7 +36,7 @@ export function RouteError() {
   if (available) {
     return (
       <section className="placeholder-page">
-        <h1>Quire was updated</h1>
+        <h1>Wikanvas was updated</h1>
         <p>Reload to use the new version.</p>
         <button type="button" className="button primary" onClick={reloadPage}>Reload</button>
       </section>

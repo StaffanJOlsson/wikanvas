@@ -1,4 +1,4 @@
-// QuireEditor's board card variant (docs/ARCHITECTURE.md §18.5 Editing step 2): popups in the overlay's popup root,
+// WikanvasEditor's board card variant (docs/ARCHITECTURE.md §18.5 Editing step 2): popups in the overlay's popup root,
 // the bubble and table menus appended to it with `strategy: 'fixed'`, no block handle, no heading anchors, and no
 // board items in the slash menu without their callbacks; the page variant is unchanged.
 import { act, waitFor } from '@testing-library/react';
@@ -10,7 +10,7 @@ import { toBase64 } from '../api/queries/docs';
 import { render } from '../test/render';
 import { DocSession, type Outbox } from './docSession';
 import { writeDoc } from './fixtures/writer';
-import { QuireEditor } from './QuireEditor';
+import { WikanvasEditor } from './WikanvasEditor';
 
 const ID = '0192f0e0-0000-7000-8000-0000000000c1';
 
@@ -69,7 +69,7 @@ async function mount(variant: 'page' | 'embed') {
       ? { variant: 'embed' as const, popupRoot: root }
       : { pickBoard: () => undefined, newBoard: () => undefined };
   const r = render(
-    <QuireEditor itemId={ID} session={s} readOnly={false} onEditor={(e) => (editor = e ?? editor)} {...props} />,
+    <WikanvasEditor itemId={ID} session={s} readOnly={false} onEditor={(e) => (editor = e ?? editor)} {...props} />,
   );
   await waitFor(() => expect(editor).not.toBeNull());
   return { ...r, root, editor: editor as unknown as Editor };
@@ -78,7 +78,7 @@ async function mount(variant: 'page' | 'embed') {
 const slashLabels = (scope: ParentNode) =>
   [...scope.querySelectorAll('[role="listbox"][aria-label="Insert a block"] [role="option"]')].map((o) => o.textContent);
 
-describe('QuireEditor variant="embed"', () => {
+describe('WikanvasEditor variant="embed"', () => {
   it('renders the slash and mention popups in the popup root, without the board items', async () => {
     const { root, editor, container } = await mount('embed');
     act(() => {
@@ -127,7 +127,7 @@ describe('QuireEditor variant="embed"', () => {
   });
 });
 
-describe('QuireEditor variant="page" (the default)', () => {
+describe('WikanvasEditor variant="page" (the default)', () => {
   it('keeps its popups in place, the block handle, heading anchors and both board items', async () => {
     const { root, editor, container } = await mount('page');
     expect(editor.view.dom.querySelector('h1')?.id).toMatch(/^h-/);

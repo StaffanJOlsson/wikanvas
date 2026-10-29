@@ -8,7 +8,7 @@ use std::future::IntoFuture;
 use std::time::Duration;
 
 use axum::http::StatusCode;
-use quire_api::{
+use wikanvas_api::{
     Config as ApiConfig, ErrorCode, Me, Scope, SessionInfo, SetupStatus, UserEnvelope,
 };
 use serde_json::json;
@@ -23,7 +23,7 @@ fn setup_body(code: &str) -> serde_json::Value {
         "code": code,
         "workspace_name": "Acme",
         "name": "Ada",
-        "email": "ada@quire.invalid",
+        "email": "ada@wikanvas.invalid",
         "password": "a long enough password"
     })
 }
@@ -49,13 +49,13 @@ async fn setup_requires_code() {
         .await;
     res.assert_status(StatusCode::CREATED);
     let created: UserEnvelope = res.json();
-    assert_eq!(created.user.email, "ada@quire.invalid");
+    assert_eq!(created.user.email, "ada@wikanvas.invalid");
     assert_eq!(created.user.role.as_str(), "owner");
-    let cookie = cookie_from(&res, "quire_session").expect("signed in");
+    let cookie = cookie_from(&res, "wikanvas_session").expect("signed in");
     let me = app
         .client()
         .get("/api/v1/auth/me")
-        .add_header("cookie", format!("quire_session={cookie}"))
+        .add_header("cookie", format!("wikanvas_session={cookie}"))
         .await;
     me.assert_status_ok();
     let me: Me = me.json();
@@ -257,7 +257,7 @@ async fn setup_seeds_getting_started() {
     );
     let mut items = items;
     items.sort();
-    let welcome = Some("Welcome to Quire".to_owned());
+    let welcome = Some("Welcome to Wikanvas".to_owned());
     assert_eq!(
         items,
         vec![
@@ -268,8 +268,8 @@ async fn setup_seeds_getting_started() {
                 true,
                 1
             ),
-            ("Welcome to Quire".into(), "doc".into(), None, true, 1),
-            ("Writing in Quire".into(), "doc".into(), welcome, true, 1),
+            ("Welcome to Wikanvas".into(), "doc".into(), None, true, 1),
+            ("Writing in Wikanvas".into(), "doc".into(), welcome, true, 1),
         ]
     );
 }
@@ -277,11 +277,11 @@ async fn setup_seeds_getting_started() {
 #[tokio::test]
 async fn login_cookie_attributes() {
     let app = TestApp::with_config(|c| {
-        c.trusted_proxies = vec![quire_server::config::IpNet::parse("172.31.240.2").unwrap()];
+        c.trusted_proxies = vec![wikanvas_server::config::IpNet::parse("172.31.240.2").unwrap()];
     })
     .await;
     app.insert_owner().await;
-    // Plain HTTP: quire_session, HttpOnly, SameSite=Lax, Path=/, no Secure, no Max-Age.
+    // Plain HTTP: wikanvas_session, HttpOnly, SameSite=Lax, Path=/, no Secure, no Max-Age.
     let res = app
         .login(OWNER_PASSWORD, false, Some("10.0.0.5:4000"))
         .await;
@@ -291,7 +291,7 @@ async fn login_cookie_attributes() {
     let cookies = set_cookies(&res);
     assert_eq!(cookies.len(), 1, "{cookies:?}");
     let c = &cookies[0];
-    assert!(c.starts_with("quire_session="), "{c}");
+    assert!(c.starts_with("wikanvas_session="), "{c}");
     for attr in ["; HttpOnly", "; SameSite=Lax", "; Path=/"] {
         assert!(c.contains(attr), "{c} lacks {attr}");
     }
@@ -312,7 +312,7 @@ async fn login_cookie_attributes() {
     let res = https("172.31.240.2:5000").await;
     res.assert_status_ok();
     let c = &set_cookies(&res)[0];
-    assert!(c.starts_with("__Host-quire_session="), "{c}");
+    assert!(c.starts_with("__Host-wikanvas_session="), "{c}");
     assert!(
         c.contains("; Secure") && c.contains("; Path=/") && !c.contains("Domain"),
         "{c}"
@@ -321,7 +321,7 @@ async fn login_cookie_attributes() {
     let res = https("10.0.0.7:5000").await;
     let c = &set_cookies(&res)[0];
     assert!(
-        c.starts_with("quire_session=") && !c.contains("Secure"),
+        c.starts_with("wikanvas_session=") && !c.contains("Secure"),
         "{c}"
     );
 }
@@ -329,7 +329,7 @@ async fn login_cookie_attributes() {
 #[tokio::test]
 async fn cookie_read_by_request_scheme() {
     let app = TestApp::with_config(|c| {
-        c.trusted_proxies = vec![quire_server::config::IpNet::parse("172.31.240.2").unwrap()];
+        c.trusted_proxies = vec![wikanvas_server::config::IpNet::parse("172.31.240.2").unwrap()];
     })
     .await;
     let owner = app.insert_owner().await;
@@ -347,23 +347,23 @@ async fn cookie_read_by_request_scheme() {
         req
     };
     assert_eq!(
-        me(format!("quire_session={session}"), false)
+        me(format!("wikanvas_session={session}"), false)
             .await
             .status_code(),
         200
     );
     assert_error(
-        &me(format!("__Host-quire_session={session}"), false).await,
+        &me(format!("__Host-wikanvas_session={session}"), false).await,
         401,
         ErrorCode::Unauthenticated,
     );
     assert_error(
-        &me(format!("quire_session={session}"), true).await,
+        &me(format!("wikanvas_session={session}"), true).await,
         401,
         ErrorCode::Unauthenticated,
     );
     assert_eq!(
-        me(format!("__Host-quire_session={session}"), true)
+        me(format!("__Host-wikanvas_session={session}"), true)
             .await
             .status_code(),
         200
@@ -427,7 +427,7 @@ async fn email_limiter_counts_failures_only() {
         .anon_client()
         .post("/api/v1/auth/login")
         .add_header(PEER, peer(201))
-        .json(&json!({"email": "other@quire.invalid", "password": "whatever password"}))
+        .json(&json!({"email": "other@wikanvas.invalid", "password": "whatever password"}))
         .await;
     assert_error(&res, 401, ErrorCode::InvalidCredentials);
     app.state.clock.advance(Duration::from_secs(15 * 60));
@@ -447,7 +447,7 @@ async fn unknown_email_same_code_as_bad_password() {
         .anon_client()
         .post("/api/v1/auth/login")
         .add_header(PEER, "192.0.2.2:1")
-        .json(&json!({"email": "nobody@quire.invalid", "password": OWNER_PASSWORD}))
+        .json(&json!({"email": "nobody@wikanvas.invalid", "password": OWNER_PASSWORD}))
         .await;
     let a = assert_error(&bad_password, 401, ErrorCode::InvalidCredentials);
     let b = assert_error(&unknown, 401, ErrorCode::InvalidCredentials);
@@ -456,7 +456,7 @@ async fn unknown_email_same_code_as_bad_password() {
 }
 
 async fn session_expiry(app: &TestApp, cookie: &str) -> (i64, i64) {
-    let hash = quire_store::sessions::token_hash(cookie).unwrap();
+    let hash = wikanvas_store::sessions::token_hash(cookie).unwrap();
     app.state
         .db
         .read(move |c| {
@@ -478,11 +478,11 @@ async fn renewal_after_half_window_resends_cookie() {
     let me = |cookie: &str| {
         app.client()
             .get("/api/v1/auth/me")
-            .add_header("cookie", format!("quire_session={cookie}"))
+            .add_header("cookie", format!("wikanvas_session={cookie}"))
     };
     // A persistent session: no renewal before half of the 30-day window has passed.
     let res = app.login(OWNER_PASSWORD, true, Some("192.0.2.1:1")).await;
-    let cookie = cookie_from(&res, "quire_session").unwrap();
+    let cookie = cookie_from(&res, "wikanvas_session").unwrap();
     let (expires, created) = session_expiry(&app, &cookie).await;
     assert_eq!(expires - created, 30 * DAY);
     app.state.clock.advance(Duration::from_secs(14 * 86_400));
@@ -496,14 +496,14 @@ async fn renewal_after_half_window_resends_cookie() {
     let renewed = set_cookies(&res);
     assert_eq!(renewed.len(), 1, "{renewed:?}");
     assert!(
-        renewed[0].starts_with(&format!("quire_session={cookie};")),
+        renewed[0].starts_with(&format!("wikanvas_session={cookie};")),
         "same token"
     );
     assert!(renewed[0].contains("; Max-Age=2592000"), "{renewed:?}");
     let (expires, _) = session_expiry(&app, &cookie).await;
     assert_eq!(expires, app.state.now() + 30 * DAY);
     // The 180-day cap: near it the expiry is the cap.
-    let hash = quire_store::sessions::token_hash(&cookie).unwrap();
+    let hash = wikanvas_store::sessions::token_hash(&cookie).unwrap();
     let now = app.state.now();
     app.state
         .db
@@ -526,7 +526,7 @@ async fn renewal_after_half_window_resends_cookie() {
     assert_eq!(expires - created, 180 * DAY);
     // A browser-session cookie is renewed in the database only (the cookie has no Max-Age to refresh).
     let res = app.login(OWNER_PASSWORD, false, Some("192.0.2.2:1")).await;
-    let cookie = cookie_from(&res, "quire_session").unwrap();
+    let cookie = cookie_from(&res, "wikanvas_session").unwrap();
     app.state.clock.advance(Duration::from_secs(13 * 3600));
     let res = me(&cookie).await;
     res.assert_status_ok();
@@ -541,12 +541,12 @@ async fn password_change_revokes_other_sessions() {
     app.insert_owner().await;
     let a = cookie_from(
         &app.login(OWNER_PASSWORD, false, Some("192.0.2.1:1")).await,
-        "quire_session",
+        "wikanvas_session",
     )
     .unwrap();
     let b = cookie_from(
         &app.login(OWNER_PASSWORD, false, Some("192.0.2.2:1")).await,
-        "quire_session",
+        "wikanvas_session",
     )
     .unwrap();
     let client_a = app.cookie_client(&a);
@@ -616,7 +616,7 @@ async fn reset_password_cli_sets_must_change() {
     );
     let res = app.login(&password, false, Some("192.0.2.2:1")).await;
     res.assert_status_ok();
-    let cookie = cookie_from(&res, "quire_session").unwrap();
+    let cookie = cookie_from(&res, "wikanvas_session").unwrap();
     let me: Me = app
         .cookie_client(&cookie)
         .get("/api/v1/auth/me")
@@ -637,7 +637,7 @@ async fn reset_password_cli_sets_must_change() {
     assert!(!me.must_change_password);
     let unknown = admin(
         app.dir.path(),
-        &["reset-password", "--email", "nobody@quire.invalid"],
+        &["reset-password", "--email", "nobody@wikanvas.invalid"],
         None,
     );
     assert_eq!(unknown.status.code(), Some(7));
@@ -648,13 +648,13 @@ async fn logout_clears_cookie_and_session() {
     let app = TestApp::new().await;
     app.insert_owner().await;
     let res = app.login(OWNER_PASSWORD, true, None).await;
-    let cookie = cookie_from(&res, "quire_session").unwrap();
+    let cookie = cookie_from(&res, "wikanvas_session").unwrap();
     let client = app.cookie_client(&cookie);
     let res = client.post("/api/v1/auth/logout").await;
     res.assert_status(StatusCode::NO_CONTENT);
     let cleared = &set_cookies(&res)[0];
     assert!(
-        cleared.starts_with("quire_session=;") && cleared.contains("Max-Age=0"),
+        cleared.starts_with("wikanvas_session=;") && cleared.contains("Max-Age=0"),
         "{cleared}"
     );
     assert_error(
@@ -669,7 +669,7 @@ async fn logout_of_renewal_due_session_only_clears_the_cookie() {
     let app = TestApp::with_fake_clock().await;
     app.insert_owner().await;
     let res = app.login(OWNER_PASSWORD, true, None).await;
-    let cookie = cookie_from(&res, "quire_session").unwrap();
+    let cookie = cookie_from(&res, "wikanvas_session").unwrap();
     // Past half of the 30-day window: this request's authentication renews the session.
     app.state.clock.advance(Duration::from_secs(16 * 86_400));
     let client = app.cookie_client(&cookie);
@@ -682,7 +682,7 @@ async fn logout_of_renewal_due_session_only_clears_the_cookie() {
         "no renewal after the clearing cookie: {cookies:?}"
     );
     assert!(
-        cookies[0].starts_with("quire_session=;") && cookies[0].contains("Max-Age=0"),
+        cookies[0].starts_with("wikanvas_session=;") && cookies[0].contains("Max-Age=0"),
         "{cookies:?}"
     );
     assert_error(
@@ -698,8 +698,8 @@ async fn malformed_email_login_is_401_and_never_recorded() {
     app.insert_owner().await;
     let per_email = &app.state.login_limiter.per_email;
     // Almost the whole 1 MiB body: an address no account can have.
-    let huge = format!("{}@quire.invalid", "a".repeat(1_000_000));
-    for email in [huge.as_str(), "no-at-sign", "two words@quire.invalid"] {
+    let huge = format!("{}@wikanvas.invalid", "a".repeat(1_000_000));
+    for email in [huge.as_str(), "no-at-sign", "two words@wikanvas.invalid"] {
         let res = app
             .anon_client()
             .post("/api/v1/auth/login")
@@ -712,7 +712,7 @@ async fn malformed_email_login_is_401_and_never_recorded() {
     let res = app
         .anon_client()
         .post("/api/v1/auth/login")
-        .json(&json!({"email": "nobody@quire.invalid", "password": "wrong password"}))
+        .json(&json!({"email": "nobody@wikanvas.invalid", "password": "wrong password"}))
         .await;
     assert_error(&res, 401, ErrorCode::InvalidCredentials);
     assert_eq!(per_email.keys(), 1);
@@ -724,7 +724,7 @@ async fn login_rotates_the_presented_session() {
     app.insert_owner().await;
     let old = cookie_from(
         &app.login(OWNER_PASSWORD, false, None).await,
-        "quire_session",
+        "wikanvas_session",
     )
     .unwrap();
     let res = app
@@ -733,7 +733,7 @@ async fn login_rotates_the_presented_session() {
         .json(&json!({"email": OWNER_EMAIL, "password": OWNER_PASSWORD}))
         .await;
     res.assert_status_ok();
-    let new = cookie_from(&res, "quire_session").unwrap();
+    let new = cookie_from(&res, "wikanvas_session").unwrap();
     assert_ne!(new, old);
     assert_error(
         &app.cookie_client(&old).get("/api/v1/auth/me").await,
@@ -779,7 +779,7 @@ async fn email_change_needs_session() {
     let bearer = app.token_client(&token);
     let res = bearer
         .patch("/api/v1/auth/me")
-        .json(&json!({"email": "new@quire.invalid"}))
+        .json(&json!({"email": "new@wikanvas.invalid"}))
         .await;
     assert_error(&res, 403, ErrorCode::SessionRequired);
     // The same email again is no change; a name or theme change is fine with a token.
@@ -796,11 +796,11 @@ async fn email_change_needs_session() {
     let res = app
         .server
         .patch("/api/v1/auth/me")
-        .json(&json!({"email": "new@quire.invalid"}))
+        .json(&json!({"email": "new@wikanvas.invalid"}))
         .await;
     res.assert_status_ok();
     let body: UserEnvelope = res.json();
-    assert_eq!(body.user.email, "new@quire.invalid");
+    assert_eq!(body.user.email, "new@wikanvas.invalid");
     let res = app
         .server
         .patch("/api/v1/auth/me")
@@ -908,7 +908,7 @@ async fn config_reports_limits_and_api_version() {
     let res = app.anon_client().get("/api/v1/config").await;
     res.assert_status_ok();
     let raw: serde_json::Value = res.json();
-    assert_eq!(raw["api_version"], quire_api::API_VERSION);
+    assert_eq!(raw["api_version"], wikanvas_api::API_VERSION);
     assert_eq!(raw["openapi_url"], "/api/v1/openapi.json");
     assert_eq!(raw["multi_user"], false);
     assert_eq!(raw["inkboard"], serde_json::Value::Null);
@@ -932,13 +932,13 @@ async fn config_reports_limits_and_api_version() {
             "token_bytes_per_hour": 1024 * 1024 * 1024u64,
         })
     );
-    assert_eq!(res.header("quire-api-version"), quire_api::API_VERSION);
+    assert_eq!(res.header("wikanvas-api-version"), wikanvas_api::API_VERSION);
 }
 
 #[tokio::test]
 async fn workspace_get_and_patch() {
     let app = TestApp::with_owner().await;
-    let ws: quire_api::Workspace = app.server.get("/api/v1/workspace").await.json();
+    let ws: wikanvas_api::Workspace = app.server.get("/api/v1/workspace").await.json();
     assert_eq!((ws.name.as_str(), ws.logo_url), ("Test workspace", None));
     let res = app
         .server
@@ -946,7 +946,7 @@ async fn workspace_get_and_patch() {
         .json(&json!({"name": "  Renamed  "}))
         .await;
     res.assert_status_ok();
-    let ws: quire_api::Workspace = res.json();
+    let ws: wikanvas_api::Workspace = res.json();
     assert_eq!(ws.name, "Renamed");
     let res = app
         .server

@@ -1372,7 +1372,7 @@ fn check_text(
             if !href.is_some_and(link_ok) {
                 return Err(Invalid::new(
                     format!("{mpath}/attrs/href"),
-                    "a link needs an http, https, mailto or quire URL, a path or a fragment",
+                    "a link needs an http, https, mailto or wikanvas URL, a path or a fragment",
                 ));
             }
         }

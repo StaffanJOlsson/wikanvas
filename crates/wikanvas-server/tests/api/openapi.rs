@@ -1,7 +1,7 @@
 //! The OpenAPI spec tests: spec_matches_committed and spec_parses_as_3_1 (owner: W2)
 //!
 //! `docs/api/openapi.json` is generated, never hand-edited: after a route, DTO or annotation change run
-//! `scripts/dev.sh env UPDATE_OPENAPI=1 cargo test -p quire-server --locked --test api -- openapi::` and commit the file
+//! `scripts/dev.sh env UPDATE_OPENAPI=1 cargo test -p wikanvas-server --locked --test api -- openapi::` and commit the file
 //! (PLAN R4, ARCHITECTURE §7.4).
 
 use std::path::PathBuf;
@@ -14,7 +14,7 @@ fn committed_path() -> PathBuf {
 
 #[test]
 fn spec_matches_committed() {
-    let generated = quire_server::openapi::spec_json();
+    let generated = wikanvas_server::openapi::spec_json();
     let path = committed_path();
     if std::env::var_os("UPDATE_OPENAPI").is_some_and(|v| v == "1") {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -23,14 +23,14 @@ fn spec_matches_committed() {
     }
     let committed = std::fs::read_to_string(&path).unwrap_or_else(|e| {
         panic!(
-            "{}: {e}; generate it with `scripts/dev.sh env UPDATE_OPENAPI=1 cargo test -p quire-server --locked \
+            "{}: {e}; generate it with `scripts/dev.sh env UPDATE_OPENAPI=1 cargo test -p wikanvas-server --locked \
              --test api -- openapi::`",
             path.display()
         )
     });
     assert!(
         committed == generated,
-        "docs/api/openapi.json is out of date: run `scripts/dev.sh env UPDATE_OPENAPI=1 cargo test -p quire-server \
+        "docs/api/openapi.json is out of date: run `scripts/dev.sh env UPDATE_OPENAPI=1 cargo test -p wikanvas-server \
          --locked --test api -- openapi::` and commit it"
     );
 }
@@ -47,7 +47,7 @@ fn json_maps_are_sorted_as_in_release_builds() {
 fn spec_parses_as_3_1() {
     // The generated spec, so this also holds while UPDATE_OPENAPI rewrites the committed copy; spec_matches_committed
     // ties the two together.
-    let json = quire_server::openapi::spec_json();
+    let json = wikanvas_server::openapi::spec_json();
     assert!(
         json.ends_with("}\n"),
         "pretty-printed with a trailing newline"
@@ -68,7 +68,7 @@ async fn served_no_cache_with_etag() {
     res.assert_status_ok();
     assert_eq!(res.content_type(), "application/json");
     assert_eq!(res.header("cache-control"), "no-cache");
-    assert_eq!(res.text(), quire_server::openapi::spec_json());
+    assert_eq!(res.text(), wikanvas_server::openapi::spec_json());
     let etag = res.header("etag");
     let again = app
         .server
@@ -77,5 +77,5 @@ async fn served_no_cache_with_etag() {
         .await;
     assert_eq!(again.status_code(), 304);
     assert_eq!(again.header("etag"), etag);
-    assert_eq!(again.header("quire-api-version"), quire_api::API_VERSION);
+    assert_eq!(again.header("wikanvas-api-version"), wikanvas_api::API_VERSION);
 }

@@ -27,11 +27,11 @@ opt-level = 3
 # features of their own; the versions in Cargo.lock are the pins (scripts/check-pins.sh keeps serde, serde_json,
 # base64 and thiserror equal to vendor/inkboard/Cargo.lock).
 [workspace.dependencies]
-quire-api = { path = "crates/quire-api" }
-quire-core = { path = "crates/quire-core" }
-quire-store = { path = "crates/quire-store" }
-quire-server = { path = "crates/quire-server" }
-quire-assets = { path = "crates/quire-assets" }
+wikanvas-api = { path = "crates/wikanvas-api" }
+wikanvas-core = { path = "crates/wikanvas-core" }
+wikanvas-store = { path = "crates/wikanvas-store" }
+wikanvas-server = { path = "crates/wikanvas-server" }
+wikanvas-assets = { path = "crates/wikanvas-assets" }
 inkboard-core = { path = "vendor/inkboard/crates/inkboard-core" }
 
 # Storage

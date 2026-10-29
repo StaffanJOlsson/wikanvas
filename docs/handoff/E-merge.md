@@ -16,8 +16,8 @@ there was no conflict, no lockfile in any branch and nothing to regenerate (`doc
 
 | Merge | Branch | What it brings | Checks on main right after it |
 |---|---|---|---|
-| `40b3faf` | `ws/E2-server` (7 commits) | `quire-core::board` embed scan, `item_links` kind `embed` for boards, the repeated-`embed` 422, `discard_empty` keeps embedded items, AGENTS.md §8 "Embedded pages", agent scenario 12 | `scripts/fmt.sh --check` PASS; clippy `--workspace --all-targets -D warnings` PASS; core `board::` 24 PASS; store `boards::` 18 PASS; API `boards::` 24 PASS |
-| `0be0d3f` | `ws/E1-engine` (6 commits) | Patches 0005 and 0006 (patchset 3), `frame.js` embeds and drag and drop, 11 new frame tests | `inkboard.sh src`, `check`; `inkboard-core` tests (153 unit + integration); `inkboard-app embed` 28; `i18n` 7; `inkboard-formats mermaid`; `build` (patchset `3`, `0.2.0-beta.3+embed.quire.3`, build id `085b5dbedb2d`, the same as E1's); `export --upstream` notice-free; 7 notice lines in 0005; `vendor/inkboard` clean: all PASS |
+| `40b3faf` | `ws/E2-server` (7 commits) | `wikanvas-core::board` embed scan, `item_links` kind `embed` for boards, the repeated-`embed` 422, `discard_empty` keeps embedded items, AGENTS.md §8 "Embedded pages", agent scenario 12 | `scripts/fmt.sh --check` PASS; clippy `--workspace --all-targets -D warnings` PASS; core `board::` 24 PASS; store `boards::` 18 PASS; API `boards::` 24 PASS |
+| `0be0d3f` | `ws/E1-engine` (6 commits) | Patches 0005 and 0006 (patchset 3), `frame.js` embeds and drag and drop, 11 new frame tests | `inkboard.sh src`, `check`; `inkboard-core` tests (153 unit + integration); `inkboard-app embed` 28; `i18n` 7; `inkboard-formats mermaid`; `build` (patchset `3`, `0.2.0-beta.3+embed.wikanvas.3`, build id `085b5dbedb2d`, the same as E1's); `export --upstream` notice-free; 7 notice lines in 0005; `vendor/inkboard` clean: all PASS |
 | `871975a` | `ws/E3-web` (12 commits) | The overlay, static and editing cards, "Text doc", "Embed page…", the sidebar drag source and the drop paths, the fake frame's embed members | `pnpm typecheck` PASS; `pnpm test` 79 files, 396 tests PASS (after 98f29b5); `pnpm build` PASS; `scripts/e2e.sh frame` 24 passed, 1 skipped (W5's designed "background page" skip in headless Chromium) |
 
 ## Requests applied
@@ -71,15 +71,15 @@ Checked by reading both sides and by smoke step 17 against the real image (engin
    built the E2 block's stub image and then, at the same commit, the full image of gate step 3: that image served
    the stub engine ("Whiteboard engine not installed"), so smoke step 9 and the full image smoke failed (gate lines
    32, 55 and 56; the other 58 lines passed). The server stage compiles into a cache mount that every image build
-   shares, and cargo judges by mtime whether `quire-assets` (the rust-embed of `web/dist` and `web/dist-inkboard`) is
+   shares, and cargo judges by mtime whether `wikanvas-assets` (the rust-embed of `web/dist` and `web/dist-inkboard`) is
    stale. The two dists are copied from other stages, whose cached outputs keep the mtimes of the build that made
-   them, which were older than the stub build's compile; cargo kept the stub's expansion and `quire-server`, which
-   recompiles for every new `QUIRE_COMMIT`, linked it. A reverted web change or an older commit does the same, so a
+   them, which were older than the stub build's compile; cargo kept the stub's expansion and `wikanvas-server`, which
+   recompiles for every new `WIKANVAS_COMMIT`, linked it. A reverted web change or an older commit does the same, so a
    production image could have shipped another build's files. The step now touches both dists before `cargo build`
-   (so `quire-assets` embeds them again, about 2 s) and then checks that the binary embeds every file name of both
+   (so `wikanvas-assets` embeds them again, about 2 s) and then checks that the binary embeds every file name of both
    dists and the engine's build id, failing the build otherwise. With the check alone, the stub-then-full sequence
-   failed the build ("quire-server does not embed web/dist-inkboard/inkboard.js.br"; only `quire-server` had
-   recompiled); with the touch it builds, and `QUIRE_SMOKE_LEVEL=full scripts/image-smoke.sh` passes on the result.
+   failed the build ("wikanvas-server does not embed web/dist-inkboard/inkboard.js.br"; only `wikanvas-server` had
+   recompiled); with the touch it builds, and `WIKANVAS_SMOKE_LEVEL=full scripts/image-smoke.sh` passes on the result.
    ARCHITECTURE §13.2 quotes the new stage.
 
 ## Smoke step 17: decisions (within PLAN M1.1 "Smoke step 17")
@@ -106,11 +106,11 @@ Checked by reading both sides and by smoke step 17 against the real image (engin
 
 - E2 review R-4 (a duplicate of a board with a card of itself has no `(copy, source)` link) and boards saved before
   M1.1 having no links until their next save: §18.13 items 13 and 14.
-- `crates/quire-server/src/routes/items.rs`' doc comment of `DELETE /items/{id}` and the `discard_empty` parameter
-  description in `quire-api` still list only the old conditions, as §18.8 requires (no OpenAPI change).
+- `crates/wikanvas-server/src/routes/items.rs`' doc comment of `DELETE /items/{id}` and the `discard_empty` parameter
+  description in `wikanvas-api` still list only the old conditions, as §18.8 requires (no OpenAPI change).
 - Backlinks on `item_links` kind `embed` are recorded, not served (§18.12).
 
 ## Worktrees
 
-`../Quire-E1-engine`, `../Quire-E2-server` and `../Quire-E3-web` are merged and clean. They were left in place for the
-owner to remove (the coordinator's memory says "remove after"); their branches are kept, as for M1's.
+`../Wikanvas-E1-engine`, `../Wikanvas-E2-server` and `../Wikanvas-E3-web` are merged and clean. They were left in place
+for the owner to remove (the coordinator's memory says "remove after"); their branches are kept, as for M1's.

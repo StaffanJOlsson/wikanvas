@@ -7,8 +7,8 @@
 use axum::Json;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
-use quire_api::{ErrorBody, ListedItem, Page, PageQuery, TrashList};
-use quire_store::lists::PageRequest;
+use wikanvas_api::{ErrorBody, ListedItem, Page, PageQuery, TrashList};
+use wikanvas_store::lists::PageRequest;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
@@ -61,7 +61,7 @@ async fn list_archive(
     Ok(Json(
         state
             .db
-            .read(move |c| quire_store::lists::archive(c, &viewer, &req))
+            .read(move |c| wikanvas_store::lists::archive(c, &viewer, &req))
             .await?,
     ))
 }
@@ -92,7 +92,7 @@ async fn list_drafts(
     Ok(Json(
         state
             .db
-            .read(move |c| quire_store::lists::drafts(c, &viewer, &req))
+            .read(move |c| wikanvas_store::lists::drafts(c, &viewer, &req))
             .await?,
     ))
 }
@@ -123,7 +123,7 @@ async fn list_starred(
     Ok(Json(
         state
             .db
-            .read(move |c| quire_store::lists::starred(c, &viewer, &req))
+            .read(move |c| wikanvas_store::lists::starred(c, &viewer, &req))
             .await?,
     ))
 }
@@ -154,7 +154,7 @@ async fn list_recent(
     Ok(Json(
         state
             .db
-            .read(move |c| quire_store::lists::recent(c, &viewer, &req))
+            .read(move |c| wikanvas_store::lists::recent(c, &viewer, &req))
             .await?,
     ))
 }
@@ -185,7 +185,7 @@ async fn list_updated(
     Ok(Json(
         state
             .db
-            .read(move |c| quire_store::lists::updated(c, &viewer, None, &req))
+            .read(move |c| wikanvas_store::lists::updated(c, &viewer, None, &req))
             .await?,
     ))
 }
@@ -220,8 +220,8 @@ async fn list_collection_updated(
         state
             .db
             .read(move |c| {
-                quire_store::collections::get_live(c, &id)?;
-                quire_store::lists::updated(c, &viewer, Some(&id), &req)
+                wikanvas_store::collections::get_live(c, &id)?;
+                wikanvas_store::lists::updated(c, &viewer, Some(&id), &req)
             })
             .await?,
     ))
@@ -250,7 +250,7 @@ async fn get_trash(
     Ok(Json(
         state
             .db
-            .read(move |c| quire_store::lists::trash(c, &viewer))
+            .read(move |c| wikanvas_store::lists::trash(c, &viewer))
             .await?,
     ))
 }
@@ -278,7 +278,7 @@ async fn purge_trash_item(
 ) -> Result<StatusCode, ApiError> {
     state
         .db
-        .write(move |tx| quire_store::items::purge(tx, &id.to_string()))
+        .write(move |tx| wikanvas_store::items::purge(tx, &id.to_string()))
         .await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -306,7 +306,7 @@ async fn purge_trash_collection(
 ) -> Result<StatusCode, ApiError> {
     state
         .db
-        .write(move |tx| quire_store::collections::purge(tx, &id.to_string()))
+        .write(move |tx| wikanvas_store::collections::purge(tx, &id.to_string()))
         .await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -329,6 +329,6 @@ async fn empty_trash(
     _auth: Auth<Admin>,
     State(state): State<AppState>,
 ) -> Result<StatusCode, ApiError> {
-    state.db.write(quire_store::items::purge_all).await?;
+    state.db.write(wikanvas_store::items::purge_all).await?;
     Ok(StatusCode::NO_CONTENT)
 }

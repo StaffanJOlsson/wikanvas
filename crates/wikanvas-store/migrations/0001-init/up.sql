@@ -165,7 +165,7 @@ CREATE TABLE doc_state (
   item_id        TEXT PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE,
   ydoc           BLOB NOT NULL,         -- compacted Yjs v1 update of the whole doc; new doc = encodeStateAsUpdate(empty)
   yfield         TEXT NOT NULL DEFAULT 'default',
-  schema_version INTEGER NOT NULL DEFAULT 1,   -- Quire TipTap schema version (§6.1)
+  schema_version INTEGER NOT NULL DEFAULT 1,   -- Wikanvas TipTap schema version (§6.1)
   compacted_seq  INTEGER NOT NULL DEFAULT 0,
   next_seq       INTEGER NOT NULL DEFAULT 1,
   pm_json        TEXT CHECK (pm_json IS NULL OR json_valid(pm_json)),  -- cache sent by the client; rebuildable
@@ -197,7 +197,7 @@ CREATE TABLE board_state (
   body_sha256    BLOB NOT NULL,          -- sha256 of the uncompressed stripped envelope → skip no-op saves
   raw_len        INTEGER NOT NULL,
   format_version INTEGER NOT NULL,       -- envelope "version" (2)
-  engine_version TEXT NOT NULL,          -- X-Quire-Engine of the writer, e.g. "0.2.0-beta.3+embed.quire.1"; "server" for seeds
+  engine_version TEXT NOT NULL,          -- X-Wikanvas-Engine of the writer, e.g. "0.2.0-beta.3+embed.wikanvas.1"; "server" for seeds
   rev            INTEGER NOT NULL DEFAULT 1,   -- ETag "r{rev}"
   seq            INTEGER NOT NULL DEFAULT 0,   -- Sequencer seq (server-owned live sync, later)
   meta           TEXT NOT NULL CHECK (json_valid(meta)),  -- {"pages":[{"id","name"}],"objects":n,"background":"#rrggbb","bytes":n,"text_excerpt":"…"}

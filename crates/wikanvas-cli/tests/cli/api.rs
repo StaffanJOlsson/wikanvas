@@ -1,6 +1,6 @@
-//! `quire api`: the path and header guards, and calls through it (owner: W8)
+//! `wikanvas api`: the path and header guards, and calls through it (owner: W8)
 
-use quire_api::Scope;
+use wikanvas_api::Scope;
 use serde_json::{Value, json};
 
 use crate::common::{Harness, Mock, Reply, Sandbox, fake_token, last_error, run_json};
@@ -28,14 +28,14 @@ fn path_and_header_guards() {
             "GET",
             "/api/v1/sidebar",
             "--header",
-            "cookie:quire_session=x",
+            "cookie:wikanvas_session=x",
         ],
         &["GET", "/api/v1/sidebar", "--header", "Host: evil.invalid"],
         &["TRACE", "/api/v1/sidebar"],
     ];
     for args in refused {
         let (code, out, err) = run_json(
-            s.quire_at(&mock.url, &fake_token(1))
+            s.wikanvas_at(&mock.url, &fake_token(1))
                 .args(["--json", "api"])
                 .args(args),
         );
@@ -46,7 +46,7 @@ fn path_and_header_guards() {
     assert_eq!(mock.connections(), 0, "the mock saw nothing");
     // An allowed header and a body go through; the token is the CLI's own.
     let input = s.file("in.json", br#"{"name":"C"}"#, 0o600);
-    s.quire_at(&mock.url, &fake_token(1))
+    s.wikanvas_at(&mock.url, &fake_token(1))
         .args([
             "--json",
             "api",
@@ -83,12 +83,12 @@ fn api_against_the_server() {
     assert_eq!(code, 7, "{err}");
     assert_eq!(last_error(&err)["error"]["code"], "not_found");
     // A public route works without any token.
-    let (code, v, err) = run_json(h.sandbox.quire().env("QUIRE_URL", &h.server.url).args([
+    let (code, v, err) = run_json(h.sandbox.wikanvas().env("WIKANVAS_URL", &h.server.url).args([
         "--json",
         "api",
         "GET",
         "/api/v1/openapi.json",
     ]));
     assert_eq!(code, 0, "{err}");
-    assert_eq!(v["info"]["title"], "Quire API");
+    assert_eq!(v["info"]["title"], "Wikanvas API");
 }

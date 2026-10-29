@@ -1,12 +1,12 @@
-//! The store error type, which wraps quire_core::api::error::ErrorCode (owner: W1).
+//! The store error type, which wraps wikanvas_core::api::error::ErrorCode (owner: W1).
 //!
 //! Every store function returns [`Result`]. An [`Error`] always carries the API [`ErrorCode`] the server answers with
-//! (`ApiError: From<quire_store::Error>`), an English message, and optional `details` in the per-code shape of §7.1.
+//! (`ApiError: From<wikanvas_store::Error>`), an English message, and optional `details` in the per-code shape of §7.1.
 //! Database, I/O and migration failures become `internal` and keep their source for the log.
 
 use std::fmt;
 
-use quire_core::api::{ErrorCode, LimitDetails, ValidationDetails};
+use wikanvas_core::api::{ErrorCode, LimitDetails, ValidationDetails};
 use serde::Serialize;
 use serde_json::Value;
 
@@ -35,7 +35,7 @@ impl Error {
         }
     }
 
-    /// The same error with `details` (any of the `quire_api` `*Details` types).
+    /// The same error with `details` (any of the `wikanvas_api` `*Details` types).
     pub fn with_details(mut self, details: &impl Serialize) -> Self {
         self.details = serde_json::to_value(details).ok();
         self
@@ -148,24 +148,24 @@ impl From<serde_json::Error> for Error {
     }
 }
 
-impl From<quire_core::cursor::CursorError> for Error {
+impl From<wikanvas_core::cursor::CursorError> for Error {
     /// A refused cursor is 422 `validation` with `details.field = "cursor"` (D46, §7.1 "Pagination").
-    fn from(e: quire_core::cursor::CursorError) -> Self {
-        Error::validation(quire_core::cursor::CursorError::FIELD, e.to_string())
+    fn from(e: wikanvas_core::cursor::CursorError) -> Self {
+        Error::validation(wikanvas_core::cursor::CursorError::FIELD, e.to_string())
     }
 }
 
-impl From<quire_core::rank::RankError> for Error {
+impl From<wikanvas_core::rank::RankError> for Error {
     /// A sort key that cannot be made is a store bug or a corrupt row: `internal`.
-    fn from(e: quire_core::rank::RankError) -> Self {
+    fn from(e: wikanvas_core::rank::RankError) -> Self {
         Error::internal("sort key", e)
     }
 }
 
-impl From<quire_core::tree::TreeError> for Error {
+impl From<wikanvas_core::tree::TreeError> for Error {
     /// The tree rules' refusals, with their §7.1 codes.
-    fn from(e: quire_core::tree::TreeError) -> Self {
-        use quire_core::tree::TreeError;
+    fn from(e: wikanvas_core::tree::TreeError) -> Self {
+        use wikanvas_core::tree::TreeError;
         let code = match e {
             TreeError::Cycle => ErrorCode::Cycle,
             TreeError::ParentInvalid => ErrorCode::ParentInvalid,
@@ -217,7 +217,7 @@ mod tests {
 
     #[test]
     fn cursor_errors_are_422_on_the_cursor_field() {
-        use quire_core::cursor::{self, Cursor, CursorError};
+        use wikanvas_core::cursor::{self, Cursor, CursorError};
         for e in [CursorError::Malformed, CursorError::QueryMismatch] {
             let e = Error::from(e);
             assert!(e.is(ErrorCode::Validation), "{e:?}");

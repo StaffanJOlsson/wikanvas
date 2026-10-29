@@ -1,9 +1,9 @@
-//! Coverage: every spec operation has a command (or is on the §7.6 allow-list), and every `quire …` example in
+//! Coverage: every spec operation has a command (or is on the §7.6 allow-list), and every `wikanvas …` example in
 //! docs/AGENTS.md parses with the clap tree (owner: W8)
 
 use std::collections::BTreeSet;
 
-use quire_cli::{API_ONLY, OPERATIONS};
+use wikanvas_cli::{API_ONLY, OPERATIONS};
 use serde_json::Value;
 
 fn repo_file(rel: &str) -> String {
@@ -128,8 +128,8 @@ fn shell_words(line: &str) -> Vec<String> {
     words
 }
 
-/// The `quire …` invocations in the fenced code blocks of docs/AGENTS.md: each command of a pipeline or list whose
-/// first word (after `VAR=value` assignments, and after `docker compose exec [opts] SERVICE`) is `quire`, up to its
+/// The `wikanvas …` invocations in the fenced code blocks of docs/AGENTS.md: each command of a pipeline or list whose
+/// first word (after `VAR=value` assignments, and after `docker compose exec [opts] SERVICE`) is `wikanvas`, up to its
 /// first redirection.
 fn agents_md_examples() -> Vec<Vec<String>> {
     let text = repo_file("docs/AGENTS.md");
@@ -152,7 +152,7 @@ fn agents_md_examples() -> Vec<Vec<String>> {
         }
         let full = std::mem::take(&mut pending) + line;
         let full = full.strip_prefix("$ ").unwrap_or(&full).to_owned();
-        // A command substitution `X=$(quire …)` is a command of its own.
+        // A command substitution `X=$(wikanvas …)` is a command of its own.
         let substituted = full.contains("$(");
         let full = full.replace("$(", ";");
         for segment in full.split(['|', ';']).flat_map(|s| s.split("&&")) {
@@ -177,7 +177,7 @@ fn agents_md_examples() -> Vec<Vec<String>> {
                 rest = &rest[1..];
             }
             if rest.len() >= 3 && rest[0] == "docker" && rest[1] == "compose" {
-                // docker compose [-p P] [-f F] exec [-T] [-e VAR] SERVICE quire …
+                // docker compose [-p P] [-f F] exec [-T] [-e VAR] SERVICE wikanvas …
                 let Some(exec) = rest.iter().position(|w| w == "exec") else {
                     continue;
                 };
@@ -194,7 +194,7 @@ fn agents_md_examples() -> Vec<Vec<String>> {
                 }
                 rest = rest.get(i + 1..).unwrap_or_default();
             }
-            if rest.first().is_some_and(|w| w == "quire") {
+            if rest.first().is_some_and(|w| w == "wikanvas") {
                 found.push(rest.to_vec());
             }
         }
@@ -211,7 +211,7 @@ fn agents_md_examples_parse() {
     );
     let mut groups = BTreeSet::new();
     for words in &examples {
-        if let Err(e) = quire_cli::args::try_parse_from(words.iter().map(Into::into).collect())
+        if let Err(e) = wikanvas_cli::args::try_parse_from(words.iter().map(Into::into).collect())
             && e.use_stderr()
         {
             panic!("docs/AGENTS.md: `{}` does not parse:\n{e}", words.join(" "));
@@ -261,7 +261,7 @@ fn agents_md_examples_parse() {
     ] {
         assert!(
             groups.contains(g),
-            "no `quire {g} …` example in docs/AGENTS.md"
+            "no `wikanvas {g} …` example in docs/AGENTS.md"
         );
     }
 }
@@ -269,8 +269,8 @@ fn agents_md_examples_parse() {
 #[test]
 fn shell_words_split_like_bash() {
     assert_eq!(
-        shell_words(r#"quire search "quok -zebra" --json # comment"#),
-        ["quire", "search", "quok -zebra", "--json"]
+        shell_words(r#"wikanvas search "quok -zebra" --json # comment"#),
+        ["wikanvas", "search", "quok -zebra", "--json"]
     );
     assert_eq!(shell_words("a 'b c' d\\ e"), ["a", "b c", "d e"]);
 }

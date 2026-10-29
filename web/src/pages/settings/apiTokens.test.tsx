@@ -72,7 +72,7 @@ describe('Settings → API tokens', () => {
     expect(old.textContent).toContain('Expired');
     expect(old.textContent).toContain('Never used');
     expect((await rowOf('Backup agent')).textContent).toContain('Never expires');
-    expect(screen.getAllByText(/quire auth login --url .* --token-stdin/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/wikanvas auth login --url .* --token-stdin/).length).toBeGreaterThan(0);
   });
 
   it('create shows the secret once with Copy; closing the dialog drops it everywhere', async () => {

@@ -8,9 +8,9 @@
 use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
-use quire_api::tokens::{MAX_EXPIRY_DAYS, NewToken};
-use quire_api::{ApiToken, CreatedToken, ErrorBody, ErrorCode, Scope};
-use quire_store::tokens::{CreatedVia, TokenRow};
+use wikanvas_api::tokens::{MAX_EXPIRY_DAYS, NewToken};
+use wikanvas_api::{ApiToken, CreatedToken, ErrorBody, ErrorCode, Scope};
+use wikanvas_store::tokens::{CreatedVia, TokenRow};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
@@ -52,7 +52,7 @@ async fn list_tokens(
     let now = state.now();
     let tokens = state
         .db
-        .read(move |conn| quire_store::tokens::list(conn, &user_id, now))
+        .read(move |conn| wikanvas_store::tokens::list(conn, &user_id, now))
         .await?;
     Ok(Json(tokens))
 }
@@ -94,7 +94,7 @@ async fn create_token(
             if requested == Scope::Admin {
                 return Err(ApiError::new(
                     ErrorCode::SessionRequired,
-                    "a token cannot create an admin token; use a signed-in session or quire-server admin",
+                    "a token cannot create an admin token; use a signed-in session or wikanvas-server admin",
                 ));
             }
             if !Scope::granted(scopes, requested) {
@@ -130,7 +130,7 @@ async fn create_token(
     let user_id = actor.user_id.clone();
     let created = state
         .db
-        .write(move |tx| quire_store::tokens::create(tx, &user_id, &new, via, parent.as_ref(), now))
+        .write(move |tx| wikanvas_store::tokens::create(tx, &user_id, &new, via, parent.as_ref(), now))
         .await?;
     Ok((StatusCode::CREATED, Json(created)))
 }
@@ -162,7 +162,7 @@ fn validate(new: &NewToken) -> Result<(), ApiError> {
 async fn caller_row(state: &AppState, token_id: String, now: i64) -> Result<TokenRow, ApiError> {
     state
         .db
-        .read(move |conn| quire_store::tokens::live_row(conn, &token_id, now))
+        .read(move |conn| wikanvas_store::tokens::live_row(conn, &token_id, now))
         .await?
         .ok_or_else(|| ApiError::invalid_token(false))
 }
@@ -183,7 +183,7 @@ async fn check_password(
     let user_id = actor.user_id.clone();
     let hash = state
         .db
-        .read(move |conn| Ok(quire_store::users::get(conn, &user_id)?.password_hash))
+        .read(move |conn| Ok(wikanvas_store::users::get(conn, &user_id)?.password_hash))
         .await?;
     let Some(hash) = hash else {
         return Err(missing());
@@ -195,7 +195,7 @@ async fn check_password(
     }
 }
 
-/// Revokes the calling token itself (`quire auth logout --revoke`), and the tokens it created.
+/// Revokes the calling token itself (`wikanvas auth logout --revoke`), and the tokens it created.
 #[utoipa::path(
     delete,
     path = "/tokens/current",
@@ -250,7 +250,7 @@ async fn revoke(
     let now = state.now();
     let revoked = state
         .db
-        .write(move |tx| quire_store::tokens::revoke(tx, &user_id, &token_id, now))
+        .write(move |tx| wikanvas_store::tokens::revoke(tx, &user_id, &token_id, now))
         .await?;
     if revoked == 0 {
         return Err(ApiError::not_found("no such token"));

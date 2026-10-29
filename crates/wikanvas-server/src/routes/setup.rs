@@ -1,6 +1,6 @@
 //! Routes /api/v1/setup: first-run setup with the setup code (owner: W2)
 //!
-//! §8, D19: while no owner exists the server has a setup code (`QUIRE_SETUP_TOKEN`, or generated at startup and
+//! §8, D19: while no owner exists the server has a setup code (`WIKANVAS_SETUP_TOKEN`, or generated at startup and
 //! logged with the setup link). `POST /setup` shares the per-IP login limiter, checks the code, and runs one
 //! IMMEDIATE transaction guarded by `NOT EXISTS` an owner: the owner, the workspace settings and the "Getting started"
 //! seed; then it signs the owner in. Once an owner exists it answers 409 `already_setup`, also for the right code.
@@ -9,7 +9,7 @@ use axum::Json;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use quire_api::{ErrorBody, ErrorCode, RateLimitReason, SetupRequest, SetupStatus, UserEnvelope};
+use wikanvas_api::{ErrorBody, ErrorCode, RateLimitReason, SetupRequest, SetupStatus, UserEnvelope};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
@@ -78,11 +78,11 @@ async fn post_setup(
     if !setup_code_matches(&state.setup_code, &req.code) {
         return Err(ApiError::new(
             ErrorCode::InvalidCredentials,
-            "the setup code is wrong; it is in the server log (or QUIRE_SETUP_TOKEN)",
+            "the setup code is wrong; it is in the server log (or WIKANVAS_SETUP_TOKEN)",
         ));
     }
-    quire_store::users::check_email(req.email.trim())?;
-    quire_store::users::check_name(&req.name)?;
+    wikanvas_store::users::check_email(req.email.trim())?;
+    wikanvas_store::users::check_name(&req.name)?;
     if !(1..=100).contains(&req.workspace_name.trim().chars().count()) {
         return Err(ApiError::validation(
             "workspace_name",

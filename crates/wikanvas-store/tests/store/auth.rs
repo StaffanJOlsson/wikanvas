@@ -3,12 +3,12 @@
 //! The owner insert and its guard, profile changes, settings, the "Getting started" seed, and the session lifecycle
 //! (create, lookup by cookie, renewal, revocation, expiry).
 
-use quire_core::api::{ErrorCode, Theme};
-use quire_store::sessions::{
+use wikanvas_core::api::{ErrorCode, Theme};
+use wikanvas_store::sessions::{
     self, NewSession, PERSISTENT_CAP_MS, PERSISTENT_WINDOW_MS, SESSION_WINDOW_MS,
 };
-use quire_store::users::{self, NewOwner, ProfilePatch};
-use quire_store::{seed, settings};
+use wikanvas_store::users::{self, NewOwner, ProfilePatch};
+use wikanvas_store::{seed, settings};
 
 use crate::common::{DAY, MINUTE, NOW, TestDb, count};
 
@@ -25,22 +25,22 @@ fn owner(email: &str) -> NewOwner {
 async fn create_owner_once_and_lookups() {
     let t = TestDb::new();
     let row =
-        t.db.write(|tx| users::create_owner(tx, &owner(" Ada@Quire.Invalid "), NOW))
+        t.db.write(|tx| users::create_owner(tx, &owner(" Ada@Wikanvas.Invalid "), NOW))
             .await
             .unwrap();
     assert_eq!(
         (row.email.as_str(), row.name.as_str()),
-        ("Ada@Quire.Invalid", "Ada")
+        ("Ada@Wikanvas.Invalid", "Ada")
     );
     assert!(row.must_change_password && row.disabled_at.is_none());
     assert_eq!(row.theme, Theme::System);
     let e =
-        t.db.write(|tx| users::create_owner(tx, &owner("other@quire.invalid"), NOW))
+        t.db.write(|tx| users::create_owner(tx, &owner("other@wikanvas.invalid"), NOW))
             .await
             .unwrap_err();
     assert!(e.is(ErrorCode::AlreadySetup), "{e:?}");
     let found =
-        t.db.read(|c| users::by_email(c, "ADA@quire.invalid"))
+        t.db.read(|c| users::by_email(c, "ADA@wikanvas.invalid"))
             .await
             .unwrap()
             .unwrap();
@@ -68,7 +68,7 @@ async fn profile_and_password_updates() {
     let id = t.owner().await;
     let patch = ProfilePatch {
         name: Some("  Grace ".into()),
-        email: Some("grace@quire.invalid".into()),
+        email: Some("grace@wikanvas.invalid".into()),
         theme: Some(Theme::Dark),
     };
     let uid = id.clone();
@@ -78,10 +78,10 @@ async fn profile_and_password_updates() {
             .unwrap();
     assert_eq!(
         (row.name.as_str(), row.email.as_str(), row.theme),
-        ("Grace", "grace@quire.invalid", Theme::Dark)
+        ("Grace", "grace@wikanvas.invalid", Theme::Dark)
     );
     assert_eq!(row.updated_at, NOW + 1);
-    t.user("member", "taken@quire.invalid").await;
+    t.user("member", "taken@wikanvas.invalid").await;
     let uid = id.clone();
     let e =
         t.db.write(move |tx| {
@@ -89,7 +89,7 @@ async fn profile_and_password_updates() {
                 tx,
                 &uid,
                 &ProfilePatch {
-                    email: Some("TAKEN@quire.invalid".into()),
+                    email: Some("TAKEN@wikanvas.invalid".into()),
                     ..Default::default()
                 },
                 NOW,
@@ -173,7 +173,7 @@ async fn seed_creates_getting_started() {
         .query(|c| {
             c.prepare(
                 "SELECT t.title, l.kind FROM item_links l JOIN items s ON s.id = l.source_id
-                 JOIN items t ON t.id = l.target_id WHERE s.title = 'Welcome to Quire' ORDER BY l.kind",
+                 JOIN items t ON t.id = l.target_id WHERE s.title = 'Welcome to Wikanvas' ORDER BY l.kind",
             )?
             .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
             .collect()
@@ -189,15 +189,15 @@ async fn seed_creates_getting_started() {
     let placeholders = count(
         &t,
         "SELECT count(*) FROM item_links WHERE target_id IN (?1, '00000000-0000-7000-8000-000000000002')",
-        quire_store::docs::SEED_WRITING_ID.into(),
+        wikanvas_store::docs::SEED_WRITING_ID.into(),
     )
     .await;
     assert_eq!(placeholders, 0);
-    // "Writing in Quire" has its fixture's text.
+    // "Writing in Wikanvas" has its fixture's text.
     let writing_body: String = t
         .query(|c| {
             c.query_row(
-                "SELECT x.body FROM item_text x JOIN items i ON i.id = x.item_id WHERE i.title = 'Writing in Quire'",
+                "SELECT x.body FROM item_text x JOIN items i ON i.id = x.item_id WHERE i.title = 'Writing in Wikanvas'",
                 [],
                 |r| r.get(0),
             )

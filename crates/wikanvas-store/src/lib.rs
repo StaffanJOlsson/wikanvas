@@ -1,4 +1,4 @@
-//! Quire's SQLite store (docs/ARCHITECTURE.md §4.1, §5). This module list is frozen (PLAN W7 "Owns").
+//! Wikanvas's SQLite store (docs/ARCHITECTURE.md §4.1, §5). This module list is frozen (PLAN W7 "Owns").
 
 pub mod attachments;
 pub mod backup;

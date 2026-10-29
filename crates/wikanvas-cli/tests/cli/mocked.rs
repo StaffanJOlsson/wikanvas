@@ -34,7 +34,7 @@ fn item_create_md_puts_then_patches_title() {
     });
     let s = Sandbox::new();
     let (code, v, err) = run_json(
-        s.quire_at(&mock.url, &fake_token(1))
+        s.wikanvas_at(&mock.url, &fake_token(1))
             .args([
                 "--json",
                 "item",
@@ -85,7 +85,7 @@ fn item_create_md_discards_on_put_failure() {
     });
     let s = Sandbox::new();
     let (code, v, err) = run_json(
-        s.quire_at(&mock.url, &fake_token(1))
+        s.wikanvas_at(&mock.url, &fake_token(1))
             .args([
                 "--json",
                 "item",
@@ -124,7 +124,7 @@ fn item_create_md_discards_on_put_failure() {
         _ => Reply::error(409, "not_empty"),
     });
     let (code, _, err) = run_json(
-        s.quire_at(&stuck.url, &fake_token(1))
+        s.wikanvas_at(&stuck.url, &fake_token(1))
             .args([
                 "--json",
                 "item",
@@ -150,7 +150,7 @@ fn item_create_md_discards_on_put_failure() {
         &["--kind", "doc", "--md", "/no/such/file.md"][..],
     ] {
         let (code, _, _) = run_json(
-            s.quire_at(&none.url, &fake_token(1))
+            s.wikanvas_at(&none.url, &fake_token(1))
                 .args(["--json", "item", "create", "--collection", ID])
                 .args(args),
         );
@@ -171,7 +171,7 @@ fn item_create_md_title_failure_keeps_item_and_warns() {
     });
     let s = Sandbox::new();
     let (code, v, err) = run_json(
-        s.quire_at(&mock.url, &fake_token(1))
+        s.wikanvas_at(&mock.url, &fake_token(1))
             .args([
                 "--json",
                 "item",
@@ -229,7 +229,7 @@ fn attach_images_uploads_only_contained_images() {
         outside.display()
     );
     let page = s.file("docs/page.md", md.as_bytes(), 0o644);
-    let (code, _, err) = run_json(s.quire_at(&mock.url, &fake_token(1)).args([
+    let (code, _, err) = run_json(s.wikanvas_at(&mock.url, &fake_token(1)).args([
         "--json",
         "doc",
         "put",
@@ -299,7 +299,7 @@ fn attach_images_uploads_only_contained_images() {
     );
     // --base-dir moves the containment root.
     let (code, _, err) = run_json(
-        s.quire_at(&mock.url, &fake_token(1))
+        s.wikanvas_at(&mock.url, &fake_token(1))
             .args([
                 "--json",
                 "doc",
@@ -348,14 +348,14 @@ fn url_ids_and_urls_resolve_to_uuids() {
         ),
     ] {
         let (code, _, err) = run_json(
-            s.quire_at(&mock.url, &fake_token(1))
+            s.wikanvas_at(&mock.url, &fake_token(1))
                 .arg("--json")
                 .args(args),
         );
         assert_eq!(code, 0, "{args:?}: {err}");
         assert_eq!(calls(&mock).last().unwrap(), &last, "{args:?}");
     }
-    let (code, _, _) = run_json(s.quire_at(&mock.url, &fake_token(1)).args([
+    let (code, _, _) = run_json(s.wikanvas_at(&mock.url, &fake_token(1)).args([
         "--json",
         "item",
         "text",
@@ -384,7 +384,7 @@ fn item_move_without_parent_keeps_the_current_parent() {
     let run = |extra: &[&str]| {
         let mut args = vec!["--json", "item", "move", ID];
         args.extend_from_slice(extra);
-        run_json(s.quire_at(&mock.url, &fake_token(1)).args(args))
+        run_json(s.wikanvas_at(&mock.url, &fake_token(1)).args(args))
     };
     let (code, _, err) = run(&["--after", SIBLING]);
     assert_eq!(code, 0, "{err}");

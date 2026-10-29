@@ -1066,7 +1066,7 @@ fn allow_list() {
         "https://x.y/",
         "http://x",
         "mailto:a@b",
-        "quire://item/x",
+        "wikanvas://item/x",
         "/doc/a",
         "#h-1",
     ] {

@@ -2,7 +2,7 @@
 //!
 //! The initializers, the PUT pipeline (`prepare` outside the writer, `save` inside it), the GET path (`stored` +
 //! `assemble`), previews and `board_meta`, and the seed fixture `fixtures/boards/getting-started.inkboard` (§9.6.7),
-//! which [`getting_started`] builds with fixed ids. `WRITE_FIXTURES=1 scripts/dev.sh cargo test -p quire-store
+//! which [`getting_started`] builds with fixed ids. `WRITE_FIXTURES=1 scripts/dev.sh cargo test -p wikanvas-store
 //! --locked --test store -- boards::` rewrites the fixture when it differs from what the code produces.
 
 use std::path::{Path, PathBuf};
@@ -12,9 +12,9 @@ use inkboard_core::geom::Frame;
 use inkboard_core::model::{BoxGeom, Document, Id, ImageObj, Kind, Label, Object};
 use inkboard_core::serial;
 use inkboard_core::style::{Align, Color, FILLS, NOTE_YELLOW, Style};
-use quire_core::api::{ErrorCode, ItemKind};
-use quire_store::boards::{self, IfMatch, Saved};
-use quire_store::{WriteBy, previews};
+use wikanvas_core::api::{ErrorCode, ItemKind};
+use wikanvas_store::boards::{self, IfMatch, Saved};
+use wikanvas_store::{WriteBy, previews};
 use rusqlite::params;
 use serde_json::Value;
 
@@ -168,7 +168,7 @@ async fn put(
     token: Option<&str>,
     body: &str,
     if_match: IfMatch,
-) -> quire_store::Result<Saved> {
+) -> wikanvas_store::Result<Saved> {
     let prepared = boards::prepare(&t.blobs, body, 0)?;
     let (blobs, item, user, token) = (
         t.blobs.clone(),
@@ -356,10 +356,10 @@ async fn new_board_is_the_empty_envelope_with_meta() {
     let (o, cid) = (owner.clone(), c.id);
     let dark =
         t.db.write(move |tx| {
-            quire_store::items::create(
+            wikanvas_store::items::create(
                 tx,
                 &o,
-                &quire_core::api::NewItem {
+                &wikanvas_core::api::NewItem {
                     collection_id: cid,
                     parent_id: None,
                     kind: ItemKind::Board,
@@ -734,7 +734,7 @@ async fn save_checks_if_match_and_keeps_revisions() {
     let assets: Value = serde_json::from_str(&assets).unwrap();
     assert_eq!(
         assets.as_object().unwrap().values().next().unwrap(),
-        &Value::from(quire_store::Sha256::of(PNG).as_str())
+        &Value::from(wikanvas_store::Sha256::of(PNG).as_str())
     );
     assert_eq!(author, owner);
     // A token's write after the session's: one `pre-api` revision of rev 3; its next write: none (D53).
@@ -785,7 +785,7 @@ async fn empty_asset_data_keeps_the_previous_blob() {
         .await
         .unwrap();
     // The same body without its data, plus a new label: the image keeps its blob.
-    let split = quire_core::board::split(&full).unwrap();
+    let split = wikanvas_core::board::split(&full).unwrap();
     let edited = split.stripped.replace("with image", "with image, edited");
     put(&t, &id, &owner, None, &edited, IfMatch::Any)
         .await
@@ -882,7 +882,7 @@ async fn previews_are_stored_per_page_and_revision() {
     assert_eq!(saved.meta.preview_rev, None);
     assert!(saved.meta.pages.iter().all(|p| p.svg_len.is_none()));
     let full = get(&t, &id).await;
-    let svgs = quire_core::board::previews(&full).unwrap();
+    let svgs = wikanvas_core::board::previews(&full).unwrap();
     assert!(svgs[0].is_some() && svgs[1].is_none());
     // A render of an older revision is refused.
     let (i, s) = (id.clone(), svgs.clone());
@@ -937,7 +937,7 @@ async fn previews_are_stored_per_page_and_revision() {
     )
     .await
     .unwrap();
-    let svgs = quire_core::board::previews(&get(&t, &id).await).unwrap();
+    let svgs = wikanvas_core::board::previews(&get(&t, &id).await).unwrap();
     let i = id.clone();
     t.db.write(move |tx| previews::replace(tx, &i, 3, &svgs))
         .await
@@ -970,9 +970,9 @@ async fn asset_bytes_count_in_the_noop_test() {
         2
     );
     // The same envelope with other bytes under the same asset id: a change, not a no-op.
-    let split = quire_core::board::split(&first).unwrap();
+    let split = wikanvas_core::board::split(&first).unwrap();
     let asset = split.assets[0].id.clone();
-    let other = quire_core::board::splice(
+    let other = wikanvas_core::board::splice(
         &split.stripped,
         &HashMap::from([(asset.clone(), GIF.to_vec())]),
         "client name",
@@ -1016,7 +1016,7 @@ async fn asset_bytes_count_in_the_noop_test() {
     let back = serial::from_json(&get(&t, &empty).await).unwrap();
     assert_eq!(back.assets[&Id::from(asset.as_str())].data.as_slice(), PNG);
     // A blob file that went missing: sending the bytes again restores it.
-    let file = t.blobs.path(&quire_store::blobs::Sha256::of(PNG));
+    let file = t.blobs.path(&wikanvas_store::blobs::Sha256::of(PNG));
     std::fs::remove_file(&file).unwrap();
     let saved = put(&t, &empty, &owner, None, &first, IfMatch::Any)
         .await
@@ -1048,7 +1048,7 @@ async fn pages_after_the_preview_budget_are_omitted() {
     )
     .await
     .unwrap();
-    let svg = quire_core::board::preview(&get(&t, &id).await, 0)
+    let svg = wikanvas_core::board::preview(&get(&t, &id).await, 0)
         .unwrap()
         .unwrap();
     let pages = vec![Some(previews::PageSvg::new(&svg).unwrap())];
@@ -1146,7 +1146,7 @@ async fn new_in(
 fn ydoc_embedding(board: &str) -> Vec<u8> {
     use yrs::{Doc, ReadTxn, StateVector, Transact, Xml, XmlElementPrelim, XmlFragment};
     let doc = Doc::new();
-    let frag = doc.get_or_insert_xml_fragment(quire_core::api::YFIELD);
+    let frag = doc.get_or_insert_xml_fragment(wikanvas_core::api::YFIELD);
     {
         let mut txn = doc.transact_mut();
         let e = frag.insert(&mut txn, 0, XmlElementPrelim::empty("boardEmbed"));
@@ -1352,7 +1352,7 @@ async fn copy_copies_embed_links() {
     // Through `items::duplicate`, as the route runs it.
     let (f, o) = (from.clone(), owner.clone());
     let copy = t
-        .w(move |tx| quire_store::items::duplicate(tx, &f, &o, NOW))
+        .w(move |tx| wikanvas_store::items::duplicate(tx, &f, &o, NOW))
         .await
         .unwrap();
     assert_eq!(
@@ -1379,8 +1379,8 @@ async fn purging_a_board_drops_its_links_not_a_targets() {
     let purge = |id: &str| {
         let (id, o) = (id.to_owned(), owner.clone());
         t.w(move |tx| {
-            quire_store::items::trash(tx, &id, &o, NOW)?;
-            quire_store::items::purge(tx, &id)
+            wikanvas_store::items::trash(tx, &id, &o, NOW)?;
+            wikanvas_store::items::purge(tx, &id)
         })
     };
     // Purging a target leaves the board's row (`target_id` is no foreign key: the card shows "Page not found").
@@ -1388,13 +1388,13 @@ async fn purging_a_board_drops_its_links_not_a_targets() {
     assert_eq!(links_from(&t, &board).await, embeds_to(&[&x, &y]));
     // Trashing the board keeps them (it can be restored); purging it removes them.
     let (b, o) = (board.clone(), owner.clone());
-    t.w(move |tx| quire_store::items::trash(tx, &b, &o, NOW))
+    t.w(move |tx| wikanvas_store::items::trash(tx, &b, &o, NOW))
         .await
         .unwrap();
     assert_eq!(links_from(&t, &board).await, embeds_to(&[&x, &y]));
     let b = board.clone();
     assert_eq!(
-        t.w(move |tx| quire_store::items::purge(tx, &b))
+        t.w(move |tx| wikanvas_store::items::purge(tx, &b))
             .await
             .unwrap(),
         1
@@ -1423,7 +1423,7 @@ async fn discard_empty_keeps_embedded_items() {
     let c = t.collection(&owner, "Embeds").await;
     let discard = |id: &str| {
         let id = id.to_owned();
-        t.w(move |tx| quire_store::items::discard_empty(tx, &id, NOW))
+        t.w(move |tx| wikanvas_store::items::discard_empty(tx, &id, NOW))
     };
     let exists = |id: &str| {
         count(
@@ -1485,7 +1485,7 @@ async fn discard_empty_keeps_embedded_items() {
     let empty_board = new_in(&t, &owner, c.id, None, ItemKind::Board, "").await;
     let page = new_in(&t, &owner, c.id, None, ItemKind::Doc, "Page").await;
     let (p, state) = (page.clone(), ydoc_embedding(&empty_board));
-    t.w(move |tx| quire_store::docs::init_with(tx, &p, &state, NOW))
+    t.w(move |tx| wikanvas_store::docs::init_with(tx, &p, &state, NOW))
         .await
         .unwrap();
     assert_eq!(links_from(&t, &page).await, embeds_to(&[&empty_board]));
@@ -1496,7 +1496,7 @@ async fn discard_empty_keeps_embedded_items() {
             .is(ErrorCode::NotEmpty)
     );
     let p = page.clone();
-    t.w(move |tx| quire_store::docs::init_empty(tx, &p, NOW))
+    t.w(move |tx| wikanvas_store::docs::init_empty(tx, &p, NOW))
         .await
         .unwrap();
     assert_eq!(discard(&empty_board).await.unwrap(), 1);

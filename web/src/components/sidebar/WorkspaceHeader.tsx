@@ -16,7 +16,7 @@ const themeLabels: Record<Theme, string> = { light: 'Light', dark: 'Dark', syste
 export function WorkspaceLogo({ me, size = 24 }: { me: Pick<Me, 'workspace'>; size?: number }) {
   const ws = me.workspace;
   if (ws.logo_url) return <img className="workspace-logo" src={ws.logo_url} alt="" width={size} height={size} />;
-  const letter = [...ws.name.trim()][0]?.toUpperCase() ?? 'Q';
+  const letter = [...ws.name.trim()][0]?.toUpperCase() ?? 'W';
   return <span className="letter-tile workspace-tile" aria-hidden style={{ width: size, height: size }}>{letter}</span>;
 }
 
@@ -53,7 +53,7 @@ export function WorkspaceHeader({ me }: { me: Me | undefined }) {
     })),
     { separator: true },
     { label: 'Keyboard shortcuts', onSelect: () => openDialog({ kind: 'shortcuts' }) },
-    { label: 'About Quire', onSelect: () => void navigate('/settings/about') },
+    { label: 'About Wikanvas', onSelect: () => void navigate('/settings/about') },
     { separator: true },
     { label: 'Sign out', onSelect: () => void signOut() },
   ];
@@ -62,7 +62,7 @@ export function WorkspaceHeader({ me }: { me: Me | undefined }) {
     <div className="workspace-header">
       {me && <WorkspaceLogo me={me} />}
       <div className="workspace-names">
-        <span className="workspace-name">{me?.workspace.name ?? 'Quire'}</span>
+        <span className="workspace-name">{me?.workspace.name ?? 'Wikanvas'}</span>
         <span className="workspace-user">{me?.user.name}</span>
       </div>
       <Menu label="Workspace menu" entries={entries}>

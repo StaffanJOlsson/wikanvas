@@ -4,7 +4,7 @@
 //! (string, an attachment id), `instance.id` (string) and `instance.created_at` (number, unix ms). Values are JSON so a
 //! later setting can be any shape without a migration.
 
-use quire_core::api::Workspace;
+use wikanvas_core::api::Workspace;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::Value;
 

@@ -1,9 +1,9 @@
 // How BoardFrameHost gets a BoardFrameApi (docs/ARCHITECTURE.md §9.5, §10.4): it creates the iframe of the engine's
-// frame page and, after `load`, calls `iframe.contentWindow.quireBoardFrame.connect(events)` (same origin, plain JS
+// frame page and, after `load`, calls `iframe.contentWindow.wikanvasBoardFrame.connect(events)` (same origin, plain JS
 // calls). Tests swap the driver for the fake frame (`fakeFrame.ts`) with `setFrameDriver`.
 import type { BoardFrameApi, FrameErrorKind, FrameEvents } from './bridge';
 
-/** Why a connection failed. `missing`: the page loaded without `window.quireBoardFrame` (e.g. a 404 page). */
+/** Why a connection failed. `missing`: the page loaded without `window.wikanvasBoardFrame` (e.g. a 404 page). */
 export interface ConnectFailure {
   kind: FrameErrorKind;
   message: string;
@@ -41,7 +41,7 @@ export const realDriver: FrameDriver = {
       iframe.addEventListener(
         'load',
         () => {
-          const qbf = iframe.contentWindow?.quireBoardFrame;
+          const qbf = iframe.contentWindow?.wikanvasBoardFrame;
           if (!qbf) {
             reject({ kind: 'download', message: 'The whiteboard engine could not be loaded.', missing: true });
             return;

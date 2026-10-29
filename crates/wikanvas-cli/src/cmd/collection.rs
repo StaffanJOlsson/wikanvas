@@ -1,4 +1,4 @@
-//! The `quire collection` commands (owner: W8)
+//! The `wikanvas collection` commands (owner: W8)
 
 use serde_json::{Map, Value, json};
 

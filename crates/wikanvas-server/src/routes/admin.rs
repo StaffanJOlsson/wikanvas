@@ -1,11 +1,11 @@
 //! Routes /api/v1/admin: on-demand backup (owner: W2)
 //!
 //! `POST /admin/backup` (admin): a backup now, single-flight with the scheduled one (429 `busy`), after the
-//! free-space check (507), counted against `QUIRE_BACKUP_KEEP` (§12).
+//! free-space check (507), counted against `WIKANVAS_BACKUP_KEEP` (§12).
 
 use axum::Json;
 use axum::extract::State;
-use quire_api::{BackupResult, ErrorBody};
+use wikanvas_api::{BackupResult, ErrorBody};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
@@ -19,7 +19,7 @@ pub fn router() -> OpenApiRouter<AppState> {
     OpenApiRouter::new().routes(routes!(backup))
 }
 
-/// Writes a backup of the database on the server (`<data dir>/backups/quire-<time>.db`).
+/// Writes a backup of the database on the server (`<data dir>/backups/wikanvas-<time>.db`).
 #[utoipa::path(
     post,
     path = "/admin/backup",

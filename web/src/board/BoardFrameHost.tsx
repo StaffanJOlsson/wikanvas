@@ -7,8 +7,8 @@
 // - Off board routes it gets `visibility: hidden`, `inert` and `setActive(false)`; back on a board route
 //   `setActive(true)`. It is removed after 10 minutes away from boards.
 // - If `frame.html` turns out to be missing (404), the shell's update check runs (`checkForUpdate`, W3): when the
-//   server is another build, the one "Quire was updated. Reload" banner shows (AppShell's UpdateBanner).
-// - Quire's theme is passed on with `setTheme`; host keys from the frame go to `runHostShortcut` (host.ts).
+//   server is another build, the one "Wikanvas was updated. Reload" banner shows (AppShell's UpdateBanner).
+// - Wikanvas's theme is passed on with `setTheme`; host keys from the frame go to `runHostShortcut` (host.ts).
 // - While mounted it registers the engine warm-up of a 300 ms sidebar board-row hover (`useBoardRowWarmup`).
 // - M1.1 (§18.5): the layer also holds the board embeds overlay (`EmbedLayer`), after the iframe in DOM order and
 //   placed by the same routine to the same rect. Focus fullscreens the layer (iframe and overlay); while the layer is
@@ -55,7 +55,7 @@ export interface BoardFrameContext {
   // Additions (W6, PLAN R3):
   /** The engine download, while it runs (`onProgress`). */
   readonly progress: { loaded: number; total: number } | null;
-  /** "Quire was updated. Reload" is showing (the shell's banner, `useUpdate`). */
+  /** "Wikanvas was updated. Reload" is showing (the shell's banner, `useUpdate`). */
   readonly updateAvailable: boolean;
   /** When each board was last saved (ms). */
   readonly savedAt: Readonly<Record<string, number>>;
@@ -109,7 +109,7 @@ function removeFrame(): void {
   resetFrame();
 }
 
-/** After a connection without `quireBoardFrame`: whether `frame.html` is gone (404). */
+/** After a connection without `wikanvasBoardFrame`: whether `frame.html` is gone (404). */
 async function frameGone(src: string): Promise<boolean> {
   try {
     const res = await fetch(src, { cache: 'no-store', credentials: 'same-origin' });
@@ -198,7 +198,7 @@ export default function BoardFrameHost() {
     return () => clearTimeout(timer);
   }, [onBoard, st.iframe]);
 
-  // The frame follows Quire's theme.
+  // The frame follows Wikanvas's theme.
   useEffect(() => {
     st.frame?.setTheme(theme);
   }, [st.frame, theme]);

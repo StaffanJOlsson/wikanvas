@@ -153,10 +153,10 @@ awk '/runs the next block as it is written/ {f = 1; next}
      b && /^```$/ {exit}
      b' "$AGENT_ROOT/docs/AGENTS.md" >"$recipe"
 grep -q 'board put "\$B"' "$recipe" || _fail "docs/AGENTS.md has no recipe block after its marker"
-# The recipe's `quire --json …` is the harness's CLI (q's runner): stdout printed, the exit code returned.
-quire() {
+# The recipe's `wikanvas --json …` is the harness's CLI (q's runner): stdout printed, the exit code returned.
+wikanvas() {
   [ "${1:-}" = --json ] || {
-    echo "the recipe runs quire without --json" >&2
+    echo "the recipe runs wikanvas without --json" >&2
     return 2
   }
   shift

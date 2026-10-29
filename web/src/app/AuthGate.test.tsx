@@ -44,7 +44,7 @@ describe('AuthGate', () => {
     renderRoutes(routes, '/home');
     expect(await screen.findByRole('heading', { name: 'Inside' })).toBeTruthy();
     expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
-    expect(localStorage.getItem('quire.theme')).toBe('dark');
+    expect(localStorage.getItem('wikanvas.theme')).toBe('dark');
     expect(api.calls('GET', '/auth/me')).toHaveLength(1);
   });
 

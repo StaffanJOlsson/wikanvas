@@ -1,8 +1,8 @@
 // The Playwright smoke of docs/PLAN.md W7 ("Smoke spec", steps 1-15), plus the real-browser board host check of
 // docs/handoff/merge.md (the item menu and the Nested popover render above the board canvas), W7's review step 16 and
-// M1.1's step 17 (board document embeds, PLAN "M1.1" "Smoke step 17"). Quire runs from the
-// production image in the compose e2e project with an empty /data and is reached directly at http://quire:8080 over
-// plain HTTP (docs/ARCHITECTURE.md §13.3, §14), so the session cookie is `quire_session`. Run it only through
+// M1.1's step 17 (board document embeds, PLAN "M1.1" "Smoke step 17"). Wikanvas runs from the
+// production image in the compose e2e project with an empty /data and is reached directly at http://wikanvas:8080 over
+// plain HTTP (docs/ARCHITECTURE.md §13.3, §14), so the session cookie is `wikanvas_session`. Run it only through
 // `scripts/e2e.sh smoke`, after `scripts/image.sh`.
 //
 // The steps build on each other (one workspace, one owner), so they are one test with a test.step per PLAN step.
@@ -78,7 +78,7 @@ function saveStatus(page: Page): Locator {
 }
 
 function editor(page: Page): Locator {
-  return page.locator('.quire-editor');
+  return page.locator('.wikanvas-editor');
 }
 
 /**
@@ -284,7 +284,7 @@ test('smoke: setup to export (PLAN W7 steps 1-15, the review fixes, M1.1 board e
   await test.step('1. / redirects to /setup; setup with the code; Home shows "Getting started"', async () => {
     await page.goto('/');
     await page.waitForURL('**/setup');
-    await expect(page.getByRole('heading', { name: 'Set up Quire' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Set up Wikanvas' })).toBeVisible();
     await page.getByLabel('Setup code').fill(SETUP_CODE);
     await page.getByLabel('Workspace name').fill(OWNER.workspace);
     await page.getByLabel('Your name').fill(OWNER.name);
@@ -303,7 +303,7 @@ test('smoke: setup to export (PLAN W7 steps 1-15, the review fixes, M1.1 board e
   await test.step('2. Sign out, sign in with "Keep me signed in": the cookie has a Max-Age', async () => {
     await pick(page, page.getByRole('button', { name: 'Workspace menu' }), 'Sign out');
     await page.waitForURL('**/login**');
-    expect((await context.cookies()).filter((c) => c.name === 'quire_session' && c.value !== '')).toEqual([]);
+    expect((await context.cookies()).filter((c) => c.name === 'wikanvas_session' && c.value !== '')).toEqual([]);
     await page.getByLabel('Email').fill(OWNER.email);
     await page.getByLabel('Password').fill(OWNER.password);
     const keep = page.getByLabel('Keep me signed in');
@@ -314,10 +314,10 @@ test('smoke: setup to export (PLAN W7 steps 1-15, the review fixes, M1.1 board e
     const res = await login;
     expect(res.status()).toBe(200);
     const setCookie = (await res.headerValue('set-cookie')) ?? '';
-    expect(setCookie).toMatch(/(^|\n)quire_session=[^;\n]+;[^\n]*Max-Age=\d+/i);
+    expect(setCookie).toMatch(/(^|\n)wikanvas_session=[^;\n]+;[^\n]*Max-Age=\d+/i);
     expect(setCookie).toMatch(/HttpOnly/i);
     await page.waitForURL('**/home');
-    const cookie = (await context.cookies()).find((c) => c.name === 'quire_session');
+    const cookie = (await context.cookies()).find((c) => c.name === 'wikanvas_session');
     expect(cookie, 'the session cookie').toBeDefined();
     // A Max-Age cookie has an expiry (a session cookie has -1); "Keep me signed in" lasts days, not minutes.
     expect(cookie!.expires).toBeGreaterThan(Date.now() / 1000 + 24 * 3600);
@@ -673,7 +673,7 @@ test('smoke: setup to export (PLAN W7 steps 1-15, the review fixes, M1.1 board e
     expect(res.type).toMatch(/^application\/(x-)?tar/);
     const entries = tarEntries(Buffer.from(res.body, 'base64'));
     expect([...entries.keys()]).toContain('manifest.json');
-    expect([...entries.keys()]).toContain('quire.db');
+    expect([...entries.keys()]).toContain('wikanvas.db');
     const manifest = JSON.parse(entries.get('manifest.json')!.toString('utf8'));
     expect(typeof manifest).toBe('object');
   });
@@ -736,7 +736,7 @@ test('smoke: setup to export (PLAN W7 steps 1-15, the review fixes, M1.1 board e
     await page.goto('/home');
     const viewed = page.getByRole('tabpanel', { name: 'Recently viewed' });
     await expect(viewed.locator('.item-list-title', { hasText: /^C$/ })).toBeVisible();
-    // A document with an item link to C, written as an agent would (quire://item/<uuid>), from the page (cookie + Origin).
+    // A document with an item link to C, written as an agent would (wikanvas://item/<uuid>), from the page (cookie + Origin).
     const aRef = /\/doc\/(?:[^/]*-)?([0-9A-Za-z]{10})\/?$/.exec(new URL(aUrl).pathname)?.[1] ?? '';
     const a = await detail(page, aRef);
     const written = await page.evaluate(async ({ collection, target }) => {
@@ -749,7 +749,7 @@ test('smoke: setup to export (PLAN W7 steps 1-15, the review fixes, M1.1 board e
       const put = await fetch(`/api/v1/items/${item.id}/doc/markdown`, {
         method: 'PUT',
         headers: { 'Content-Type': 'text/markdown', 'If-Match': '*' },
-        body: `Go to [the plan](quire://item/${target}).\n`,
+        body: `Go to [the plan](wikanvas://item/${target}).\n`,
       });
       return { url_id: item.url_id as string, created: created.status, put: put.status };
     }, { collection: a.item.collection_id, target: cId });
@@ -769,7 +769,7 @@ test('smoke: setup to export (PLAN W7 steps 1-15, the review fixes, M1.1 board e
     await page.waitForURL(`**/doc/*${written.url_id}`);
     // The Welcome document embeds the seeded board, whose preview is rendered on demand (no stored preview yet).
     const hits = await (await page.request.get('/api/v1/search/titles?q=Welcome')).json();
-    const welcome = (hits as Json[]).find((h) => h.item.title === 'Welcome to Quire');
+    const welcome = (hits as Json[]).find((h) => h.item.title === 'Welcome to Wikanvas');
     expect(welcome, 'the Welcome document').toBeTruthy();
     await page.goto(`/doc/${welcome.item.url_id}`);
     const preview = page.locator('.board-embed img.board-embed-preview');

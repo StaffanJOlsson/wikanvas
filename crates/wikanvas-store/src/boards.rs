@@ -1,6 +1,6 @@
 //! Board storage: the Inkboard envelope, its assets and revisions (owner: W6).
 //!
-//! `board_state.body` is the raw DEFLATE (RFC 1951) of the *stripped* envelope (`quire_core::board::split`: every
+//! `board_state.body` is the raw DEFLATE (RFC 1951) of the *stripped* envelope (`wikanvas_core::board::split`: every
 //! `document.assets[*].data` is `""`), `body_sha256` the sha256 of the uncompressed stripped envelope (the no-op test,
 //! together with the asset manifest), `raw_len` its length, and `meta` the §5 JSON ([`Meta`]). The asset bytes live in
 //! the blob store, one `board_assets` row per asset id (D8, D26); identical bytes are one blob, whatever board or asset
@@ -12,8 +12,8 @@
 //!   assets), then [`save`] inside it (the no-op test, If-Match, `revisions::pre_api` for a token, committing the
 //!   assets, the new rev, `board_assets`, meta, text, the `embed` links, `content_at`, the revision policy).
 //! - Cards (§18.2, §18.8): every write of a body replaces the board's `item_links` of kind `embed`, one
-//!   `(board, target, 'embed')` row per target that `quire_core::board::inspect` found (canonical UUIDs, distinct, at
-//!   most `EMBED_LINKS_MAX`), never the board itself. Nothing checks that a target exists; a purged board's rows go
+//!   `(board, target, 'embed')` row per target that `wikanvas_core::board::inspect` found (canonical UUIDs, distinct,
+//!   at most `EMBED_LINKS_MAX`), never the board itself. Nothing checks that a target exists; a purged board's rows go
 //!   with it (`source_id` cascades), a purged target's stay (`target_id` is no foreign key).
 //! - Reads: [`stored`] (one reader query) then [`assemble`] (blob reads and the splice with the title), [`state`],
 //!   [`envelope_len`], [`meta`] and [`board_meta`] (the API's `BoardMeta`, with the preview state of `previews`).
@@ -26,8 +26,8 @@ use flate2::read::DeflateDecoder;
 use flate2::write::DeflateEncoder;
 use inkboard_core::model::{BgPreset, Document};
 use inkboard_core::serial;
-use quire_core::api::{BoardMeta, BoardPageMeta, ErrorCode, ItemKind, RevMismatchDetails};
-use quire_core::board::{self, BoardError, Inspect, Split};
+use wikanvas_core::api::{BoardMeta, BoardPageMeta, ErrorCode, ItemKind, RevMismatchDetails};
+use wikanvas_core::board::{self, BoardError, Inspect, Split};
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use sha2::{Digest, Sha256 as Sha256Hasher};
 
@@ -38,12 +38,12 @@ use crate::shared::{
     WriteBy, check_free_space, ensure_writable, item_row, set_body_text, touch_content,
 };
 
-pub use quire_core::board::{Meta, MetaPage};
+pub use wikanvas_core::board::{Meta, MetaPage};
 
 /// `board_state.engine_version` of boards the server wrote itself (new boards, seeds, duplicates).
 pub const SERVER_ENGINE: &str = "server";
 
-/// `board_state.engine_version` of a PUT without `X-Quire-Engine` (D51).
+/// `board_state.engine_version` of a PUT without `X-Wikanvas-Engine` (D51).
 pub const API_ENGINE: &str = "api";
 
 /// Bytes of the board text kept as `meta.text_excerpt` (§9.5).

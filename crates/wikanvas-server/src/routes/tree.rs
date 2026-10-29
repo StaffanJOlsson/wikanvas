@@ -7,7 +7,7 @@ use axum::Json;
 use axum::extract::State;
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use quire_api::{CollectionTree, ErrorBody, ItemSummary, Sidebar};
+use wikanvas_api::{CollectionTree, ErrorBody, ItemSummary, Sidebar};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
@@ -53,7 +53,7 @@ async fn get_sidebar(
     let viewer = auth.viewer();
     let sidebar = state
         .db
-        .read(move |conn| quire_store::lists::sidebar(conn, &viewer))
+        .read(move |conn| wikanvas_store::lists::sidebar(conn, &viewer))
         .await?;
     Ok(Json(sidebar))
 }
@@ -91,13 +91,13 @@ async fn get_tree(
         .db
         .read(move |conn| {
             let id = id.to_string();
-            let version = quire_store::tree::tree_version(conn, &id)?;
+            let version = wikanvas_store::tree::tree_version(conn, &id)?;
             if if_none_match(&headers, &tree_etag(version)) {
                 return Ok((version, None));
             }
             Ok((
                 version,
-                Some(quire_store::tree::collection_tree(conn, &viewer, &id)?),
+                Some(wikanvas_store::tree::collection_tree(conn, &viewer, &id)?),
             ))
         })
         .await?;
@@ -138,7 +138,7 @@ async fn get_children(
     let viewer = auth.viewer();
     let children = state
         .db
-        .read(move |conn| quire_store::tree::children(conn, &viewer, &id.to_string()))
+        .read(move |conn| wikanvas_store::tree::children(conn, &viewer, &id.to_string()))
         .await?;
     Ok(Json(children))
 }

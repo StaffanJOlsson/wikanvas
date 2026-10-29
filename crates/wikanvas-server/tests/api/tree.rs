@@ -1,7 +1,7 @@
 //! Tree and collection routes: the tree ETag and 304, the sidebar, children, collection CRUD (owner: W1).
 
 use axum::http::StatusCode;
-use quire_api::{Collection, CollectionTree, ErrorCode, Sidebar};
+use wikanvas_api::{Collection, CollectionTree, ErrorCode, Sidebar};
 use serde_json::{Value, json};
 
 use crate::common::{TestApp, assert_error};

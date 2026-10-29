@@ -68,7 +68,7 @@ impl fmt::Display for BoardError {
             BoardError::Invalid(m) => write!(f, "not a valid Inkboard board: {m}"),
             BoardError::TooNew(v) => write!(
                 f,
-                "the board has format version {v}, newer than this server's {}; update Quire",
+                "the board has format version {v}, newer than this server's {}; update Wikanvas",
                 serial::VERSION
             ),
         }
@@ -1147,9 +1147,9 @@ mod tests {
     fn splice_sets_the_title_and_leaves_missing_assets_empty() {
         let full = serial::to_json(&board_with_images(), false);
         let split = split(&full).unwrap();
-        let back = splice(&split.stripped, &no_assets(), "Quire \"title\" ü").unwrap();
+        let back = splice(&split.stripped, &no_assets(), "Wikanvas \"title\" ü").unwrap();
         let v: serde_json::Value = serde_json::from_str(&back).unwrap();
-        assert_eq!(v["document"]["name"], "Quire \"title\" ü");
+        assert_eq!(v["document"]["name"], "Wikanvas \"title\" ü");
         for a in v["document"]["assets"].as_object().unwrap().values() {
             assert_eq!(a["data"], "");
         }

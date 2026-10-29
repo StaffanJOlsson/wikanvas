@@ -1,14 +1,14 @@
 //! The "Getting started" seed (owner: W2).
 //!
-//! §9.6.7: the collection "Getting started" (colour `#3E63DD`, icon `rocket`) with "Welcome to Quire" (a document),
-//! and under it "Writing in Quire" (a document) and "Example board" (a board). Every item is published on create, like
-//! every item (D23). The content comes from the fixtures W4 and W6 write, embedded at build time:
+//! §9.6.7: the collection "Getting started" (colour `#3E63DD`, icon `rocket`) with "Welcome to Wikanvas" (a document),
+//! and under it "Writing in Wikanvas" (a document) and "Example board" (a board). Every item is published on create,
+//! like every item (D23). The content comes from the fixtures W4 and W6 write, embedded at build time:
 //! `fixtures/ydoc/getting-started.bin` (the welcome document, a Yjs v1 update whose mention and board embed name the
 //! placeholder ids [`crate::docs::SEED_WRITING_ID`] and [`crate::docs::SEED_BOARD_ID`], replaced with the seeded
-//! items' ids by `docs::init_seed`), `fixtures/ydoc/writing-in-quire.bin` ("Writing in Quire") and
+//! items' ids by `docs::init_seed`), `fixtures/ydoc/writing-in-wikanvas.bin` ("Writing in Wikanvas") and
 //! `fixtures/boards/getting-started.inkboard` (the board envelope).
 
-use quire_core::api::{Collection, ItemKind, NewCollection, NewItem};
+use wikanvas_core::api::{Collection, ItemKind, NewCollection, NewItem};
 use rusqlite::Transaction;
 
 use crate::blobs::BlobStore;
@@ -16,8 +16,8 @@ use crate::error::Result;
 
 /// The welcome document (Yjs v1 update).
 pub const WELCOME_YDOC: &[u8] = include_bytes!("../../../fixtures/ydoc/getting-started.bin");
-/// "Writing in Quire" (Yjs v1 update).
-pub const WRITING_YDOC: &[u8] = include_bytes!("../../../fixtures/ydoc/writing-in-quire.bin");
+/// "Writing in Wikanvas" (Yjs v1 update).
+pub const WRITING_YDOC: &[u8] = include_bytes!("../../../fixtures/ydoc/writing-in-wikanvas.bin");
 /// The example board (an Inkboard envelope).
 pub const EXAMPLE_BOARD: &str = include_str!("../../../fixtures/boards/getting-started.inkboard");
 
@@ -28,8 +28,8 @@ pub const COLLECTION_COLOR: &str = "#3E63DD";
 /// Its lucide icon.
 pub const COLLECTION_ICON: &str = "rocket";
 /// The item titles, in tree order.
-pub const WELCOME: &str = "Welcome to Quire";
-pub const WRITING: &str = "Writing in Quire";
+pub const WELCOME: &str = "Welcome to Wikanvas";
+pub const WRITING: &str = "Writing in Wikanvas";
 pub const BOARD: &str = "Example board";
 
 /// Seeds "Getting started" for `owner_id` inside the setup transaction (`POST /setup`, `admin create-owner`), using

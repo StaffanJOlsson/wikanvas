@@ -4,8 +4,8 @@
 //!   15 minutes per email ([`EmailFailures`], a sliding window, because governor cannot test a key without consuming
 //!   it and only failures may count). Its keys are the sha256 of the normalized address, so an entry has a fixed
 //!   size whatever the request sent; the login route records only well-formed addresses (at most 254 bytes).
-//! - Per token (D47): `QUIRE_TOKEN_RATE` requests per minute with a burst of 120, and `QUIRE_TOKEN_BYTES_PER_HOUR` of
-//!   request body counted in KiB.
+//! - Per token (D47): `WIKANVAS_TOKEN_RATE` requests per minute with a burst of 120, and
+//!   `WIKANVAS_TOKEN_BYTES_PER_HOUR` of request body counted in KiB.
 //! - Per client IP: 30 failed bearer authentications per minute; over that a token that fails gets 429 instead of 401
 //!   (valid tokens are still served).
 //!

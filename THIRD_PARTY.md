@@ -1,8 +1,8 @@
 # Third-party software
 
-Quire is licensed under the MIT License (`LICENSE`).
-It builds on the software below, each under its own licence. Every package Quire ships is under, or offers, a licence
-on Quire's allow-list (MIT, Apache-2.0, BSD, ISC, Zlib, Unicode or CC0; docs/PLAN.md rule R6). lightningcss, a
+Wikanvas is licensed under the MIT License (`LICENSE`).
+It builds on the software below, each under its own licence. Every package Wikanvas ships is under, or offers, a licence
+on Wikanvas's allow-list (MIT, Apache-2.0, BSD, ISC, Zlib, Unicode or CC0; docs/PLAN.md rule R6). lightningcss, a
 build-time tool, is MPL-2.0, which R6 allows for build-only tools (the owner's decision of 2026-10-28). One exception
 is still open for the owner: the fonts inside the whiteboard engine (SIL OFL 1.1 and the Ubuntu Font Licence). Both
 are described below. Nothing comes from AGPL or BSL projects, or from TipTap Pro or
@@ -14,33 +14,33 @@ binary. The image carries a generated list as well: `/licenses.txt`, shown in Se
 the licence files every listed package ships (docs/ARCHITECTURE.md §13.2). It is always current; this file has to be
 updated by hand when `Cargo.lock` or `web/pnpm-lock.yaml` changes (see "Updating this file").
 
-## Code ported into Quire
+## Code ported into Wikanvas
 
 | Where | From | Licence | What |
 |---|---|---|---|
-| `crates/quire-core/src/convert/pm.rs` | [`@tiptap/y-tiptap`](https://github.com/ueberdosis/tiptap/tree/main/packages/y-tiptap) 3.0.10, © 2019 Kevin Jahns and © 2025 Tiptap GmbH | MIT | The Y XmlFragment ↔ ProseMirror JSON mapping: `yXmlFragmentToProsemirrorJSON`, `createTypeFromElementNode` / `createTypeFromTextNodes` and `yattr2markname`, ported to Rust (ARCHITECTURE §6.4, D49). The file's header names the source. The package itself is also bundled into the web client (below), with its MIT licence file |
-| `crates/quire-core/src/rank.rs` | [`fractional-indexing`](https://github.com/rocicorp/fractional-indexing) (rocicorp), after David Greenspan's "Implementing Fractional Indexing" | CC0-1.0 | `generateKeyBetween` and `generateNKeysBetween` over a base62 alphabet, checked against the upstream test vectors (D6) |
+| `crates/wikanvas-core/src/convert/pm.rs` | [`@tiptap/y-tiptap`](https://github.com/ueberdosis/tiptap/tree/main/packages/y-tiptap) 3.0.10, © 2019 Kevin Jahns and © 2025 Tiptap GmbH | MIT | The Y XmlFragment ↔ ProseMirror JSON mapping: `yXmlFragmentToProsemirrorJSON`, `createTypeFromElementNode` / `createTypeFromTextNodes` and `yattr2markname`, ported to Rust (ARCHITECTURE §6.4, D49). The file's header names the source. The package itself is also bundled into the web client (below), with its MIT licence file |
+| `crates/wikanvas-core/src/rank.rs` | [`fractional-indexing`](https://github.com/rocicorp/fractional-indexing) (rocicorp), after David Greenspan's "Implementing Fractional Indexing" | CC0-1.0 | `generateKeyBetween` and `generateNKeysBetween` over a base62 alphabet, checked against the upstream test vectors (D6) |
 
 No code was borrowed from GetPaper (PLAN rule R9) in milestone 1. Design values come from ARCHITECTURE §9.6, never from
 Outline's source.
 
 ## Inkboard
 
-- **What:** the whiteboard engine behind Quire's boards. `inkboard-core` is compiled into `quire-server`; the Inkboard
-  web app is compiled to WebAssembly and served from `/inkboard/<build>/` inside Quire's board frame.
+- **What:** the whiteboard engine behind Wikanvas's boards. `inkboard-core` is compiled into `wikanvas-server`; the
+  Inkboard web app is compiled to WebAssembly and served from `/inkboard/<build>/` inside Wikanvas's board frame.
 - **Source:** `vendor/inkboard`, a git submodule of <https://github.com/VictorLetirand/inkboard> at commit `41e0295`
-  (version 0.2.0-beta.3). Quire never modifies the submodule: its changes are the patch series in `patches/inkboard/`
-  (0001–0004, patchset 2), and every file a patch changes carries a "Changed for Quire" notice line.
+  (version 0.2.0-beta.3). Wikanvas never modifies the submodule: its changes are the patch series in `patches/inkboard/`
+  (0001–0006, patchset 3), and every file a patch changes carries a "Changed for Wikanvas" notice line.
 - **Licence:** MIT OR Apache-2.0. Copyright (c) 2026 The Inkboard contributors. The licence texts are
   `vendor/inkboard/LICENSE-MIT` and `vendor/inkboard/LICENSE-APACHE`; the image ships them in
-  `/usr/share/doc/quire/inkboard/`, and the engine's dist ships them next to the wasm.
+  `/usr/share/doc/wikanvas/inkboard/`, and the engine's dist ships them next to the wasm.
 - **Its own third-party components:** `vendor/inkboard/THIRD_PARTY_LICENSES.md` (libraries and fonts, with their
   licence texts) and `vendor/inkboard/crates/inkboard-app/assets/ICONS-LICENSES.txt` (the icon library: draw.io
   shapes, Apache-2.0; Simple Icons, CC0-1.0; Tabler Icons, MIT; Lucide, ISC; Material Design Icons, Apache-2.0). Both
-  are part of the engine's dist (`web/dist-inkboard`, embedded in `quire-server`) and are served at
+  are part of the engine's dist (`web/dist-inkboard`, embedded in `wikanvas-server`) and are served at
   `/inkboard/<build>/THIRD_PARTY_LICENSES.md` and `/inkboard/<build>/ICONS-LICENSES.txt`, which Settings → About links.
-  The image also ships `THIRD_PARTY_LICENSES.md` in `/usr/share/doc/quire/inkboard/`. Inkboard's list covers all of
-  its executables (desktop ones included); Quire's wasm is the `web-glow,embed` build without `net`, a subset of it.
+  The image also ships `THIRD_PARTY_LICENSES.md` in `/usr/share/doc/wikanvas/inkboard/`. Inkboard's list covers all of
+  its executables (desktop ones included); Wikanvas's wasm is the `web-glow,embed` build without `net`, a subset of it.
 - **Fonts (open for the owner):** the engine embeds egui's default fonts (`epaint_default_fonts`: Hack, Ubuntu-Light,
   NotoEmoji, emoji-icon-font; MIT, the Ubuntu Font Licence 1.0 and SIL OFL 1.1), its board fonts (Noto Sans, Gelasio,
   Patrick Hand: SIL OFL 1.1; Hack Bold: MIT and the Bitstream Vera licence) and STIX Two Math (SIL OFL 1.1). These font
@@ -49,7 +49,7 @@ Outline's source.
 
 ## Notes on the licences below
 
-- **Choices.** Where a package offers several licences, Quire uses it under MIT or Apache-2.0 when one is offered:
+- **Choices.** Where a package offers several licences, Wikanvas uses it under MIT or Apache-2.0 when one is offered:
   `Unlicense OR MIT` (aho-corasick, memchr and others) as MIT, `Apache-2.0 OR BSL-1.0` (ryu) as Apache-2.0,
   `0BSD OR MIT OR Apache-2.0` (adler2) as MIT, and `MIT OR Apache-2.0 OR LGPL-2.1-or-later` (r-efi, other targets
   only) as MIT.
@@ -68,7 +68,7 @@ Outline's source.
 Vite 8.3.5, the web client's bundler, depends on **lightningcss 1.33.0** and its platform package
 (`lightningcss-linux-x64-gnu` in the build container), both **MPL-2.0**. They run only while `pnpm --dir web build`
 runs (in `scripts/dev.sh` or the image's `web` stage), and none of their code ends up in `web/dist`, so they are not
-part of anything Quire distributes. On 2026-10-28 the owner allowed MPL-2.0 for build-only tools (PLAN R6), rather
+part of anything Wikanvas distributes. On 2026-10-28 the owner allowed MPL-2.0 for build-only tools (PLAN R6), rather
 than re-pinning to Vite 7 with @vitejs/plugin-react 5 (ARCHITECTURE §16, risk 24).
 
 ## Container images
@@ -80,16 +80,16 @@ The images are not part of the source, but the compose project runs them:
   Library Exception), libssl3t64 (Apache-2.0), libzstd1 (BSD-3-Clause or GPL-2), zlib1g (Zlib), ca-certificates (the
   Mozilla CA data under MPL-2.0), tzdata (public domain), base-files, netbase and media-types. Their copyright files
   are in the image under `/usr/share/doc/<package>/`. These are the operating system layer, which R6 (a rule for
-  Quire's own dependencies) does not cover; they are listed here so the owner can see them.
+  Wikanvas's own dependencies) does not cover; they are listed here so the owner can see them.
 - **Caddy** `caddy:2.11.7` (D57), the HTTPS front, is Apache-2.0, on an Alpine base (musl, MIT; BusyBox, GPL-2.0).
-  Quire does not modify or redistribute it; compose pulls the official image.
+  Wikanvas does not modify or redistribute it; compose pulls the official image.
 
 ## Rust crates (every package in `Cargo.lock`)
 
-366 crates besides Quire's own six (`quire-api`, `quire-core`, `quire-store`, `quire-server`, `quire-assets`,
-`quire-cli`, all MIT). "Used for": **binaries**, compiled into `quire-server` or `quire` on Linux, at
-run or build time (proc macros and build scripts included; 261 crates, the same set as the image's `/licenses.txt`);
-**other targets**, only for Windows, macOS, WASI or wasm32 (35); **tests only**, reached only through
+366 crates besides Wikanvas's own six (`wikanvas-api`, `wikanvas-core`, `wikanvas-store`, `wikanvas-server`,
+`wikanvas-assets`, `wikanvas-cli`, all MIT). "Used for": **binaries**, compiled into `wikanvas-server` or `wikanvas` on
+Linux, at run or build time (proc macros and build scripts included; 261 crates, the same set as the image's
+`/licenses.txt`); **other targets**, only for Windows, macOS, WASI or wasm32 (35); **tests only**, reached only through
 dev-dependencies (70). Versions and licences are as `cargo metadata --format-version 1 --locked` reports them on
 2026-10-28.
 
@@ -583,8 +583,8 @@ nothing ends up in the bundle (for example `@atlaskit/pragmatic-drag-and-drop-hi
 - **The e2e package** `e2e/`: @playwright/test 1.64.1 with playwright and playwright-core (Apache-2.0), run from the
   `mcr.microsoft.com/playwright:v1.64.1-noble` image.
 - **The toolchain image** (`docker/Dockerfile`, `toolchain-base` and `toolchain`): Rust 1.99.1, Node 24, pnpm 11.24.0,
-  binaryen 131, wasm-bindgen-cli 0.2.129, trunk 0.22.1, clang/lld/llvm, brotli and musl-tools. They build Quire and are
-  never copied into the runtime image.
+  binaryen 131, wasm-bindgen-cli 0.2.129, trunk 0.22.1, clang/lld/llvm, brotli and musl-tools. They build Wikanvas and
+  are never copied into the runtime image.
 
 ## Updating this file
 

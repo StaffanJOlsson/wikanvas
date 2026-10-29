@@ -1,7 +1,7 @@
 //! Search tests: FTS sync, the query builder, filters, snippets and title search (owner: W1).
 
-use quire_core::api::{ItemKind, SearchQuery, SearchSort};
-use quire_store::{items, search, shared};
+use wikanvas_core::api::{ItemKind, SearchQuery, SearchSort};
+use wikanvas_store::{items, search, shared};
 
 use crate::common::{MINUTE, NOW, TestDb, viewer};
 
@@ -336,7 +336,7 @@ async fn filters_snippets_and_sorts() {
             &t,
             &owner,
             SearchQuery {
-                updated_after: Some(quire_core::api::Timestamp(NOW)),
+                updated_after: Some(wikanvas_core::api::Timestamp(NOW)),
                 ..base()
             }
         )
@@ -433,6 +433,6 @@ async fn title_search_matches_titles_only() {
         titles("road", Some(21))
             .await
             .unwrap_err()
-            .is(quire_core::api::ErrorCode::Validation)
+            .is(wikanvas_core::api::ErrorCode::Validation)
     );
 }

@@ -1,6 +1,6 @@
-//! `quire auth` against a running TestServer (owner: W8)
+//! `wikanvas auth` against a running TestServer (owner: W8)
 
-use quire_api::Scope;
+use wikanvas_api::Scope;
 use serde_json::Value;
 
 use crate::common::{Harness, fake_token, last_error, run_json};
@@ -16,10 +16,10 @@ fn whoami_shows_token_scopes() {
         let (code, v, err) = h.json(scope, &["auth", "whoami"]);
         assert_eq!(code, 0, "{err}");
         assert_eq!(v["auth"]["method"], "token");
-        assert_eq!(v["user"]["email"], quire_server::testing::OWNER_EMAIL);
+        assert_eq!(v["user"]["email"], wikanvas_server::testing::OWNER_EMAIL);
         assert_eq!(
             v["workspace"]["name"],
-            quire_server::testing::WORKSPACE_NAME
+            wikanvas_server::testing::WORKSPACE_NAME
         );
         let scopes: Vec<&str> = v["auth"]["token"]["scopes"]
             .as_array()
@@ -31,7 +31,7 @@ fn whoami_shows_token_scopes() {
         assert_eq!(v["auth"]["token"]["prefix"], &h.server.token(scope)[..12]);
         // The human form names the scopes and never the secret.
         let out = h
-            .quire_as(scope)
+            .wikanvas_as(scope)
             .args(["auth", "whoami"])
             .assert()
             .success();
@@ -46,7 +46,7 @@ fn unknown_token_exit_5() {
     let h = Harness::start();
     let (code, out, err) = run_json(
         h.sandbox
-            .quire_at(&h.server.url, &fake_token(99))
+            .wikanvas_at(&h.server.url, &fake_token(99))
             .args(["--json", "auth", "whoami"]),
     );
     assert_eq!(code, 5, "{err}");
@@ -77,7 +77,7 @@ fn login_then_profile_drives_commands() {
     let h = Harness::start();
     let s = &h.sandbox;
     let (code, v, err) = run_json(
-        s.quire()
+        s.wikanvas()
             .args([
                 "--json",
                 "auth",
@@ -90,11 +90,11 @@ fn login_then_profile_drives_commands() {
     );
     assert_eq!(code, 0, "{err}");
     assert_eq!(v["auth"]["token"]["prefix"], &h.server.read_token[..12]);
-    // No QUIRE_URL or QUIRE_TOKEN now: the default profile has both.
-    let (code, v, err) = run_json(s.quire().args(["--json", "auth", "whoami"]));
+    // No WIKANVAS_URL or WIKANVAS_TOKEN now: the default profile has both.
+    let (code, v, err) = run_json(s.wikanvas().args(["--json", "auth", "whoami"]));
     assert_eq!(code, 0, "{err}");
-    assert_eq!(v["user"]["email"], quire_server::testing::OWNER_EMAIL);
-    let (_, v, _) = run_json(s.quire().args(["--json", "config", "show"]));
+    assert_eq!(v["user"]["email"], wikanvas_server::testing::OWNER_EMAIL);
+    let (_, v, _) = run_json(s.wikanvas().args(["--json", "config", "show"]));
     assert_eq!(v["url_source"], "profile");
     assert_eq!(v["token_source"], "profile");
 }

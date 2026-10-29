@@ -117,10 +117,10 @@ describe('BoardFrameHost', () => {
     const r = (app = renderBoardApp(boardPath(a), { manualConnect: true }));
     await waitFor(() => expect(r.fake.iframes).toHaveLength(1));
     await act(async () => r.fake.rejectConnect('download', 'no frame script', true));
-    expect(await screen.findByText(/Quire was updated/)).toBeTruthy();
+    expect(await screen.findByText(/Wikanvas was updated/)).toBeTruthy();
     expect(configCalls).toBe(2);
     // One banner, the shell's (AppShell's UpdateBanner), whichever part of the page noticed the new build.
-    expect(screen.getAllByText(/Quire was updated/)).toHaveLength(1);
+    expect(screen.getAllByText(/Wikanvas was updated/)).toHaveLength(1);
     expect(screen.getAllByRole('button', { name: 'Reload' })).toHaveLength(1);
     expect(useUpdate.getState().available).toBe(true);
     // Meanwhile the board is shown read-only.
@@ -134,7 +134,7 @@ describe('BoardFrameHost', () => {
     await waitFor(() => expect(r.fake.iframes).toHaveLength(1));
     await act(async () => r.fake.rejectConnect('unsupported', 'The whiteboard engine is not part of this build'));
     expect(await screen.findByText(/cannot run the whiteboard editor/)).toBeTruthy();
-    expect(screen.queryByText(/Quire was updated/)).toBeNull();
+    expect(screen.queryByText(/Wikanvas was updated/)).toBeNull();
     expect(document.querySelector('iframe')?.style.visibility).toBe('hidden');
   });
 });

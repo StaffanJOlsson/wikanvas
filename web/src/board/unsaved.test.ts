@@ -45,7 +45,7 @@ describe('unsaved snapshot (IndexedDB)', () => {
     await loop.flush();
     expect(seen).toEqual({ baseRev: 4, board: '{"x":1}', at: 1234 });
     expect(await readUnsaved('a')).toBeUndefined();
-    expect(unsavedKey('a')).toBe('quire.board.unsaved/a');
+    expect(unsavedKey('a')).toBe('wikanvas.board.unsaved/a');
   });
 
   it('stays when the PUT fails', async () => {

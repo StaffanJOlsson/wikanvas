@@ -13,7 +13,7 @@ fn show(
     env: &[(&str, &str)],
     stdin: Option<&str>,
 ) -> (i32, Value, String) {
-    let mut cmd = sandbox.quire();
+    let mut cmd = sandbox.wikanvas();
     cmd.args(args).args(["config", "show", "--json"]);
     for (k, v) in env {
         cmd.env(k, v);
@@ -70,9 +70,9 @@ fn url_and_token_resolve_as_a_pair() {
             p(&a)
         )
     );
-    // QUIRE_PROFILE names another; its token_file is read.
+    // WIKANVAS_PROFILE names another; its token_file is read.
     assert_eq!(
-        row(&[], &[("QUIRE_PROFILE", "work")], None),
+        row(&[], &[("WIKANVAS_PROFILE", "work")], None),
         (
             some("work"),
             some("https://work.example"),
@@ -81,26 +81,26 @@ fn url_and_token_resolve_as_a_pair() {
             p(&c)
         )
     );
-    // QUIRE_URL and QUIRE_TOKEN pair with each other.
+    // WIKANVAS_URL and WIKANVAS_TOKEN pair with each other.
     assert_eq!(
         row(
             &[],
-            &[("QUIRE_URL", "https://env.example"), ("QUIRE_TOKEN", &b)],
+            &[("WIKANVAS_URL", "https://env.example"), ("WIKANVAS_TOKEN", &b)],
             None
         ),
         (
             some("home"),
             some("https://env.example"),
-            some("QUIRE_URL"),
-            some("QUIRE_TOKEN"),
+            some("WIKANVAS_URL"),
+            some("WIKANVAS_TOKEN"),
             p(&b)
         )
     );
-    // --url beats QUIRE_URL; --token-file beats QUIRE_TOKEN; QUIRE_TOKEN beats QUIRE_TOKEN_FILE.
+    // --url beats WIKANVAS_URL; --token-file beats WIKANVAS_TOKEN; WIKANVAS_TOKEN beats WIKANVAS_TOKEN_FILE.
     assert_eq!(
         row(
             &["--url", "https://flag.example", "--token-file", tf],
-            &[("QUIRE_URL", "https://env.example"), ("QUIRE_TOKEN", &b)],
+            &[("WIKANVAS_URL", "https://env.example"), ("WIKANVAS_TOKEN", &b)],
             None
         ),
         (
@@ -115,38 +115,38 @@ fn url_and_token_resolve_as_a_pair() {
         row(
             &[],
             &[
-                ("QUIRE_URL", "https://env.example"),
-                ("QUIRE_TOKEN", &b),
-                ("QUIRE_TOKEN_FILE", tf)
+                ("WIKANVAS_URL", "https://env.example"),
+                ("WIKANVAS_TOKEN", &b),
+                ("WIKANVAS_TOKEN_FILE", tf)
             ],
             None
         )
         .3,
-        some("QUIRE_TOKEN")
+        some("WIKANVAS_TOKEN")
     );
     assert_eq!(
         row(
             &[],
             &[
-                ("QUIRE_URL", "https://env.example"),
-                ("QUIRE_TOKEN_FILE", tf)
+                ("WIKANVAS_URL", "https://env.example"),
+                ("WIKANVAS_TOKEN_FILE", tf)
             ],
             None
         )
         .3,
-        some("QUIRE_TOKEN_FILE")
+        some("WIKANVAS_TOKEN_FILE")
     );
     // --token-stdin beats everything.
     assert_eq!(
         row(
             &["--token-stdin"],
-            &[("QUIRE_URL", "https://env.example"), ("QUIRE_TOKEN", &b)],
+            &[("WIKANVAS_URL", "https://env.example"), ("WIKANVAS_TOKEN", &b)],
             Some(&format!("{d}\n"))
         ),
         (
             some("home"),
             some("https://env.example"),
-            some("QUIRE_URL"),
+            some("WIKANVAS_URL"),
             some("--token-stdin"),
             p(&d)
         )
@@ -156,14 +156,14 @@ fn url_and_token_resolve_as_a_pair() {
         row(&["--url", "https://HOME.example/"], &[], None).3,
         some("profile")
     );
-    // An explicit --profile beats QUIRE_URL and QUIRE_TOKEN (and QUIRE_PROFILE).
+    // An explicit --profile beats WIKANVAS_URL and WIKANVAS_TOKEN (and WIKANVAS_PROFILE).
     assert_eq!(
         row(
             &["--profile", "work"],
             &[
-                ("QUIRE_URL", "https://env.example"),
-                ("QUIRE_TOKEN", &b),
-                ("QUIRE_PROFILE", "home")
+                ("WIKANVAS_URL", "https://env.example"),
+                ("WIKANVAS_TOKEN", &b),
+                ("WIKANVAS_PROFILE", "home")
             ],
             None
         ),
@@ -208,27 +208,27 @@ fn url_and_token_resolve_as_a_pair() {
             None
         )
     );
-    // Inside the container: QUIRE_LISTEN, when nothing else names a URL.
+    // Inside the container: WIKANVAS_LISTEN, when nothing else names a URL.
     let empty = Sandbox::new();
     let (code, v, err) = show(
         &empty,
         &[],
-        &[("QUIRE_LISTEN", "0.0.0.0:8080"), ("QUIRE_TOKEN", &b)],
+        &[("WIKANVAS_LISTEN", "0.0.0.0:8080"), ("WIKANVAS_TOKEN", &b)],
         None,
     );
     assert_eq!(code, 0, "{err}");
     assert_eq!(v["url"], "http://127.0.0.1:8080");
-    assert_eq!(v["url_source"], "QUIRE_LISTEN");
+    assert_eq!(v["url_source"], "WIKANVAS_LISTEN");
     let (_, v, _) = show(
         &empty,
         &[],
         &[
-            ("QUIRE_LISTEN", "0.0.0.0:8080"),
-            ("QUIRE_URL", "https://e.example"),
+            ("WIKANVAS_LISTEN", "0.0.0.0:8080"),
+            ("WIKANVAS_URL", "https://e.example"),
         ],
         None,
     );
-    assert_eq!(v["url_source"], "QUIRE_URL");
+    assert_eq!(v["url_source"], "WIKANVAS_URL");
     // Nothing configured.
     let (code, v, _) = show(&empty, &[], &[], None);
     assert_eq!(code, 0);
@@ -240,12 +240,12 @@ fn url_and_token_resolve_as_a_pair() {
     // Refusals, all exit 3 (cli_config).
     for (args, env) in [
         (&["--profile", "nope"][..], &[][..]),
-        (&[][..], &[("QUIRE_PROFILE", "nope")][..]),
+        (&[][..], &[("WIKANVAS_PROFILE", "nope")][..]),
         (
             &["--profile", "work", "--url", "https://x.example"][..],
             &[][..],
         ),
-        (&[][..], &[("QUIRE_URL", "https://env.example")][..]),
+        (&[][..], &[("WIKANVAS_URL", "https://env.example")][..]),
         (&["--url", "ftp://x"][..], &[][..]),
     ] {
         let (code, v, err) = show(&s, args, env, None);
@@ -263,15 +263,15 @@ fn url_and_token_resolve_as_a_pair() {
         ),
         0o600,
     );
-    s.quire()
+    s.wikanvas()
         .args(["--json", "auth", "whoami"])
         .assert()
         .success();
     let other = Mock::always(Reply::json(200, &me_body()));
-    s.quire()
+    s.wikanvas()
         .args(["--json", "auth", "whoami"])
-        .env("QUIRE_URL", &other.url)
-        .env("QUIRE_TOKEN", &b)
+        .env("WIKANVAS_URL", &other.url)
+        .env("WIKANVAS_TOKEN", &b)
         .assert()
         .success();
     assert_eq!(
@@ -296,14 +296,14 @@ fn profile_token_never_sent_to_overridden_url() {
         0o600,
     );
     for (args, env) in [
-        (&[][..], &[("QUIRE_URL", mock.url.as_str())][..]),
+        (&[][..], &[("WIKANVAS_URL", mock.url.as_str())][..]),
         (&["--url", mock.url.as_str()][..], &[][..]),
         (
             &["--profile", "home", "--url", mock.url.as_str()][..],
             &[][..],
         ),
     ] {
-        let mut cmd = s.quire();
+        let mut cmd = s.wikanvas();
         cmd.args(args).args(["--json", "auth", "whoami"]);
         for (k, v) in env {
             cmd.env(k, v);
@@ -339,7 +339,7 @@ fn group_readable_profile_with_token_exit_3() {
     );
     for mode in [0o640, 0o604, 0o644] {
         s.write_config(&text, mode);
-        let (code, _, err) = run_json(s.quire().args(["--json", "auth", "whoami"]));
+        let (code, _, err) = run_json(s.wikanvas().args(["--json", "auth", "whoami"]));
         assert_eq!(code, 3, "{mode:o}: {err}");
         let e = last_error(&err);
         assert_eq!(e["error"]["code"], "cli_config");
@@ -355,13 +355,13 @@ fn group_readable_profile_with_token_exit_3() {
     // Without a token in it, a readable profile file is fine.
     s.write_config(&format!("[profiles.m]\nurl = \"{}\"\n", mock.url), 0o644);
     let (code, _, err) = run_json(
-        s.quire()
+        s.wikanvas()
             .args(["--json", "--profile", "m", "config", "show"]),
     );
     assert_eq!(code, 0, "{err}");
     // And 0600 with the token works.
     s.write_config(&text, 0o600);
-    s.quire()
+    s.wikanvas()
         .args(["--json", "auth", "whoami"])
         .assert()
         .success();
@@ -373,7 +373,7 @@ fn group_readable_token_file_warns() {
     let mock = Mock::always(Reply::json(200, &me_body()));
     let token = fake_token(7);
     let f = s.file("readable.token", token.as_bytes(), 0o644);
-    let (code, out, err) = run_json(s.quire().args([
+    let (code, out, err) = run_json(s.wikanvas().args([
         "--json",
         "--url",
         &mock.url,
@@ -394,12 +394,12 @@ fn group_readable_token_file_warns() {
         mock.requests()[0].header("authorization"),
         Some(format!("Bearer {token}").as_str())
     );
-    // The same through QUIRE_TOKEN_FILE; a 0600 file does not warn.
+    // The same through WIKANVAS_TOKEN_FILE; a 0600 file does not warn.
     std::fs::set_permissions(&f, std::fs::Permissions::from_mode(0o600)).unwrap();
     let (code, _, err) = run_json(
-        s.quire()
-            .env("QUIRE_URL", &mock.url)
-            .env("QUIRE_TOKEN_FILE", &f)
+        s.wikanvas()
+            .env("WIKANVAS_URL", &mock.url)
+            .env("WIKANVAS_TOKEN_FILE", &f)
             .args(["--json", "auth", "whoami"]),
     );
     assert_eq!((code, err.as_str()), (0, ""));
@@ -420,7 +420,7 @@ fn malformed_token_exit_3_without_request() {
         (bad_sum, "checksum"),
     ] {
         let (code, out, err) = run_json(
-            s.quire_at(&mock.url, &token)
+            s.wikanvas_at(&mock.url, &token)
                 .args(["--json", "auth", "whoami"]),
         );
         assert_eq!(code, 3, "{reason}: {err}");
@@ -439,7 +439,7 @@ fn login_writes_profile_0600_in_0700_dir_atomically() {
     let mock = Mock::always(Reply::json(200, &me_body()));
     let token = fake_token(9);
     let (code, out, err) = run_json(
-        s.quire()
+        s.wikanvas()
             .args([
                 "--json",
                 "auth",
@@ -478,7 +478,7 @@ fn login_writes_profile_0600_in_0700_dir_atomically() {
     // A second login into another profile replaces the file by rename (a new inode) and keeps the first profile.
     let inode = std::fs::metadata(&path).unwrap().ino();
     let tf = s.file("second.token", fake_token(10).as_bytes(), 0o600);
-    let (code, _, err) = run_json(s.quire().args([
+    let (code, _, err) = run_json(s.wikanvas().args([
         "--json",
         "auth",
         "login",
@@ -520,7 +520,7 @@ fn login_writes_profile_0600_in_0700_dir_atomically() {
     let denied = Mock::always(Reply::error(401, "invalid_token"));
     let before = std::fs::read(&path).unwrap();
     let (code, _, _) = run_json(
-        s.quire()
+        s.wikanvas()
             .args([
                 "--json",
                 "auth",
@@ -540,7 +540,7 @@ fn login_writes_profile_0600_in_0700_dir_atomically() {
         &["auth", "login", "--token-stdin"][..],
         &["auth", "login", "--url", "http://127.0.0.1:9"][..],
     ] {
-        let (code, _, err) = run_json(s.quire().arg("--json").args(args));
+        let (code, _, err) = run_json(s.wikanvas().arg("--json").args(args));
         assert_eq!(code, 2, "{args:?}: {err}");
     }
 }
@@ -552,7 +552,7 @@ fn token_stdin_with_token_file_exit_2() {
         &["--token-stdin", "--token-file", "t", "exit-codes"][..],
         &["exit-codes", "--token-file", "t", "--token-stdin"][..],
     ] {
-        sandbox.quire().args(args).assert().code(2).stdout("");
+        sandbox.wikanvas().args(args).assert().code(2).stdout("");
     }
     // --token-stdin and a `-` content argument cannot share stdin: every command that reads `-` refuses before any
     // request.
@@ -577,7 +577,7 @@ fn token_stdin_with_token_file_exit_2() {
     ] {
         let (code, out, err) = run_json(
             sandbox
-                .quire()
+                .wikanvas()
                 .args(["--json", "--url", &mock.url, "--token-stdin"])
                 .args(args)
                 .write_stdin("x"),

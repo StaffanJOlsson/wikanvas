@@ -1,4 +1,4 @@
-//! The `quire token` commands: personal access tokens (owner: W8)
+//! The `wikanvas token` commands: personal access tokens (owner: W8)
 
 use serde::Deserialize;
 use serde_json::value::RawValue;
@@ -55,7 +55,7 @@ pub fn expires(input: Option<&str>) -> Result<Option<Value>, Failure> {
             let days: u32 = s
                 .strip_suffix('d')
                 .and_then(|n| n.parse().ok())
-                .filter(|n| (1..=quire_api::tokens::MAX_EXPIRY_DAYS).contains(n))
+                .filter(|n| (1..=wikanvas_api::tokens::MAX_EXPIRY_DAYS).contains(n))
                 .ok_or_else(|| {
                     Failure::usage(format!(
                         "--expires {s:?}: use <days>d (1-3650), e.g. 30d, or never"
@@ -99,7 +99,7 @@ fn create(ctx: &Ctx, a: TokenCreate) -> Res {
             } else {
                 output::print_text(&format!(
                     "wrote token {}… to {} (mode 0600)",
-                    quire_api::token::display_prefix(&created.token),
+                    wikanvas_api::token::display_prefix(&created.token),
                     path.display()
                 ))
             }

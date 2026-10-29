@@ -1,6 +1,6 @@
 //! The admin commands of ARCHITECTURE §7.8 (owner: W2)
 //!
-//! They open the database in `QUIRE_DATA_DIR` the way `serve` does ([`AppState::open`]: pending migrations included,
+//! They open the database in `WIKANVAS_DATA_DIR` the way `serve` does ([`AppState::open`]: pending migrations included,
 //! with the pre-migration backup) and may run while the server is up (WAL; the writer waits on `busy_timeout`, and the
 //! server's owner-exists cache sees a new owner on its next request). Every command takes `--json`, uses the exit
 //! codes of §7.7, and prints secrets only to stdout or `--token-out`:
@@ -10,17 +10,17 @@
 //! - `reset-password --email E [--revoke-tokens]`: a random temporary password (printed once, must be changed), every
 //!   session revoked, and with `--revoke-tokens` every API token too (D35);
 //! - `backup [--out PATH]`: `VACUUM INTO` on the maintenance connection and `quick_check` (§12); without `--out` it is
-//!   counted against `QUIRE_BACKUP_KEEP`;
+//!   counted against `WIKANVAS_BACKUP_KEEP`;
 //! - `check`: `quick_check`, `foreign_key_check`, a bounded cycle scan, the FTS `integrity-check`, and blob rows whose
 //!   file is missing (§5); exit 1 when anything is wrong.
 
 use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
 
-use quire_api::cli::ExitCode;
-use quire_api::tokens::{MAX_EXPIRY_DAYS, NewToken};
-use quire_api::{ApiToken, BackupResult, CreatedToken, ErrorCode, Scope, User, Workspace};
-use quire_store::tokens::CreatedVia;
+use wikanvas_api::cli::ExitCode;
+use wikanvas_api::tokens::{MAX_EXPIRY_DAYS, NewToken};
+use wikanvas_api::{ApiToken, BackupResult, CreatedToken, ErrorCode, Scope, User, Workspace};
+use wikanvas_store::tokens::CreatedVia;
 use serde::Serialize;
 
 use crate::cli::{AdminArgs, AdminCommand, CreateOwnerArgs, CreateTokenArgs};
@@ -55,7 +55,7 @@ pub struct OwnerCreated {
 #[derive(Clone, Debug, Serialize)]
 pub struct TokenWritten {
     pub token_file: PathBuf,
-    pub api_token: quire_api::ApiToken,
+    pub api_token: wikanvas_api::ApiToken,
 }
 
 /// `revoke-token --json` on stdout.
@@ -93,7 +93,7 @@ pub struct CheckReport {
 /// Checks the owner's fields: an email with `@` (at most 254 bytes), a name of 1–200 characters, a workspace name
 /// of 1–100 characters.
 pub fn validate_owner(email: &str, name: &str, workspace: &str) -> Result<(), ApiError> {
-    quire_store::users::check_email(email.trim())?;
+    wikanvas_store::users::check_email(email.trim())?;
     let chars = |s: &str| s.trim().chars().count();
     if !(1..=200).contains(&chars(name)) {
         return Err(ApiError::validation(
@@ -118,9 +118,9 @@ pub async fn create_owner(state: &AppState, owner: NewOwner, now: i64) -> Result
     let user = state
         .db
         .write(move |tx| {
-            let row = quire_store::users::create_owner(
+            let row = wikanvas_store::users::create_owner(
                 tx,
-                &quire_store::users::NewOwner {
+                &wikanvas_store::users::NewOwner {
                     email: owner.email.clone(),
                     name: owner.name.clone(),
                     password_hash: owner.password_hash.clone(),
@@ -128,9 +128,9 @@ pub async fn create_owner(state: &AppState, owner: NewOwner, now: i64) -> Result
                 },
                 now,
             )?;
-            quire_store::settings::init_workspace(tx, owner.workspace.trim(), now)?;
+            wikanvas_store::settings::init_workspace(tx, owner.workspace.trim(), now)?;
             if owner.seed {
-                quire_store::seed::getting_started(tx, &blobs, &row.id, now)?;
+                wikanvas_store::seed::getting_started(tx, &blobs, &row.id, now)?;
             }
             row.to_api()
         })
@@ -147,8 +147,8 @@ pub async fn find_user(state: &AppState, email: Option<String>) -> Result<String
         .db
         .read(move |conn| {
             Ok(match &email {
-                Some(e) => quire_store::users::by_email(conn, e)?.map(|u| u.id),
-                None => quire_store::users::owner(conn)?.map(|u| u.id),
+                Some(e) => wikanvas_store::users::by_email(conn, e)?.map(|u| u.id),
+                None => wikanvas_store::users::owner(conn)?.map(|u| u.id),
             })
         })
         .await?;
@@ -158,7 +158,7 @@ pub async fn find_user(state: &AppState, email: Option<String>) -> Result<String
         } else {
             ApiError::new(
                 ErrorCode::SetupRequired,
-                "no owner exists yet: run quire-server admin create-owner first",
+                "no owner exists yet: run wikanvas-server admin create-owner first",
             )
         }
     })
@@ -174,7 +174,7 @@ pub async fn create_token(
     Ok(state
         .db
         .write(move |tx| {
-            quire_store::tokens::create(tx, &user_id, &new, CreatedVia::Admin, None, now)
+            wikanvas_store::tokens::create(tx, &user_id, &new, CreatedVia::Admin, None, now)
         })
         .await?)
 }
@@ -237,7 +237,7 @@ impl From<ApiError> for Failure {
     }
 }
 
-/// Runs `quire-server admin …` and returns the process exit code.
+/// Runs `wikanvas-server admin …` and returns the process exit code.
 pub fn run(args: AdminArgs) -> ExitCode {
     let json = args.json;
     let result = match tokio::runtime::Builder::new_current_thread()
@@ -270,7 +270,7 @@ fn report(failure: &Failure, json: bool) {
         }
         eprintln!("{value}");
     } else {
-        eprintln!("quire-server admin: {}", err.message);
+        eprintln!("wikanvas-server admin: {}", err.message);
     }
 }
 
@@ -417,7 +417,7 @@ async fn list_tokens_command(json: bool) -> Result<(), Failure> {
     let now = state.now();
     let tokens: Vec<ApiToken> = state
         .db
-        .read(move |conn| quire_store::tokens::list(conn, &user_id, now))
+        .read(move |conn| wikanvas_store::tokens::list(conn, &user_id, now))
         .await
         .map_err(ApiError::from)?;
     if json {
@@ -451,7 +451,7 @@ async fn revoke_token_command(id: Option<String>, all: bool, json: bool) -> Resu
                 .to_string();
             let n = state
                 .db
-                .write(move |tx| quire_store::tokens::revoke(tx, &user_id, &id, now))
+                .write(move |tx| wikanvas_store::tokens::revoke(tx, &user_id, &id, now))
                 .await
                 .map_err(ApiError::from)?;
             if n == 0 {
@@ -461,7 +461,7 @@ async fn revoke_token_command(id: Option<String>, all: bool, json: bool) -> Resu
         }
         _ => state
             .db
-            .write(move |tx| quire_store::tokens::revoke_all(tx, &user_id, now))
+            .write(move |tx| wikanvas_store::tokens::revoke_all(tx, &user_id, now))
             .await
             .map_err(ApiError::from)?,
     };
@@ -486,15 +486,15 @@ async fn reset_password_command(
     let (user, sessions_revoked, tokens_revoked) = state
         .db
         .write(move |tx| {
-            quire_store::users::set_password(tx, &user_id, &hash, true, now)?;
-            let sessions = quire_store::sessions::delete_others(tx, &user_id, None)?;
+            wikanvas_store::users::set_password(tx, &user_id, &hash, true, now)?;
+            let sessions = wikanvas_store::sessions::delete_others(tx, &user_id, None)?;
             let tokens = if revoke_tokens {
-                quire_store::tokens::revoke_all(tx, &user_id, now)?
+                wikanvas_store::tokens::revoke_all(tx, &user_id, now)?
             } else {
                 0
             };
             Ok((
-                quire_store::users::get(tx, &user_id)?.to_api()?,
+                wikanvas_store::users::get(tx, &user_id)?.to_api()?,
                 sessions,
                 tokens,
             ))
@@ -526,7 +526,7 @@ async fn backup_command(out: Option<PathBuf>, json: bool) -> Result<(), Failure>
             state.check_free_space()?;
             let db = state.db.clone();
             let target = path.clone();
-            tokio::task::spawn_blocking(move || quire_store::backup::to_path(&db, &target))
+            tokio::task::spawn_blocking(move || wikanvas_store::backup::to_path(&db, &target))
                 .await
                 .map_err(ApiError::internal)?
                 .map_err(ApiError::from)?;
@@ -546,11 +546,11 @@ async fn backup_command(out: Option<PathBuf>, json: bool) -> Result<(), Failure>
     }
 }
 
-/// The checks of `quire-server admin check` (§5), on a maintenance connection.
+/// The checks of `wikanvas-server admin check` (§5), on a maintenance connection.
 pub fn check_database(
-    db: &quire_store::Db,
-    blobs: &quire_store::BlobStore,
-) -> quire_store::Result<CheckReport> {
+    db: &wikanvas_store::Db,
+    blobs: &wikanvas_store::BlobStore,
+) -> wikanvas_store::Result<CheckReport> {
     let conn = db.maintenance()?;
     let quick_check: Vec<String> = conn
         .prepare("PRAGMA quick_check")?
@@ -585,7 +585,7 @@ pub fn check_database(
         .collect::<rusqlite::Result<_>>()?;
     let missing_blobs: Vec<String> = shas
         .into_iter()
-        .filter(|s| quire_store::Sha256::parse(s).map_or(true, |sha| !blobs.path(&sha).is_file()))
+        .filter(|s| wikanvas_store::Sha256::parse(s).map_or(true, |sha| !blobs.path(&sha).is_file()))
         .collect();
     let ok = quick_check == ["ok"]
         && foreign_key_violations == 0
@@ -654,7 +654,7 @@ mod tests {
 
     #[test]
     fn owner_fields() {
-        assert!(validate_owner("a@quire.invalid", "A", "W").is_ok());
+        assert!(validate_owner("a@wikanvas.invalid", "A", "W").is_ok());
         assert_eq!(
             validate_owner("nope", "A", "W")
                 .unwrap_err()

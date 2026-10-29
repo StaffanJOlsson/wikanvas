@@ -156,7 +156,7 @@ pub struct BlobStore {
 }
 
 impl BlobStore {
-    /// A store rooted at the data directory (`QUIRE_DATA_DIR`, `/data` in the image): blobs go under `root/files`,
+    /// A store rooted at the data directory (`WIKANVAS_DATA_DIR`, `/data` in the image): blobs go under `root/files`,
     /// staging files under `root/tmp`. Directories are created on first use.
     pub fn new(root: PathBuf) -> Self {
         BlobStore { root }
@@ -265,7 +265,7 @@ impl BlobStore {
         let dest = self.path(&staged.blob.sha256);
         let tmp = staged.tmp.take().ok_or_else(|| {
             Error::new(
-                quire_core::api::ErrorCode::Internal,
+                wikanvas_core::api::ErrorCode::Internal,
                 "blob already committed",
             )
         })?;
@@ -315,7 +315,7 @@ impl BlobStore {
             .optional()?
             .ok_or_else(|| {
                 Error::new(
-                    quire_core::api::ErrorCode::Internal,
+                    wikanvas_core::api::ErrorCode::Internal,
                     "blob row missing after insert",
                 )
             })?;

@@ -6,7 +6,7 @@
 
 use axum::Json;
 use axum::extract::{Query, State};
-use quire_api::{ErrorBody, Page, SearchHit, SearchQuery, TitleHit, TitleSearchQuery};
+use wikanvas_api::{ErrorBody, Page, SearchHit, SearchQuery, TitleHit, TitleSearchQuery};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
@@ -49,7 +49,7 @@ async fn search(
     let viewer = auth.viewer();
     let page = state
         .db
-        .read(move |conn| quire_store::search::search(conn, &viewer, &q))
+        .read(move |conn| wikanvas_store::search::search(conn, &viewer, &q))
         .await?;
     Ok(Json(page))
 }
@@ -79,7 +79,7 @@ async fn search_titles(
     let viewer = auth.viewer();
     let hits = state
         .db
-        .read(move |conn| quire_store::search::titles(conn, &viewer, &q.q, q.limit))
+        .read(move |conn| wikanvas_store::search::titles(conn, &viewer, &q.q, q.limit))
         .await?;
     Ok(Json(hits))
 }

@@ -20,10 +20,10 @@ fn write_result() -> Value {
            "warnings": []})
 }
 
-/// `quire --json --retries N <args>` against `url`.
+/// `wikanvas --json --retries N <args>` against `url`.
 fn q(s: &Sandbox, url: &str, retries: u32, args: &[&str]) -> (i32, Value, String) {
     run_json(
-        s.quire_at(url, &fake_token(1))
+        s.wikanvas_at(url, &fake_token(1))
             .args(["--json", "--retries", &retries.to_string()])
             .args(args),
     )
@@ -111,7 +111,7 @@ fn retries_only_unprocessed_requests() {
                 Reply::json(200, &json!({"user": {}, "auth": {}}))
             }
         });
-        let (code, _, err) = run_json(s.quire_at(&mock.url, &fake_token(1)).args([
+        let (code, _, err) = run_json(s.wikanvas_at(&mock.url, &fake_token(1)).args([
             "--json",
             "--retries",
             "1",
@@ -131,7 +131,7 @@ fn retries_only_unprocessed_requests() {
         for args in [post, put] {
             let mock = Mock::always(reply.clone());
             let (code, out, err) = run_json(
-                s.quire_at(&mock.url, &fake_token(1))
+                s.wikanvas_at(&mock.url, &fake_token(1))
                     .args(["--json", "--retries", "2", "--timeout", "1"])
                     .args(args),
             );
@@ -190,7 +190,7 @@ fn timeout_exit_4() {
     let s = Sandbox::new();
     let mock = Mock::always(Reply::Hang(Duration::from_secs(4)));
     let started = Instant::now();
-    let (code, _, err) = run_json(s.quire_at(&mock.url, &fake_token(1)).args([
+    let (code, _, err) = run_json(s.wikanvas_at(&mock.url, &fake_token(1)).args([
         "--json",
         "--retries",
         "0",
@@ -221,7 +221,7 @@ fn plain_http_refused_for_non_loopback() {
         Mock::start_on(ip, move |_, _| Reply::json(200, &me))
     });
     let remote = lan.as_ref().map_or_else(
-        || "http://quire-host.invalid.:8080".to_owned(),
+        || "http://wikanvas-host.invalid.:8080".to_owned(),
         |m| m.url.clone(),
     );
     let reached = if lan.is_some() { 0 } else { 4 };
@@ -240,10 +240,10 @@ fn plain_http_refused_for_non_loopback() {
     if let Some(m) = &lan {
         assert_eq!(m.connections(), 0, "refused before connecting");
     }
-    // QUIRE_ALLOW_HTTP=1 lifts it: the request is sent (to the LAN mock, or into a failing DNS lookup).
+    // WIKANVAS_ALLOW_HTTP=1 lifts it: the request is sent (to the LAN mock, or into a failing DNS lookup).
     let (code, _, err) = run_json(
-        s.quire_at(&remote, &fake_token(1))
-            .env("QUIRE_ALLOW_HTTP", "1")
+        s.wikanvas_at(&remote, &fake_token(1))
+            .env("WIKANVAS_ALLOW_HTTP", "1")
             .args([
                 "--json",
                 "--retries",
@@ -263,7 +263,7 @@ fn plain_http_refused_for_non_loopback() {
         ),
         0o600,
     );
-    let (code, _, err) = run_json(s.quire().args([
+    let (code, _, err) = run_json(s.wikanvas().args([
         "--json",
         "--retries",
         "0",
@@ -316,7 +316,7 @@ fn redirect_never_followed_exit_3() {
     assert_eq!(target.connections(), 0, "never followed");
     // Human form names it too.
     let out = s
-        .quire_at(&mock.url, &fake_token(1))
+        .wikanvas_at(&mock.url, &fake_token(1))
         .args(["auth", "whoami"])
         .assert()
         .code(3)
@@ -332,7 +332,7 @@ fn https_without_ca_bundle_exit_3() {
     let url = format!("https://127.0.0.1:{}", mock.port);
     let missing = s.path().join("no-such-bundle.pem");
     let (code, _, err) = run_json(
-        s.quire_at(&url, &fake_token(1))
+        s.wikanvas_at(&url, &fake_token(1))
             .env("SSL_CERT_FILE", &missing)
             .args(["--json", "auth", "whoami"]),
     );
@@ -349,7 +349,7 @@ fn https_without_ca_bundle_exit_3() {
     // A --ca-file that is missing, or holds no certificate, is the same.
     let empty = s.file("empty.pem", b"not a certificate\n", 0o644);
     for ca in [missing.to_str().unwrap(), empty.to_str().unwrap()] {
-        let (code, _, err) = run_json(s.quire_at(&url, &fake_token(1)).args([
+        let (code, _, err) = run_json(s.wikanvas_at(&url, &fake_token(1)).args([
             "--json",
             "--ca-file",
             ca,
@@ -377,7 +377,7 @@ fn tls_handshake_failures_are_not_sent() {
         let url = format!("https://127.0.0.1:{}", listener.port);
         let started = Instant::now();
         let (code, out, err) = run_json(
-            s.quire_at(&url, &fake_token(1))
+            s.wikanvas_at(&url, &fake_token(1))
                 .args([
                     "--json",
                     "--retries",
@@ -418,7 +418,7 @@ fn get_retried_after_its_body_fails() {
                 Reply::json(200, &tree2)
             }
         });
-        let (code, out, err) = run_json(s.quire_at(&mock.url, &fake_token(1)).args([
+        let (code, out, err) = run_json(s.wikanvas_at(&mock.url, &fake_token(1)).args([
             "--json",
             "--retries",
             "1",
@@ -432,7 +432,7 @@ fn get_retried_after_its_body_fails() {
         assert_eq!(mock.requests().len(), 2, "{first:?}");
         // With no retry left, the failure is exit 4.
         let mock = Mock::always(first.clone());
-        let (code, _, err) = run_json(s.quire_at(&mock.url, &fake_token(1)).args([
+        let (code, _, err) = run_json(s.wikanvas_at(&mock.url, &fake_token(1)).args([
             "--json",
             "--retries",
             "0",
@@ -450,7 +450,7 @@ fn get_retried_after_its_body_fails() {
     ] {
         let mock = Mock::always(reply.clone());
         let (code, out, err) = run_json(
-            s.quire_at(&mock.url, &fake_token(1))
+            s.wikanvas_at(&mock.url, &fake_token(1))
                 .args(["--json", "--retries", "2", "--timeout", "1"])
                 .args(["collection", "create", "--name", "C"]),
         );

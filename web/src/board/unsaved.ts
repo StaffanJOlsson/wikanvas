@@ -1,5 +1,5 @@
 // The board's unsaved snapshot (docs/ARCHITECTURE.md §9.5): before every PUT the save loop writes the snapshot to
-// IndexedDB under `quire.board.unsaved/<itemId>` as `{baseRev, board, at}`, and clears it after a 200. When a board
+// IndexedDB under `wikanvas.board.unsaved/<itemId>` as `{baseRev, board, at}`, and clears it after a 200. When a board
 // opens and a snapshot newer than the board's last write is found, the page offers "Restore unsaved changes from
 // HH:MM?". IndexedDB can be missing or full (private windows): every call then quietly does nothing.
 import { del, get, set } from 'idb-keyval';
@@ -15,7 +15,7 @@ export interface UnsavedSnapshot {
 
 /** The IndexedDB key of an item's snapshot. */
 export function unsavedKey(itemId: string): string {
-  return `quire.board.unsaved/${itemId}`;
+  return `wikanvas.board.unsaved/${itemId}`;
 }
 
 export async function writeUnsaved(itemId: string, snapshot: UnsavedSnapshot): Promise<void> {

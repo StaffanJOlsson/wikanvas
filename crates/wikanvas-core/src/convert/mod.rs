@@ -1,9 +1,9 @@
 //! Document conversion between Y, ProseMirror JSON and Markdown (ARCHITECTURE §6.4, D49, D50) (owner: W4)
 //!
 //! - [`pm`]: Y ↔ raw and normalized ProseMirror JSON, after `@tiptap/y-tiptap`.
-//! - [`md_out`]: Quire Markdown 1 output (the printer), and [`md_out::md_normalize`], the lossy rules of the §6.4
+//! - [`md_out`]: Wikanvas Markdown 1 output (the printer), and [`md_out::md_normalize`], the lossy rules of the §6.4
 //!   table applied in JSON space.
-//! - [`md_in`]: Quire Markdown 1 input (the nesting pre-scan, comrak, conversion to normalized JSON).
+//! - [`md_in`]: Wikanvas Markdown 1 input (the nesting pre-scan, comrak, conversion to normalized JSON).
 //! - [`ydiff`]: the diff writer that turns a target document into one Yjs update against a base.
 //!
 //! This module holds what they share: the scheme allow-list, item and attachment URL recognition, the lookup the
@@ -22,8 +22,8 @@ mod tests;
 
 use crate::api::{ConversionWarning, ConversionWarningCode, ItemKind};
 
-/// Item links: `quire://item/<uuid>` (§6.4).
-pub const QUIRE_ITEM_PREFIX: &str = "quire://item/";
+/// Item links: `wikanvas://item/<uuid>` (§6.4).
+pub const WIKANVAS_ITEM_PREFIX: &str = "wikanvas://item/";
 /// The attachment URL path prefix (§7.5).
 pub const ATTACHMENT_PREFIX: &str = "/api/v1/attachments/";
 
@@ -58,14 +58,14 @@ fn allowed(url: &str, schemes: &[&str]) -> bool {
     scheme_of(&cleaned).is_some_and(|s| schemes.contains(&s.as_str()))
 }
 
-/// The §6.4 allow-list for `link.href`: http, https, mailto, quire, same-origin paths and fragments.
+/// The §6.4 allow-list for `link.href`: http, https, mailto, wikanvas, same-origin paths and fragments.
 pub fn link_allowed(href: &str) -> bool {
-    allowed(href, &["http", "https", "mailto", "quire"])
+    allowed(href, &["http", "https", "mailto", "wikanvas"])
 }
 
-/// The §6.4 allow-list for an external `image.src`: http, https, quire and same-origin paths (never `mailto:`).
+/// The §6.4 allow-list for an external `image.src`: http, https, wikanvas and same-origin paths (never `mailto:`).
 pub fn image_allowed(src: &str) -> bool {
-    allowed(src, &["http", "https", "quire"])
+    allowed(src, &["http", "https", "wikanvas"])
 }
 
 fn is_uuid(s: &str) -> bool {
@@ -76,21 +76,21 @@ fn is_uuid(s: &str) -> bool {
         })
 }
 
-/// The item id of `quire://item/<uuid>` (lowercase), or `None`.
-pub fn quire_item_id(url: &str) -> Option<String> {
-    let id = url.strip_prefix(QUIRE_ITEM_PREFIX)?;
+/// The item id of `wikanvas://item/<uuid>` (lowercase), or `None`.
+pub fn wikanvas_item_id(url: &str) -> Option<String> {
+    let id = url.strip_prefix(WIKANVAS_ITEM_PREFIX)?;
     is_uuid(id).then(|| id.to_ascii_lowercase())
 }
 
-/// `quire://item/<id>`.
-pub fn quire_item_url(id: &str) -> String {
-    format!("{QUIRE_ITEM_PREFIX}{id}")
+/// `wikanvas://item/<id>`.
+pub fn wikanvas_item_url(id: &str) -> String {
+    format!("{WIKANVAS_ITEM_PREFIX}{id}")
 }
 
 /// How an input URL names an item.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ItemRef {
-    /// `quire://item/<uuid>`.
+    /// `wikanvas://item/<uuid>`.
     Id(String),
     /// `/doc/<slug>-<url_id>` or `/board/<slug>-<url_id>`, relative or under the public URL.
     UrlId(String),
@@ -111,7 +111,7 @@ fn same_origin_path<'a>(url: &'a str, public_origin: Option<&str>) -> Option<&'a
 
 /// Whether `url` names an item of this instance (§6.4 "Item links").
 pub fn item_ref(url: &str, public_origin: Option<&str>) -> Option<ItemRef> {
-    if let Some(id) = quire_item_id(url) {
+    if let Some(id) = wikanvas_item_id(url) {
         return Some(ItemRef::Id(id));
     }
     let path = same_origin_path(url, public_origin)?;
@@ -226,7 +226,7 @@ impl Warnings {
         &self.0
     }
 
-    /// The codes, comma-separated (the `Quire-Conversion-Warnings` header).
+    /// The codes, comma-separated (the `Wikanvas-Conversion-Warnings` header).
     pub fn header(&self) -> String {
         self.0
             .iter()

@@ -5,10 +5,11 @@
 //!   `board_work` permit; `ETag: "r{rev}"` for a later `If-Match`. Never 304: the body holds the live title, which the
 //!   tag does not version (D45, as for the Markdown GET).
 //! - `PUT …/board`: `If-Match` required (428; `"r{rev}"`, also `W/`, or `*`), `application/json` (415), up to
-//!   `QUIRE_MAX_BOARD_MB` (413), `X-Quire-Engine` optional (stored as `"api"` when absent). Under the permit: read the
-//!   body (120 s, else 408), the JSON nesting limit (422 `invalid_board`), then `boards::prepare` (inspect, split, the
-//!   free-space check, staging) and `boards::save` in the writer (the no-op test, 412 `rev_mismatch` with `{rev,
-//!   etag}`, `pre_api` and `last_token_id` for a token); then the preview job. Answers `{rev, etag, updated_at, meta}`.
+//!   `WIKANVAS_MAX_BOARD_MB` (413), `X-Wikanvas-Engine` optional (stored as `"api"` when absent). Under the permit:
+//!   read the body (120 s, else 408), the JSON nesting limit (422 `invalid_board`), then `boards::prepare` (inspect,
+//!   split, the free-space check, staging) and `boards::save` in the writer (the no-op test, 412 `rev_mismatch` with
+//!   `{rev, etag}`, `pre_api` and `last_token_id` for a token); then the preview job. Answers
+//!   `{rev, etag, updated_at, meta}`.
 //! - `GET …/board.inkboard`: the GET's bytes as an attachment download.
 //! - `GET …/board/pages/{n}`: page `n`'s SVG preview (§11): with the current `?rev=` immutable, without one the current
 //!   page with `no-cache` and an ETag, another rev a 307 to the current one, an empty page 204, a page the preview
@@ -34,14 +35,14 @@ use axum::response::{IntoResponse, Response};
 use bytes::Bytes;
 use futures_util::StreamExt;
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
-use quire_api::common::header::ENGINE;
-use quire_api::{
+use wikanvas_api::common::header::ENGINE;
+use wikanvas_api::{
     BoardPreviewQuery, BoardPutResult, ErrorBody, ErrorCode, RateLimitDetails, RateLimitReason,
     Timestamp,
 };
-use quire_core::board;
-use quire_store::boards::{self, IfMatch};
-use quire_store::previews::{self, PageState, Preview};
+use wikanvas_core::board;
+use wikanvas_store::boards::{self, IfMatch};
+use wikanvas_store::previews::{self, PageState, Preview};
 use tokio::sync::{Semaphore, SemaphorePermit, mpsc};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -78,7 +79,7 @@ const CHUNK: usize = 256 * 1024;
 
 static BODY_BUDGET: Semaphore = Semaphore::const_new(BODY_BUDGET_MIB as usize);
 
-/// The longest accepted `X-Quire-Engine`.
+/// The longest accepted `X-Wikanvas-Engine`.
 pub const MAX_ENGINE_LEN: usize = 128;
 
 /// The page preview CSP (§11).
@@ -179,8 +180,8 @@ async fn download_board(
         ("id" = uuid::Uuid, Path, description = "The board's id"),
         ("If-Match" = String, Header, description = "`\"r{rev}\"` of the revision the body is based on (a `W/` prefix \
             is ignored), or `*` to overwrite whatever is current"),
-        ("X-Quire-Engine" = Option<String>, Header, description = "The writing engine's version (the web client sends \
-            its `engineVersion`); stored as `api` when absent. At most 128 printable ASCII characters"),
+        ("X-Wikanvas-Engine" = Option<String>, Header, description = "The writing engine's version (the web client \
+            sends its `engineVersion`); stored as `api` when absent. At most 128 printable ASCII characters"),
     ),
     request_body(content = Object, content_type = "application/json",
         description = "The native Inkboard envelope `{\"format\": \"inkboard\", \"version\": 2, \"document\": {…}}`, \
@@ -198,7 +199,7 @@ async fn download_board(
         (status = 413, description = "`payload_too_large` (`details.limit_bytes`)", body = ErrorBody),
         (status = 415, description = "`unsupported_media_type`: not `application/json`", body = ErrorBody),
         (status = 422, description = "`invalid_board` (also JSON nested deeper than `limits.json_depth`), \
-            `board_too_new`, `validation` (`field`: `kind` for a document, `X-Quire-Engine`, `body`)", body = ErrorBody),
+            `board_too_new`, `validation` (`field`: `kind` for a document, `X-Wikanvas-Engine`, `body`)", body = ErrorBody),
         (status = 428, description = "`precondition_required`: no `If-Match`", body = ErrorBody),
         (status = 507, description = "`insufficient_storage`: below the free-space floor", body = ErrorBody),
     )
@@ -242,15 +243,15 @@ async fn put_board(
     state
         .db
         .read(move |c| {
-            let row = quire_store::shared::item_row(c, &check)?;
-            if row.kind != quire_api::ItemKind::Board {
-                return Err(quire_store::Error::validation(
+            let row = wikanvas_store::shared::item_row(c, &check)?;
+            if row.kind != wikanvas_api::ItemKind::Board {
+                return Err(wikanvas_store::Error::validation(
                     "kind",
                     "the item is a document, not a board",
                 ));
             }
             if row.deleted_at.is_some() || row.archived_at.is_some() {
-                return Err(quire_store::Error::new(
+                return Err(wikanvas_store::Error::new(
                     ErrorCode::ReadOnly,
                     "the item is in the trash or archived",
                 ));
@@ -549,7 +550,7 @@ fn is_json(headers: &HeaderMap) -> bool {
         .is_some_and(|t| t.trim().eq_ignore_ascii_case("application/json"))
 }
 
-/// `X-Quire-Engine`, or `"api"` when absent (D51); 422 `validation` when it is not 1–128 printable ASCII characters.
+/// `X-Wikanvas-Engine`, or `"api"` when absent (D51); 422 `validation` when it is not 1–128 printable ASCII characters.
 fn engine(headers: &HeaderMap) -> Result<String, ApiError> {
     let Some(value) = headers.get(ENGINE) else {
         return Ok(boards::API_ENGINE.to_owned());
@@ -558,13 +559,13 @@ fn engine(headers: &HeaderMap) -> Result<String, ApiError> {
     if v.is_empty() || v.len() > MAX_ENGINE_LEN || !v.bytes().all(|b| (0x20..0x7f).contains(&b)) {
         return Err(ApiError::validation(
             ENGINE,
-            "X-Quire-Engine is 1 to 128 printable ASCII characters",
+            "X-Wikanvas-Engine is 1 to 128 printable ASCII characters",
         ));
     }
     Ok(v.to_owned())
 }
 
-/// `QUIRE_MAX_BOARD_MB` in bytes (MiB, like the other body limits).
+/// `WIKANVAS_MAX_BOARD_MB` in bytes (MiB, like the other body limits).
 fn board_limit(state: &AppState) -> u64 {
     state.config.max_board_mb.saturating_mul(1024 * 1024)
 }
@@ -784,9 +785,9 @@ mod tests {
         assert_eq!(engine(&h).unwrap(), "api");
         h.insert(
             ENGINE,
-            HeaderValue::from_static("0.2.0-beta.3+embed.quire.1"),
+            HeaderValue::from_static("0.2.0-beta.3+embed.wikanvas.1"),
         );
-        assert_eq!(engine(&h).unwrap(), "0.2.0-beta.3+embed.quire.1");
+        assert_eq!(engine(&h).unwrap(), "0.2.0-beta.3+embed.wikanvas.1");
         h.insert(ENGINE, HeaderValue::from_static(""));
         assert_eq!(engine(&h).unwrap_err().code, ErrorCode::Validation);
         h.insert(ENGINE, HeaderValue::from_str(&"x".repeat(129)).unwrap());

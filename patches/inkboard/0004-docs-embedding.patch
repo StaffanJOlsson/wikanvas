@@ -1,5 +1,5 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: quire <quire@localhost>
+From: wikanvas <wikanvas@localhost>
 Date: Wed, 28 Oct 2026 14:04:05 +0100
 Subject: [PATCH 4/6] docs: embedding
 
@@ -19,7 +19,7 @@ index 969ad2c..30b35ce 100644
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
 @@ -1,3 +1,4 @@
-+<!-- Changed for Quire (embed feature): see patches/inkboard/README.md -->
++<!-- Changed for Wikanvas (embed feature): see patches/inkboard/README.md -->
  # Changelog
  
  All notable changes to Inkboard are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
@@ -49,7 +49,7 @@ index 711c35c..52498be 100644
 --- a/docs/WEB.md
 +++ b/docs/WEB.md
 @@ -1,3 +1,4 @@
-+<!-- Changed for Quire (embed feature): see patches/inkboard/README.md -->
++<!-- Changed for Wikanvas (embed feature): see patches/inkboard/README.md -->
  # Inkboard in the browser
  
  *Version française : [fr/WEB.md](fr/WEB.md)*
@@ -119,7 +119,7 @@ index fbb6fef..86fcba3 100644
 --- a/docs/fr/WEB.md
 +++ b/docs/fr/WEB.md
 @@ -1,3 +1,4 @@
-+<!-- Changed for Quire (embed feature): see patches/inkboard/README.md -->
++<!-- Changed for Wikanvas (embed feature): see patches/inkboard/README.md -->
  # Inkboard dans le navigateur
  
  *English version: [WEB.md](../WEB.md)*

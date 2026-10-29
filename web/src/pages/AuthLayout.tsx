@@ -7,7 +7,7 @@ export function AuthLayout({ title, children }: { title: string; children: React
       <div className="auth-card">
         <div className="auth-brand" aria-hidden>
           <img src="/favicon.svg" alt="" width={32} height={32} />
-          <span>Quire</span>
+          <span>Wikanvas</span>
         </div>
         <h1>{title}</h1>
         {children}

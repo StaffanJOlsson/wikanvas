@@ -17,9 +17,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use argon2::{Algorithm, Argon2, Params, PasswordHasher, PasswordVerifier, Version};
-use quire_api::ErrorCode;
-use quire_store::blobs::BlobStore;
-use quire_store::db::{Db, DbOptions};
+use wikanvas_api::ErrorCode;
+use wikanvas_store::blobs::BlobStore;
+use wikanvas_store::db::{Db, DbOptions};
 use tokio::sync::Semaphore;
 
 use crate::board_previews::{self, PreviewQueue};
@@ -62,7 +62,7 @@ pub struct AppState {
     pub login_limiter: Arc<LoginLimiter>,
     /// The static files and the Inkboard manifest (§10.5, §11).
     pub site: Arc<Site>,
-    /// The first-run setup code (`QUIRE_SETUP_TOKEN`, or generated at startup, D19).
+    /// The first-run setup code (`WIKANVAS_SETUP_TOKEN`, or generated at startup, D19).
     pub setup_code: Arc<str>,
     /// When each token's `last_used_at` was last written (§7.3).
     pub last_used: Arc<LastUsed>,
@@ -75,7 +75,7 @@ pub struct AppState {
 }
 
 /// `check_free_space(data_dir, min_free_mb)`: 507 `insufficient_storage` below the floor.
-pub type FreeSpaceProbe = Arc<dyn Fn(&Path, u64) -> quire_store::Result<()> + Send + Sync>;
+pub type FreeSpaceProbe = Arc<dyn Fn(&Path, u64) -> wikanvas_store::Result<()> + Send + Sync>;
 
 /// The token last-use map (§7.3): a token's row is written at most once a minute.
 #[derive(Debug, Default)]
@@ -171,7 +171,7 @@ impl fmt::Debug for AppState {
 #[derive(Debug)]
 pub enum StartError {
     Io(std::path::PathBuf, std::io::Error),
-    Store(quire_store::error::Error),
+    Store(wikanvas_store::error::Error),
     /// The embedded Inkboard build does not fit this server (§10.5).
     Inkboard(String),
 }
@@ -190,12 +190,12 @@ impl std::error::Error for StartError {}
 
 impl From<ApiError> for StartError {
     fn from(e: ApiError) -> Self {
-        StartError::Store(quire_store::Error::new(e.code, e.message))
+        StartError::Store(wikanvas_store::Error::new(e.code, e.message))
     }
 }
 
-impl From<quire_store::error::Error> for StartError {
-    fn from(e: quire_store::error::Error) -> Self {
+impl From<wikanvas_store::error::Error> for StartError {
+    fn from(e: wikanvas_store::error::Error) -> Self {
         StartError::Store(e)
     }
 }
@@ -221,7 +221,7 @@ impl AppState {
         )?;
         let (migrate_db, data_dir) = (db.clone(), config.data_dir.clone());
         let migrated = tokio::task::spawn_blocking(move || {
-            quire_store::migrate::run(&migrate_db, &data_dir, now_ms())
+            wikanvas_store::migrate::run(&migrate_db, &data_dir, now_ms())
         })
         .await
         .map_err(|e| StartError::Io(config.db_path(), std::io::Error::other(e)))??;
@@ -268,7 +268,7 @@ impl AppState {
             last_used: Arc::default(),
             single_flight: Arc::default(),
             free_space: Arc::new(|dir: &Path, min_free_mb: u64| {
-                quire_store::shared::check_free_space(dir, min_free_mb)
+                wikanvas_store::shared::check_free_space(dir, min_free_mb)
             }),
             dummy_hash: Arc::default(),
             config: Arc::new(config),
@@ -310,7 +310,7 @@ impl AppState {
     pub async fn dummy_hash(&self) -> Result<String, ApiError> {
         let cheap = self.config.test_argon2;
         self.dummy_hash
-            .get_or_try_init(|| hash_password(cheap, "quire dummy password, never valid".into()))
+            .get_or_try_init(|| hash_password(cheap, "wikanvas dummy password, never valid".into()))
             .await
             .cloned()
     }
@@ -320,7 +320,7 @@ impl AppState {
         if self.owner_exists.load(Ordering::Acquire) {
             return Ok(true);
         }
-        let exists = self.db.read(quire_store::users::owner_exists).await?;
+        let exists = self.db.read(wikanvas_store::users::owner_exists).await?;
         if exists {
             self.owner_exists.store(true, Ordering::Release);
         }
@@ -347,7 +347,7 @@ impl AppState {
 }
 
 /// The argon2id instance: the `argon2` 0.6 defaults (m=19456 KiB, t=2, p=1), or the cheapest valid parameters for
-/// tests (`QUIRE_TEST_ARGON2=1`). A PHC string carries its own parameters, so verification works across both.
+/// tests (`WIKANVAS_TEST_ARGON2=1`). A PHC string carries its own parameters, so verification works across both.
 fn argon2(cheap: bool) -> Argon2<'static> {
     let params = if cheap {
         Params::new(Params::MIN_M_COST, Params::MIN_T_COST, 1, None).expect("valid parameters")
@@ -435,7 +435,7 @@ pub fn now_ms() -> i64 {
 
 /// The `ApiError` for a store error: its code, message and details; `internal` errors are logged with their cause
 /// and answered with a generic message.
-pub fn store_error(err: quire_store::error::Error) -> ApiError {
+pub fn store_error(err: wikanvas_store::error::Error) -> ApiError {
     if err.code == ErrorCode::Internal {
         return ApiError::internal(&err);
     }

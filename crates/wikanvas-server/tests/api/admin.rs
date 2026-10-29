@@ -1,17 +1,17 @@
 //! Admin command tests (owner: W2)
 //!
-//! `quire-server admin …` runs as the real binary on a temporary data directory, also while an in-process server
+//! `wikanvas-server admin …` runs as the real binary on a temporary data directory, also while an in-process server
 //! has the same database open (WAL, a second process). The background jobs of §12 are called directly: the hourly
 //! run, purge and GC in their order, the backup schedule, and backups that never overlap across processes.
 
 use std::time::{Duration, UNIX_EPOCH};
 
 use axum::http::StatusCode;
-use quire_api::{Attachment, ErrorCode, Me, Scope};
-use quire_core::api::{ItemKind, NewCollection, NewItem};
-use quire_server::AppState;
-use quire_server::config::Config;
-use quire_server::jobs::{self, BACKUP_STARTUP_DELAY};
+use wikanvas_api::{Attachment, ErrorCode, Me, Scope};
+use wikanvas_core::api::{ItemKind, NewCollection, NewItem};
+use wikanvas_server::AppState;
+use wikanvas_server::config::Config;
+use wikanvas_server::jobs::{self, BACKUP_STARTUP_DELAY};
 use serde_json::json;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
@@ -20,7 +20,7 @@ use crate::common::{OWNER_EMAIL, TestApp, admin, assert_error, stdout_json};
 const OWNER: [&str; 8] = [
     "create-owner",
     "--email",
-    "a@quire.invalid",
+    "a@wikanvas.invalid",
     "--name",
     "A",
     "--workspace",
@@ -44,7 +44,7 @@ fn error_line(out: &std::process::Output) -> serde_json::Value {
 
 async fn collections(dir: &std::path::Path) -> i64 {
     let db =
-        quire_store::Db::open(dir.join("quire.db"), quire_store::DbOptions::default()).unwrap();
+        wikanvas_store::Db::open(dir.join("wikanvas.db"), wikanvas_store::DbOptions::default()).unwrap();
     db.read(|c| Ok(c.query_row("SELECT count(*) FROM collections", [], |r| r.get(0))?))
         .await
         .unwrap()
@@ -58,7 +58,7 @@ async fn create_owner_once_then_exit_8() {
     let out = admin(dir.path(), &args, None);
     ok(&out);
     let created = stdout_json(&out);
-    assert_eq!(created["user"]["email"], "a@quire.invalid");
+    assert_eq!(created["user"]["email"], "a@wikanvas.invalid");
     assert_eq!(created["user"]["role"], "owner");
     assert_eq!(created["workspace"]["name"], "W");
     assert_eq!(created["generated_password"].as_str().unwrap().len(), 24);
@@ -85,7 +85,7 @@ fn create_owner_password_stdin_and_validation() {
     let args = [
         "create-owner",
         "--email",
-        "a@quire.invalid",
+        "a@wikanvas.invalid",
         "--name",
         "A",
         "--workspace",
@@ -136,7 +136,7 @@ fn create_token_token_out_0600() {
     );
     ok(&out);
     let created = stdout_json(&out);
-    assert!(quire_api::token::check(created["token"].as_str().unwrap()).is_ok());
+    assert!(wikanvas_api::token::check(created["token"].as_str().unwrap()).is_ok());
     assert_eq!(created["api_token"]["created_via"], "admin");
     assert_eq!(created["api_token"]["scopes"], json!(["read", "write"]));
 
@@ -176,7 +176,7 @@ fn create_token_token_out_0600() {
     let secret = std::fs::read_to_string(&file).unwrap();
     assert!(!String::from_utf8_lossy(&out.stdout).contains(secret.trim_end()));
     assert!(secret.ends_with('\n'));
-    assert!(quire_api::token::check(secret.trim_end()).is_ok());
+    assert!(wikanvas_api::token::check(secret.trim_end()).is_ok());
 
     let unknown = admin(
         dir.path(),
@@ -187,7 +187,7 @@ fn create_token_token_out_0600() {
             "--scope",
             "read",
             "--email",
-            "b@quire.invalid",
+            "b@wikanvas.invalid",
         ],
         None,
     );
@@ -240,21 +240,21 @@ async fn create_token_prints_once_and_authenticates_over_http() {
     let stdout = String::from_utf8(out.stdout.clone()).unwrap();
     let token = stdout.trim_end().to_owned();
     assert_eq!(stdout, format!("{token}\n"), "only the token on stdout");
-    assert!(quire_api::token::check(&token).is_ok());
+    assert!(wikanvas_api::token::check(&token).is_ok());
     assert!(!String::from_utf8_lossy(&out.stderr).contains(&token));
 
     let state = AppState::open(Config::for_tests(dir.path())).await.unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
-    let server = tokio::spawn(quire_server::app::serve(state, listener, async {
+    let server = tokio::spawn(wikanvas_server::app::serve(state, listener, async {
         let _ = stopped.await;
     }));
     let (status, body) = http_get(addr, "/api/v1/auth/me", &token).await;
     assert_eq!(status, 200, "{body}");
     let me: Me = serde_json::from_str(&body).unwrap();
     assert_eq!(me.auth.token.unwrap().name, "ci");
-    let (status, _) = http_get(addr, "/api/v1/auth/me", &quire_api::token::encode(&[1; 32])).await;
+    let (status, _) = http_get(addr, "/api/v1/auth/me", &wikanvas_api::token::encode(&[1; 32])).await;
     assert_eq!(status, 401);
     // The token is listed, never with its secret.
     let out = admin(dir.path(), &["--json", "list-tokens"], None);
@@ -365,8 +365,8 @@ async fn check_reports_missing_blob_files() {
         .bytes("x".into())
         .content_type("application/octet-stream")
         .await;
-    let a: quire_api::Attachment = res.json();
-    let sha = quire_store::Sha256::parse(&a.sha256).unwrap();
+    let a: wikanvas_api::Attachment = res.json();
+    let sha = wikanvas_store::Sha256::parse(&a.sha256).unwrap();
     std::fs::remove_file(app.state.blobs.path(&sha)).unwrap();
     let out = admin(app.dir.path(), &["--json", "check"], None);
     assert_eq!(out.status.code(), Some(1));
@@ -390,7 +390,7 @@ async fn create_owner_while_serving_clears_setup_required() {
         401,
         ErrorCode::Unauthenticated,
     );
-    let status: quire_api::SetupStatus = client.get("/api/v1/setup").await.json();
+    let status: wikanvas_api::SetupStatus = client.get("/api/v1/setup").await.json();
     assert!(!status.needs_setup);
     // The setup code no longer works.
     let res = client
@@ -399,7 +399,7 @@ async fn create_owner_while_serving_clears_setup_required() {
             "code": app.state.setup_code.to_string(),
             "workspace_name": "X",
             "name": "X",
-            "email": "x@quire.invalid",
+            "email": "x@wikanvas.invalid",
             "password": "a long enough password"
         }))
         .await;
@@ -463,7 +463,7 @@ async fn backup_busy_while_another_process_holds_the_lock() {
     let dir = app.state.config.backups_dir();
     std::fs::create_dir_all(&dir).unwrap();
     // This process plays the server whose scheduled backup is running.
-    let held = quire_store::backup::lock(&dir).unwrap();
+    let held = wikanvas_store::backup::lock(&dir).unwrap();
     let out = admin(app.dir.path(), &["--json", "backup"], None);
     assert_eq!(out.status.code(), Some(11), "{out:?}");
     let err = error_line(&out);
@@ -474,14 +474,14 @@ async fn backup_busy_while_another_process_holds_the_lock() {
     let body = assert_error(&res, 429, ErrorCode::RateLimited);
     assert_eq!(body.error.details, Some(json!({"reason": "busy"})));
     assert!(res.headers().contains_key("retry-after"));
-    assert!(quire_store::backup::list(&dir).unwrap().is_empty());
+    assert!(wikanvas_store::backup::list(&dir).unwrap().is_empty());
     drop(held);
     ok(&admin(app.dir.path(), &["--json", "backup"], None));
     app.server
         .post("/api/v1/admin/backup")
         .await
         .assert_status_ok();
-    assert_eq!(quire_store::backup::list(&dir).unwrap().len(), 2);
+    assert_eq!(wikanvas_store::backup::list(&dir).unwrap().len(), 2);
 }
 
 #[tokio::test]
@@ -493,7 +493,7 @@ async fn hourly_job_expires_sessions_purges_tokens_and_prunes_limiters() {
     let token = app.mint_token(&owner, Scope::Admin).await;
     let mut dead = Vec::new();
     for _ in 0..3 {
-        dead.push(quire_store::tokens::hash(
+        dead.push(wikanvas_store::tokens::hash(
             &app.mint_token(&owner, Scope::Read).await,
         ));
     }
@@ -599,7 +599,7 @@ async fn purge_and_gc_runs_purge_then_attachment_gc_then_blob_gc() {
                 name: "Notes".into(),
                 ..Default::default()
             };
-            let c = quire_store::collections::create(tx, &owner, &new, now)?;
+            let c = wikanvas_store::collections::create(tx, &owner, &new, now)?;
             let new = NewItem {
                 collection_id: c.id,
                 parent_id: None,
@@ -607,7 +607,7 @@ async fn purge_and_gc_runs_purge_then_attachment_gc_then_blob_gc() {
                 title: Some("d".into()),
                 position: None,
             };
-            let id = quire_store::items::create(tx, &owner, &new, false, now)?
+            let id = wikanvas_store::items::create(tx, &owner, &new, false, now)?
                 .id
                 .to_string();
             tx.execute(
@@ -657,7 +657,7 @@ fn backup_schedule_follows_the_newest_backup() {
         jobs::first_backup_delay(&config, NOW),
         Some(BACKUP_STARTUP_DELAY)
     );
-    // QUIRE_BACKUP_KEEP=0 schedules nothing (D21).
+    // WIKANVAS_BACKUP_KEEP=0 schedules nothing (D21).
     config.backup_keep = 0;
     assert_eq!(jobs::first_backup_delay(&config, NOW), None);
     config.backup_keep = 7;
@@ -675,13 +675,13 @@ fn backup_schedule_follows_the_newest_backup() {
         Some(BACKUP_STARTUP_DELAY)
     );
     // An overdue one: soon after startup.
-    backup_at("quire-20261027T0830Z.db", NOW - 25 * 3_600_000);
+    backup_at("wikanvas-20261027T0830Z.db", NOW - 25 * 3_600_000);
     assert_eq!(
         jobs::first_backup_delay(&config, NOW),
         Some(BACKUP_STARTUP_DELAY)
     );
     // The newest is an hour old: the rest of the interval, however recently the server started.
-    backup_at("quire-20261028T0830Z.db", NOW - 3_600_000);
+    backup_at("wikanvas-20261028T0830Z.db", NOW - 3_600_000);
     assert_eq!(
         jobs::first_backup_delay(&config, NOW),
         Some(Duration::from_secs(23 * 3600))

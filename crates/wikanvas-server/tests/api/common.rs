@@ -1,6 +1,6 @@
 //! Shared test setup: TestApp::new, with_owner and with_token (owner: W2)
 //!
-//! - [`TestApp::new`]: `quire_server::app()` on a fresh temporary data directory with cheap argon2, no owner;
+//! - [`TestApp::new`]: `wikanvas_server::app()` on a fresh temporary data directory with cheap argon2, no owner;
 //! - [`TestApp::with_owner`]: plus the owner and a session inserted with plain SQL; `server` sends the session
 //!   cookie, `Host: localhost` and `Sec-Fetch-Site: same-origin` with every request;
 //! - [`TestApp::with_token`]: plus the owner and a token of one scope; `server` sends `Authorization: Bearer` and
@@ -22,12 +22,12 @@ use axum::middleware::Next;
 use axum::response::Response;
 use axum_test::TestServer;
 use base64::Engine as _;
-use quire_api::tokens::NewToken;
-use quire_api::{ErrorBody, ErrorCode, Scope};
-use quire_server::AppState;
-use quire_server::config::Config;
-use quire_server::static_files::AssetSource;
-use quire_store::tokens::CreatedVia;
+use wikanvas_api::tokens::NewToken;
+use wikanvas_api::{ErrorBody, ErrorCode, Scope};
+use wikanvas_server::AppState;
+use wikanvas_server::config::Config;
+use wikanvas_server::static_files::AssetSource;
+use wikanvas_store::tokens::CreatedVia;
 use sha2::{Digest, Sha256};
 use tempfile::TempDir;
 
@@ -46,13 +46,13 @@ async fn inject_peer(mut req: Request, next: Next) -> Response {
     next.run(req).await
 }
 
-/// `quire_server::app(state)` with the peer injection of the module docs.
+/// `wikanvas_server::app(state)` with the peer injection of the module docs.
 pub fn router(state: &AppState) -> Router {
-    quire_server::app(state.clone()).layer(axum::middleware::from_fn(inject_peer))
+    wikanvas_server::app(state.clone()).layer(axum::middleware::from_fn(inject_peer))
 }
 
 /// The owner's email in every TestApp.
-pub const OWNER_EMAIL: &str = "owner@quire.invalid";
+pub const OWNER_EMAIL: &str = "owner@wikanvas.invalid";
 /// The owner's password in every TestApp.
 pub const OWNER_PASSWORD: &str = "test-owner-password";
 
@@ -79,14 +79,14 @@ impl TestApp {
     /// Like [`new`](Self::new), with `configure` applied to the test configuration.
     pub async fn with_config(configure: impl FnOnce(&mut Config)) -> TestApp {
         let dir = tempfile::Builder::new()
-            .prefix("quire-api-test-")
+            .prefix("wikanvas-api-test-")
             .tempdir()
             .expect("temp dir");
         let mut config = Config::for_tests(dir.path());
         configure(&mut config);
         let state = AppState::open(config).await.expect("the app state opens");
         let state = state
-            .with_assets(Arc::new(quire_server::static_files::MemoryAssets::new()))
+            .with_assets(Arc::new(wikanvas_server::static_files::MemoryAssets::new()))
             .expect("no manifest");
         let server = TestServer::new(router(&state));
         TestApp {
@@ -99,7 +99,7 @@ impl TestApp {
         }
     }
 
-    /// Like [`with_config`](Self::with_config), from `QUIRE_*` variables as `serve` reads them (the data directory
+    /// Like [`with_config`](Self::with_config), from `WIKANVAS_*` variables as `serve` reads them (the data directory
     /// and cheap argon2 are the test's).
     pub async fn from_vars(vars: &[(&str, &str)]) -> TestApp {
         let vars: Vec<(String, String)> = vars
@@ -185,7 +185,7 @@ impl TestApp {
     /// A client that sends the session cookie, `Host: localhost` and `Sec-Fetch-Site: same-origin`.
     pub fn cookie_client(&self, session: &str) -> TestServer {
         let mut server = self.client();
-        server.add_header("cookie", format!("quire_session={session}"));
+        server.add_header("cookie", format!("wikanvas_session={session}"));
         server.add_header("host", "localhost");
         server.add_header("sec-fetch-site", "same-origin");
         server
@@ -201,10 +201,10 @@ impl TestApp {
     /// Inserts the owner (and the workspace name) with plain SQL; returns the owner's id.
     pub async fn insert_owner(&self) -> String {
         let id = uuid::Uuid::now_v7().to_string();
-        let hash = quire_server::state::hash_password(true, OWNER_PASSWORD.into())
+        let hash = wikanvas_server::state::hash_password(true, OWNER_PASSWORD.into())
             .await
             .expect("hash");
-        let now = quire_server::state::now_ms();
+        let now = wikanvas_server::state::now_ms();
         let owner = id.clone();
         self.state
             .db
@@ -247,7 +247,7 @@ impl TestApp {
         getrandom::fill(&mut raw).expect("random");
         let cookie = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(raw);
         let hash: [u8; 32] = Sha256::digest(raw).into();
-        let now = quire_server::state::now_ms();
+        let now = wikanvas_server::state::now_ms();
         let (id, user) = (uuid::Uuid::now_v7().to_string(), user_id.to_owned());
         self.state
             .db
@@ -267,7 +267,7 @@ impl TestApp {
     /// Creates a token of `scope` for `user_id` through the store; returns its secret.
     pub async fn mint_token(&self, user_id: &str, scope: Scope) -> String {
         let user = user_id.to_owned();
-        let now = quire_server::state::now_ms();
+        let now = wikanvas_server::state::now_ms();
         let new = NewToken {
             name: format!("test-{scope}"),
             scopes: vec![scope],
@@ -277,7 +277,7 @@ impl TestApp {
         self.state
             .db
             .write(move |tx| {
-                quire_store::tokens::create(tx, &user, &new, CreatedVia::Admin, None, now)
+                wikanvas_store::tokens::create(tx, &user, &new, CreatedVia::Admin, None, now)
             })
             .await
             .expect("create a token")
@@ -315,21 +315,21 @@ pub fn cookie_from(res: &axum_test::TestResponse, name: &str) -> Option<String> 
     })
 }
 
-/// Runs `quire-server admin <args>` on `dir` (cheap argon2), with `stdin`.
+/// Runs `wikanvas-server admin <args>` on `dir` (cheap argon2), with `stdin`.
 pub fn admin(dir: &std::path::Path, args: &[&str], stdin: Option<&str>) -> std::process::Output {
     use std::io::Write as _;
     use std::process::{Command, Stdio};
-    let mut child = Command::new(env!("CARGO_BIN_EXE_quire-server"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_wikanvas-server"))
         .arg("admin")
         .args(args)
         .env_clear()
-        .env("QUIRE_DATA_DIR", dir)
-        .env("QUIRE_TEST_ARGON2", "1")
+        .env("WIKANVAS_DATA_DIR", dir)
+        .env("WIKANVAS_TEST_ARGON2", "1")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .expect("run quire-server admin");
+        .expect("run wikanvas-server admin");
     {
         let mut pipe = child.stdin.take().unwrap();
         if let Some(input) = stdin {

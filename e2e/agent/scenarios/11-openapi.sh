@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 11: the OpenAPI document through `quire api`, a missing route, and the path guard.
+# 11: the OpenAPI document through `wikanvas api`, a missing route, and the path guard.
 . "$AGENT_ROOT/e2e/agent/lib.sh"
 
 q --as read api GET /api/v1/openapi.json

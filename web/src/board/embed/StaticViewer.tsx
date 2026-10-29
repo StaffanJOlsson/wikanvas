@@ -32,7 +32,7 @@ export function StaticViewer({ doc }: { doc: JSONContent }) {
       immediatelyRender: true,
       shouldRerenderOnTransaction: false,
       injectCSS: false,
-      editorProps: { attributes: { class: 'quire-editor' } },
+      editorProps: { attributes: { class: 'wikanvas-editor' } },
     },
     [content],
   );

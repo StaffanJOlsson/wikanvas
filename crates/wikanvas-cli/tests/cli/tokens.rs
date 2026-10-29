@@ -1,8 +1,8 @@
-//! `quire token` and `quire auth logout --revoke` against a running TestServer (owner: W8)
+//! `wikanvas token` and `wikanvas auth logout --revoke` against a running TestServer (owner: W8)
 
 use std::os::unix::fs::PermissionsExt;
 
-use quire_api::Scope;
+use wikanvas_api::Scope;
 use serde_json::Value;
 
 use crate::common::{Harness, last_error, run_json};
@@ -25,13 +25,13 @@ fn create_prints_secret_once_and_revoke_works() {
     );
     assert_eq!(code, 0, "{err}");
     let secret = v["token"].as_str().unwrap().to_owned();
-    assert!(quire_api::token::check(&secret).is_ok(), "{secret}");
+    assert!(wikanvas_api::token::check(&secret).is_ok(), "{secret}");
     let id = v["api_token"]["id"].as_str().unwrap().to_owned();
     assert_eq!(v["api_token"]["scopes"], serde_json::json!(["read"]));
     assert!(v["api_token"]["expires_at"].is_string());
     // The list shows the prefix and never the secret.
     let out = h
-        .quire_as(Scope::Admin)
+        .wikanvas_as(Scope::Admin)
         .args(["--json", "token", "list"])
         .assert()
         .success();
@@ -48,7 +48,7 @@ fn create_prints_secret_once_and_revoke_works() {
     // The new token works, then is revoked.
     let (code, _, err) = run_json(
         h.sandbox
-            .quire_at(&h.server.url, &secret)
+            .wikanvas_at(&h.server.url, &secret)
             .args(["--json", "auth", "whoami"]),
     );
     assert_eq!(code, 0, "{err}");
@@ -59,7 +59,7 @@ fn create_prints_secret_once_and_revoke_works() {
     assert_eq!(v["id"], id.as_str());
     let (code, _, err) = run_json(
         h.sandbox
-            .quire_at(&h.server.url, &secret)
+            .wikanvas_at(&h.server.url, &secret)
             .args(["--json", "auth", "whoami"]),
     );
     assert_eq!(code, 5, "{err}");
@@ -95,7 +95,7 @@ fn token_out_writes_0600_and_keeps_secret_off_stdout() {
     let path = h.sandbox.path().join("agent.token");
     let p = path.to_str().unwrap();
     let out = h
-        .quire_as(Scope::Admin)
+        .wikanvas_as(Scope::Admin)
         .args([
             "--json",
             "token",
@@ -116,7 +116,7 @@ fn token_out_writes_0600_and_keeps_secret_off_stdout() {
     let secret = std::fs::read_to_string(&path).unwrap();
     assert!(secret.ends_with('\n'));
     let secret = secret.trim_end();
-    assert!(quire_api::token::check(secret).is_ok());
+    assert!(wikanvas_api::token::check(secret).is_ok());
     assert!(
         !stdout.contains(secret) && !stderr.contains(secret),
         "the secret is only in the file"
@@ -130,7 +130,7 @@ fn token_out_writes_0600_and_keeps_secret_off_stdout() {
     assert_eq!(v["api_token"]["prefix"], &secret[..12]);
     assert!(v.get("token").is_none());
     // The file works as --token-file; the human form keeps the secret off stdout too.
-    let (code, _, err) = run_json(h.sandbox.quire().args([
+    let (code, _, err) = run_json(h.sandbox.wikanvas().args([
         "--json",
         "--url",
         &h.server.url,
@@ -141,7 +141,7 @@ fn token_out_writes_0600_and_keeps_secret_off_stdout() {
     ]));
     assert_eq!(code, 0, "{err}");
     let out = h
-        .quire_as(Scope::Admin)
+        .wikanvas_as(Scope::Admin)
         .args([
             "token",
             "create",
@@ -179,7 +179,7 @@ fn logout_revoke_revokes_current_token() {
     );
     let secret = v["token"].as_str().unwrap().to_owned();
     let s = &h.sandbox;
-    s.quire()
+    s.wikanvas()
         .args([
             "--json",
             "auth",
@@ -196,7 +196,7 @@ fn logout_revoke_revokes_current_token() {
             .unwrap()
             .contains(&secret)
     );
-    let (code, v, err) = run_json(s.quire().args(["--json", "auth", "logout", "--revoke"]));
+    let (code, v, err) = run_json(s.wikanvas().args(["--json", "auth", "logout", "--revoke"]));
     assert_eq!(code, 0, "{err}");
     assert_eq!(v["ok"], true);
     assert_eq!(v["status"], 204);
@@ -209,7 +209,7 @@ fn logout_revoke_revokes_current_token() {
         "removed from the profile"
     );
     let (code, _, err) = run_json(
-        s.quire_at(&h.server.url, &secret)
+        s.wikanvas_at(&h.server.url, &secret)
             .args(["--json", "auth", "whoami"]),
     );
     assert_eq!(code, 5, "revoked on the server: {err}");
@@ -219,7 +219,7 @@ fn logout_revoke_revokes_current_token() {
 }
 
 /// `auth logout --revoke` revokes the token it removes, the profile's, at the profile's URL, even when the shell
-/// exports another token (QUIRE_TOKEN) that the resolved pair would otherwise use.
+/// exports another token (WIKANVAS_TOKEN) that the resolved pair would otherwise use.
 #[test]
 fn logout_revoke_revokes_the_profiles_token_not_the_environments() {
     let h = Harness::start();
@@ -242,7 +242,7 @@ fn logout_revoke_revokes_the_profiles_token_not_the_environments() {
     };
     let (profile_token, shell_token) = (mint("profile"), mint("shell"));
     let s = &h.sandbox;
-    s.quire()
+    s.wikanvas()
         .args([
             "--json",
             "auth",
@@ -256,16 +256,16 @@ fn logout_revoke_revokes_the_profiles_token_not_the_environments() {
         .success();
     let whoami = |token: &str| {
         run_json(
-            s.quire_at(&h.server.url, token)
+            s.wikanvas_at(&h.server.url, token)
                 .args(["--json", "auth", "whoami"]),
         )
         .0
     };
 
-    // The URL comes from the profile, the token in play from QUIRE_TOKEN.
+    // The URL comes from the profile, the token in play from WIKANVAS_TOKEN.
     let (code, v, err) = run_json(
-        s.quire()
-            .env("QUIRE_TOKEN", &shell_token)
+        s.wikanvas()
+            .env("WIKANVAS_TOKEN", &shell_token)
             .args(["--json", "auth", "logout", "--revoke"]),
     );
     assert_eq!(code, 0, "{err}");
@@ -281,8 +281,8 @@ fn logout_revoke_revokes_the_profiles_token_not_the_environments() {
 
     // The profile holds no token now: --revoke has nothing to revoke (exit 3), and the shell's token is untouched.
     let (code, _, err) = run_json(
-        s.quire()
-            .env("QUIRE_TOKEN", &shell_token)
+        s.wikanvas()
+            .env("WIKANVAS_TOKEN", &shell_token)
             .args(["--json", "auth", "logout", "--revoke"]),
     );
     assert_eq!(code, 3, "{err}");

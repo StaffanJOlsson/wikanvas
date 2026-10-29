@@ -1,4 +1,4 @@
-//! The `quire list` commands: recent, updated, drafts, starred, archive (owner: W8)
+//! The `wikanvas list` commands: recent, updated, drafts, starred, archive (owner: W8)
 
 use super::{Ctx, Res};
 use crate::args::ListCmd;

@@ -66,7 +66,7 @@ export function inkboardFrameUrl(config: Pick<Config, 'inkboard'> | null | undef
 }
 
 /** The origin `safeNext` resolves against; any other origin after parsing means the target left the app. */
-const NEXT_BASE = 'http://quire.invalid';
+const NEXT_BASE = 'http://wikanvas.invalid';
 
 /**
  * The `?next=` target after signing in: a same-origin path only, else `/home`. Refused: a scheme, `//host`, a

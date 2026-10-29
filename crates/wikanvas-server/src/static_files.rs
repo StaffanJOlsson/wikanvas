@@ -1,7 +1,7 @@
 //! Static serving of the embedded web and Inkboard files with precompressed variants (owner: W2).
 //!
 //! [`Site`] is the fallback of every path outside `/api/` and `/healthz` (§11). It is generic over an
-//! [`AssetSource`]: [`Embedded`] (rust-embed, `quire-assets`) in production, [`MemoryAssets`] in tests.
+//! [`AssetSource`]: [`Embedded`] (rust-embed, `wikanvas-assets`) in production, [`MemoryAssets`] in tests.
 //! - `/assets/*` (Vite-hashed): `public, max-age=31536000, immutable`, br / gzip / identity.
 //! - `index.html` and every SPA route (a path without an extension outside `/assets` and `/inkboard`): `no-cache`,
 //!   br / gzip / identity, the SPA CSP, `X-Frame-Options: DENY` and the HTML headers.
@@ -27,8 +27,8 @@ use std::sync::Arc;
 use axum::body::Body;
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
-use quire_api::{InkboardInfo, WasmBytes};
-use quire_assets::Asset;
+use wikanvas_api::{InkboardInfo, WasmBytes};
+use wikanvas_assets::Asset;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
@@ -42,17 +42,17 @@ pub trait AssetSource: Send + Sync + 'static {
     fn inkboard(&self, path: &str) -> Option<Asset>;
 }
 
-/// The files embedded in the binary (`quire-assets`).
+/// The files embedded in the binary (`wikanvas-assets`).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Embedded;
 
 impl AssetSource for Embedded {
     fn web(&self, path: &str) -> Option<Asset> {
-        quire_assets::web(path)
+        wikanvas_assets::web(path)
     }
 
     fn inkboard(&self, path: &str) -> Option<Asset> {
-        quire_assets::inkboard(path)
+        wikanvas_assets::inkboard(path)
     }
 }
 
@@ -108,7 +108,7 @@ impl AssetSource for MemoryAssets {
 pub struct Manifest {
     /// The first 12 hex digits of the dist's hash: the `{build}` of `/inkboard/{build}/`.
     pub build: String,
-    /// `0.2.0-beta.3+embed.quire.<patchset>`, or `stub`.
+    /// `0.2.0-beta.3+embed.wikanvas.<patchset>`, or `stub`.
     pub engine_version: String,
     pub format_version: u32,
     pub patchset: String,
@@ -462,7 +462,7 @@ mod tests {
                 MemoryAssets::new().with_inkboard("manifest.json", m),
             ))
         };
-        let ok = site(manifest(v, "0.2.0-beta.3+embed.quire.1")).unwrap();
+        let ok = site(manifest(v, "0.2.0-beta.3+embed.wikanvas.1")).unwrap();
         let info = ok.inkboard_info().unwrap();
         assert_eq!(info.base, "/inkboard/0123456789ab/");
         assert_eq!(

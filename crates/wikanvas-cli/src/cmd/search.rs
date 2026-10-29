@@ -1,4 +1,4 @@
-//! The `quire search` command: full text, or titles with --titles (owner: W8)
+//! The `wikanvas search` command: full text, or titles with --titles (owner: W8)
 
 use super::{Ctx, Res};
 use crate::args::SearchArgs;

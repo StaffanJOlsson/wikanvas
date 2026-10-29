@@ -2,13 +2,13 @@
 
 W7 reads this next. Main started clean at `52cf9aa` (W0b). The seven workstream branches were merged one at a time with
 `git merge --no-ff`, in the order W1, W2, W4, W6, W5, W3, W8. Every check below ran after each merge. Nothing was
-pushed. `vendor/inkboard` and the worktrees `../Quire-W*` were not touched.
+pushed. `vendor/inkboard` and the worktrees `../Wikanvas-W*` were not touched.
 
 ## Merges
 
 | # | Branch (tip) | Merge commit | Conflicts and how they were resolved |
 |---|---|---|---|
-| 1 | `ws/W1-tree` (`a538398`) | `be99303` Merge W1 | None. W1's `Cargo.lock` change (unicode-normalization in quire-core) came in cleanly; `scripts/check-pins.sh` passes. |
+| 1 | `ws/W1-tree` (`a538398`) | `be99303` Merge W1 | None. W1's `Cargo.lock` change (unicode-normalization in wikanvas-core) came in cleanly; `scripts/check-pins.sh` passes. |
 | 2 | `ws/W2-platform` (`22fd02f`) | `0d6632a` Merge W2 | `docs/api/openapi.json`: took main's side, then regenerated it (R4). The result has 47 paths and 59 operations: W1's 43 plus W2's 23, less W0b's 7 shared ones. |
 | 3 | `ws/W4-documents` (`9721321`) | `107219f` Merge W4 | `docs/api/openapi.json`: the same steps. Result: 52 paths, 66 operations (59 + 14 − 7). |
 | 4 | `ws/W6-boards` (`8e5d751`) | `6f96ae7` Merge W6 | `docs/api/openapi.json`: the same steps. Result: 55 paths, 70 operations (66 + 11 − 7). |
@@ -17,7 +17,7 @@ pushed. `vendor/inkboard` and the worktrees `../Quire-W*` were not touched.
 | 7 | `ws/W8-cli` (`67d98ac`) | `fb9115c` Merge W8 | None. |
 
 To regenerate the spec, the command was
-`scripts/dev.sh env UPDATE_OPENAPI=1 cargo test -p quire-server --locked --test api -- openapi::`. Each time, the
+`scripts/dev.sh env UPDATE_OPENAPI=1 cargo test -p wikanvas-server --locked --test api -- openapi::`. Each time, the
 regenerated file was committed as part of the merge commit. No other file conflicted, because the ownership tables held.
 No lockfile conflicted, because only W1 touched `Cargo.lock` and no branch touched a `pnpm-lock.yaml`. No
 `web/src/api/gen/*` file conflicted. Three branches changed bindings, each its own files:
@@ -38,7 +38,7 @@ main green, so none was applied. The open ones are listed below.
 
 ## Checks after each merge
 
-Every command ran with `QUIRE_SHARED_CARGO_HOME=/home/staffan/.cache/quire-cargo`:
+Every command ran with `WIKANVAS_SHARED_CARGO_HOME=/home/staffan/.cache/wikanvas-cargo`:
 
 - `scripts/dev.sh cargo build --workspace --locked`
 - `scripts/dev.sh cargo test --workspace --locked` (nothing skipped)
@@ -46,7 +46,7 @@ Every command ran with `QUIRE_SHARED_CARGO_HOME=/home/staffan/.cache/quire-cargo
 - `scripts/fmt.sh --check`
 - `scripts/dev.sh pnpm --dir web install --frozen-lockfile`, then `typecheck`, then `test`
 - the openapi drift check: regenerate with `UPDATE_OPENAPI=1 … openapi::`, then `git diff --exit-code docs/api/openapi.json`
-- the bindings drift check: `cargo test -p quire-api --locked export_bindings`, then `git diff --exit-code web/src/api/gen` with no untracked files
+- the bindings drift check: `cargo test -p wikanvas-api --locked export_bindings`, then `git diff --exit-code web/src/api/gen` with no untracked files
 - `scripts/check-pins.sh`
 - `git -C vendor/inkboard status --porcelain` and `git status --porcelain`, both empty
 
@@ -61,7 +61,7 @@ Every command ran with `QUIRE_SHARED_CARGO_HOME=/home/staffan/.cache/quire-cargo
 | W8 | **test failed**: 2 of the 68 `tests/cli` tests (see `d28ff5b`); everything else passed | 123 · 43 + 66 (cargo stopped at the failing binary) | 59 / 280 |
 | `d28ff5b` | all pass | 123 · 43 + 68 · 68 · 58 + 178 · 22 + 112 | 59 / 280 |
 
-The store's unit test count dropping from 20 to 19 after W4 is expected. `quire-store/src/docs.rs` has 2 unit tests
+The store's unit test count dropping from 20 to 19 after W4 is expected. `wikanvas-store/src/docs.rs` has 2 unit tests
 on W4's branch, against W0b's 3, which matches the per-branch counts in the W1, W2 and W4 reports.
 
 `security::every_operation_enforces_its_declared_scope` passes over all 70 operations. W8's `coverage::` test passes
@@ -118,8 +118,8 @@ or a design decision.
 6. **The seed does not use W4's seed helpers** (W4 request W2-1). `seed::getting_started` calls
    `docs::init_with(welcome, getting-started.bin)`, so the welcome document's links still point at the placeholder ids
    `docs::SEED_WRITING_ID` and `SEED_BOARD_ID` instead of the seeded items. The fix is
-   `docs::init_seed(…, &[(SEED_WRITING_ID, writing_id), (SEED_BOARD_ID, board_id)], …)`. Also, "Writing in Quire"
-   stays empty, although W4 added `fixtures/ydoc/writing-in-quire.bin` for it (`docs::init_with`). This is related to
+   `docs::init_seed(…, &[(SEED_WRITING_ID, writing_id), (SEED_BOARD_ID, board_id)], …)`. Also, "Writing in Wikanvas"
+   stays empty, although W4 added `fixtures/ydoc/writing-in-wikanvas.bin` for it (`docs::init_with`). This is related to
    `integration::seeded_getting_started_is_published_and_searchable`.
 7. **`ItemDetail.board` uses W1's own `items::board_meta`, not `boards::board_meta`** (W6 request W1-1). They differ
    in two ways:
@@ -130,11 +130,11 @@ or a design decision.
 8. **Board-page SVG is gzipped in two places.** W2 now gzips `image/svg+xml` on `…/board/pages/{n}` (W2 D10) and
    withdrew request W6-2. W6's route still gzips the page itself (W6-D29) and sets `Content-Encoding`, so W2's layer
    skips it. The two are compatible, but one of them should go.
-9. **`quire item move` without `--parent` sends `parent_id: null`** (`crates/quire-cli/src/cmd/item.rs`), so a reorder
-   moves the item to the top level, or gets a 422 when the position names a sibling. W1 request W8 (D23) asks it to
-   send the current parent instead.
+9. **`wikanvas item move` without `--parent` sends `parent_id: null`** (`crates/wikanvas-cli/src/cmd/item.rs`), so a
+   reorder moves the item to the top level, or gets a 422 when the position names a sibling. W1 request W8 (D23) asks it
+   to send the current parent instead.
 10. **The board host has its own update banner.** On a `frame.html` 404 the board host sets `updateAvailable` in its
-    own store, and does not call W3's `checkForUpdate()` (W3 request W6-1). Check that only one "Quire was updated"
+    own store, and does not call W3's `checkForUpdate()` (W3 request W6-1). Check that only one "Wikanvas was updated"
     banner can show.
 11. **Tree title order differs.** W3-D1 sorts accent-insensitively with numbers in numeric order; W1 D10 sorts
     case-insensitively only (W3 request W1-1). An optimistic reorder in the web UI can briefly disagree with the
@@ -155,10 +155,10 @@ None was needed for green (see above). They are listed by target, with the sourc
 **W2 (from W4, W5, W6):**
 - W5 W2-1: serve the manifest (item 1).
 - W4 W2-1: the seed (item 6).
-- W4 W2-3: set `oas3 = { …, default-features = false }` in `crates/quire-server/Cargo.toml`, because `preserve-order`
+- W4 W2-3: set `oas3 = { …, default-features = false }` in `crates/wikanvas-server/Cargo.toml`, because `preserve-order`
   changes serde_json's `Map` order in test builds. This needs a lockfile update (R6).
 - W6 W2-7: `files::low_disk_507` should also cover a board PUT through an injected probe in
-  `quire_store::shared::check_free_space`.
+  `wikanvas_store::shared::check_free_space`.
 - W6 W2-4 and W2-8 are optional: move `content_disposition` to `headers.rs`, and move the board body budget into
   `AppState`.
 - Already satisfied on main:
@@ -198,12 +198,12 @@ None was needed for green (see above). They are listed by target, with the sourc
   - §7.2: D3, D4, D6, D7, D14, D15 and D16;
   - §5 "Trash": D22;
   - §7.2 `…/move`: a body without `parent_id` is 422 (D23);
-  - PLAN W1 "Produces": `quire_store::search::build_match`;
+  - PLAN W1 "Produces": `wikanvas_store::search::build_match`;
   - integration tests: a document's Y-derived text through `/text` and search, a board label found by search, and
     duplicate copying `item_attachments`.
 - W2:
   - §12/D34: the `sqlite_stat` rows;
-  - §7.2 setup 401 (D15); §7.8 admin JSON (D22); `QUIRE_BACKUP_KEEP=0` (D21);
+  - §7.2 setup 401 (D15); §7.8 admin JSON (D22); `WIKANVAS_BACKUP_KEEP=0` (D21);
   - the PLAN W2 table wording (D26);
   - §8/§11: no deadline for export and backup (D9), the compression rule (D10), `nosniff`/`no-store` (D11);
   - §12: the first-backup schedule, the `backups/.lock` lock and the flags held during a copy (D20, D21);
@@ -224,7 +224,8 @@ None was needed for green (see above). They are listed by target, with the sourc
   - §11: `manifest.json` (W7-2, item 1);
   - §10.2/§10.3/§10.5: D2, D4–D7, D11 and D12, and the 0003 rows for `web/Trunk.toml`, `scripts/build_web.sh` and
     `build_web.ps1`;
-  - the first full image build with the real `inkboard-web` stage, then `QUIRE_SMOKE_LEVEL=full scripts/image-smoke.sh`;
+  - the first full image build with the real `inkboard-web` stage, then
+    `WIKANVAS_SMOKE_LEVEL=full scripts/image-smoke.sh`;
   - `docs/handoff/W0b.md`'s "e2e.sh frame (stub) PASS" no longer holds;
   - **D18**: one host-side `node --check e2e/serve-static.mjs` broke R1 (a syntax check only, which leaves nothing
     behind). It is recorded here for the owner and W7 to acknowledge; the merge did not repeat it.
@@ -252,14 +253,14 @@ None was needed for green (see above). They are listed by target, with the sourc
 
 Main started clean at `b470373`. The three W7 branches were merged with `git merge --no-ff`, in the order fixes,
 integration tests, docs, and every check of "Checks after each merge" above ran after each one. Nothing was pushed.
-`vendor/inkboard` and the worktrees `../Quire-W7-*` were not touched.
+`vendor/inkboard` and the worktrees `../Wikanvas-W7-*` were not touched.
 
 ### Merges
 
 | # | Branch (tip) | Merge commit | Conflicts and how they were resolved |
 |---|---|---|---|
 | 1 | `ws/W7-fixes` (`d73176e`) | `a049f70` Merge W7 fixes | None. Its `Cargo.lock` change (oas3 without default features: serde_json loses its `indexmap`/`foldhash` edges, no version changes, still 366 + 6 packages) came in cleanly; `scripts/check-pins.sh` passes. Its `openapi.json` and `ItemDetail.ts` changes match a regeneration. |
-| 2 | `ws/W7-integration-tests` (`9bf2186`) | `c442278` Merge W7 integration tests | `crates/quire-store/src/seed.rs`: both branches fixed "Writing in Quire" (W7 fixes `8818447`, W7 tests `2cc03c4`, which says so and asks to take the other side). Kept the fixes branch's version, the better fix: it stores "Writing in Quire" from its fixture too, and also maps the welcome document's placeholder ids with `docs::init_seed` (merge item 6). Both branches' seed tests pass on it: the store seed test and `integration::seeded_getting_started_is_published_and_searchable`. |
+| 2 | `ws/W7-integration-tests` (`9bf2186`) | `c442278` Merge W7 integration tests | `crates/wikanvas-store/src/seed.rs`: both branches fixed "Writing in Wikanvas" (W7 fixes `8818447`, W7 tests `2cc03c4`, which says so and asks to take the other side). Kept the fixes branch's version, the better fix: it stores "Writing in Wikanvas" from its fixture too, and also maps the welcome document's placeholder ids with `docs::init_seed` (merge item 6). Both branches' seed tests pass on it: the store seed test and `integration::seeded_getting_started_is_published_and_searchable`. |
 | 3 | `ws/W7-docs` (`d1fd006`) | `093f991` Merge W7 docs | None. `docs/AGENTS.md` merged on its own: the fixes changed the `item` row and added an example, the docs the `admin` row. |
 
 No lockfile conflicted, no `docs/api/openapi.json` or `web/src/api/gen/*` file conflicted, and only W7 fixes changed
@@ -278,7 +279,7 @@ in §7.2. W1 D19 (`dark_theme` through `users::get`) has no text in ARCHITECTURE
 
 ### Checks after each merge
 
-The same commands as above, all with `QUIRE_SHARED_CARGO_HOME=/home/staffan/.cache/quire-cargo`, `cargo test` with
+The same commands as above, all with `WIKANVAS_SHARED_CARGO_HOME=/home/staffan/.cache/wikanvas-cargo`, `cargo test` with
 `--no-fail-fast`. Nothing was skipped or ignored.
 
 | After | Result | Rust tests (api · cli unit + `tests/cli` · core · server lib + `tests/api` · store lib + `tests/store`) | Web (files / tests) |
@@ -297,9 +298,9 @@ Router's "No route matches") is unchanged.
 
 Each needs an image or a browser, and none was part of this merge step:
 - `scripts/image.sh` with the real `inkboard-web` stage (the first full build, now also with the docs branch's
-  `licenses` stage), then `QUIRE_SMOKE_LEVEL=full scripts/image-smoke.sh`: the only check of the manifest fix
-  (merge item 1) in the real image. Note: `quire:latest` is currently the docs agent's stub image
-  (`quire:b470373-dirty`, built with `INKBOARD_BUILD=stub` from the docs worktree), so rebuild before any image test;
+  `licenses` stage), then `WIKANVAS_SMOKE_LEVEL=full scripts/image-smoke.sh`: the only check of the manifest fix
+  (merge item 1) in the real image. Note: `wikanvas:latest` is currently the docs agent's stub image
+  (`wikanvas:b470373-dirty`, built with `INKBOARD_BUILD=stub` from the docs worktree), so rebuild before any image test;
 - `scripts/agent-test.sh` with all eleven scenarios, including the fixed scenario 04 (merge item 2);
 - `scripts/e2e.sh smoke` and, after `scripts/dev.sh scripts/inkboard.sh build`, `scripts/e2e.sh frame`;
 - `scripts/cli-dist.sh`;
@@ -311,15 +312,15 @@ Each needs an image or a browser, and none was part of this merge step:
 - Owner decisions, current pins kept, not decided here (ARCHITECTURE §16 items 24 and 25): lightningcss (MPL-2.0,
   build-only, through Vite 8.3.5: allow MPL-2.0 for build-only tools, or re-pin Vite 7); image digests younger than two
   weeks and Node 24.22.1 about 7 days old; host port 443 held by the owner's Caddy (the README explains
-  `QUIRE_HTTPS_PORT`/`QUIRE_HTTP_PORT` and running behind an existing proxy). The docs agent added to the same list:
-  the Inkboard wasm's fonts (SIL OFL 1.1, Ubuntu Font Licence 1.0), the runtime base image's OS layer (LGPL, GPL with
-  the runtime exception, MPL-2.0 CA data), and Inkboard's own list naming Unlicense, BSL-1.0 and CDLA-Permissive-2.0
-  crates that should be compiled out of the embed build (not verified with a crate list).
+  `WIKANVAS_HTTPS_PORT`/`WIKANVAS_HTTP_PORT` and running behind an existing proxy). The docs agent added to the same
+  list: the Inkboard wasm's fonts (SIL OFL 1.1, Ubuntu Font Licence 1.0), the runtime base image's OS layer (LGPL, GPL
+  with the runtime exception, MPL-2.0 CA data), and Inkboard's own list naming Unlicense, BSL-1.0 and
+  CDLA-Permissive-2.0 crates that should be compiled out of the embed build (not verified with a crate list).
 - Optional W6 refactors W2-4 (`content_disposition` into `headers.rs`) and W2-8 (the board body budget into
   `AppState`): not done, no behaviour change.
 - Follow-ups (ARCHITECTURE §16 items 27–29): the 545 kB main web chunk; the layer's board-page gzip on an async worker;
-  a CLI-only `licenses.txt`; `compose.yaml` sets `QUIRE_TRUSTED_PROXIES` from `QUIRE_PROXY_IP`, so the variable has no
-  effect in `.env` (the README says to set it in `compose.override.yaml`).
-- W8 should review the fixes branch's changes to its files (`crates/quire-cli/src/{args.rs,cmd/item.rs}`,
+  a CLI-only `licenses.txt`; `compose.yaml` sets `WIKANVAS_TRUSTED_PROXIES` from `WIKANVAS_PROXY_IP`, so the variable
+  has no effect in `.env` (the README says to set it in `compose.override.yaml`).
+- W8 should review the fixes branch's changes to its files (`crates/wikanvas-cli/src/{args.rs,cmd/item.rs}`,
   `tests/cli/{flows,mocked}.rs`, `e2e/agent/scenarios/04-boards.sh`), as for `d28ff5b`, which the fixes agent reviewed
   and found correct (D50, §6.2 step 4).

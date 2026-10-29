@@ -1,5 +1,5 @@
 // `/item/:id` (docs/ARCHITECTURE.md §9.1): opens an item by its UUID, the DOM href of a document's item links
-// (`quire://item/<uuid>` in the stored mark). It loads the item and replaces the URL with the item's page, so Back
+// (`wikanvas://item/<uuid>` in the stored mark). It loads the item and replaces the URL with the item's page, so Back
 // skips it; an unknown or purged item is NotFound.
 import { Navigate, useLocation, useParams } from 'react-router';
 import { isApiError } from '../api/client';

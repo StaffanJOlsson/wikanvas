@@ -3,15 +3,15 @@
 
 use std::os::unix::fs::symlink;
 
-use quire_api::Scope;
+use wikanvas_api::Scope;
 use serde_json::{Value, json};
 
 use crate::common::{Harness, last_error, run_json};
 
-/// Runs `quire --json …` as `scope` and expects success; returns stdout.
+/// Runs `wikanvas --json …` as `scope` and expects success; returns stdout.
 fn ok(h: &Harness, scope: Scope, args: &[&str]) -> Value {
     let (code, v, err) = h.json(scope, args);
-    assert_eq!(code, 0, "quire {}: {err}", args.join(" "));
+    assert_eq!(code, 0, "wikanvas {}: {err}", args.join(" "));
     v
 }
 
@@ -44,7 +44,7 @@ fn doc(h: &Harness, c: &str, title: &str, parent: Option<&str>) -> String {
 
 fn md_doc(h: &Harness, c: &str, md: &str) -> (String, String) {
     let (code, v, err) = run_json(
-        h.quire()
+        h.wikanvas()
             .args([
                 "--json",
                 "item",
@@ -234,7 +234,7 @@ fn item_create_md_discards_item_when_put_fails() {
     let h = Harness::start();
     let c = collection(&h, "Discard");
     let (code, out, err) = run_json(
-        h.quire()
+        h.wikanvas()
             .args([
                 "--json",
                 "item",
@@ -266,7 +266,7 @@ fn item_create_md_sets_title_only_after_put() {
     let h = Harness::start();
     let c = collection(&h, "Titles");
     let (code, v, err) = run_json(
-        h.quire()
+        h.wikanvas()
             .args([
                 "--json",
                 "item",
@@ -287,7 +287,7 @@ fn item_create_md_sets_title_only_after_put() {
     assert!(v["doc"]["etag"].as_str().unwrap().starts_with("\"d"), "{v}");
     // With a failing PUT the title is never set (and the item is gone).
     let (code, _, _) = run_json(
-        h.quire()
+        h.wikanvas()
             .args([
                 "--json",
                 "item",
@@ -308,7 +308,7 @@ fn item_create_md_sets_title_only_after_put() {
     assert_eq!(hits, json!([]));
     // --title-h1 takes it from the Markdown.
     let (code, v, err) = run_json(
-        h.quire()
+        h.wikanvas()
             .args([
                 "--json",
                 "item",
@@ -384,7 +384,7 @@ fn attach_images_refuses_paths_outside_base() {
     assert!(!text.contains("ok.png"), "{text}");
     // With stdin it needs --base-dir.
     let (code, _, _) = run_json(
-        h.quire()
+        h.wikanvas()
             .args([
                 "--json",
                 "doc",
@@ -503,7 +503,7 @@ fn attachment_upload_get_same_sha256() {
     assert_eq!(std::fs::read(&out).unwrap(), png);
     // Raw to stdout without --json.
     let raw = h
-        .quire_as(Scope::Read)
+        .wikanvas_as(Scope::Read)
         .args(["attachment", "get", &id])
         .assert()
         .success();
@@ -538,7 +538,7 @@ fn trash_purge_needs_yes_and_admin() {
 fn export_to_stdout_is_a_tar() {
     let h = Harness::start();
     collection(&h, "Exported");
-    let out = h.quire_as(Scope::Admin).arg("export").assert().success();
+    let out = h.wikanvas_as(Scope::Admin).arg("export").assert().success();
     let tar = &out.get_output().stdout;
     assert!(
         tar.len() >= 1024 && tar.len().is_multiple_of(512),
@@ -547,7 +547,7 @@ fn export_to_stdout_is_a_tar() {
     );
     assert_eq!(&tar[257..262], b"ustar");
     let names = String::from_utf8_lossy(tar);
-    assert!(names.contains("manifest.json") && names.contains("quire.db"));
+    assert!(names.contains("manifest.json") && names.contains("wikanvas.db"));
     let (code, _, _) = h.json(Scope::Write, &["export", "--out", "x.tar"]);
     assert_eq!(code, 6);
     let (code, _, _) = h.json(Scope::Admin, &["export"]);

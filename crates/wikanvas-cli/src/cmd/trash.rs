@@ -1,4 +1,4 @@
-//! The `quire trash` commands (owner: W8)
+//! The `wikanvas trash` commands (owner: W8)
 
 use super::{Ctx, Res};
 use crate::args::TrashCmd;

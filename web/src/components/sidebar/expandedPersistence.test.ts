@@ -13,7 +13,7 @@ import {
 const stored = () => JSON.parse(localStorage.getItem(EXPANDED_KEY) ?? 'null') as unknown;
 
 describe('expanded state persistence', () => {
-  it('starts empty and persists every change to quire.sidebar.expanded', () => {
+  it('starts empty and persists every change to wikanvas.sidebar.expanded', () => {
     expect(useExpandedStore.getState().ids.size).toBe(0);
     setExpanded('c1', true);
     toggleExpanded('item-1');

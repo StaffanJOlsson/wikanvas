@@ -3,12 +3,12 @@
 //! `Auth<S>` is always the first argument of a handler (D44), so authentication and the scope check answer before
 //! any path, query or body is parsed. Resolution (§7.3):
 //! 1. while no owner exists: 409 `setup_required` (the owner-exists cache re-checks on every request while false);
-//! 2. a Quire bearer request ([`crate::csrf::is_quire_bearer`]) is authenticated by the token alone: a malformed
+//! 2. a Wikanvas bearer request ([`crate::csrf::is_wikanvas_bearer`]) is authenticated by the token alone: a malformed
 //!    token is 401 `invalid_token` without a lookup; otherwise `tokens::lookup` classifies it (live; expired: 401
 //!    with `details.reason = "expired"`; revoked, disabled or unknown: 401). The cookie is ignored;
 //! 3. any other request (no `Authorization`, or any other value) takes the session cookie named for the request's
-//!    scheme (`__Host-quire_session` over HTTPS from the trusted proxy, `quire_session` otherwise); none, unknown or
-//!    expired is 401 `unauthenticated`. A session past half of its window is renewed, and a persistent one gets its
+//!    scheme (`__Host-wikanvas_session` over HTTPS from the trusted proxy, `wikanvas_session` otherwise); none, unknown
+//!    or expired is 401 `unauthenticated`. A session past half of its window is renewed, and a persistent one gets its
 //!    cookie again with the new `Max-Age` (§8);
 //! 4. the requirement `S`: `Read`/`Write`/`Admin` need that scope (a session has every scope), else 403
 //!    `insufficient_scope`; `Session` answers a token with 403 `session_required`; `AnyToken` answers a session with
@@ -28,8 +28,8 @@ use std::sync::{Arc, Mutex, OnceLock};
 use axum::extract::{ConnectInfo, FromRequestParts, Path};
 use axum::http::request::Parts;
 use axum::http::{HeaderMap, HeaderValue, header};
-use quire_api::{ErrorCode, RateLimitReason, Role, Scope};
-use quire_store::tokens::TokenLookup;
+use wikanvas_api::{ErrorCode, RateLimitReason, Role, Scope};
+use wikanvas_store::tokens::TokenLookup;
 use uuid::Uuid;
 
 use crate::config::{Config, canonical_ip};
@@ -37,12 +37,12 @@ use crate::csrf::bearer_token;
 use crate::error::ApiError;
 use crate::state::AppState;
 
-pub use quire_store::shared::Viewer;
+pub use wikanvas_store::shared::Viewer;
 
 /// The session cookie on a plain-HTTP request.
-pub const SESSION_COOKIE: &str = "quire_session";
+pub const SESSION_COOKIE: &str = "wikanvas_session";
 /// The session cookie on an HTTPS request (behind the trusted proxy).
-pub const SESSION_COOKIE_SECURE: &str = "__Host-quire_session";
+pub const SESSION_COOKIE_SECURE: &str = "__Host-wikanvas_session";
 
 /// How the request was authenticated.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -106,8 +106,8 @@ impl Actor {
     }
 
     /// The author of a content write (D53).
-    pub fn write_by(&self) -> quire_store::shared::WriteBy<'_> {
-        quire_store::shared::WriteBy {
+    pub fn write_by(&self) -> wikanvas_store::shared::WriteBy<'_> {
+        wikanvas_store::shared::WriteBy {
             user_id: &self.user_id,
             token_id: self.token_id(),
         }
@@ -250,7 +250,7 @@ pub async fn authenticate(parts: &mut Parts, state: &AppState) -> Result<Actor, 
     if !state.owner_exists().await? {
         return Err(ApiError::new(
             ErrorCode::SetupRequired,
-            "no owner exists yet: finish setup at /setup or run quire-server admin create-owner",
+            "no owner exists yet: finish setup at /setup or run wikanvas-server admin create-owner",
         ));
     }
     let client = ClientInfo::from_parts(parts, &state.config);
@@ -267,13 +267,13 @@ pub async fn authenticate(parts: &mut Parts, state: &AppState) -> Result<Actor, 
     Ok(actor)
 }
 
-/// Logs, once per process at debug level, that an `Authorization` value other than a Quire token was ignored (D43:
+/// Logs, once per process at debug level, that an `Authorization` value other than a Wikanvas token was ignored (D43:
 /// a proxy's Basic or JWT header takes the cookie path with the full CSRF checks).
 fn note_foreign_authorization() {
     static NOTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
     if !NOTED.swap(true, Ordering::Relaxed) {
         tracing::debug!(
-            "ignoring an Authorization header that is not a Quire token (qpat_); using the session cookie"
+            "ignoring an Authorization header that is not a Wikanvas token (qpat_); using the session cookie"
         );
     }
 }
@@ -293,13 +293,13 @@ async fn authenticate_token(
     token: String,
     client: ClientInfo,
 ) -> Result<Actor, ApiError> {
-    if quire_api::token::check(&token).is_err() {
+    if wikanvas_api::token::check(&token).is_err() {
         return Err(bearer_failure(state, client, false));
     }
     let now = state.now();
     let found = state
         .db
-        .read(move |conn| quire_store::tokens::lookup(conn, &token, now))
+        .read(move |conn| wikanvas_store::tokens::lookup(conn, &token, now))
         .await?;
     let row = match found {
         TokenLookup::Live(row) => row,
@@ -333,7 +333,7 @@ async fn authenticate_token(
         );
         tokio::spawn(async move {
             let written = db
-                .write(move |tx| quire_store::tokens::touch_last_used(tx, &id, now, ip.as_deref()))
+                .write(move |tx| wikanvas_store::tokens::touch_last_used(tx, &id, now, ip.as_deref()))
                 .await;
             if let Err(e) = written {
                 tracing::warn!(error = %e, "cannot record a token's last use");
@@ -365,10 +365,10 @@ pub fn cookie_value<'h>(headers: &'h HeaderMap, name: &str) -> Option<&'h str> {
 /// sha256 of a session token, as stored in `sessions.token_hash`. `None` when `cookie` is not the base64url form of 32
 /// bytes.
 pub fn session_token_hash(cookie: &str) -> Option<[u8; 32]> {
-    quire_store::sessions::token_hash(cookie)
+    wikanvas_store::sessions::token_hash(cookie)
 }
 
-/// The session cookie's name for a request over HTTPS (`__Host-quire_session`) or plain HTTP (`quire_session`).
+/// The session cookie's name for a request over HTTPS (`__Host-wikanvas_session`) or plain HTTP (`wikanvas_session`).
 pub fn session_cookie_name(https: bool) -> &'static str {
     if https {
         SESSION_COOKIE_SECURE
@@ -410,15 +410,15 @@ async fn authenticate_cookie(
     let now = state.now();
     let row = state
         .db
-        .read(move |conn| quire_store::sessions::lookup(conn, &cookie, now))
+        .read(move |conn| wikanvas_store::sessions::lookup(conn, &cookie, now))
         .await?
         .ok_or_else(ApiError::unauthenticated)?;
-    if quire_store::sessions::needs_refresh(&row, now) {
-        let renewed = quire_store::sessions::renewal(&row, now);
+    if wikanvas_store::sessions::needs_refresh(&row, now) {
+        let renewed = wikanvas_store::sessions::renewal(&row, now);
         let (id, ip) = (row.id.clone(), client.ip.map(|ip| ip.to_string()));
         state
             .db
-            .write(move |tx| quire_store::sessions::refresh(tx, &id, renewed, now, ip.as_deref()))
+            .write(move |tx| wikanvas_store::sessions::refresh(tx, &id, renewed, now, ip.as_deref()))
             .await?;
         if let Some(expires_at) = renewed
             && row.persistent
@@ -438,7 +438,7 @@ async fn authenticate_cookie(
 }
 
 /// The client's address and scheme (§8): the socket peer and plain HTTP, unless the peer is in
-/// `QUIRE_TRUSTED_PROXIES`; from a trusted peer, the rightmost `X-Forwarded-For` address and
+/// `WIKANVAS_TRUSTED_PROXIES`; from a trusted peer, the rightmost `X-Forwarded-For` address and
 /// `X-Forwarded-Proto: https`. `Forwarded` is never read.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ClientInfo {
@@ -650,11 +650,11 @@ mod tests {
         let mut h = HeaderMap::new();
         h.append(
             header::COOKIE,
-            HeaderValue::from_static("a=1; quire_session=abc"),
+            HeaderValue::from_static("a=1; wikanvas_session=abc"),
         );
         h.append(
             header::COOKIE,
-            HeaderValue::from_static("__Host-quire_session=def"),
+            HeaderValue::from_static("__Host-wikanvas_session=def"),
         );
         assert_eq!(cookie_value(&h, SESSION_COOKIE), Some("abc"));
         assert_eq!(cookie_value(&h, SESSION_COOKIE_SECURE), Some("def"));
@@ -682,7 +682,7 @@ mod tests {
 
     #[test]
     fn client_info_trusts_only_configured_proxies() {
-        let vars = [("QUIRE_TRUSTED_PROXIES", "172.31.240.2")];
+        let vars = [("WIKANVAS_TRUSTED_PROXIES", "172.31.240.2")];
         let config = Config::from_lookup(|k| {
             vars.iter()
                 .find(|(n, _)| *n == k)

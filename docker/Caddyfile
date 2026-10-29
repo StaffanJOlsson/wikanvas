@@ -1,4 +1,4 @@
-# Quire's HTTPS front (docs/ARCHITECTURE.md §13.4). compose.yaml sets QUIRE_DOMAIN and QUIRE_TLS.
+# Wikanvas's HTTPS front (docs/ARCHITECTURE.md §13.4). compose.yaml sets WIKANVAS_DOMAIN and WIKANVAS_TLS.
 {
 	admin off                 # no admin API; a Caddyfile change needs `docker compose restart caddy`
 	skip_install_trust        # never touch a trust store; the owner trusts the local root by hand (below)
@@ -16,12 +16,12 @@
 	}
 }
 
-{$QUIRE_DOMAIN} {
-	import tls_{$QUIRE_TLS}
-	# No `encode` and no `header`: Quire sends its own precompressed br/gzip and every security header.
-	reverse_proxy quire:8080 {
+{$WIKANVAS_DOMAIN} {
+	import tls_{$WIKANVAS_TLS}
+	# No `encode` and no `header`: Wikanvas sends its own precompressed br/gzip and every security header.
+	reverse_proxy wikanvas:8080 {
 		transport http {
-			compression off   # do not add Accept-Encoding toward Quire or decode its answer
+			compression off   # do not add Accept-Encoding toward Wikanvas or decode its answer
 		}
 	}
 }

@@ -6,9 +6,9 @@
 
 use std::time::Duration;
 
-use quire_api::tokens::NewToken;
-use quire_api::{ApiToken, CreatedToken, ErrorBody, ErrorCode, Me, Scope};
-use quire_store::tokens::{CreatedVia, TokenLookup};
+use wikanvas_api::tokens::NewToken;
+use wikanvas_api::{ApiToken, CreatedToken, ErrorBody, ErrorCode, Me, Scope};
+use wikanvas_store::tokens::{CreatedVia, TokenLookup};
 use serde_json::json;
 
 use crate::common::{OWNER_PASSWORD, TestApp, assert_error};
@@ -58,7 +58,7 @@ async fn malformed_token_401_without_lookup() {
         );
     }
     // A well-formed token is looked up, and the lookup hits the missing table: the malformed ones never queried.
-    let well_formed = quire_api::token::encode(&[3u8; 32]);
+    let well_formed = wikanvas_api::token::encode(&[3u8; 32]);
     let res = client
         .get("/api/v1/auth/me")
         .add_header("authorization", format!("Bearer {well_formed}"))
@@ -69,7 +69,7 @@ async fn malformed_token_401_without_lookup() {
 #[tokio::test]
 async fn unknown_token_401_without_reason() {
     let app = TestApp::with_owner().await;
-    let token = quire_api::token::encode(&[9u8; 32]);
+    let token = wikanvas_api::token::encode(&[9u8; 32]);
     let res = app
         .client()
         .get("/api/v1/auth/me")
@@ -147,13 +147,13 @@ async fn create_shows_secret_once_list_never() {
         .await;
     res.assert_status(axum::http::StatusCode::CREATED);
     let created: CreatedToken = res.json();
-    assert!(quire_api::token::check(&created.token).is_ok());
+    assert!(wikanvas_api::token::check(&created.token).is_ok());
     assert_eq!(created.api_token.scopes, vec![Scope::Read, Scope::Write]);
     assert_eq!(created.api_token.created_via.as_str(), "web");
     let listed = app.server.get("/api/v1/tokens").await;
     listed.assert_status_ok();
     assert!(!listed.text().contains(&created.token));
-    let hash: String = quire_store::tokens::hash(&created.token)
+    let hash: String = wikanvas_store::tokens::hash(&created.token)
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect();
@@ -309,7 +309,7 @@ async fn scopes_expanded_and_capped_by_caller() {
         .state
         .db
         .write(move |tx| {
-            let TokenLookup::Live(parent) = quire_store::tokens::lookup(tx, &read, now)? else {
+            let TokenLookup::Live(parent) = wikanvas_store::tokens::lookup(tx, &read, now)? else {
                 panic!("live");
             };
             let new = |scope| NewToken {
@@ -318,7 +318,7 @@ async fn scopes_expanded_and_capped_by_caller() {
                 expires_in_days: Some(Some(1)),
                 password: None,
             };
-            let above = quire_store::tokens::create(
+            let above = wikanvas_store::tokens::create(
                 tx,
                 &owner,
                 &new(Scope::Write),
@@ -327,7 +327,7 @@ async fn scopes_expanded_and_capped_by_caller() {
                 now,
             )
             .unwrap_err();
-            let admin = quire_store::tokens::create(
+            let admin = wikanvas_store::tokens::create(
                 tx,
                 &owner,
                 &new(Scope::Admin),
@@ -359,7 +359,7 @@ async fn lookup_classifies_expired_revoked_disabled() {
             .add_header("authorization", format!("Bearer {token}"))
     };
     let unknown = assert_error(
-        &me(quire_api::token::encode(&[5u8; 32])).await,
+        &me(wikanvas_api::token::encode(&[5u8; 32])).await,
         401,
         ErrorCode::InvalidToken,
     );

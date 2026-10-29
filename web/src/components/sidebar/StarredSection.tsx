@@ -41,11 +41,11 @@ function StarRow({ star, current, indicator }: { star: ItemSummary; current: boo
     const element = el.current;
     if (!element) return;
     return combine(
-      draggable({ element, getInitialData: () => ({ quireDrag: DRAG_STAR, itemId: star.id }) }),
+      draggable({ element, getInitialData: () => ({ wikanvasDrag: DRAG_STAR, itemId: star.id }) }),
       dropTargetForElements({
         element,
-        getData: () => ({ quireStar: star.id }),
-        canDrop: ({ source }) => source.data.quireDrag === DRAG_STAR,
+        getData: () => ({ wikanvasStar: star.id }),
+        canDrop: ({ source }) => source.data.wikanvasDrag === DRAG_STAR,
       }),
     );
   }, [star.id]);
@@ -73,21 +73,21 @@ export function StarredSection({ stars }: { stars: readonly ItemSummary[] }) {
     let pending: { itemId: string; targetId: string; edge: 'before' | 'after' } | null = null;
     type Args = Parameters<NonNullable<Parameters<typeof monitorForElements>[0]['onDrag']>>[0];
     const update = ({ source, location: loc }: Args) => {
-      const target = loc.current.dropTargets.find((t) => typeof t.data.quireStar === 'string');
+      const target = loc.current.dropTargets.find((t) => typeof t.data.wikanvasStar === 'string');
       if (!target) {
         pending = null;
         setIndicator(null);
         return;
       }
       const edge = edgeZone(loc.current.input.clientY, target.element.getBoundingClientRect());
-      const targetId = String(target.data.quireStar);
+      const targetId = String(target.data.wikanvasStar);
       const itemId = String(source.data.itemId);
       pending = itemId === targetId ? null : { itemId, targetId, edge };
       const next = pending ? { id: targetId, edge } : null;
       setIndicator((cur) => (next && cur?.id === next.id && cur.edge === next.edge ? cur : next));
     };
     return monitorForElements({
-      canMonitor: ({ source }) => source.data.quireDrag === DRAG_STAR,
+      canMonitor: ({ source }) => source.data.wikanvasDrag === DRAG_STAR,
       onDrag: update,
       onDropTargetChange: update,
       onDrop: () => {

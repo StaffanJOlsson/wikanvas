@@ -245,8 +245,8 @@ export function CollectionsTree({ collections, starredIds, scrollRef, labelledBy
     type Args = Parameters<NonNullable<Parameters<typeof monitorForElements>[0]['onDrag']>>[0];
     const update = ({ source, location: loc }: Args) => {
       const { rows: rs, forests: fs } = live.current;
-      const target = loc.current.dropTargets.find((t) => typeof t.data.quireRow === 'string');
-      const index = target ? rs.findIndex((r) => r.key === target.data.quireRow) : -1;
+      const target = loc.current.dropTargets.find((t) => typeof t.data.wikanvasRow === 'string');
+      const index = target ? rs.findIndex((r) => r.key === target.data.wikanvasRow) : -1;
       if (!target || index < 0) {
         pending = null;
         autoExpand.cancel();
@@ -255,7 +255,7 @@ export function CollectionsTree({ collections, starredIds, scrollRef, labelledBy
       }
       const rect = target.element.getBoundingClientRect();
       const { clientX, clientY } = loc.current.input;
-      if (source.data.quireDrag === DRAG_ITEM) {
+      if (source.data.wikanvasDrag === DRAG_ITEM) {
         const itemId = String(source.data.itemId);
         const collectionId = String(source.data.collectionId);
         const resolved = resolveItemDrop({
@@ -272,7 +272,7 @@ export function CollectionsTree({ collections, starredIds, scrollRef, labelledBy
         autoExpand.hover(autoExpandKey(rs[index]!, resolved));
         return;
       }
-      if (source.data.quireDrag === DRAG_COLLECTION) {
+      if (source.data.wikanvasDrag === DRAG_COLLECTION) {
         const draggedId = String(source.data.collectionId);
         let start = index;
         while (start > 0 && rs[start]!.kind !== 'collection') start--;
@@ -293,9 +293,9 @@ export function CollectionsTree({ collections, starredIds, scrollRef, labelledBy
     };
 
     const stop = monitorForElements({
-      canMonitor: ({ source }) => source.data.quireDrag === DRAG_ITEM || source.data.quireDrag === DRAG_COLLECTION,
+      canMonitor: ({ source }) => source.data.wikanvasDrag === DRAG_ITEM || source.data.wikanvasDrag === DRAG_COLLECTION,
       onDragStart: ({ source }) => {
-        if (source.data.quireDrag === DRAG_COLLECTION) setDragCollection(String(source.data.collectionId));
+        if (source.data.wikanvasDrag === DRAG_COLLECTION) setDragCollection(String(source.data.collectionId));
       },
       onDrag: update,
       onDropTargetChange: update,

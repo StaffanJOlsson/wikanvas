@@ -5,7 +5,7 @@
 //! [`purge`] act on it. Deleting a collection marks its live items with the collection as their trash root; restoring
 //! it clears exactly those rows, so items trashed earlier stay in Trash.
 
-use quire_core::api::{
+use wikanvas_core::api::{
     ChildOrder, Collection, CollectionPatch, ErrorCode, NewCollection, Position, Timestamp,
 };
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};

@@ -8,7 +8,7 @@ use utoipa::{IntoParams, ToSchema};
 
 use crate::common::{Timestamp, string_enum};
 
-/// The Quire TipTap schema version this server reads and writes (§6.1).
+/// The Wikanvas TipTap schema version this server reads and writes (§6.1).
 pub const SCHEMA_VERSION: u32 = 1;
 /// The Y `XmlFragment` that holds the document.
 pub const YFIELD: &str = "default";
@@ -187,7 +187,7 @@ pub struct ProseMirrorPutQuery {
     pub merge: bool,
 }
 
-/// Response of `GET /schema/doc`: schema v1 as data (`quire-core::schema`, §6.4), byte for byte
+/// Response of `GET /schema/doc`: schema v1 as data (`wikanvas-core::schema`, §6.4), byte for byte
 /// `fixtures/schema/v1.json`, which the web fixture writer dumps from the live TipTap schema.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS, ToSchema)]
 #[ts(export)]

@@ -3,7 +3,7 @@
 // D70). The type is declared with `DragItemType`, so a mismatch with bridge.ts does not typecheck.
 import type { DraggedItem, DragItemType } from '../bridge';
 
-export const DRAG_ITEM_TYPE: DragItemType = 'application/x-quire-item';
+export const DRAG_ITEM_TYPE: DragItemType = 'application/x-wikanvas-item';
 
 /** The native drag data of a document row. */
 export function dragDataOf(item: { id: string; title: string }): Record<DragItemType, string> {

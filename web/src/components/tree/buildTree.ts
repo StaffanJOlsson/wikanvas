@@ -1,7 +1,7 @@
 // The flat `GET /collections/{id}/tree` list as a nested tree (docs/ARCHITECTURE.md D21, §9.6.2). Every sibling group
 // of a collection is ordered by the collection's `child_order`:
 // - manual: `sort_key` (byte order, the server's fractional keys, D6);
-// - title: A–Z by `compareTitles`, the server's order (`quire_core::tree::title_key`): case- and accent-insensitive,
+// - title: A–Z by `compareTitles`, the server's order (`wikanvas_core::tree::title_key`): case- and accent-insensitive,
 //   numbers by value;
 // - updated / created: newest first.
 // Ties fall back to `sort_key`, then `id`, so the order is total and stable.
@@ -33,7 +33,7 @@ type TitlePart = { n: string } | { c: number };
 const ZERO = 0x30;
 
 /**
- * The sort key of a title, as the server builds it (`quire_core::tree::title_key`; both are checked against
+ * The sort key of a title, as the server builds it (`wikanvas_core::tree::title_key`; both are checked against
  * `fixtures/tree/title-order.json`): NFKD, every mark (`\p{M}`) removed, lowercased, `ς` as `σ`; then a run of
  * ASCII digits is one number.
  */

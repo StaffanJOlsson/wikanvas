@@ -1,5 +1,6 @@
 // Following links (docs/ARCHITECTURE.md §9.6.5): an item link's DOM href is `/item/<uuid>` (the stored mark keeps
-// `quire://item/<uuid>`); a click follows a link when the document is read-only, Ctrl/Cmd+click while it is editable.
+// `wikanvas://item/<uuid>`); a click follows a link when the document is read-only, Ctrl/Cmd+click while it is
+// editable.
 import { Editor } from '@tiptap/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { LinkOpener } from './extensions';
@@ -22,7 +23,7 @@ const doc = {
     {
       type: 'paragraph',
       content: [
-        { type: 'text', text: 'item', marks: [{ type: 'link', attrs: { href: `quire://item/${ID}`, itemId: ID } }] },
+        { type: 'text', text: 'item', marks: [{ type: 'link', attrs: { href: `wikanvas://item/${ID}`, itemId: ID } }] },
         { type: 'text', text: ' and ' },
         { type: 'text', text: 'web', marks: [{ type: 'link', attrs: { href: 'https://example.com/x', itemId: null } }] },
       ],
@@ -57,7 +58,7 @@ function click(el: Element, init: MouseEventInit = {}): { defaultPrevented: bool
 }
 
 describe('item links', () => {
-  it('render an openable href and keep quire://item/<uuid> in the mark', () => {
+  it('render an openable href and keep wikanvas://item/<uuid> in the mark', () => {
     const e = mount(() => undefined, true);
     const a = e.view.dom.querySelector(`a[data-item-id="${ID}"]`);
     expect(a?.getAttribute('href')).toBe(`/item/${ID}`);
@@ -66,7 +67,7 @@ describe('item links', () => {
     e.state.doc.descendants((n) => {
       for (const m of n.marks) marks.push(m.attrs);
     });
-    expect(marks[0]).toEqual({ href: `quire://item/${ID}`, itemId: ID });
+    expect(marks[0]).toEqual({ href: `wikanvas://item/${ID}`, itemId: ID });
     // Copied as HTML and pasted back, the link is the item link again.
     const html = e.getHTML();
     expect(html).toContain(`href="/item/${ID}"`);
@@ -75,13 +76,13 @@ describe('item links', () => {
     e.state.doc.descendants((n) => {
       for (const m of n.marks) again.push(m.attrs);
     });
-    expect(again[0]).toEqual({ href: `quire://item/${ID}`, itemId: ID });
+    expect(again[0]).toEqual({ href: `wikanvas://item/${ID}`, itemId: ID });
   });
 });
 
 describe('linkTarget', () => {
   it('routes item links and same-origin URLs, scrolls to fragments, opens the rest outside', () => {
-    expect(linkTarget(`quire://item/${ID}`, null, ORIGIN)).toEqual({ kind: 'route', to: `/item/${ID}` });
+    expect(linkTarget(`wikanvas://item/${ID}`, null, ORIGIN)).toEqual({ kind: 'route', to: `/item/${ID}` });
     expect(linkTarget('/doc/x-AbCdEfGh12', ID, ORIGIN)).toEqual({ kind: 'route', to: `/item/${ID}` });
     expect(linkTarget('/search?q=a', null, ORIGIN)).toEqual({ kind: 'route', to: '/search?q=a' });
     expect(linkTarget(`${ORIGIN}/doc/x-AbCdEfGh12#h-1`, null, ORIGIN)).toEqual({ kind: 'route', to: '/doc/x-AbCdEfGh12#h-1' });

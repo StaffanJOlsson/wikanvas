@@ -1,7 +1,7 @@
 //! Scope enforcement over the generated spec, Host allowlist, CSRF, CORS and limits (owner: W2)
 //!
-//! Both branches of `Auth<S>` (the cookie and a Quire bearer token, D43), `session_required` and `forbidden`; the
-//! generic scope test over the spec (§7.4); the Host allowlist with `QUIRE_DOMAIN`; the trusted-proxy rule, HSTS and
+//! Both branches of `Auth<S>` (the cookie and a Wikanvas bearer token, D43), `session_required` and `forbidden`; the
+//! generic scope test over the spec (§7.4); the Host allowlist with `WIKANVAS_DOMAIN`; the trusted-proxy rule, HSTS and
 //! the derived public URL (§8, D57); every CSRF branch; 415 and 413; the per-token and failed-bearer limiters on the
 //! fake clock; CORS; the 408 envelope; and the redaction of credentials in the access log.
 
@@ -12,8 +12,8 @@ use axum::Router;
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
 use axum::routing::get;
-use quire_api::{ErrorBody, ErrorCode, Me, Scope};
-use quire_server::extract::{AnyToken, Auth, IdPath, ItemRef, Session, Write};
+use wikanvas_api::{ErrorBody, ErrorCode, Me, Scope};
+use wikanvas_server::extract::{AnyToken, Auth, IdPath, ItemRef, Session, Write};
 use serde_json::{Value, json};
 use tower::ServiceExt as _;
 
@@ -41,7 +41,7 @@ async fn no_credentials_401_unauthenticated() {
         .get("/api/v1/auth/me")
         .add_header(
             "cookie",
-            "quire_session=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            "wikanvas_session=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
         )
         .await;
     assert_error(&res, 401, ErrorCode::Unauthenticated);
@@ -60,7 +60,7 @@ async fn secure_cookie_name_ignored_on_plain_http() {
     let res = app
         .client()
         .get("/api/v1/auth/me")
-        .add_header("cookie", format!("__Host-quire_session={session}"))
+        .add_header("cookie", format!("__Host-wikanvas_session={session}"))
         .await;
     assert_error(&res, 401, ErrorCode::Unauthenticated);
 }
@@ -80,9 +80,9 @@ async fn setup_required_409_before_an_owner_exists() {
 }
 
 #[tokio::test]
-async fn quire_bearer_wins_over_cookie() {
+async fn wikanvas_bearer_wins_over_cookie() {
     let app = TestApp::with_owner().await;
-    // A valid cookie with a bad Quire token: 401 invalid_token, never a cookie fallback.
+    // A valid cookie with a bad Wikanvas token: 401 invalid_token, never a cookie fallback.
     let res = app
         .server
         .get("/api/v1/auth/me")
@@ -125,7 +125,7 @@ async fn csrf_no_fetch_metadata_no_origin_403() {
     let res = app
         .client()
         .post("/api/v1/tokens")
-        .add_header("cookie", format!("quire_session={session}"))
+        .add_header("cookie", format!("wikanvas_session={session}"))
         .json(&json!({"name": "x", "scopes": ["read"]}))
         .await;
     assert_error(&res, 403, ErrorCode::CsrfRejected);
@@ -133,7 +133,7 @@ async fn csrf_no_fetch_metadata_no_origin_403() {
     let res = app
         .client()
         .post("/api/v1/tokens")
-        .add_header("cookie", format!("quire_session={session}"))
+        .add_header("cookie", format!("wikanvas_session={session}"))
         .add_header("origin", "https://evil.example")
         .json(&json!({"name": "x", "scopes": ["read"]}))
         .await;
@@ -141,7 +141,7 @@ async fn csrf_no_fetch_metadata_no_origin_403() {
     let res = app
         .client()
         .post("/api/v1/tokens")
-        .add_header("cookie", format!("quire_session={session}"))
+        .add_header("cookie", format!("wikanvas_session={session}"))
         .add_header("origin", "http://localhost")
         .json(&json!({"name": "x", "scopes": ["read"]}))
         .await;
@@ -195,7 +195,7 @@ async fn auth_requirements_on_a_probe_router() {
         .route("/probe/items/{id}/pages/{n}", get(page))
         .with_state(app.state.clone());
     let probe = axum_test::TestServer::new(router);
-    let cookie = format!("quire_session={}", app.session.clone().unwrap());
+    let cookie = format!("wikanvas_session={}", app.session.clone().unwrap());
     let read = app.mint_token(app.owner(), Scope::Read).await;
     let write = app.mint_token(app.owner(), Scope::Write).await;
     let bearer = |t: &str| format!("Bearer {t}");
@@ -336,14 +336,14 @@ async fn api_version_header_on_every_response() {
     for path in ["/api/v1/auth/me", "/api/v1/nope", "/api/v1/openapi.json"] {
         let res = app.server.get(path).await;
         assert_eq!(
-            res.header("quire-api-version"),
-            quire_api::API_VERSION,
+            res.header("wikanvas-api-version"),
+            wikanvas_api::API_VERSION,
             "{path}"
         );
         assert!(!res.header("x-request-id").is_empty());
     }
     let res = app.server.get("/healthz").await;
-    assert!(res.maybe_header("quire-api-version").is_none());
+    assert!(res.maybe_header("wikanvas-api-version").is_none());
     assert!(res.maybe_header("x-request-id").is_some());
 }
 
@@ -361,16 +361,16 @@ async fn default_body_limit_413() {
 }
 
 #[tokio::test]
-async fn host_allowlist_accepts_quire_domain_any_port() {
-    let app = TestApp::from_vars(&[("QUIRE_DOMAIN", "quire.lan")]).await;
+async fn host_allowlist_accepts_wikanvas_domain_any_port() {
+    let app = TestApp::from_vars(&[("WIKANVAS_DOMAIN", "wikanvas.lan")]).await;
     for (host, allowed) in [
-        ("quire.lan", true),
-        ("quire.lan:8443", true),
-        ("QUIRE.LAN:443", true),
+        ("wikanvas.lan", true),
+        ("wikanvas.lan:8443", true),
+        ("WIKANVAS.LAN:443", true),
         ("localhost:8080", true),
         ("evil.lan", false),
-        ("quire.lan.evil", false),
-        ("evil.quire.lan", false),
+        ("wikanvas.lan.evil", false),
+        ("evil.wikanvas.lan", false),
     ] {
         let res = app
             .client()
@@ -396,12 +396,12 @@ async fn host_allowlist_accepts_quire_domain_any_port() {
         .client()
         .get("/api/v1/config")
         .add_header("host", "evil.lan")
-        .add_header("x-forwarded-host", "quire.lan")
+        .add_header("x-forwarded-host", "wikanvas.lan")
         .await;
     assert_error(&res, 421, ErrorCode::HostNotAllowed);
-    let allowed = TestApp::from_vars(&[("QUIRE_ALLOWED_HOSTS", "quire, wiki.lan:8443")]).await;
+    let allowed = TestApp::from_vars(&[("WIKANVAS_ALLOWED_HOSTS", "wikanvas, wiki.lan:8443")]).await;
     for (host, ok) in [
-        ("quire:8080", true),
+        ("wikanvas:8080", true),
         ("wiki.lan:8443", true),
         ("wiki.lan", false),
     ] {
@@ -424,26 +424,26 @@ fn login_as(app: &TestApp, email: &str, peer: &str, xff: &str) -> axum_test::Tes
 
 #[tokio::test]
 async fn forwarded_headers_only_from_trusted_proxy() {
-    let app = TestApp::from_vars(&[("QUIRE_TRUSTED_PROXIES", "172.31.240.2")]).await;
+    let app = TestApp::from_vars(&[("WIKANVAS_TRUSTED_PROXIES", "172.31.240.2")]).await;
     app.insert_owner().await;
     // Untrusted peer: X-Forwarded-For does not change the limiter's key (the socket peer).
     for i in 0..5 {
         let res = login_as(
             &app,
-            &format!("u{i}@quire.invalid"),
+            &format!("u{i}@wikanvas.invalid"),
             "10.0.0.5:4000",
             &format!("203.0.113.{i}"),
         )
         .await;
         assert_error(&res, 401, ErrorCode::InvalidCredentials);
     }
-    let res = login_as(&app, "u9@quire.invalid", "10.0.0.5:4001", "203.0.113.99").await;
+    let res = login_as(&app, "u9@wikanvas.invalid", "10.0.0.5:4001", "203.0.113.99").await;
     assert_error(&res, 429, ErrorCode::RateLimited);
     // Trusted peer: the rightmost address is the client.
     for i in 0..5 {
         let res = login_as(
             &app,
-            &format!("t{i}@quire.invalid"),
+            &format!("t{i}@wikanvas.invalid"),
             "172.31.240.2:4000",
             "10.0.0.5, 192.0.2.1",
         )
@@ -452,7 +452,7 @@ async fn forwarded_headers_only_from_trusted_proxy() {
     }
     let res = login_as(
         &app,
-        "t8@quire.invalid",
+        "t8@wikanvas.invalid",
         "172.31.240.2:4000",
         "192.0.2.2, 192.0.2.1",
     )
@@ -460,7 +460,7 @@ async fn forwarded_headers_only_from_trusted_proxy() {
     assert_error(&res, 429, ErrorCode::RateLimited);
     let res = login_as(
         &app,
-        "t9@quire.invalid",
+        "t9@wikanvas.invalid",
         "172.31.240.2:4000",
         "192.0.2.1, 192.0.2.2",
     )
@@ -477,13 +477,13 @@ async fn forwarded_headers_only_from_trusted_proxy() {
     };
     let direct = set_cookies(&login("10.0.0.6:4000").await);
     assert!(
-        direct[0].starts_with("quire_session=") && !direct[0].contains("Secure"),
+        direct[0].starts_with("wikanvas_session=") && !direct[0].contains("Secure"),
         "{direct:?}"
     );
     let proxied = login("172.31.240.2:4000").await;
     let cookies = set_cookies(&proxied);
     assert!(
-        cookies[0].starts_with("__Host-quire_session=") && cookies[0].contains("; Secure"),
+        cookies[0].starts_with("__Host-wikanvas_session=") && cookies[0].contains("; Secure"),
         "{cookies:?}"
     );
     // The session records the forwarded client address.
@@ -504,9 +504,9 @@ async fn forwarded_headers_only_from_trusted_proxy() {
 async fn hsts_only_on_https_in_acme_mode() {
     let vars = |tls: &'static str| {
         [
-            ("QUIRE_TLS", tls),
-            ("QUIRE_TRUSTED_PROXIES", "172.31.240.2"),
-            ("QUIRE_DOMAIN", "wiki.example.org"),
+            ("WIKANVAS_TLS", tls),
+            ("WIKANVAS_TRUSTED_PROXIES", "172.31.240.2"),
+            ("WIKANVAS_DOMAIN", "wiki.example.org"),
         ]
     };
     let acme = TestApp::from_vars(&vars("acme")).await;
@@ -555,31 +555,31 @@ fn setup_post(app: &TestApp, host: &str, origin: &str) -> axum_test::TestRequest
 #[tokio::test]
 async fn public_url_derived_from_domain() {
     let app =
-        TestApp::from_vars(&[("QUIRE_DOMAIN", "quire.lan"), ("QUIRE_HTTPS_PORT", "8443")]).await;
+        TestApp::from_vars(&[("WIKANVAS_DOMAIN", "wikanvas.lan"), ("WIKANVAS_HTTPS_PORT", "8443")]).await;
     assert_eq!(
         app.state.config.public_url.to_string(),
-        "https://quire.lan:8443"
+        "https://wikanvas.lan:8443"
     );
     let message = app.state.setup_message();
     assert!(
-        message.starts_with("First-run setup: https://quire.lan:8443/setup code "),
+        message.starts_with("First-run setup: https://wikanvas.lan:8443/setup code "),
         "{message}"
     );
     // The public URL is the CSRF origin, whatever Host the request came in with.
-    let res = setup_post(&app, "localhost:8080", "https://quire.lan:8443").await;
+    let res = setup_post(&app, "localhost:8080", "https://wikanvas.lan:8443").await;
     assert_error(&res, 401, ErrorCode::InvalidCredentials);
-    let res = setup_post(&app, "localhost:8080", "https://quire.lan").await;
+    let res = setup_post(&app, "localhost:8080", "https://wikanvas.lan").await;
     assert_error(&res, 403, ErrorCode::CsrfRejected);
-    let default_port = TestApp::from_vars(&[("QUIRE_DOMAIN", "quire.lan")]).await;
+    let default_port = TestApp::from_vars(&[("WIKANVAS_DOMAIN", "wikanvas.lan")]).await;
     assert_eq!(
         default_port.state.config.public_url.to_string(),
-        "https://quire.lan"
+        "https://wikanvas.lan"
     );
-    // An explicit QUIRE_PUBLIC_URL wins.
+    // An explicit WIKANVAS_PUBLIC_URL wins.
     let explicit = TestApp::from_vars(&[
-        ("QUIRE_DOMAIN", "quire.lan"),
-        ("QUIRE_HTTPS_PORT", "8443"),
-        ("QUIRE_PUBLIC_URL", "http://wiki.lan:9000"),
+        ("WIKANVAS_DOMAIN", "wikanvas.lan"),
+        ("WIKANVAS_HTTPS_PORT", "8443"),
+        ("WIKANVAS_PUBLIC_URL", "http://wiki.lan:9000"),
     ])
     .await;
     assert!(
@@ -590,7 +590,7 @@ async fn public_url_derived_from_domain() {
     );
     let res = setup_post(&explicit, "localhost:8080", "http://wiki.lan:9000").await;
     assert_error(&res, 401, ErrorCode::InvalidCredentials);
-    let res = setup_post(&explicit, "localhost:8080", "https://quire.lan:8443").await;
+    let res = setup_post(&explicit, "localhost:8080", "https://wikanvas.lan:8443").await;
     assert_error(&res, 403, ErrorCode::CsrfRejected);
 }
 
@@ -599,7 +599,7 @@ fn bare_cookie_client(app: &TestApp) -> axum_test::TestServer {
     let mut client = app.client();
     client.add_header(
         "cookie",
-        format!("quire_session={}", app.session.clone().unwrap()),
+        format!("wikanvas_session={}", app.session.clone().unwrap()),
     );
     client
 }
@@ -755,7 +755,7 @@ fn declared(security: &Value) -> Declared {
 
 /// Every operation of the spec: (method, path with `{…}` replaced by random UUIDs, declared security).
 fn operations() -> Vec<(Method, String, Declared)> {
-    let spec: Value = serde_json::from_str(&quire_server::openapi::spec_json()).unwrap();
+    let spec: Value = serde_json::from_str(&wikanvas_server::openapi::spec_json()).unwrap();
     let mut out = Vec::new();
     for (path, item) in spec["paths"].as_object().unwrap() {
         let concrete: String = path
@@ -822,7 +822,7 @@ async fn every_operation_enforces_its_declared_scope() {
         ("host", "localhost".to_owned()),
         (
             "cookie",
-            format!("quire_session={}", app.session.clone().unwrap()),
+            format!("wikanvas_session={}", app.session.clone().unwrap()),
         ),
     ];
     let client = app.client();
@@ -905,7 +905,7 @@ fn public_operations_are_exactly() {
 }
 
 fn unknown_token(i: u8) -> String {
-    quire_api::token::encode(&[i; 32])
+    wikanvas_api::token::encode(&[i; 32])
 }
 
 #[tokio::test]
@@ -977,7 +977,7 @@ async fn token_rate_limit_429_retry_after() {
     let token = app.mint_token(&owner, Scope::Read).await;
     let other = app.mint_token(&owner, Scope::Read).await;
     let client = app.token_client(&token);
-    for _ in 0..quire_server::config::TOKEN_BURST {
+    for _ in 0..wikanvas_server::config::TOKEN_BURST {
         client.get("/api/v1/auth/me").await.assert_status_ok();
     }
     let res = client.get("/api/v1/auth/me").await;
@@ -1101,7 +1101,7 @@ async fn timeout_408_envelope() {
         .header("sec-fetch-site", "same-origin")
         .header(
             "cookie",
-            format!("quire_session={}", app.session.clone().unwrap()),
+            format!("wikanvas_session={}", app.session.clone().unwrap()),
         )
         .header("content-type", "application/json")
         .body(stalled)
@@ -1109,7 +1109,7 @@ async fn timeout_408_envelope() {
     let res = router(&app.state).oneshot(req).await.unwrap();
     assert_eq!(res.status(), 408);
     let id = res.headers()["x-request-id"].to_str().unwrap().to_owned();
-    assert_eq!(res.headers()["quire-api-version"], quire_api::API_VERSION);
+    assert_eq!(res.headers()["wikanvas-api-version"], wikanvas_api::API_VERSION);
     let body = axum::body::to_bytes(res.into_body(), 1 << 20)
         .await
         .unwrap();
@@ -1156,7 +1156,7 @@ async fn cors_off_by_default() {
 #[tokio::test]
 async fn cors_allow_list_never_credentials() {
     let mut app = TestApp::from_vars(&[(
-        "QUIRE_CORS_ORIGINS",
+        "WIKANVAS_CORS_ORIGINS",
         "https://tool.example, http://localhost:5173",
     )])
     .await;
@@ -1187,7 +1187,7 @@ async fn cors_allow_list_never_credentials() {
         "content-type",
         "if-match",
         "if-none-match",
-        "x-quire-engine",
+        "x-wikanvas-engine",
     ] {
         assert!(headers.contains(h), "{headers}");
     }
@@ -1215,8 +1215,8 @@ async fn cors_allow_list_never_credentials() {
         "etag",
         "retry-after",
         "x-request-id",
-        "quire-api-version",
-        "quire-conversion-warnings",
+        "wikanvas-api-version",
+        "wikanvas-conversion-warnings",
     ] {
         assert!(exposed.contains(h), "{exposed}");
     }
@@ -1231,18 +1231,18 @@ async fn cors_allow_list_never_credentials() {
 
 #[tokio::test]
 async fn cors_star_refused_at_startup() {
-    let err = quire_server::config::Config::from_lookup(|k| {
-        (k == "QUIRE_CORS_ORIGINS").then(|| "*".to_owned())
+    let err = wikanvas_server::config::Config::from_lookup(|k| {
+        (k == "WIKANVAS_CORS_ORIGINS").then(|| "*".to_owned())
     })
     .unwrap_err();
-    assert_eq!(err.var, "QUIRE_CORS_ORIGINS");
+    assert_eq!(err.var, "WIKANVAS_CORS_ORIGINS");
     let dir = tempfile::tempdir().unwrap();
-    let out = std::process::Command::new(env!("CARGO_BIN_EXE_quire-server"))
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_wikanvas-server"))
         .arg("serve")
         .env_clear()
-        .env("QUIRE_DATA_DIR", dir.path())
-        .env("QUIRE_LISTEN", "127.0.0.1:0")
-        .env("QUIRE_CORS_ORIGINS", "https://ok.example, *")
+        .env("WIKANVAS_DATA_DIR", dir.path())
+        .env("WIKANVAS_LISTEN", "127.0.0.1:0")
+        .env("WIKANVAS_CORS_ORIGINS", "https://ok.example, *")
         .output()
         .unwrap();
     assert_eq!(
@@ -1252,14 +1252,14 @@ async fn cors_star_refused_at_startup() {
         String::from_utf8_lossy(&out.stderr)
     );
     assert!(
-        String::from_utf8_lossy(&out.stdout).contains("QUIRE_CORS_ORIGINS")
-            || String::from_utf8_lossy(&out.stderr).contains("QUIRE_CORS_ORIGINS")
+        String::from_utf8_lossy(&out.stdout).contains("WIKANVAS_CORS_ORIGINS")
+            || String::from_utf8_lossy(&out.stderr).contains("WIKANVAS_CORS_ORIGINS")
     );
 }
 
 #[tokio::test]
 async fn cookie_from_cors_origin_still_csrf_rejected() {
-    let mut app = TestApp::from_vars(&[("QUIRE_CORS_ORIGINS", "https://tool.example")]).await;
+    let mut app = TestApp::from_vars(&[("WIKANVAS_CORS_ORIGINS", "https://tool.example")]).await;
     app.sign_in_owner().await;
     let res = bare_cookie_client(&app)
         .post("/api/v1/collections")
@@ -1296,7 +1296,7 @@ fn http(addr: std::net::SocketAddr, request: &str) -> (u16, String, String) {
     )
 }
 
-/// The access log of a real `quire-server serve` (debug level): token requests carry `token_id` and the client IP,
+/// The access log of a real `wikanvas-server serve` (debug level): token requests carry `token_id` and the client IP,
 /// headers are logged with `Authorization` and `Cookie` redacted, and no secret appears anywhere.
 #[test]
 fn authorization_redacted_in_logs() {
@@ -1306,7 +1306,7 @@ fn authorization_redacted_in_logs() {
         &[
             "create-owner",
             "--email",
-            "a@quire.invalid",
+            "a@wikanvas.invalid",
             "--name",
             "A",
             "--workspace",
@@ -1329,12 +1329,12 @@ fn authorization_redacted_in_logs() {
         .unwrap()
         .port();
     let addr: std::net::SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
-    let mut server = std::process::Command::new(env!("CARGO_BIN_EXE_quire-server"))
+    let mut server = std::process::Command::new(env!("CARGO_BIN_EXE_wikanvas-server"))
         .arg("serve")
         .env_clear()
-        .env("QUIRE_DATA_DIR", dir.path())
-        .env("QUIRE_LISTEN", addr.to_string())
-        .env("QUIRE_TEST_ARGON2", "1")
+        .env("WIKANVAS_DATA_DIR", dir.path())
+        .env("WIKANVAS_LISTEN", addr.to_string())
+        .env("WIKANVAS_TEST_ARGON2", "1")
         .env("RUST_LOG", "debug")
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -1342,7 +1342,7 @@ fn authorization_redacted_in_logs() {
         .unwrap();
     let mut up = false;
     for _ in 0..200 {
-        if quire_server::cli::probe(&format!("http://{addr}"), Duration::from_millis(200))
+        if wikanvas_server::cli::probe(&format!("http://{addr}"), Duration::from_millis(200))
             == Ok(200)
         {
             up = true;
@@ -1357,7 +1357,7 @@ fn authorization_redacted_in_logs() {
         &format!("GET /api/v1/auth/me HTTP/1.1\r\n{host}Authorization: Bearer {token}\r\n\r\n"),
     );
     assert_eq!(status, 200);
-    let body = format!(r#"{{"email":"a@quire.invalid","password":"{OWNER_PASSWORD}"}}"#);
+    let body = format!(r#"{{"email":"a@wikanvas.invalid","password":"{OWNER_PASSWORD}"}}"#);
     let (status, head, _) = http(
         addr,
         &format!(
@@ -1369,13 +1369,13 @@ fn authorization_redacted_in_logs() {
     assert_eq!(status, 200, "{head}");
     let cookie = head
         .lines()
-        .find_map(|l| l.strip_prefix("set-cookie: quire_session="))
+        .find_map(|l| l.strip_prefix("set-cookie: wikanvas_session="))
         .and_then(|v| v.split(';').next())
         .unwrap()
         .to_owned();
     let (status, _, _) = http(
         addr,
-        &format!("GET /api/v1/auth/me HTTP/1.1\r\n{host}Cookie: quire_session={cookie}\r\n\r\n"),
+        &format!("GET /api/v1/auth/me HTTP/1.1\r\n{host}Cookie: wikanvas_session={cookie}\r\n\r\n"),
     );
     assert_eq!(status, 200);
     let _ = server.kill();

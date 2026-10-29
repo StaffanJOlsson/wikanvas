@@ -1,4 +1,4 @@
-// The "Quire was updated. Reload" check (docs/ARCHITECTURE.md §9.1): when a lazy route chunk fails to load (W3) or
+// The "Wikanvas was updated. Reload" check (docs/ARCHITECTURE.md §9.1): when a lazy route chunk fails to load (W3) or
 // the board frame page answers 404 (W6), refetch `/api/v1/config` and compare it with the config this page started
 // with. If the server's version, commit or engine base changed, the old chunks are gone: show the banner instead of
 // an error. W6 calls `checkForUpdate()` on a frame.html 404.

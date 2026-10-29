@@ -1,9 +1,9 @@
 //! Shared helpers of the CLI tests (owner: W8)
 //!
-//! [`Sandbox`] is a temporary directory holding `HOME` and the `QUIRE_CONFIG` file, and builds an assert_cmd
-//! [`Command`] for the `quire` binary that inherits no `QUIRE_*` variable and no config or CA location from the
-//! environment the tests run in. [`Harness`] adds a running `quire_server::testing::TestServer` and points
-//! `QUIRE_URL` and `QUIRE_TOKEN` at it. [`Mock`] is a scripted HTTP listener (std `TcpListener`, one request per
+//! [`Sandbox`] is a temporary directory holding `HOME` and the `WIKANVAS_CONFIG` file, and builds an assert_cmd
+//! [`Command`] for the `wikanvas` binary that inherits no `WIKANVAS_*` variable and no config or CA location from the
+//! environment the tests run in. [`Harness`] adds a running `wikanvas_server::testing::TestServer` and points
+//! `WIKANVAS_URL` and `WIKANVAS_TOKEN` at it. [`Mock`] is a scripted HTTP listener (std `TcpListener`, one request per
 //! connection) that records every request and answers what the test's handler says. [`RawListener`] speaks no
 //! HTTP at all, for TLS handshakes that stall or fail.
 
@@ -20,12 +20,12 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use assert_cmd::Command;
-use quire_api::Scope;
-use quire_server::testing::TestServer;
+use wikanvas_api::Scope;
+use wikanvas_server::testing::TestServer;
 use serde_json::Value;
 use tempfile::TempDir;
 
-/// Variables outside `QUIRE_*` that the CLI reads for its config directory, its CA bundle or logging; a test sets
+/// Variables outside `WIKANVAS_*` that the CLI reads for its config directory, its CA bundle or logging; a test sets
 /// them explicitly when it needs them.
 const SCRUBBED: &[&str] = &[
     "XDG_CONFIG_HOME",
@@ -53,10 +53,10 @@ pub fn non_loopback_ip() -> Option<std::net::IpAddr> {
 
 /// A well-formed token that no server knows.
 pub fn fake_token(seed: u8) -> String {
-    quire_api::token::encode(&[seed; 32])
+    wikanvas_api::token::encode(&[seed; 32])
 }
 
-/// A temporary `HOME` and config file for one `quire` invocation or more. Deleted on drop.
+/// A temporary `HOME` and config file for one `wikanvas` invocation or more. Deleted on drop.
 pub struct Sandbox {
     dir: TempDir,
 }
@@ -65,7 +65,7 @@ impl Sandbox {
     /// Creates `<tmp>/home` (mode 0700). The config file's directory is left to the CLI, which creates it 0700.
     pub fn new() -> Sandbox {
         let dir = tempfile::Builder::new()
-            .prefix("quire-cli-test-")
+            .prefix("wikanvas-cli-test-")
             .tempdir()
             .expect("a temporary directory");
         DirBuilder::new()
@@ -85,7 +85,7 @@ impl Sandbox {
         self.path().join("home")
     }
 
-    /// `QUIRE_CONFIG`: `<tmp>/config/config.toml` (not created).
+    /// `WIKANVAS_CONFIG`: `<tmp>/config/config.toml` (not created).
     pub fn config_path(&self) -> PathBuf {
         self.path().join("config").join("config.toml")
     }
@@ -109,16 +109,16 @@ impl Sandbox {
         path
     }
 
-    /// `quire` with `HOME` and `QUIRE_CONFIG` in the sandbox, run in the sandbox, and with no URL or token.
-    pub fn quire(&self) -> Command {
-        self.quire_bin(Path::new(env!("CARGO_BIN_EXE_quire")))
+    /// `wikanvas` with `HOME` and `WIKANVAS_CONFIG` in the sandbox, run in the sandbox, and with no URL or token.
+    pub fn wikanvas(&self) -> Command {
+        self.wikanvas_bin(Path::new(env!("CARGO_BIN_EXE_wikanvas")))
     }
 
-    /// Like [`quire`](Self::quire), for another copy of the binary.
-    pub fn quire_bin(&self, bin: &Path) -> Command {
+    /// Like [`wikanvas`](Self::wikanvas), for another copy of the binary.
+    pub fn wikanvas_bin(&self, bin: &Path) -> Command {
         let mut cmd = Command::new(bin);
         for (name, _) in std::env::vars_os() {
-            if name.as_encoded_bytes().starts_with(b"QUIRE_") {
+            if name.as_encoded_bytes().starts_with(b"WIKANVAS_") {
                 cmd.env_remove(&name);
             }
         }
@@ -126,16 +126,16 @@ impl Sandbox {
             cmd.env_remove(OsStr::new(name));
         }
         cmd.env("HOME", self.home())
-            .env("QUIRE_CONFIG", self.config_path())
+            .env("WIKANVAS_CONFIG", self.config_path())
             .current_dir(self.path())
             .timeout(Duration::from_secs(60));
         cmd
     }
 
-    /// `quire` pointed at `url` with `token` (through the environment).
-    pub fn quire_at(&self, url: &str, token: &str) -> Command {
-        let mut cmd = self.quire();
-        cmd.env("QUIRE_URL", url).env("QUIRE_TOKEN", token);
+    /// `wikanvas` pointed at `url` with `token` (through the environment).
+    pub fn wikanvas_at(&self, url: &str, token: &str) -> Command {
+        let mut cmd = self.wikanvas();
+        cmd.env("WIKANVAS_URL", url).env("WIKANVAS_TOKEN", token);
         cmd
     }
 }
@@ -156,24 +156,24 @@ impl Harness {
         }
     }
 
-    /// `quire` as the owner's write token: [`Sandbox::quire`] plus `QUIRE_URL` and `QUIRE_TOKEN`.
-    pub fn quire(&self) -> Command {
-        self.quire_as(Scope::Write)
+    /// `wikanvas` as the owner's write token: [`Sandbox::wikanvas`] plus `WIKANVAS_URL` and `WIKANVAS_TOKEN`.
+    pub fn wikanvas(&self) -> Command {
+        self.wikanvas_as(Scope::Write)
     }
 
-    /// `quire` as the owner's token of `scope`.
-    pub fn quire_as(&self, scope: Scope) -> Command {
+    /// `wikanvas` as the owner's token of `scope`.
+    pub fn wikanvas_as(&self, scope: Scope) -> Command {
         self.sandbox
-            .quire_at(&self.server.url, self.server.token(scope))
+            .wikanvas_at(&self.server.url, self.server.token(scope))
     }
 
-    /// `quire --json …` as `scope`; returns the exit code, stdout as JSON (or Null) and stderr.
+    /// `wikanvas --json …` as `scope`; returns the exit code, stdout as JSON (or Null) and stderr.
     pub fn json(&self, scope: Scope, args: &[&str]) -> (i32, Value, String) {
-        run_json(self.quire_as(scope).arg("--json").args(args))
+        run_json(self.wikanvas_as(scope).arg("--json").args(args))
     }
 }
 
-/// Runs `cmd` and collects its output. An executable a test has just written (a copy of `quire`) can be "busy"
+/// Runs `cmd` and collects its output. An executable a test has just written (a copy of `wikanvas`) can be "busy"
 /// for a moment (ETXTBSY): a child that another test thread spawned while the file was still open for writing holds
 /// that descriptor until its own exec. That race is the test process's, not the CLI's, so the spawn is retried for up
 /// to two seconds; any other error, or a busy file after that, fails the test.
@@ -183,10 +183,10 @@ pub fn spawn_output(cmd: &mut Command) -> std::process::Output {
             Err(e) if e.kind() == std::io::ErrorKind::ExecutableFileBusy => {
                 std::thread::sleep(Duration::from_millis(10));
             }
-            result => return result.expect("quire runs"),
+            result => return result.expect("wikanvas runs"),
         }
     }
-    cmd.output().expect("quire runs")
+    cmd.output().expect("wikanvas runs")
 }
 
 /// Runs a command; returns the exit code, stdout parsed as one JSON value (Null when empty) and stderr.
@@ -488,8 +488,8 @@ fn serve_one(stream: TcpStream, state: &MockState) {
             if !has("x-request-id") {
                 head.push_str(&format!("X-Request-Id: mock-{index}\r\n"));
             }
-            if !has("quire-api-version") {
-                head.push_str("Quire-Api-Version: 1.0\r\n");
+            if !has("wikanvas-api-version") {
+                head.push_str("Wikanvas-Api-Version: 1.0\r\n");
             }
             for (k, v) in &headers {
                 head.push_str(&format!("{k}: {v}\r\n"));
@@ -531,7 +531,7 @@ fn serve_one(stream: TcpStream, state: &MockState) {
 /// A 200 head that promises a 64-byte JSON body, and its first 9 bytes.
 fn write_partial_body(stream: &mut TcpStream, index: usize) {
     let head = format!(
-        "HTTP/1.1 200 OK\r\nX-Request-Id: mock-{index}\r\nQuire-Api-Version: 1.0\r\n\
+        "HTTP/1.1 200 OK\r\nX-Request-Id: mock-{index}\r\nWikanvas-Api-Version: 1.0\r\n\
          Content-Type: application/json\r\nContent-Length: 64\r\nConnection: close\r\n\r\n{{\"items\":"
     );
     let _ = stream.write_all(head.as_bytes());

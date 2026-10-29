@@ -1,4 +1,4 @@
-//! `quire --version` against a running TestServer, and `quire version` without a server (owner: W8)
+//! `wikanvas --version` against a running TestServer, and `wikanvas version` without a server (owner: W8)
 
 use std::net::TcpListener;
 
@@ -14,9 +14,9 @@ fn flag_prints_name_and_version() {
         "{}",
         h.server.url
     );
-    let expected = format!("quire {}\n", env!("CARGO_PKG_VERSION"));
+    let expected = format!("wikanvas {}\n", env!("CARGO_PKG_VERSION"));
     for flag in ["--version", "-V"] {
-        h.quire()
+        h.wikanvas()
             .arg(flag)
             .assert()
             .success()
@@ -36,10 +36,10 @@ fn flag_prints_name_and_version() {
 #[test]
 fn version_without_a_server_exits_0() {
     let s = Sandbox::new();
-    let (code, v, err) = run_json(s.quire().args(["--json", "version"]));
+    let (code, v, err) = run_json(s.wikanvas().args(["--json", "version"]));
     assert_eq!((code, err.as_str()), (0, ""));
     assert_eq!(v["cli"]["version"], env!("CARGO_PKG_VERSION"));
-    assert_eq!(v["cli"]["api_version"], quire_api::API_VERSION);
+    assert_eq!(v["cli"]["api_version"], wikanvas_api::API_VERSION);
     assert_eq!(v["server"], Value::Null);
 
     let port = TcpListener::bind("127.0.0.1:0")
@@ -48,8 +48,8 @@ fn version_without_a_server_exits_0() {
         .unwrap()
         .port();
     let (code, v, err) = run_json(
-        s.quire()
-            .env("QUIRE_URL", format!("http://127.0.0.1:{port}"))
+        s.wikanvas()
+            .env("WIKANVAS_URL", format!("http://127.0.0.1:{port}"))
             .args(["--json", "--retries", "0", "version"]),
     );
     assert_eq!(code, 0, "{err}");

@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
 use include_dir::{Dir, include_dir};
-use quire_core::api::ErrorCode;
+use wikanvas_core::api::ErrorCode;
 use rusqlite_migration::Migrations;
 
 use crate::db::Db;
@@ -54,7 +54,7 @@ pub fn run(db: &Db, data_dir: &Path, now: i64) -> Result<Migrated> {
         return Err(Error::new(
             ErrorCode::Internal,
             format!(
-                "the database has schema version {from}, newer than this server's {}; use a newer Quire",
+                "the database has schema version {from}, newer than this server's {}; use a newer Wikanvas",
                 latest()
             ),
         ));

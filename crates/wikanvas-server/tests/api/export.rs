@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use axum::body::Body;
 use axum::http::{Method, Request};
-use quire_api::{Attachment, ErrorBody, ErrorCode, Scope};
+use wikanvas_api::{Attachment, ErrorBody, ErrorCode, Scope};
 use tower::ServiceExt as _;
 
 use crate::common::{OWNER_PASSWORD, TestApp, assert_error, router};
@@ -64,7 +64,7 @@ async fn export(app: &TestApp) -> Vec<(String, Vec<u8>)> {
         res.header("content-disposition")
             .to_str()
             .unwrap()
-            .starts_with("attachment; filename=\"quire-export-")
+            .starts_with("attachment; filename=\"wikanvas-export-")
     );
     assert_eq!(res.header("cache-control"), "no-store");
     untar(res.as_bytes())
@@ -77,12 +77,12 @@ async fn tar_has_manifest_db_and_files() {
     let names: Vec<&str> = entries.iter().map(|(n, _)| n.as_str()).collect();
     let sha = &attachment.sha256;
     let blob = format!("files/{}/{}/{sha}", &sha[0..2], &sha[2..4]);
-    assert_eq!(names, ["manifest.json", "quire.db", blob.as_str()]);
+    assert_eq!(names, ["manifest.json", "wikanvas.db", blob.as_str()]);
     let manifest: serde_json::Value = serde_json::from_slice(&entries[0].1).unwrap();
-    assert_eq!(manifest["format"], "quire-export");
+    assert_eq!(manifest["format"], "wikanvas-export");
     assert_eq!(manifest["format_version"], 1);
-    assert_eq!(manifest["api_version"], quire_api::API_VERSION);
-    assert_eq!(manifest["schema_version"], quire_store::migrate::latest());
+    assert_eq!(manifest["api_version"], wikanvas_api::API_VERSION);
+    assert_eq!(manifest["schema_version"], wikanvas_store::migrate::latest());
     assert_eq!(entries[2].1, b"hello, export\n");
     assert!(entries[1].1.starts_with(b"SQLite format 3\0"));
     // The copy in /data/tmp is gone once the stream ended.
@@ -93,20 +93,20 @@ async fn tar_has_manifest_db_and_files() {
     assert!(leftovers.is_empty(), "{leftovers:?}");
 }
 
-/// Extracts `quire.db` into an empty directory and opens it read-only (no `-wal` next to it).
+/// Extracts `wikanvas.db` into an empty directory and opens it read-only (no `-wal` next to it).
 fn extracted_db(
     entries: &[(String, Vec<u8>)],
 ) -> (tempfile::TempDir, rusqlite::Connection, Vec<u8>) {
     let dir = tempfile::tempdir().unwrap();
     let db = entries
         .iter()
-        .find(|(n, _)| n == "quire.db")
+        .find(|(n, _)| n == "wikanvas.db")
         .unwrap()
         .1
         .clone();
-    std::fs::write(dir.path().join("quire.db"), &db).unwrap();
+    std::fs::write(dir.path().join("wikanvas.db"), &db).unwrap();
     let conn = rusqlite::Connection::open_with_flags(
-        dir.path().join("quire.db"),
+        dir.path().join("wikanvas.db"),
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
     )
     .unwrap();
@@ -180,7 +180,7 @@ async fn extracted_db_has_no_credentials_without_sidecars() {
         .collect();
     assert_eq!(
         names,
-        ["quire.db"],
+        ["wikanvas.db"],
         "opened read-only, nothing was created next to it"
     );
     let contains = |needle: &[u8]| raw.windows(needle.len()).any(|w| w == needle);
@@ -189,10 +189,10 @@ async fn extracted_db_has_no_credentials_without_sidecars() {
         "a password hash survived in the raw bytes"
     );
     assert!(
-        !contains(&quire_store::tokens::hash(&token)),
+        !contains(&wikanvas_store::tokens::hash(&token)),
         "a token hash survived"
     );
-    let session = quire_store::sessions::token_hash(app.session.as_deref().unwrap()).unwrap();
+    let session = wikanvas_store::sessions::token_hash(app.session.as_deref().unwrap()).unwrap();
     assert!(!contains(&session), "a session hash survived");
 }
 
@@ -236,7 +236,7 @@ async fn single_flight_429_busy() {
 #[tokio::test]
 async fn cookie_cross_site_navigation_403() {
     let (app, token, _) = populated().await;
-    let cookie = format!("quire_session={}", app.session.clone().unwrap());
+    let cookie = format!("wikanvas_session={}", app.session.clone().unwrap());
     let get = |headers: &[(&'static str, &'static str)]| {
         let mut req = app
             .client()
@@ -290,7 +290,7 @@ impl Gate {
         Arc::new(gate)
     }
 
-    fn probe(self: &Arc<Self>) -> quire_server::state::FreeSpaceProbe {
+    fn probe(self: &Arc<Self>) -> wikanvas_server::state::FreeSpaceProbe {
         let gate = Arc::clone(self);
         Arc::new(move |_, _| {
             gate.calls.fetch_add(1, Ordering::SeqCst);
@@ -416,7 +416,7 @@ async fn single_flight_held_while_an_abandoned_copy_runs() {
         Vec::<String>::new()
     );
     assert_eq!(
-        files_named(&app.state.config.backups_dir(), "quire-").len(),
+        files_named(&app.state.config.backups_dir(), "wikanvas-").len(),
         2,
         "the abandoned backup finished, then the retried one"
     );

@@ -4,7 +4,7 @@
 //! so two concurrent setups cannot both succeed (the unique index backs it up). Passwords are argon2id PHC strings
 //! hashed by the server (D17); the store never sees a plain password.
 
-use quire_core::api::{ErrorCode, Role, Theme, User};
+use wikanvas_core::api::{ErrorCode, Role, Theme, User};
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 
 use crate::error::{Error, Result};
@@ -53,7 +53,7 @@ const COLUMNS: &str = "id, email, name, role, theme, password_hash, must_change_
      disabled_at";
 
 fn from_row(r: &Row<'_>) -> rusqlite::Result<UserRow> {
-    let enum_err = |i: usize, e: quire_core::api::UnknownValue| {
+    let enum_err = |i: usize, e: wikanvas_core::api::UnknownValue| {
         rusqlite::Error::FromSqlConversionFailure(i, rusqlite::types::Type::Text, Box::new(e))
     };
     let role: String = r.get(3)?;
@@ -228,7 +228,7 @@ pub fn update_profile(
         {
             Err(
                 Error::new(ErrorCode::Conflict, "another user has this email").with_details(
-                    &quire_core::api::ValidationDetails {
+                    &wikanvas_core::api::ValidationDetails {
                         field: "email".into(),
                     },
                 ),

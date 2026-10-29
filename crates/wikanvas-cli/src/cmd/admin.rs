@@ -1,8 +1,8 @@
-//! The `quire admin …` passthrough: execs `quire-server admin …` (§7.6, §7.8, D55; owner: W8)
+//! The `wikanvas admin …` passthrough: execs `wikanvas-server admin …` (§7.6, §7.8, D55; owner: W8)
 //!
-//! `quire-server` is found through `QUIRE_SERVER_BIN`, then next to the `quire` binary, then on `PATH`; none gives
-//! exit 3. The process is replaced (exec), so stdin, stdout, stderr and the exit code are `quire-server`'s own. A
-//! global `--json` is passed on.
+//! `wikanvas-server` is found through `WIKANVAS_SERVER_BIN`, then next to the `wikanvas` binary, then on `PATH`; none
+//! gives exit 3. The process is replaced (exec), so stdin, stdout, stderr and the exit code are `wikanvas-server`'s
+//! own. A global `--json` is passed on.
 
 use std::ffi::OsString;
 use std::os::unix::fs::PermissionsExt;
@@ -18,16 +18,16 @@ fn executable(p: &Path) -> bool {
     std::fs::metadata(p).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
 }
 
-/// Where `quire-server` is (see the module docs).
+/// Where `wikanvas-server` is (see the module docs).
 pub fn find_server() -> Result<PathBuf, Failure> {
-    if let Some(p) = std::env::var_os("QUIRE_SERVER_BIN").filter(|p| !p.is_empty()) {
+    if let Some(p) = std::env::var_os("WIKANVAS_SERVER_BIN").filter(|p| !p.is_empty()) {
         return Ok(PathBuf::from(p));
     }
     if let Some(dir) = std::env::current_exe()
         .ok()
         .and_then(|e| e.parent().map(Path::to_path_buf))
     {
-        let sibling = dir.join("quire-server");
+        let sibling = dir.join("wikanvas-server");
         if executable(&sibling) {
             return Ok(sibling);
         }
@@ -37,15 +37,15 @@ pub fn find_server() -> Result<PathBuf, Failure> {
             if dir.as_os_str().is_empty() {
                 continue;
             }
-            let candidate = dir.join("quire-server");
+            let candidate = dir.join("wikanvas-server");
             if executable(&candidate) {
                 return Ok(candidate);
             }
         }
     }
     Err(Failure::config(
-        "quire-server not found: set QUIRE_SERVER_BIN, or install it next to quire or on PATH \
-         (inside the image: docker compose exec quire quire admin …)",
+        "wikanvas-server not found: set WIKANVAS_SERVER_BIN, or install it next to wikanvas or on PATH \
+         (inside the image: docker compose exec wikanvas wikanvas admin …)",
     ))
 }
 

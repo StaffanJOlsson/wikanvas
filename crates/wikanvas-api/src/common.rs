@@ -15,14 +15,14 @@ use uuid::Uuid;
 
 /// Names of the HTTP headers that are part of the API contract.
 pub mod header {
-    /// The API version (`quire_api::API_VERSION`) on every `/api/v1` response.
-    pub const API_VERSION: &str = "Quire-Api-Version";
+    /// The API version (`wikanvas_api::API_VERSION`) on every `/api/v1` response.
+    pub const API_VERSION: &str = "Wikanvas-Api-Version";
     /// The request id, also in every error body's `request_id`.
     pub const REQUEST_ID: &str = "X-Request-Id";
     /// Codes of the conversion warnings of a Markdown GET, comma-separated.
-    pub const CONVERSION_WARNINGS: &str = "Quire-Conversion-Warnings";
+    pub const CONVERSION_WARNINGS: &str = "Wikanvas-Conversion-Warnings";
     /// The board engine version of the writer of a board PUT (optional for API clients, D51).
-    pub const ENGINE: &str = "X-Quire-Engine";
+    pub const ENGINE: &str = "X-Wikanvas-Engine";
 }
 
 /// The error of a `FromStr` for one of the API's string enums.

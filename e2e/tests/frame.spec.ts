@@ -1,8 +1,8 @@
 // The Inkboard frame test (docs/ARCHITECTURE.md §14 "Inkboard patch", PLAN W5): web/dist-inkboard served by
-// e2e/serve-static.mjs, frame.html opened directly, and window.quireBoardFrame (§10.4) driven like BoardFrameHost does.
-// Run it only through `scripts/e2e.sh frame`, after `scripts/dev.sh scripts/inkboard.sh build` (or `build --quick`).
-// The stub dist (`scripts/inkboard.sh stub`) has no engine: the beforeAll hook then fails once with that message, and no
-// test runs.
+// e2e/serve-static.mjs, frame.html opened directly, and window.wikanvasBoardFrame (§10.4) driven like BoardFrameHost
+// does. Run it only through `scripts/e2e.sh frame`, after `scripts/dev.sh scripts/inkboard.sh build` (or
+// `build --quick`). The stub dist (`scripts/inkboard.sh stub`) has no engine: the beforeAll hook then fails once with
+// that message, and no test runs.
 //
 // Coordinates are CSS pixels of the 1280x720 page. The fixture's single 240x120 rectangle is fitted at zoom 2 around
 // the canvas centre (640, 360), so it covers x 400-880, y 240-480; EMPTY is a free area right of it, clear of Inkboard's
@@ -21,7 +21,7 @@ const ITEM1 = '0192f0e0-0000-7000-8000-000000000001';
 const ITEM2 = '0192f0e0-0000-7000-8000-000000000002';
 const ITEM3 = '0192f0e0-0000-7000-8000-000000000003';
 const EMBED_EMPTY = { from: { x: 300, y: 520 }, to: { x: 450, y: 620 } };
-const DRAG_TYPE = 'application/x-quire-item';
+const DRAG_TYPE = 'application/x-wikanvas-item';
 const FIXTURE_NAME = 'Frame test';
 const CENTRE = { x: 640, y: 360 };
 const EMPTY = { from: { x: 960, y: 300 }, to: { x: 1140, y: 430 } };
@@ -76,7 +76,7 @@ type Log = {
 };
 
 /**
- * Opens frame.html (served with the frame CSP of §11, like quire-server does) and connects, recording every event in
+ * Opens frame.html (served with the frame CSP of §11, like wikanvas-server does) and connects, recording every event in
  * window.__log and every CSP violation in window.__csp; window.__api is the BoardFrameApi.
  */
 async function connect(page: Page): Promise<void> {
@@ -92,7 +92,7 @@ async function connect(page: Page): Promise<void> {
     const w = window as any;
     const log = { progress: [], ready: [], change: [], save: [], error: [], hostKey: [], layout: [], open: [], end: [], focusBack: [], drop: [] } as any;
     w.__log = log;
-    w.__api = await w.quireBoardFrame.connect({
+    w.__api = await w.wikanvasBoardFrame.connect({
       onProgress: (p: unknown) => log.progress.push(p),
       onReady: (id: string) => log.ready.push(id),
       onChange: (e: unknown) => log.change.push(e),
@@ -168,7 +168,7 @@ async function lastRevision(page: Page): Promise<number> {
 async function connectOnce(page: Page): Promise<{ result: unknown; errors: unknown[] }> {
   return page.evaluate(async () => {
     const errors: unknown[] = [];
-    const result = await (window as any).quireBoardFrame
+    const result = await (window as any).wikanvasBoardFrame
       .connect({ onError: (e: unknown) => errors.push(e) })
       .then((api: { engineVersion: string }) => ({ engineVersion: api.engineVersion }), (e: unknown) => ({ rejected: e }));
     return { result, errors };
@@ -284,7 +284,7 @@ test.describe('Inkboard frame', () => {
   test('serves the dist and loads the engine', async ({ page, request }) => {
     const manifest = await (await request.get('/manifest.json')).json();
     expect(manifest.format_version).toBe(2);
-    expect(manifest.engine_version).toMatch(/^0\.2\.0-beta\.3\+embed\.quire\.[0-9A-Za-z.]+$/);
+    expect(manifest.engine_version).toMatch(/^0\.2\.0-beta\.3\+embed\.wikanvas\.[0-9A-Za-z.]+$/);
     const wasm = await request.get('/inkboard_bg.wasm', { headers: { 'Accept-Encoding': 'br' } });
     expect(wasm.headers()['content-type']).toBe('application/wasm');
     expect(wasm.headers()['content-encoding']).toBe('br');
@@ -504,7 +504,7 @@ test.describe('Inkboard frame', () => {
     // a connected frame answers every later connect() with the same API
     expect(
       await page.evaluate(async () => {
-        const frame = (window as any).quireBoardFrame;
+        const frame = (window as any).wikanvasBoardFrame;
         return (await frame.connect({})) === (await frame.connect({}));
       }),
     ).toBe(true);

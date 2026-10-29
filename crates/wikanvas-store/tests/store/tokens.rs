@@ -3,9 +3,9 @@
 //! Creation (format, stored hash and prefix, expanded scopes, parent caps, the 100 limit), lookup with
 //! classification (live, expired, rejected), list, revoke with children, the last-use write, and the 30-day purge.
 
-use quire_core::api::token;
-use quire_core::api::{ApiToken, CreatedToken, ErrorCode, NewToken, Role, Scope};
-use quire_store::tokens::{self, CreatedVia, TokenLookup, TokenRow};
+use wikanvas_core::api::token;
+use wikanvas_core::api::{ApiToken, CreatedToken, ErrorCode, NewToken, Role, Scope};
+use wikanvas_store::tokens::{self, CreatedVia, TokenLookup, TokenRow};
 use rusqlite::params;
 use sha2::{Digest, Sha256};
 
@@ -26,7 +26,7 @@ async fn create(
     new: NewToken,
     parent: Option<TokenRow>,
     now: i64,
-) -> quire_store::Result<CreatedToken> {
+) -> wikanvas_store::Result<CreatedToken> {
     let user = user.to_owned();
     t.db.write(move |tx| tokens::create(tx, &user, &new, CreatedVia::Api, parent.as_ref(), now))
         .await
@@ -286,7 +286,7 @@ async fn parent_caps_scope_and_expiry_and_forbids_admin() {
     .unwrap_err();
     assert_eq!(e.details, Some(serde_json::json!({"field": "scopes"})));
     // A token of another user is not a parent here.
-    let other = t.user("member", "member@quire.invalid").await;
+    let other = t.user("member", "member@wikanvas.invalid").await;
     let e = create(
         &t,
         &other,
@@ -342,7 +342,7 @@ async fn revoking_a_parent_revokes_its_children() {
     .await
     .unwrap();
     // Another user cannot revoke it; an unknown id revokes nothing.
-    let other = t.user("member", "member@quire.invalid").await;
+    let other = t.user("member", "member@wikanvas.invalid").await;
     assert_eq!(
         revoke(&t, &other, &parent.api_token.id.to_string()).await,
         0

@@ -1,8 +1,8 @@
-//! Quire's public API contract (D40, ARCHITECTURE §7): every request and response DTO of `/api/v1`, the error
+//! Wikanvas's public API contract (D40, ARCHITECTURE §7): every request and response DTO of `/api/v1`, the error
 //! envelope with `ErrorCode`, `Page<T>`, `Scope`, `API_VERSION`, the token format (`token`) and the CLI exit-code
-//! table (`cli`). No I/O. The DTOs derive serde, ts-rs (`web/src/api/gen/*.ts`, `cargo test -p quire-api
-//! export_bindings`) and utoipa `ToSchema` (the OpenAPI spec, D41). Used by quire-core (re-exported as
-//! `quire_core::api`), quire-server and quire-cli. This module list is frozen (PLAN W7 "Owns").
+//! table (`cli`). No I/O. The DTOs derive serde, ts-rs (`web/src/api/gen/*.ts`, `cargo test -p wikanvas-api
+//! export_bindings`) and utoipa `ToSchema` (the OpenAPI spec, D41). Used by wikanvas-core (re-exported as
+//! `wikanvas_core::api`), wikanvas-server and wikanvas-cli. This module list is frozen (PLAN W7 "Owns").
 
 pub mod auth;
 pub mod boards;
@@ -28,7 +28,7 @@ pub use page::{Page, PageQuery};
 pub use tokens::*;
 pub use tree::*;
 
-/// The API version: the spec's `info.version`, `api_version` in `GET /api/v1/config`, and the `Quire-Api-Version`
+/// The API version: the spec's `info.version`, `api_version` in `GET /api/v1/config`, and the `Wikanvas-Api-Version`
 /// header on every `/api/v1` response. Frozen at "1.0" until the first release; after that a release bumps the minor
 /// once when it adds anything (§7.1).
 pub const API_VERSION: &str = "1.0";

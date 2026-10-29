@@ -1,4 +1,4 @@
-//! The `quire doc` commands: document content as Markdown or ProseMirror JSON (owner: W8)
+//! The `wikanvas doc` commands: document content as Markdown or ProseMirror JSON (owner: W8)
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -14,7 +14,7 @@ use crate::http::{self, Req};
 use crate::markdown::{self, Local};
 use crate::output;
 
-/// The upload limit when `GET /config` cannot tell (the compose default, `QUIRE_MAX_UPLOAD_MB=25`).
+/// The upload limit when `GET /config` cannot tell (the compose default, `WIKANVAS_MAX_UPLOAD_MB=25`).
 const DEFAULT_MAX_UPLOAD_MB: u64 = 25;
 
 pub fn run(ctx: &Ctx, cmd: DocCmd) -> Res {
@@ -86,12 +86,12 @@ fn get(ctx: &Ctx, a: DocGet) -> Res {
     }
 }
 
-/// The `ETag` and the `Quire-Conversion-Warnings` codes of a content response; without `--json` both are also noted
+/// The `ETag` and the `Wikanvas-Conversion-Warnings` codes of a content response; without `--json` both are also noted
 /// on stderr.
 fn content_headers(headers: &ureq::http::HeaderMap) -> (Option<String>, Vec<String>) {
     let etag = http::header(headers, "etag");
     let warnings: Vec<String> =
-        http::header(headers, quire_api::common::header::CONVERSION_WARNINGS)
+        http::header(headers, wikanvas_api::common::header::CONVERSION_WARNINGS)
             .map(|h| {
                 h.split(',')
                     .map(|s| s.trim().to_owned())

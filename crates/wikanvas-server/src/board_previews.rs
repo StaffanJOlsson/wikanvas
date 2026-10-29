@@ -7,20 +7,20 @@
 //! cancelled (the timeout layer, a client that goes away) cannot release it while the work still runs. Under it, the
 //! render first checks whether the current revision was rendered meanwhile (a GET that waited for the worker gets the
 //! stored page), then reads the stored board, splices its assets and renders the pages one at a time with
-//! `quire_core::board::Previewer`, within its per-page and per-board budgets, deflating each page outside the writer.
-//! The writer only stores them (`quire_store::previews::store`, which ignores a render that a newer save made stale).
-//! `GET …/board/pages/{n}` calls [`render`] directly when the current revision has no preview yet. The worker skips
-//! items whose previews are already current, and items that no longer exist.
+//! `wikanvas_core::board::Previewer`, within its per-page and per-board budgets, deflating each page outside the
+//! writer. The writer only stores them (`wikanvas_store::previews::store`, which ignores a render that a newer save
+//! made stale). `GET …/board/pages/{n}` calls [`render`] directly when the current revision has no preview yet. The
+//! worker skips items whose previews are already current, and items that no longer exist.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use quire_core::board::Previewer;
-use quire_store::blobs::BlobStore;
-use quire_store::boards::{self, StoredBoard};
-use quire_store::db::Db;
-use quire_store::previews::{self, PageSvg, Preview};
+use wikanvas_core::board::Previewer;
+use wikanvas_store::blobs::BlobStore;
+use wikanvas_store::boards::{self, StoredBoard};
+use wikanvas_store::db::Db;
+use wikanvas_store::previews::{self, PageSvg, Preview};
 use tokio::sync::{Semaphore, mpsc};
 use tokio::time::Instant;
 
@@ -227,7 +227,7 @@ impl Worker {
             .read(move |c| {
                 let state = match boards::state(c, &id) {
                     Ok(s) => s,
-                    Err(e) if e.is(quire_api::ErrorCode::NotFound) => return Ok(true),
+                    Err(e) if e.is(wikanvas_api::ErrorCode::NotFound) => return Ok(true),
                     Err(e) => return Err(e),
                 };
                 previews::rendered(c, &id, state.rev)
@@ -237,7 +237,7 @@ impl Worker {
             return Ok(());
         }
         match render_with(&self.db, &self.blobs, &self.permits, item_id, None).await {
-            Err(e) if e.code == quire_api::ErrorCode::NotFound => Ok(()),
+            Err(e) if e.code == wikanvas_api::ErrorCode::NotFound => Ok(()),
             other => other.map(drop),
         }
     }

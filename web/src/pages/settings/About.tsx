@@ -51,7 +51,7 @@ export function About() {
   return (
     <>
       <section className="settings-section" aria-labelledby="about-h">
-        <h2 id="about-h">Quire</h2>
+        <h2 id="about-h">Wikanvas</h2>
         <dl className="facts">
           <div><dt>Version</dt><dd>{c?.version ?? '…'}</dd></div>
           <div><dt>Commit</dt><dd><code>{c?.commit ?? '…'}</code></dd></div>
@@ -62,7 +62,7 @@ export function About() {
       <section className="settings-section" aria-labelledby="licence-h">
         <h2 id="licence-h">Licences</h2>
         <p>
-          Quire is free software under the MIT licence. It is built from open-source
+          Wikanvas is free software under the MIT licence. It is built from open-source
           libraries, each under its own licence: the list below names every Rust crate and npm package in this build,
           with the licence files they ship.
         </p>

@@ -1,4 +1,4 @@
-// QuireEditor (docs/ARCHITECTURE.md §6.1, §9.3, §9.6.5): TipTap on the doc session's Y.Doc, with its menus. The
+// WikanvasEditor (docs/ARCHITECTURE.md §6.1, §9.3, §9.6.5): TipTap on the doc session's Y.Doc, with its menus. The
 // Y.Doc already holds the server state (applied with origin 'server' before the editor exists); content is never
 // passed to the editor. `variant="embed"` is the editor of a board card (§18.5 Editing step 2): its popups go to
 // `popupRoot`, it has no block handle and no heading anchors, and Backspace at the start of an empty body goes to
@@ -17,7 +17,7 @@ import type { SlashContext } from './slash';
 import { Popup } from './suggest';
 import './editor.css';
 
-export interface QuireEditorProps {
+export interface WikanvasEditorProps {
   itemId: string;
   session: DocSession;
   readOnly: boolean;
@@ -42,7 +42,7 @@ function sameHeadings(a: Heading[], b: Heading[]): boolean {
   return a.length === b.length && a.every((h, i) => h.blockId === b[i].blockId && h.text === b[i].text && h.level === b[i].level);
 }
 
-export function QuireEditor(props: QuireEditorProps) {
+export function WikanvasEditor(props: WikanvasEditorProps) {
   const { itemId, session, readOnly, onHeadings, onEditor, pickBoard, newBoard, variant = 'page', popupRoot } = props;
   const { titleInput, onEscape } = props;
   const embed = variant === 'embed';
@@ -93,7 +93,7 @@ export function QuireEditor(props: QuireEditorProps) {
       // TipTap's base CSS is in editor.css: its inline <style> would break the SPA CSP (§11).
       injectCSS: false,
       editorProps: {
-        attributes: { class: 'quire-editor', 'aria-label': 'Document body', spellcheck: 'true' },
+        attributes: { class: 'wikanvas-editor', 'aria-label': 'Document body', spellcheck: 'true' },
       },
       onCreate: ({ editor: e }) => {
         const h = headingsOfNode(e.state.doc);
@@ -131,7 +131,7 @@ export function QuireEditor(props: QuireEditorProps) {
   }, [editor, readOnly]);
 
   return (
-    <div className="quire-editor-shell" data-readonly={readOnly || undefined} data-variant={embed ? 'embed' : undefined}>
+    <div className="wikanvas-editor-shell" data-readonly={readOnly || undefined} data-variant={embed ? 'embed' : undefined}>
       {editor && !readOnly && (
         <>
           <SelectionMenu editor={editor} appendTo={portal} />

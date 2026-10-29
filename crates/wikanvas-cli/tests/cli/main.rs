@@ -1,4 +1,4 @@
-//! The CLI test binary (PLAN R7, W8): one module per area, run against `quire_server::testing::TestServer` or a
+//! The CLI test binary (PLAN R7, W8): one module per area, run against `wikanvas_server::testing::TestServer` or a
 //! scripted mock listener (owner: W8). `flows::` needs the W1, W2, W4 and W6 routes and runs in W7's gate.
 
 mod admin;

@@ -8,7 +8,7 @@
 
 use std::collections::BTreeMap;
 
-use quire_core::api::{ErrorCode, ItemKind};
+use wikanvas_core::api::{ErrorCode, ItemKind};
 use rusqlite::{OptionalExtension, Transaction, params};
 use yrs::updates::decoder::Decode;
 use yrs::{Doc, ReadTxn, StateVector, Transact, Update};
@@ -77,7 +77,7 @@ pub struct RevisionDraft {
     pub assets: Option<BTreeMap<String, String>>,
     /// Yjs: the attachment ids the document references (attachment GC roots).
     pub attachment_ids: Option<Vec<String>>,
-    /// The Quire TipTap schema version (§6.1); 1 for boards.
+    /// The Wikanvas TipTap schema version (§6.1); 1 for boards.
     pub schema_version: i64,
     /// Yjs: the seq it captures; inkboard: the rev (D53).
     pub source_seq: Option<i64>,
@@ -287,7 +287,7 @@ pub fn pre_api(
 /// spans of unix time (UTC), so a revision kept once stays kept until it reaches a coarser tier. `manual` revisions are
 /// never pruned (nor counted). Returns how many revisions it deleted.
 pub fn prune(tx: &Transaction<'_>, now: i64) -> Result<u64> {
-    use quire_core::time::{DAY_MS, HOUR_MS, WEEK_MS};
+    use wikanvas_core::time::{DAY_MS, HOUR_MS, WEEK_MS};
     let rows = tx
         .prepare(
             "SELECT id, item_id, created_at FROM revisions WHERE reason <> 'manual'

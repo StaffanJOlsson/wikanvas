@@ -7,7 +7,7 @@ import { routes } from './router';
 
 const me: Me = {
   user: { id: 'u1', email: 'owner@example.com', name: 'Owner', role: 'owner', theme: 'system' },
-  workspace: { name: 'Quire', logo_url: null },
+  workspace: { name: 'Wikanvas', logo_url: null },
   must_change_password: false,
   auth: { method: 'session', token: null },
 };
@@ -77,7 +77,7 @@ describe('router', () => {
     expect(c.router.state.location.search).toBe('?force=1');
   });
 
-  it.each([['/login', 'Sign in'], ['/setup', 'Set up Quire']])('%s renders without loading /auth/me', async (path, heading) => {
+  it.each([['/login', 'Sign in'], ['/setup', 'Set up Wikanvas']])('%s renders without loading /auth/me', async (path, heading) => {
     const fetch = vi.fn(jsonFetch({ 'GET /api/v1/setup': [200, { needs_setup: true }] }));
     vi.stubGlobal('fetch', fetch);
     renderRoutes(routes, path);

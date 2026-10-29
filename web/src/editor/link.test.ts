@@ -2,7 +2,7 @@
 // data: URL stays text.
 import { Editor } from '@tiptap/react';
 import { afterEach, describe, expect, it } from 'vitest';
-import { isAllowedImageSrc, isAllowedLink, quireItemId, sameInstanceUrlId } from './links';
+import { isAllowedImageSrc, isAllowedLink, wikanvasItemId, sameInstanceUrlId } from './links';
 import { schemaExtensions } from './schema';
 
 let editor: Editor | null = null;
@@ -26,10 +26,10 @@ function type(e: Editor, text: string) {
 
 describe('links', () => {
   it('allow-lists schemes', () => {
-    for (const ok of ['https://example.com', 'http://x', 'mailto:a@b.c', 'quire://item/x', '/doc/a', '#h-1']) {
+    for (const ok of ['https://example.com', 'http://x', 'mailto:a@b.c', 'wikanvas://item/x', '/doc/a', '#h-1']) {
       expect(isAllowedLink(ok), ok).toBe(true);
     }
-    // The same list as quire-core's convert::tests::allow_list: the two allow-lists must agree.
+    // The same list as wikanvas-core's convert::tests::allow_list: the two allow-lists must agree.
     for (const bad of [
       'javascript:alert(1)', 'JAVASCRIPT:x', 'java\tscript:x', ' javascript:x', 'data:text/html,x', 'vbscript:x',
       '//evil.com', '/\\evil.com', '/\t/evil.com', '/\n/evil.com', '/\r/evil.com', ' //evil.com', '/ /evil.com', '', '\t',
@@ -39,7 +39,7 @@ describe('links', () => {
     }
     expect(isAllowedImageSrc('mailto:a@b.c')).toBe(false);
     expect(isAllowedImageSrc('data:image/png;base64,AA')).toBe(false);
-    expect(quireItemId('quire://item/0192F0A0-1111-7000-8000-00000000000A')).toBe('0192f0a0-1111-7000-8000-00000000000a');
+    expect(wikanvasItemId('wikanvas://item/0192F0A0-1111-7000-8000-00000000000A')).toBe('0192f0a0-1111-7000-8000-00000000000a');
     expect(sameInstanceUrlId('https://wiki.example/doc/my-page-AbCdEfGh12', 'https://wiki.example')).toBe('AbCdEfGh12');
     expect(sameInstanceUrlId('https://other.example/doc/my-page-AbCdEfGh12', 'https://wiki.example')).toBeNull();
     expect(sameInstanceUrlId('/board/AbCdEfGh12', 'https://wiki.example')).toBe('AbCdEfGh12');

@@ -5,7 +5,7 @@
 
 use std::fmt;
 
-/// Every token starts with this; `is_quire_bearer` (server) tests `Authorization: Bearer qpat_…`.
+/// Every token starts with this; `is_wikanvas_bearer` (server) tests `Authorization: Bearer qpat_…`.
 pub const PREFIX: &str = "qpat_";
 /// Random base62 characters after the prefix (about 238 bits).
 pub const SECRET_LEN: usize = 40;
@@ -36,10 +36,10 @@ pub enum TokenFormatError {
 impl fmt::Display for TokenFormatError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
-            TokenFormatError::Prefix => "a Quire token starts with qpat_",
-            TokenFormatError::Length => "a Quire token is 51 characters long",
+            TokenFormatError::Prefix => "a Wikanvas token starts with qpat_",
+            TokenFormatError::Length => "a Wikanvas token is 51 characters long",
             TokenFormatError::Alphabet => {
-                "a Quire token holds only the characters 0-9, A-Z and a-z after qpat_"
+                "a Wikanvas token holds only the characters 0-9, A-Z and a-z after qpat_"
             }
             TokenFormatError::Checksum => {
                 "the token's checksum does not match (mistyped or truncated?)"

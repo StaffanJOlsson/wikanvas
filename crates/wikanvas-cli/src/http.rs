@@ -1,9 +1,9 @@
 //! Transport: one ureq agent, TLS roots, retries, timeouts, no redirects, error mapping (owner: W8)
 //!
-//! §7.6 "Transport" and "Retries". Roots come from `--ca-file` / `QUIRE_CA_FILE` (PEM), else the system bundle
+//! §7.6 "Transport" and "Retries". Roots come from `--ca-file` / `WIKANVAS_CA_FILE` (PEM), else the system bundle
 //! (`SSL_CERT_FILE`, else the first of the usual bundle paths); an https URL with no bundle exits 3, and no flag
 //! skips verification. Redirects are never followed: a 3xx exits 3 and names the `Location`. Plain `http://` to a
-//! non-loopback host is refused unless `QUIRE_ALLOW_HTTP=1` or the profile's `allow_http`. Environment proxies are
+//! non-loopback host is refused unless `WIKANVAS_ALLOW_HTTP=1` or the profile's `allow_http`. Environment proxies are
 //! not used, so the token goes only to the configured origin.
 //!
 //! Retries (`--retries`, default 2), after `Retry-After` (capped at 60 s), else 1 s and then 3 s: every method when
@@ -50,7 +50,7 @@ pub const SYSTEM_BUNDLES: &[&str] = &[
 #[derive(Clone, Debug)]
 pub struct Req {
     pub method: Method,
-    /// Starts with `/api/`; may carry its own query string (`quire api`).
+    /// Starts with `/api/`; may carry its own query string (`wikanvas api`).
     pub path: String,
     pub query: Vec<(String, String)>,
     pub headers: Vec<(String, String)>,
@@ -279,7 +279,7 @@ fn load_roots(ca_file: Option<&std::path::Path>, env: &Env) -> Result<RootCerts,
     let (path, source) = if let Some(p) = ca_file {
         (
             p.to_path_buf(),
-            "--ca-file / QUIRE_CA_FILE / the profile's ca_file",
+            "--ca-file / WIKANVAS_CA_FILE / the profile's ca_file",
         )
     } else if let Some(p) = env.get("SSL_CERT_FILE") {
         (std::path::PathBuf::from(p), "SSL_CERT_FILE")
@@ -330,12 +330,12 @@ impl Client {
     ) -> Result<Client, Failure> {
         let origin = resolved.url.clone().ok_or_else(|| {
             Failure::config(
-                "no Quire URL: pass --url, set QUIRE_URL, or run `quire auth login --url URL --token-stdin`",
+                "no Wikanvas URL: pass --url, set WIKANVAS_URL, or run `wikanvas auth login --url URL --token-stdin`",
             )
         })?;
         if origin.scheme == Scheme::Http && !origin.is_loopback() && !resolved.allow_http {
             return Err(Failure::config(format!(
-                "{} is plain HTTP to a host that is not this machine: use https, or set QUIRE_ALLOW_HTTP=1 \
+                "{} is plain HTTP to a host that is not this machine: use https, or set WIKANVAS_ALLOW_HTTP=1 \
                  (or allow_http = true in the profile) if the network is trusted",
                 origin.base()
             )));
@@ -353,7 +353,7 @@ impl Client {
             .http_status_as_error(false)
             .max_redirects(0)
             .proxy(None)
-            .user_agent(format!("quire-cli/{}", env!("CARGO_PKG_VERSION")))
+            .user_agent(format!("wikanvas-cli/{}", env!("CARGO_PKG_VERSION")))
             .tls_config(tls)
             .build();
         let agent = Agent::with_parts(config, ConnectStage::default(), Lookup::default());
@@ -437,8 +437,8 @@ impl Client {
     fn need_token(&self, req: &Req) -> Result<(), Failure> {
         if req.auth && self.token.is_none() {
             return Err(Failure::config(
-                "no API token: pass --token-file or --token-stdin, set QUIRE_TOKEN or QUIRE_TOKEN_FILE, or run \
-                 `quire auth login`",
+                "no API token: pass --token-file or --token-stdin, set WIKANVAS_TOKEN or WIKANVAS_TOKEN_FILE, or run \
+                 `wikanvas auth login`",
             ));
         }
         Ok(())
@@ -462,13 +462,13 @@ impl Client {
             match result {
                 Ok(resp) => {
                     let status = resp.status().as_u16();
-                    let request_id = header(resp.headers(), quire_api::common::header::REQUEST_ID);
+                    let request_id = header(resp.headers(), wikanvas_api::common::header::REQUEST_ID);
                     output::debug(json!({
                         "method": req.method.as_str(), "url": url, "status": status,
                         "duration_ms": elapsed, "request_id": request_id, "attempt": *attempt + 1,
                     }));
                     if let Some(server) =
-                        header(resp.headers(), quire_api::common::header::API_VERSION)
+                        header(resp.headers(), wikanvas_api::common::header::API_VERSION)
                         && api_version_older(&server)
                     {
                         output::warn_api_version_once(&server);
@@ -526,7 +526,7 @@ impl Client {
     }
 
     /// Like [`send_text`](Self::send_text), but a response for which `stream` is true is returned unread, for a
-    /// download (`quire api` decides by the content type).
+    /// download (`wikanvas api` decides by the content type).
     pub fn send_text_or_stream(
         &self,
         req: &Req,
@@ -563,7 +563,7 @@ impl Client {
             output::debug(json!({
                 "method": req.method.as_str(), "url": url, "status": status,
                 "duration_ms": started.elapsed().as_millis() as u64,
-                "request_id": header(&headers, quire_api::common::header::REQUEST_ID),
+                "request_id": header(&headers, wikanvas_api::common::header::REQUEST_ID),
                 "attempt": attempt + 1, "error": format!("reading the response: {}", net.message),
             }));
             let too_big = matches!(err, ureq::Error::BodyExceedsLimit(_));
@@ -623,7 +623,7 @@ pub fn expect_success(mut resp: Response<Body>) -> Result<Response<Body>, Failur
     if (200..300).contains(&status) {
         return Ok(resp);
     }
-    let request_id = header(resp.headers(), quire_api::common::header::REQUEST_ID);
+    let request_id = header(resp.headers(), wikanvas_api::common::header::REQUEST_ID);
     if (300..400).contains(&status) {
         let location = header(resp.headers(), "location");
         return Err(Failure::redirect(status, location.as_deref(), request_id));
@@ -645,14 +645,14 @@ pub fn header(headers: &http::HeaderMap, name: &str) -> Option<String> {
         .map(str::to_owned)
 }
 
-/// Whether the server's `Quire-Api-Version` is older than the CLI's (a lower minor of the same major, or a lower
+/// Whether the server's `Wikanvas-Api-Version` is older than the CLI's (a lower minor of the same major, or a lower
 /// major).
 fn api_version_older(server: &str) -> bool {
     fn parse(v: &str) -> Option<(u32, u32)> {
         let (a, b) = v.trim().split_once('.')?;
         Some((a.parse().ok()?, b.parse().ok()?))
     }
-    match (parse(server), parse(quire_api::API_VERSION)) {
+    match (parse(server), parse(wikanvas_api::API_VERSION)) {
         (Some(s), Some(c)) => s < c,
         _ => false,
     }

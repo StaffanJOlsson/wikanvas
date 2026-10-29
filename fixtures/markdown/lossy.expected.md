@@ -21,9 +21,9 @@ Edge  **bold** whitespace
 
 5) ordered two
 
-Mentions [@Doc A](quire://item/0192f0a0-1111-7000-8000-00000000000a) and links [to a doc](quire://item/0192f0a0-1111-7000-8000-00000000000a)
+Mentions [@Doc A](wikanvas://item/0192f0a0-1111-7000-8000-00000000000a) and links [to a doc](wikanvas://item/0192f0a0-1111-7000-8000-00000000000a)
 
-![Board C](quire://item/0192f0a0-3333-7000-8000-00000000000c)
+![Board C](wikanvas://item/0192f0a0-3333-7000-8000-00000000000c)
 
 > [!TIP]
 

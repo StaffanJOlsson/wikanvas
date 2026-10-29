@@ -1,8 +1,8 @@
-// Quire document schema v1 (docs/ARCHITECTURE.md §6.1, §6.4): the TipTap extensions that define the schema, shared
+// Wikanvas document schema v1 (docs/ARCHITECTURE.md §6.1, §6.4): the TipTap extensions that define the schema, shared
 // by the editor, the headless fixture writer and the tests. Node and mark names are a contract with the server's
-// walker (`quire-core::ytext`, `quire-core::schema`): renaming one needs schema_version 2 and a Y-level migration.
-// The editor adds its node views, menus and input rules on top of these (editor/QuireEditor.tsx); nothing here
-// touches the DOM beyond parseHTML/renderHTML.
+// walker (`wikanvas-core::ytext`, `wikanvas-core::schema`): renaming one needs schema_version 2 and a Y-level
+// migration. The editor adds its node views, menus and input rules on top of these (editor/WikanvasEditor.tsx); nothing
+// here touches the DOM beyond parseHTML/renderHTML.
 import { isChangeOrigin } from '@tiptap/extension-collaboration';
 import { CodeBlockLowlight } from '@tiptap/extension-code-block-lowlight';
 import Highlight from '@tiptap/extension-highlight';
@@ -15,7 +15,7 @@ import TaskList from '@tiptap/extension-task-list';
 import UniqueID from '@tiptap/extension-unique-id';
 import { mergeAttributes, Node, wrappingInputRule, type AnyExtension, type NodeViewRenderer } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
-import { isAllowedImageSrc, isAllowedLink, itemIdPath, LINK_SCHEMES, quireItemId, quireItemUrl } from './links';
+import { isAllowedImageSrc, isAllowedLink, itemIdPath, LINK_SCHEMES, wikanvasItemId, wikanvasItemUrl } from './links';
 
 export const SCHEMA_VERSION = 1;
 /** The Y XmlFragment that holds the document. */
@@ -140,7 +140,7 @@ export const BoardEmbed = Node.create({
  * and `src` `/api/v1/attachments/<id>`; an external one keeps `src` with `attachmentId: null` and renders as a
  * placeholder card that never loads it.
  */
-export const QuireImage = Image.extend({
+export const WikanvasImage = Image.extend({
   addAttributes() {
     return {
       src: { default: null },
@@ -183,7 +183,7 @@ export const QuireImage = Image.extend({
 }).configure({ inline: false, allowBase64: false });
 
 /** Mentions: `mention{itemId}` (§6.1); the label is the item's live title, never stored. */
-export const QuireMention = Mention.extend({
+export const WikanvasMention = Mention.extend({
   addAttributes() {
     return {
       itemId: {
@@ -199,26 +199,26 @@ export const QuireMention = Mention.extend({
 });
 
 /** Links: `link{href, itemId}` (§6.1), limited to the §6.4 scheme allow-list. */
-export const QuireLink = Link.extend({
+export const WikanvasLink = Link.extend({
   addAttributes() {
     return {
       href: {
         default: null,
-        // An item link's DOM href is `/item/<uuid>` (below): read back, it is the item's `quire://item/<uuid>`.
+        // An item link's DOM href is `/item/<uuid>` (below): read back, it is the item's `wikanvas://item/<uuid>`.
         parseHTML: (el) => {
           const id = el.getAttribute('data-item-id');
-          return id && quireItemId(quireItemUrl(id)) ? quireItemUrl(id.toLowerCase()) : el.getAttribute('href');
+          return id && wikanvasItemId(wikanvasItemUrl(id)) ? wikanvasItemUrl(id.toLowerCase()) : el.getAttribute('href');
         },
-        // The stored href stays as it is (`quire://item/<uuid>` or a pasted Quire URL); the DOM gets a URL a browser
-        // can open, so a click, "open in new tab" and "copy link address" reach the item (§9.6.5).
+        // The stored href stays as it is (`wikanvas://item/<uuid>` or a pasted Wikanvas URL); the DOM gets a URL a
+        // browser can open, so a click, "open in new tab" and "copy link address" reach the item (§9.6.5).
         renderHTML: (attrs) => {
-          const id = (attrs.itemId as string | null) ?? quireItemId(attrs.href as string | null);
+          const id = (attrs.itemId as string | null) ?? wikanvasItemId(attrs.href as string | null);
           return { href: id ? itemIdPath(id) : (attrs.href as string | null) };
         },
       },
       itemId: {
         default: null,
-        parseHTML: (el) => el.getAttribute('data-item-id') ?? quireItemId(el.getAttribute('href')),
+        parseHTML: (el) => el.getAttribute('data-item-id') ?? wikanvasItemId(el.getAttribute('href')),
         renderHTML: (attrs) => (attrs.itemId ? { 'data-item-id': attrs.itemId as string } : {}),
       },
     };
@@ -288,16 +288,16 @@ export function schemaExtensions(opts: SchemaOptions = {}): AnyExtension[] {
     }),
     view(CodeBlockLowlight.configure({ lowlight: opts.lowlight ?? NO_HIGHLIGHT, defaultLanguage: null }), v.codeBlock),
     Highlight.configure({ multicolor: false }),
-    QuireLink,
+    WikanvasLink,
     TaskList,
     TaskItem.configure({ nested: true }),
     Table.configure({ resizable: false }),
     TableRow,
     TableHeader,
     TableCell,
-    view(QuireImage, v.image),
+    view(WikanvasImage, v.image),
     view(Callout, v.callout),
-    view(opts.mentionSuggestion ? QuireMention.configure({ suggestion: opts.mentionSuggestion }) : QuireMention, v.mention),
+    view(opts.mentionSuggestion ? WikanvasMention.configure({ suggestion: opts.mentionSuggestion }) : WikanvasMention, v.mention),
     view(BoardEmbed, v.boardEmbed),
     uniqueId,
   ];

@@ -1,4 +1,4 @@
-//! Configuration from QUIRE_* environment variables, and the derived public URL (owner: W2).
+//! Configuration from WIKANVAS_* environment variables, and the derived public URL (owner: W2).
 //!
 //! Every variable of ARCHITECTURE §13.3 and §8 is parsed here, once, at startup: a malformed value stops the server
 //! with a message naming the variable. Compose passes unset variables as empty strings, so an empty value counts as
@@ -10,9 +10,9 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::time::Duration;
 
-use quire_api::Limits;
+use wikanvas_api::Limits;
 
-/// The default listen address of a bare `quire-server serve` (the image sets `QUIRE_LISTEN=0.0.0.0:8080`).
+/// The default listen address of a bare `wikanvas-server serve` (the image sets `WIKANVAS_LISTEN=0.0.0.0:8080`).
 pub const DEFAULT_LISTEN: &str = "127.0.0.1:8080";
 /// Every body without a route-specific limit (D33).
 pub const MAX_BODY_BYTES: u64 = 1024 * 1024;
@@ -35,7 +35,7 @@ pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 /// The body deadline of uploads and board PUTs (§8).
 pub const UPLOAD_TIMEOUT: Duration = Duration::from_secs(120);
 
-/// `QUIRE_TLS`: how Caddy terminates HTTPS in front of Quire (D57). Only `acme` sends HSTS (§11).
+/// `WIKANVAS_TLS`: how Caddy terminates HTTPS in front of Wikanvas (D57). Only `acme` sends HSTS (§11).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TlsMode {
     /// Caddy's local CA (default): `localhost` or LAN names. No HSTS.
@@ -44,14 +44,14 @@ pub enum TlsMode {
     Acme,
 }
 
-/// `QUIRE_SYNC`: SQLite's `synchronous` PRAGMA (§5).
+/// `WIKANVAS_SYNC`: SQLite's `synchronous` PRAGMA (§5).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SyncMode {
     Normal,
     Full,
 }
 
-/// A URL scheme Quire can be reached under.
+/// A URL scheme Wikanvas can be reached under.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Scheme {
     Http,
@@ -162,7 +162,7 @@ pub fn split_host_port(s: &str) -> Option<(String, Option<u16>)> {
     Some((host.to_ascii_lowercase(), port))
 }
 
-/// An entry of `QUIRE_ALLOWED_HOSTS`: a host with any port, or an exact `host:port`.
+/// An entry of `WIKANVAS_ALLOWED_HOSTS`: a host with any port, or an exact `host:port`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HostPattern {
     pub host: String,
@@ -175,7 +175,7 @@ impl HostPattern {
     }
 }
 
-/// An IP address or CIDR block of `QUIRE_TRUSTED_PROXIES`.
+/// An IP address or CIDR block of `WIKANVAS_TRUSTED_PROXIES`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct IpNet {
     pub addr: IpAddr,
@@ -253,50 +253,50 @@ impl std::error::Error for ConfigError {}
 /// The server's configuration (ARCHITECTURE §13.3, §8, D33, D47, D48, D57).
 #[derive(Clone, Debug)]
 pub struct Config {
-    /// `QUIRE_DATA_DIR` (default `./data`; the image sets `/data`): `quire.db`, `files/`, `tmp/`, `backups/`.
+    /// `WIKANVAS_DATA_DIR` (default `./data`; the image sets `/data`): `wikanvas.db`, `files/`, `tmp/`, `backups/`.
     pub data_dir: PathBuf,
-    /// `QUIRE_LISTEN` (default `127.0.0.1:8080`).
+    /// `WIKANVAS_LISTEN` (default `127.0.0.1:8080`).
     pub listen: SocketAddr,
-    /// The public URL (§8): `QUIRE_PUBLIC_URL`, else `https://QUIRE_DOMAIN[:QUIRE_HTTPS_PORT]`, else
-    /// `http://localhost:<QUIRE_LISTEN port>`.
+    /// The public URL (§8): `WIKANVAS_PUBLIC_URL`, else `https://WIKANVAS_DOMAIN[:WIKANVAS_HTTPS_PORT]`, else
+    /// `http://localhost:<WIKANVAS_LISTEN port>`.
     pub public_url: Origin,
-    /// `QUIRE_DOMAIN`, lowercase: allowed as `Host` with any port.
+    /// `WIKANVAS_DOMAIN`, lowercase: allowed as `Host` with any port.
     pub domain: Option<String>,
-    /// `QUIRE_TLS` (default `internal`).
+    /// `WIKANVAS_TLS` (default `internal`).
     pub tls: TlsMode,
-    /// `QUIRE_HTTPS_PORT` (default 443).
+    /// `WIKANVAS_HTTPS_PORT` (default 443).
     pub https_port: u16,
-    /// `QUIRE_ALLOWED_HOSTS`.
+    /// `WIKANVAS_ALLOWED_HOSTS`.
     pub allowed_hosts: Vec<HostPattern>,
-    /// `QUIRE_TRUSTED_PROXIES`: peers whose `X-Forwarded-For` / `-Proto` count.
+    /// `WIKANVAS_TRUSTED_PROXIES`: peers whose `X-Forwarded-For` / `-Proto` count.
     pub trusted_proxies: Vec<IpNet>,
-    /// `QUIRE_CORS_ORIGINS` (D48); empty = CORS off.
+    /// `WIKANVAS_CORS_ORIGINS` (D48); empty = CORS off.
     pub cors_origins: Vec<Origin>,
-    /// `QUIRE_SETUP_TOKEN`: a fixed setup code instead of a generated one (D19).
+    /// `WIKANVAS_SETUP_TOKEN`: a fixed setup code instead of a generated one (D19).
     pub setup_token: Option<String>,
-    /// `QUIRE_BACKUP_INTERVAL` (default 24h).
+    /// `WIKANVAS_BACKUP_INTERVAL` (default 24h).
     pub backup_interval: Duration,
-    /// `QUIRE_BACKUP_KEEP` (default 7).
+    /// `WIKANVAS_BACKUP_KEEP` (default 7).
     pub backup_keep: u32,
-    /// `QUIRE_MAX_UPLOAD_MB` (default 25).
+    /// `WIKANVAS_MAX_UPLOAD_MB` (default 25).
     pub max_upload_mb: u64,
-    /// `QUIRE_MAX_BOARD_MB` (default 50).
+    /// `WIKANVAS_MAX_BOARD_MB` (default 50).
     pub max_board_mb: u64,
-    /// `QUIRE_MAX_DOC_MB` (default 16).
+    /// `WIKANVAS_MAX_DOC_MB` (default 16).
     pub max_doc_mb: u64,
-    /// `QUIRE_MIN_FREE_MB` (default 1024; capped at 10% of the filesystem, D33).
+    /// `WIKANVAS_MIN_FREE_MB` (default 1024; capped at 10% of the filesystem, D33).
     pub min_free_mb: u64,
-    /// `QUIRE_TOKEN_RATE`: requests per minute per token (default 600; burst [`TOKEN_BURST`]).
+    /// `WIKANVAS_TOKEN_RATE`: requests per minute per token (default 600; burst [`TOKEN_BURST`]).
     pub token_rate_per_min: u32,
-    /// `QUIRE_TOKEN_BYTES_PER_HOUR` (default 1 GiB).
+    /// `WIKANVAS_TOKEN_BYTES_PER_HOUR` (default 1 GiB).
     pub token_bytes_per_hour: u64,
-    /// `QUIRE_WORKER_THREADS` (default 2, D25).
+    /// `WIKANVAS_WORKER_THREADS` (default 2, D25).
     pub worker_threads: usize,
-    /// `QUIRE_MAX_BLOCKING_THREADS` (default 16, D25).
+    /// `WIKANVAS_MAX_BLOCKING_THREADS` (default 16, D25).
     pub max_blocking_threads: usize,
-    /// `QUIRE_SYNC` (default `NORMAL`).
+    /// `WIKANVAS_SYNC` (default `NORMAL`).
     pub sync: SyncMode,
-    /// `QUIRE_TEST_ARGON2=1`: cheap argon2 parameters, for tests only.
+    /// `WIKANVAS_TEST_ARGON2=1`: cheap argon2 parameters, for tests only.
     pub test_argon2: bool,
     /// Tests only (no variable): the limiters and "now" run on a fake clock (`AppState::clock`).
     pub fake_clock: bool,
@@ -319,44 +319,44 @@ impl Config {
                 .map(|v| v.trim().to_owned())
                 .filter(|v| !v.is_empty())
         };
-        let data_dir = var("QUIRE_DATA_DIR")
+        let data_dir = var("WIKANVAS_DATA_DIR")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("data"));
-        let listen: SocketAddr = parse_with(&var, "QUIRE_LISTEN", DEFAULT_LISTEN, |s| {
+        let listen: SocketAddr = parse_with(&var, "WIKANVAS_LISTEN", DEFAULT_LISTEN, |s| {
             s.parse()
                 .map_err(|_| format!("{s:?} is not an address:port"))
         })?;
-        let domain = match var("QUIRE_DOMAIN") {
+        let domain = match var("WIKANVAS_DOMAIN") {
             None => None,
             Some(d) => {
                 let (host, port) = split_host_port(&d).ok_or_else(|| ConfigError {
-                    var: "QUIRE_DOMAIN",
+                    var: "WIKANVAS_DOMAIN",
                     message: format!("{d:?} is not a host name"),
                 })?;
                 if port.is_some() {
                     return Err(ConfigError {
-                        var: "QUIRE_DOMAIN",
-                        message: format!("{d:?}: give the port in QUIRE_HTTPS_PORT"),
+                        var: "WIKANVAS_DOMAIN",
+                        message: format!("{d:?}: give the port in WIKANVAS_HTTPS_PORT"),
                     });
                 }
                 Some(host)
             }
         };
-        let tls = parse_with(&var, "QUIRE_TLS", "internal", |s| match s {
+        let tls = parse_with(&var, "WIKANVAS_TLS", "internal", |s| match s {
             "internal" => Ok(TlsMode::Internal),
             "acme" => Ok(TlsMode::Acme),
             _ => Err(format!("{s:?}: expected internal or acme")),
         })?;
-        let https_port: u16 = parse_num(&var, "QUIRE_HTTPS_PORT", 443)?;
+        let https_port: u16 = parse_num(&var, "WIKANVAS_HTTPS_PORT", 443)?;
         if https_port == 0 {
             return Err(ConfigError {
-                var: "QUIRE_HTTPS_PORT",
+                var: "WIKANVAS_HTTPS_PORT",
                 message: "must be 1-65535".into(),
             });
         }
-        let public_url = match var("QUIRE_PUBLIC_URL") {
+        let public_url = match var("WIKANVAS_PUBLIC_URL") {
             Some(u) => Origin::parse(&u).map_err(|message| ConfigError {
-                var: "QUIRE_PUBLIC_URL",
+                var: "WIKANVAS_PUBLIC_URL",
                 message,
             })?,
             None => match &domain {
@@ -372,13 +372,13 @@ impl Config {
                 },
             },
         };
-        let allowed_hosts = parse_list(&var, "QUIRE_ALLOWED_HOSTS", |s| {
+        let allowed_hosts = parse_list(&var, "WIKANVAS_ALLOWED_HOSTS", |s| {
             split_host_port(s)
                 .map(|(host, port)| HostPattern { host, port })
                 .ok_or_else(|| format!("{s:?} is not host or host:port"))
         })?;
-        let trusted_proxies = parse_list(&var, "QUIRE_TRUSTED_PROXIES", IpNet::parse)?;
-        let cors_origins = parse_list(&var, "QUIRE_CORS_ORIGINS", |s| {
+        let trusted_proxies = parse_list(&var, "WIKANVAS_TRUSTED_PROXIES", IpNet::parse)?;
+        let cors_origins = parse_list(&var, "WIKANVAS_CORS_ORIGINS", |s| {
             if s == "*" {
                 return Err("* is not allowed: list exact origins (D48)".into());
             }
@@ -388,7 +388,7 @@ impl Config {
             }
             Ok(origin)
         })?;
-        let backup_interval = parse_with(&var, "QUIRE_BACKUP_INTERVAL", "24h", parse_duration)?;
+        let backup_interval = parse_with(&var, "WIKANVAS_BACKUP_INTERVAL", "24h", parse_duration)?;
         Ok(Config {
             data_dir,
             listen,
@@ -399,29 +399,29 @@ impl Config {
             allowed_hosts,
             trusted_proxies,
             cors_origins,
-            setup_token: var("QUIRE_SETUP_TOKEN"),
+            setup_token: var("WIKANVAS_SETUP_TOKEN"),
             backup_interval,
-            backup_keep: parse_num(&var, "QUIRE_BACKUP_KEEP", 7)?,
-            max_upload_mb: parse_positive(&var, "QUIRE_MAX_UPLOAD_MB", 25)?,
-            max_board_mb: parse_positive(&var, "QUIRE_MAX_BOARD_MB", 50)?,
-            max_doc_mb: parse_positive(&var, "QUIRE_MAX_DOC_MB", 16)?,
-            min_free_mb: parse_num(&var, "QUIRE_MIN_FREE_MB", 1024)?,
-            token_rate_per_min: parse_positive(&var, "QUIRE_TOKEN_RATE", 600)?,
+            backup_keep: parse_num(&var, "WIKANVAS_BACKUP_KEEP", 7)?,
+            max_upload_mb: parse_positive(&var, "WIKANVAS_MAX_UPLOAD_MB", 25)?,
+            max_board_mb: parse_positive(&var, "WIKANVAS_MAX_BOARD_MB", 50)?,
+            max_doc_mb: parse_positive(&var, "WIKANVAS_MAX_DOC_MB", 16)?,
+            min_free_mb: parse_num(&var, "WIKANVAS_MIN_FREE_MB", 1024)?,
+            token_rate_per_min: parse_positive(&var, "WIKANVAS_TOKEN_RATE", 600)?,
             token_bytes_per_hour: parse_positive(
                 &var,
-                "QUIRE_TOKEN_BYTES_PER_HOUR",
+                "WIKANVAS_TOKEN_BYTES_PER_HOUR",
                 1024 * 1024 * 1024,
             )?,
-            worker_threads: parse_positive(&var, "QUIRE_WORKER_THREADS", 2)?,
-            max_blocking_threads: parse_positive(&var, "QUIRE_MAX_BLOCKING_THREADS", 16)?,
-            sync: parse_with(&var, "QUIRE_SYNC", "NORMAL", |s| {
+            worker_threads: parse_positive(&var, "WIKANVAS_WORKER_THREADS", 2)?,
+            max_blocking_threads: parse_positive(&var, "WIKANVAS_MAX_BLOCKING_THREADS", 16)?,
+            sync: parse_with(&var, "WIKANVAS_SYNC", "NORMAL", |s| {
                 match s.to_ascii_uppercase().as_str() {
                     "NORMAL" => Ok(SyncMode::Normal),
                     "FULL" => Ok(SyncMode::Full),
                     _ => Err(format!("{s:?}: expected NORMAL or FULL")),
                 }
             })?,
-            test_argon2: parse_with(&var, "QUIRE_TEST_ARGON2", "0", |s| match s {
+            test_argon2: parse_with(&var, "WIKANVAS_TEST_ARGON2", "0", |s| match s {
                 "1" | "true" => Ok(true),
                 "0" | "false" => Ok(false),
                 _ => Err(format!("{s:?}: expected 1 or 0")),
@@ -442,7 +442,7 @@ impl Config {
 
     /// The SQLite database file.
     pub fn db_path(&self) -> PathBuf {
-        self.data_dir.join("quire.db")
+        self.data_dir.join("wikanvas.db")
     }
 
     /// The blob store root (`files/aa/bb/<sha256>`, D26).
@@ -455,7 +455,7 @@ impl Config {
         self.data_dir.join("tmp")
     }
 
-    /// Backups (`quire-*.db`, `pre-migrate-*.db`).
+    /// Backups (`wikanvas-*.db`, `pre-migrate-*.db`).
     pub fn backups_dir(&self) -> PathBuf {
         self.data_dir.join("backups")
     }
@@ -480,9 +480,9 @@ impl Config {
     }
 }
 
-/// The URL `quire-server healthcheck` probes by default: `QUIRE_LISTEN`'s port on 127.0.0.1 when the listen address
-/// is unspecified (`0.0.0.0` in the image, or `[::]`); a specific address (`127.0.0.1`, `[::1]`, a LAN address) is
-/// probed as it is, because a server bound to one address does not answer on another.
+/// The URL `wikanvas-server healthcheck` probes by default: `WIKANVAS_LISTEN`'s port on 127.0.0.1 when the listen
+/// address is unspecified (`0.0.0.0` in the image, or `[::]`); a specific address (`127.0.0.1`, `[::1]`, a LAN address)
+/// is probed as it is, because a server bound to one address does not answer on another.
 pub fn healthcheck_url(listen: SocketAddr) -> String {
     let ip = match listen.ip() {
         ip if ip.is_unspecified() => IpAddr::V4(Ipv4Addr::LOCALHOST),
@@ -601,11 +601,11 @@ mod tests {
     #[test]
     fn empty_values_count_as_unset() {
         let c = config(&[
-            ("QUIRE_PUBLIC_URL", ""),
-            ("QUIRE_DOMAIN", ""),
-            ("QUIRE_CORS_ORIGINS", ""),
-            ("QUIRE_TRUSTED_PROXIES", " "),
-            ("QUIRE_TLS", ""),
+            ("WIKANVAS_PUBLIC_URL", ""),
+            ("WIKANVAS_DOMAIN", ""),
+            ("WIKANVAS_CORS_ORIGINS", ""),
+            ("WIKANVAS_TRUSTED_PROXIES", " "),
+            ("WIKANVAS_TLS", ""),
         ])
         .unwrap();
         assert_eq!(c.public_url.to_string(), "http://localhost:8080");
@@ -614,46 +614,46 @@ mod tests {
 
     #[test]
     fn public_url_derived_from_domain_and_port() {
-        let c = config(&[("QUIRE_DOMAIN", "Quire.LAN")]).unwrap();
-        assert_eq!(c.public_url.to_string(), "https://quire.lan");
-        let c = config(&[("QUIRE_DOMAIN", "quire.lan"), ("QUIRE_HTTPS_PORT", "8443")]).unwrap();
-        assert_eq!(c.public_url.to_string(), "https://quire.lan:8443");
+        let c = config(&[("WIKANVAS_DOMAIN", "Wikanvas.LAN")]).unwrap();
+        assert_eq!(c.public_url.to_string(), "https://wikanvas.lan");
+        let c = config(&[("WIKANVAS_DOMAIN", "wikanvas.lan"), ("WIKANVAS_HTTPS_PORT", "8443")]).unwrap();
+        assert_eq!(c.public_url.to_string(), "https://wikanvas.lan:8443");
         let c = config(&[
-            ("QUIRE_DOMAIN", "quire.lan"),
-            ("QUIRE_PUBLIC_URL", "http://quire:8080/"),
+            ("WIKANVAS_DOMAIN", "wikanvas.lan"),
+            ("WIKANVAS_PUBLIC_URL", "http://wikanvas:8080/"),
         ])
         .unwrap();
-        assert_eq!(c.public_url.to_string(), "http://quire:8080");
-        let c = config(&[("QUIRE_PUBLIC_URL", "https://wiki.example.org:443")]).unwrap();
+        assert_eq!(c.public_url.to_string(), "http://wikanvas:8080");
+        let c = config(&[("WIKANVAS_PUBLIC_URL", "https://wiki.example.org:443")]).unwrap();
         assert_eq!(c.public_url.host_port(), "wiki.example.org");
-        let c = config(&[("QUIRE_LISTEN", "0.0.0.0:9000")]).unwrap();
+        let c = config(&[("WIKANVAS_LISTEN", "0.0.0.0:9000")]).unwrap();
         assert_eq!(c.public_url.to_string(), "http://localhost:9000");
-        assert!(config(&[("QUIRE_PUBLIC_URL", "https://x.org/wiki")]).is_err());
-        assert!(config(&[("QUIRE_PUBLIC_URL", "ftp://x.org")]).is_err());
-        assert!(config(&[("QUIRE_DOMAIN", "x.org:443")]).is_err());
+        assert!(config(&[("WIKANVAS_PUBLIC_URL", "https://x.org/wiki")]).is_err());
+        assert!(config(&[("WIKANVAS_PUBLIC_URL", "ftp://x.org")]).is_err());
+        assert!(config(&[("WIKANVAS_DOMAIN", "x.org:443")]).is_err());
     }
 
     #[test]
     fn tls_and_sync_values() {
-        assert_eq!(config(&[("QUIRE_TLS", "acme")]).unwrap().tls, TlsMode::Acme);
-        let err = config(&[("QUIRE_TLS", "off")]).unwrap_err();
-        assert_eq!(err.var, "QUIRE_TLS");
+        assert_eq!(config(&[("WIKANVAS_TLS", "acme")]).unwrap().tls, TlsMode::Acme);
+        let err = config(&[("WIKANVAS_TLS", "off")]).unwrap_err();
+        assert_eq!(err.var, "WIKANVAS_TLS");
         assert_eq!(
-            config(&[("QUIRE_SYNC", "full")]).unwrap().sync,
+            config(&[("WIKANVAS_SYNC", "full")]).unwrap().sync,
             SyncMode::Full
         );
-        assert!(config(&[("QUIRE_SYNC", "OFF")]).is_err());
+        assert!(config(&[("WIKANVAS_SYNC", "OFF")]).is_err());
     }
 
     #[test]
     fn cors_star_and_malformed_origins_refused() {
         assert_eq!(
-            config(&[("QUIRE_CORS_ORIGINS", "*")]).unwrap_err().var,
-            "QUIRE_CORS_ORIGINS"
+            config(&[("WIKANVAS_CORS_ORIGINS", "*")]).unwrap_err().var,
+            "WIKANVAS_CORS_ORIGINS"
         );
-        assert!(config(&[("QUIRE_CORS_ORIGINS", "https://a.org/")]).is_err());
-        assert!(config(&[("QUIRE_CORS_ORIGINS", "a.org")]).is_err());
-        let c = config(&[("QUIRE_CORS_ORIGINS", "https://a.org, http://b.lan:3000")]).unwrap();
+        assert!(config(&[("WIKANVAS_CORS_ORIGINS", "https://a.org/")]).is_err());
+        assert!(config(&[("WIKANVAS_CORS_ORIGINS", "a.org")]).is_err());
+        let c = config(&[("WIKANVAS_CORS_ORIGINS", "https://a.org, http://b.lan:3000")]).unwrap();
         let shown: Vec<String> = c.cors_origins.iter().map(ToString::to_string).collect();
         assert_eq!(shown, ["https://a.org", "http://b.lan:3000"]);
     }
@@ -662,10 +662,10 @@ mod tests {
     fn trusted_proxies_and_allowed_hosts() {
         let c = config(&[
             (
-                "QUIRE_TRUSTED_PROXIES",
+                "WIKANVAS_TRUSTED_PROXIES",
                 "172.31.240.2, 10.0.0.0/8, fd00::/8",
             ),
-            ("QUIRE_ALLOWED_HOSTS", "quire, wiki.lan:8443, [::1]:9"),
+            ("WIKANVAS_ALLOWED_HOSTS", "wikanvas, wiki.lan:8443, [::1]:9"),
         ])
         .unwrap();
         let ip = |s: &str| s.parse::<IpAddr>().unwrap();
@@ -674,27 +674,27 @@ mod tests {
         assert!(!trusted("172.31.240.3"));
         assert!(trusted("10.200.0.1") && trusted("fd12::1") && !trusted("fe80::1"));
         let allowed = |h: &str, p: Option<u16>| c.allowed_hosts.iter().any(|a| a.matches(h, p));
-        assert!(allowed("quire", Some(8080)) && allowed("quire", None));
+        assert!(allowed("wikanvas", Some(8080)) && allowed("wikanvas", None));
         assert!(allowed("wiki.lan", Some(8443)) && !allowed("wiki.lan", Some(443)));
         assert!(allowed("[::1]", Some(9)));
-        assert!(config(&[("QUIRE_TRUSTED_PROXIES", "10.0.0.0/33")]).is_err());
-        assert!(config(&[("QUIRE_TRUSTED_PROXIES", "caddy")]).is_err());
+        assert!(config(&[("WIKANVAS_TRUSTED_PROXIES", "10.0.0.0/33")]).is_err());
+        assert!(config(&[("WIKANVAS_TRUSTED_PROXIES", "caddy")]).is_err());
     }
 
     #[test]
     fn numbers_and_durations() {
         let c = config(&[
-            ("QUIRE_BACKUP_INTERVAL", "90m"),
-            ("QUIRE_MAX_UPLOAD_MB", "5"),
+            ("WIKANVAS_BACKUP_INTERVAL", "90m"),
+            ("WIKANVAS_MAX_UPLOAD_MB", "5"),
         ])
         .unwrap();
         assert_eq!(c.backup_interval, Duration::from_secs(5400));
         assert_eq!(c.max_upload_mb, 5);
-        assert!(config(&[("QUIRE_BACKUP_INTERVAL", "24")]).is_err());
-        assert!(config(&[("QUIRE_BACKUP_INTERVAL", "0h")]).is_err());
-        assert!(config(&[("QUIRE_MAX_UPLOAD_MB", "0")]).is_err());
-        assert!(config(&[("QUIRE_MAX_UPLOAD_MB", "-1")]).is_err());
-        assert!(config(&[("QUIRE_WORKER_THREADS", "two")]).is_err());
+        assert!(config(&[("WIKANVAS_BACKUP_INTERVAL", "24")]).is_err());
+        assert!(config(&[("WIKANVAS_BACKUP_INTERVAL", "0h")]).is_err());
+        assert!(config(&[("WIKANVAS_MAX_UPLOAD_MB", "0")]).is_err());
+        assert!(config(&[("WIKANVAS_MAX_UPLOAD_MB", "-1")]).is_err());
+        assert!(config(&[("WIKANVAS_WORKER_THREADS", "two")]).is_err());
     }
 
     #[test]

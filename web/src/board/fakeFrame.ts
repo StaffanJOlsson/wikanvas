@@ -142,7 +142,7 @@ export function createFakeFrame(opts: FakeFrameOptions = {}): FakeFrame {
 
   const api: BoardFrameApi = {
     ...(opts.embeds === false ? {} : embedApi),
-    engineVersion: opts.engineVersion ?? '0.2.0-beta.3+embed.quire.fake',
+    engineVersion: opts.engineVersion ?? '0.2.0-beta.3+embed.wikanvas.fake',
     formatVersion: 2,
     async open(a: OpenArgs) {
       log('open', a);

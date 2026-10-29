@@ -5,7 +5,7 @@
 //! `item_id` is the upload context only and is never used for authorization (D36). Filenames are sanitized at upload
 //! (§8: no control characters, `"`, `\` or `/`; at most 200 characters; `file` when nothing is left).
 
-use quire_core::api::Attachment;
+use wikanvas_core::api::Attachment;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 use crate::blobs::BlobRef;

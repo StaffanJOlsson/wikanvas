@@ -7,7 +7,7 @@ import { About, LICENSES_URL } from './About';
 
 const ENGINE = {
   base: '/inkboard/abc123def456/',
-  engine_version: '0.2.0-beta.3+embed.quire.2',
+  engine_version: '0.2.0-beta.3+embed.wikanvas.2',
   format_version: 2,
   wasm_bytes: { raw: 10, br: 5, gz: 6 },
 };
@@ -33,8 +33,8 @@ function setup(licenses: string | number, inkboard: typeof ENGINE | null = ENGIN
 
 describe('About', () => {
   it('loads the licence list only when asked, and shows it as text', async () => {
-    const { licenceFetches } = setup('Third-party software in Quire\ncomrak 0.59.0  BSD-2-Clause\n');
-    expect(await screen.findByText('0.2.0-beta.3+embed.quire.2')).toBeTruthy();
+    const { licenceFetches } = setup('Third-party software in Wikanvas\ncomrak 0.59.0  BSD-2-Clause\n');
+    expect(await screen.findByText('0.2.0-beta.3+embed.wikanvas.2')).toBeTruthy();
     expect(licenceFetches()).toBe(0);
     fireEvent.click(screen.getByRole('button', { name: 'Show the licence list' }));
     const list = await screen.findByLabelText('Third-party licences');

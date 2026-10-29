@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use deadpool_sqlite::{Config, Hook, HookError, Pool, Runtime};
-use quire_core::api::ErrorCode;
+use wikanvas_core::api::ErrorCode;
 use rusqlite::{Connection, Transaction, TransactionBehavior};
 
 use crate::error::{Error, Result};
@@ -18,7 +18,7 @@ use crate::error::{Error, Result};
 /// Options of [`Db::open`].
 #[derive(Clone, Debug)]
 pub struct DbOptions {
-    /// `synchronous=FULL` instead of `NORMAL` (`QUIRE_SYNC=FULL`).
+    /// `synchronous=FULL` instead of `NORMAL` (`WIKANVAS_SYNC=FULL`).
     pub synchronous_full: bool,
     /// Size of the reader pool.
     pub readers: usize,

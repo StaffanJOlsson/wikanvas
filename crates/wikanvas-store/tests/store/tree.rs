@@ -1,9 +1,9 @@
 //! Tree tests: CTEs, triggers, cycles, cross-collection moves, deep purges, tree order, and the store against the
-//! reference model of `quire_core::tree` (owner: W1).
+//! reference model of `wikanvas_core::tree` (owner: W1).
 
-use quire_core::api::{ChildOrder, CollectionPatch, ErrorCode, ItemKind, MoveItem, Position};
-use quire_core::tree::{Model, TrashRoot, TreeError};
-use quire_store::{collections, items, tree};
+use wikanvas_core::api::{ChildOrder, CollectionPatch, ErrorCode, ItemKind, MoveItem, Position};
+use wikanvas_core::tree::{Model, TrashRoot, TreeError};
+use wikanvas_store::{collections, items, tree};
 use rusqlite::{OptionalExtension, params};
 use uuid::Uuid;
 
@@ -88,7 +88,7 @@ async fn mv(
     id: Uuid,
     collection: Option<Uuid>,
     parent: Option<Uuid>,
-) -> quire_store::Result<()> {
+) -> wikanvas_store::Result<()> {
     let (id, owner) = (id.to_string(), owner.to_owned());
     t.w(move |tx| {
         items::move_item(
@@ -360,7 +360,7 @@ async fn tree_is_flat_parents_first_in_child_order() {
         .query(|c| c.query_row("SELECT id FROM items WHERE title = 'b1'", [], |r| r.get(0)))
         .await;
     let o = owner.clone();
-    t.w(move |tx| quire_store::shared::touch_content(tx, &b1, &o, NOW + MINUTE))
+    t.w(move |tx| wikanvas_store::shared::touch_content(tx, &b1, &o, NOW + MINUTE))
         .await
         .unwrap();
     assert_eq!(t.tree_version(c.id).await, tv + 1);
@@ -485,10 +485,10 @@ async fn apply_store(
     let index =
         |ids: &[Uuid], u: Uuid| ids.iter().position(|x| *x == u).expect("a known id") as u64;
     let o = owner.to_owned();
-    let res: quire_store::Result<u64> = match op.clone() {
+    let res: wikanvas_store::Result<u64> = match op.clone() {
         Op::Create(c, p) => {
             let parent = p.map(|p| ids.get(p % n).copied().unwrap_or_else(Uuid::nil));
-            let new = quire_core::api::NewItem {
+            let new = wikanvas_core::api::NewItem {
                 collection_id: cols[c],
                 parent_id: parent,
                 kind: ItemKind::Doc,
@@ -566,7 +566,7 @@ async fn apply_store(
 
 fn apply_model(m: &mut Model, op: &Op) -> Result<u64, ErrorCode> {
     let n = m.nodes.len().max(1);
-    let code = |e: TreeError| quire_store::Error::from(e).code;
+    let code = |e: TreeError| wikanvas_store::Error::from(e).code;
     let r = match *op {
         Op::Create(c, p) => m.create(c, p.map(|p| p % n)).map(|i| i as u64),
         Op::Move(x, c, p) => m.move_to(x % n, c, p.map(|p| p % n)).map(|()| 0),

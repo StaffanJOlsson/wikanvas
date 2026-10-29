@@ -1,11 +1,11 @@
 //! Item tests: create, rename, trash, restore, archive, collection delete, publication, duplicate, discard,
 //! rebalance, and the revision rules (auto, pre-api, prune) (owner: W1).
 
-use quire_core::api::{
+use wikanvas_core::api::{
     ErrorCode, ItemKind, ItemPatch, NewCollection, NewItem, Position, SearchQuery,
 };
-use quire_store::revisions::{self, RevisionDraft};
-use quire_store::{WriteBy, collections, items, lists, search, shared};
+use wikanvas_store::revisions::{self, RevisionDraft};
+use wikanvas_store::{WriteBy, collections, items, lists, search, shared};
 use rusqlite::params;
 use uuid::Uuid;
 
@@ -805,12 +805,12 @@ async fn effectively_published_needs_published_ancestors() {
 
 // ---------------------------------------------------------------- W1: trash, restore, archive, collections
 
-async fn trash(t: &TestDb, owner: &str, id: Uuid) -> quire_store::Result<u64> {
+async fn trash(t: &TestDb, owner: &str, id: Uuid) -> wikanvas_store::Result<u64> {
     let (id, o) = (id.to_string(), owner.to_owned());
     t.w(move |tx| items::trash(tx, &id, &o, NOW)).await
 }
 
-async fn restore(t: &TestDb, id: Uuid) -> quire_store::Result<quire_core::api::RestoredItem> {
+async fn restore(t: &TestDb, id: Uuid) -> wikanvas_store::Result<wikanvas_core::api::RestoredItem> {
     let id = id.to_string();
     t.w(move |tx| items::restore(tx, &id)).await
 }
@@ -1123,7 +1123,7 @@ async fn create_restore_or_move_into_deleted_collection_409() {
             items::move_item(
                 tx,
                 &eid,
-                &quire_core::api::MoveItem {
+                &wikanvas_core::api::MoveItem {
                     collection_id: Some(x.id),
                     parent_id: None,
                     position: None,
@@ -1412,7 +1412,7 @@ async fn rebalance_when_key_over_64() {
     .await
     .unwrap();
     assert!(
-        quire_core::rank::key_between(Some("a0"), Some(&long))
+        wikanvas_core::rank::key_between(Some("a0"), Some(&long))
             .unwrap()
             .len()
             > 64

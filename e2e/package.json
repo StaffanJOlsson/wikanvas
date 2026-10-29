@@ -1,8 +1,8 @@
 {
-  "name": "quire-e2e",
+  "name": "wikanvas-e2e",
   "version": "0.0.0",
   "private": true,
-  "description": "Quire's Playwright tests. Run them only through scripts/e2e.sh <frame|smoke> (docs/ARCHITECTURE.md §14).",
+  "description": "Wikanvas's Playwright tests. Run them only through scripts/e2e.sh <frame|smoke> (docs/ARCHITECTURE.md §14).",
   "license": "MIT",
   "type": "module",
   "devDependencies": {

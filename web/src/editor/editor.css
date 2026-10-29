@@ -2,7 +2,7 @@
 
 /* ProseMirror's base rules, as @tiptap/core 3.32.0 injects them (MIT; prosemirror-view's style/prosemirror.css). TipTap
    adds them as an inline <style>, which the SPA CSP (`style-src 'self'`, §11) blocks, so they ship in this stylesheet
-   and QuireEditor sets `injectCSS: false`. Without them typed spaces collapse, the separator images of inline nodes
+   and WikanvasEditor sets `injectCSS: false`. Without them typed spaces collapse, the separator images of inline nodes
    show, and a node selection keeps the text caret. */
 .ProseMirror {
   position: relative;
@@ -157,7 +157,7 @@ img.ProseMirror-separator {
   color: var(--text-secondary);
 }
 
-.quire-editor {
+.wikanvas-editor {
   font-size: 16px;
   line-height: 26px;
   outline: none;
@@ -165,14 +165,14 @@ img.ProseMirror-separator {
   padding: 8px 0 32px;
 }
 
-.quire-editor h1 { font-size: 28px; line-height: 36px; }
-.quire-editor h2 { font-size: 22px; line-height: 30px; }
-.quire-editor h3 { font-size: 18px; line-height: 26px; }
-.quire-editor h1,
-.quire-editor h2,
-.quire-editor h3 { scroll-margin-top: 72px; }
+.wikanvas-editor h1 { font-size: 28px; line-height: 36px; }
+.wikanvas-editor h2 { font-size: 22px; line-height: 30px; }
+.wikanvas-editor h3 { font-size: 18px; line-height: 26px; }
+.wikanvas-editor h1,
+.wikanvas-editor h2,
+.wikanvas-editor h3 { scroll-margin-top: 72px; }
 
-.quire-editor p.is-editor-empty:first-child::before {
+.wikanvas-editor p.is-editor-empty:first-child::before {
   content: attr(data-placeholder);
   float: left;
   height: 0;
@@ -180,14 +180,14 @@ img.ProseMirror-separator {
   pointer-events: none;
 }
 
-.quire-editor blockquote {
+.wikanvas-editor blockquote {
   margin: 8px 0;
   padding-left: 16px;
   border-left: 3px solid var(--border);
   color: var(--text-secondary);
 }
 
-.quire-editor code {
+.wikanvas-editor code {
   font-family: var(--font-mono);
   font-size: 0.9em;
   padding: 1px 4px;
@@ -195,39 +195,39 @@ img.ProseMirror-separator {
   background: var(--bg-sidebar);
 }
 
-.quire-editor mark {
+.wikanvas-editor mark {
   background: var(--mark);
   color: inherit;
 }
 
-.quire-editor a {
+.wikanvas-editor a {
   color: var(--accent);
 }
 
-.quire-editor ul[data-type='taskList'] {
+.wikanvas-editor ul[data-type='taskList'] {
   list-style: none;
   padding-left: 4px;
 }
 
-.quire-editor ul[data-type='taskList'] li {
+.wikanvas-editor ul[data-type='taskList'] li {
   display: flex;
   gap: 8px;
 }
 
-.quire-editor table {
+.wikanvas-editor table {
   border-collapse: collapse;
   margin: 12px 0;
 }
 
-.quire-editor td,
-.quire-editor th {
+.wikanvas-editor td,
+.wikanvas-editor th {
   border: 1px solid var(--border);
   padding: 4px 8px;
   vertical-align: top;
   min-width: 48px;
 }
 
-.quire-editor th {
+.wikanvas-editor th {
   background: var(--bg-sidebar);
   font-weight: 600;
 }
@@ -536,7 +536,7 @@ img.ProseMirror-separator {
     max-width: none;
   }
 
-  .quire-editor a::after {
+  .wikanvas-editor a::after {
     content: ' (' attr(href) ')';
     font-size: 0.8em;
     color: var(--text-secondary);

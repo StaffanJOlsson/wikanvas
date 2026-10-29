@@ -7,7 +7,7 @@
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 export type SyncInitInput = BufferSource | WebAssembly.Module;
 
-/** The instantiated wasm exports. Quire uses none of them directly: the engine API is `globalThis.inkboardEmbed`. */
+/** The instantiated wasm exports. Wikanvas uses none of them directly: the engine API is `globalThis.inkboardEmbed`. */
 export interface InitOutput {
   readonly memory: WebAssembly.Memory;
 }

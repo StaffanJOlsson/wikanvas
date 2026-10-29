@@ -1,4 +1,4 @@
-//! The `quire auth`, `quire me` and `quire session` commands (owner: W8)
+//! The `wikanvas auth`, `wikanvas me` and `wikanvas session` commands (owner: W8)
 
 use serde_json::{Map, Value, json};
 
@@ -62,8 +62,8 @@ fn login(ctx: &Ctx) -> Res {
         ca_file: g
             .ca_file
             .clone()
-            .or_else(|| ctx.env.get("QUIRE_CA_FILE").map(Into::into)),
-        allow_http: matches!(ctx.env.get("QUIRE_ALLOW_HTTP"), Some("1" | "true")),
+            .or_else(|| ctx.env.get("WIKANVAS_CA_FILE").map(Into::into)),
+        allow_http: matches!(ctx.env.get("WIKANVAS_ALLOW_HTTP"), Some("1" | "true")),
     };
     let client = Client::new(&resolved, &ctx.env, g.retries, g.timeout)?;
     let text = client.send_text(&Req::get("/api/v1/auth/me"))?.text;
@@ -82,8 +82,8 @@ fn login(ctx: &Ctx) -> Res {
 
 /// `auth logout [--revoke]`: removes the profile's `token` and `token_file`. `--revoke` first revokes that same token
 /// with `DELETE /tokens/current`, sent to the profile's own URL ([`profile_pair`]): a token from `--token-file`,
-/// `--token-stdin`, `QUIRE_TOKEN` or `QUIRE_TOKEN_FILE` is never the one revoked, since it is not the one removed.
-/// Prints the ok object, plus the profile.
+/// `--token-stdin`, `WIKANVAS_TOKEN` or `WIKANVAS_TOKEN_FILE` is never the one revoked, since it is not the one
+/// removed. Prints the ok object, plus the profile.
 fn logout(ctx: &Ctx, revoke: bool) -> Res {
     let resolved = ctx.resolved()?;
     let profile = ctx.g.profile.clone().or(resolved.profile.clone());
@@ -93,7 +93,7 @@ fn logout(ctx: &Ctx, revoke: bool) -> Res {
         let client = Client::new(&pair, &ctx.env, ctx.g.retries, ctx.g.timeout)?;
         let resp = client.send(&Req::delete("/api/v1/tokens/current"))?;
         status = Some(resp.status().as_u16());
-        request_id = http::header(resp.headers(), quire_api::common::header::REQUEST_ID);
+        request_id = http::header(resp.headers(), wikanvas_api::common::header::REQUEST_ID);
     }
     let removed = match &profile {
         Some(p) => config::remove_token(&resolved.path, p)?,
@@ -132,7 +132,7 @@ fn profile_pair(
     let Some(name) = profile else {
         return Err(Failure::config(
             "auth logout --revoke: no profile is in use, so there is no profile token to revoke (revoke any token \
-             with `quire token revoke ID`)",
+             with `wikanvas token revoke ID`)",
         ));
     };
     let g = GlobalArgs {

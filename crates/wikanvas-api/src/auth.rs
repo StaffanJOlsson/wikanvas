@@ -27,7 +27,7 @@ pub struct SetupStatus {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS, ToSchema)]
 #[ts(export)]
 pub struct SetupRequest {
-    /// The setup code from the server log (`XXXX-XXXX-XXXX`) or `QUIRE_SETUP_TOKEN`.
+    /// The setup code from the server log (`XXXX-XXXX-XXXX`) or `WIKANVAS_SETUP_TOKEN`.
     pub code: String,
     pub workspace_name: String,
     pub name: String,
@@ -149,7 +149,7 @@ pub struct Config {
     pub version: String,
     /// The git commit the server was built from.
     pub commit: String,
-    /// `quire_api::API_VERSION`.
+    /// `wikanvas_api::API_VERSION`.
     pub api_version: String,
     /// `/api/v1/openapi.json`.
     pub openapi_url: String,
@@ -167,7 +167,7 @@ pub struct Config {
 pub struct InkboardInfo {
     /// `/inkboard/<build>/`.
     pub base: String,
-    /// `0.2.0-beta.3+embed.quire.<patchset>`.
+    /// `0.2.0-beta.3+embed.wikanvas.<patchset>`.
     pub engine_version: String,
     /// The envelope version the engine writes (2).
     pub format_version: u32,

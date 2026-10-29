@@ -1,12 +1,12 @@
 // UI state (docs/ARCHITECTURE.md §9.2): sidebar width and collapsed state, the drawer below 1024 px, and the theme.
-// Width and collapsed state persist in localStorage['quire.ui']; the theme in localStorage['quire.theme'], which
+// Width and collapsed state persist in localStorage['wikanvas.ui']; the theme in localStorage['wikanvas.theme'], which
 // public/theme-init.js reads before the first paint. The server copy (users.theme) wins once /auth/me has loaded.
 import { create } from 'zustand';
 import type { Theme } from '../api/gen/Theme';
 import { readJson, readStorage, writeStorage } from './storage';
 
-export const UI_KEY = 'quire.ui';
-export const THEME_KEY = 'quire.theme';
+export const UI_KEY = 'wikanvas.ui';
+export const THEME_KEY = 'wikanvas.theme';
 
 export const SIDEBAR_DEFAULT = 260;
 export const SIDEBAR_MIN = 216;

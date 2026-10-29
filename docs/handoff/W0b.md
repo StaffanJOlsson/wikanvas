@@ -6,12 +6,12 @@ work to go ahead without sudo. One question is still open for the owner: the MPL
 build-time dependency of the pinned vite 8.3.5 (see "Open for the owner").
 
 **The build slice is still not installed (W0a task 8 is still deferred).** Every build in W0b ran with the
-per-container caps and printed "quire-build.slice not installed: per-container caps only". `quire-buildkit` still has
-no cgroup parent. When the owner is back, run the install and the post-install acceptance from
+per-container caps and printed "wikanvas-build.slice not installed: per-container caps only". `wikanvas-buildkit` still
+has no cgroup parent. When the owner is back, run the install and the post-install acceptance from
 `docs/handoff/W0a.md` ("Coordinator: the one privileged step" and "Task 8"). After the install,
 `scripts/toolchain.sh --builder-only` exits 1 with the recreate instruction until the builder is recreated. The
-toolchain build cache now lives in the `quire-buildkit-state` volume, which `docker rm -f quire-buildkit` keeps, so the
-recreate should not need a full rebuild.
+toolchain build cache now lives in the `wikanvas-buildkit-state` volume, which `docker rm -f wikanvas-buildkit` keeps,
+so the recreate should not need a full rebuild.
 
 ## What was built
 
@@ -19,29 +19,29 @@ recreate should not need a full rebuild.
 |---|---|
 | `docker/Dockerfile` | §13.2, with the three base-image index digests and the binaryen `version_131` checksum filled in (pins below). The only other change is the header line that said "W0b fills in…". Stages: toolchain-base, toolchain, inkboard-web, web, server, cli, cli-dist, runtime. |
 | `docker/toolchain.Dockerfile` | Deleted. Its content is now the `toolchain-base` and `toolchain` stages. |
-| `scripts/toolchain.sh` | Builds `--target toolchain -f docker/Dockerfile` with the repo root as context. The builder logic is unchanged; only the header comment and usage line range changed. `quire-toolchain:latest` was rebuilt (image `8011426db92e`) and now has clippy, rustfmt, wasm-opt 131, brotli 1.1.0 and musl-gcc, plus everything the old image had (rustc 1.99.1, trunk 0.22.1, wasm-bindgen 0.2.129, clang/lld/llvm 19, node 24.22.1, pnpm 11.24.0). |
+| `scripts/toolchain.sh` | Builds `--target toolchain -f docker/Dockerfile` with the repo root as context. The builder logic is unchanged; only the header comment and usage line range changed. `wikanvas-toolchain:latest` was rebuilt (image `8011426db92e`) and now has clippy, rustfmt, wasm-opt 131, brotli 1.1.0 and musl-gcc, plus everything the old image had (rustc 1.99.1, trunk 0.22.1, wasm-bindgen 0.2.129, clang/lld/llvm 19, node 24.22.1, pnpm 11.24.0). |
 | `.dockerignore` | §13.2, byte for byte. |
-| `compose.e2e.yaml`, `compose.smoke.yaml` | §13.3, plus `mode: 0o1777` on the quire `/data` tmpfs (deviation D1). |
-| `scripts/image.sh` | Builds `quire:<short sha>[-dirty]` and `quire:latest` (target `runtime`) under the lock, with the `quire-limited` builder, the `org.opencontainers.image.revision` label and `QUIRE_COMMIT`. It runs `toolchain.sh --builder-only` first, so a drifted builder stops the build. |
-| `scripts/image-smoke.sh` | Project `quire-smoke` on `172.31.240.48/28`. `basic` runs the PLAN checks plus a few more; `full` adds the §14 checks. Always ends with `down -v`. |
-| `scripts/e2e.sh` | `frame` (Playwright against the stub dist) and `smoke` (only `quire`, plain HTTP on the project network), with the Playwright image pinned by digest and capped through `quire_caps`. |
+| `compose.e2e.yaml`, `compose.smoke.yaml` | §13.3, plus `mode: 0o1777` on the wikanvas `/data` tmpfs (deviation D1). |
+| `scripts/image.sh` | Builds `wikanvas:<short sha>[-dirty]` and `wikanvas:latest` (target `runtime`) under the lock, with the `wikanvas-limited` builder, the `org.opencontainers.image.revision` label and `WIKANVAS_COMMIT`. It runs `toolchain.sh --builder-only` first, so a drifted builder stops the build. |
+| `scripts/image-smoke.sh` | Project `wikanvas-smoke` on `172.31.240.48/28`. `basic` runs the PLAN checks plus a few more; `full` adds the §14 checks. Always ends with `down -v`. |
+| `scripts/e2e.sh` | `frame` (Playwright against the stub dist) and `smoke` (only `wikanvas`, plain HTTP on the project network), with the Playwright image pinned by digest and capped through `wikanvas_caps`. |
 | `scripts/fmt.sh` | `cargo fmt -p <six crates> [--check]` through `dev.sh`. |
 | `scripts/check-pins.sh` | Host only, text and git. It checks the submodule (gitlink and HEAD at `41e0295…`, clean) and that the shared crates have the same versions in both lockfiles. Also: no `{` in `.dockerignore`, the toolchain channel equals the `RUST_IMAGE` tag, no digest or checksum placeholder is left, and `WASM_BINDGEN_VERSION` equals Inkboard's lock. |
 | `scripts/inkboard.sh` | `src`, `build`, `export`, `check` and `size` print "not implemented (W5)" and exit 1. `stub` works: it writes `frame.html` and `frame.js` with their `.br` and `.gz` copies, plus `manifest.json` (format_version 2, parsed from `serial.rs`). |
 | `patches/inkboard/README.md` | Base, the patch table (empty so far), notice lines, workflow, dist layout and manifest format, and a sizes table for W5. |
 | `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, `.cargo/config.toml` | §4.1 and §3. One libsqlite3-sys (0.38.2). The shared crates match Inkboard's lock without any `--precise` (serde 1.0.229, serde_json 1.0.154, base64 0.23.1, thiserror 2.0.21). `.cargo/config.toml` keeps `jobs = 6` and adds `TS_RS_EXPORT_DIR` and `TS_RS_LARGE_INT` (D9). |
-| `crates/quire-api/src/{lib,common,tree,page,auth,tokens,files,docs,boards,error,cli,token}.rs` | Every DTO of §7.1–§7.3 and §7.5, with serde, ts-rs and utoipa derives. Also `ErrorCode` (all 34 codes and their statuses), `ErrorBody`, `Page<T>`, `Scope`, `API_VERSION = "1.0"`, `cli::ExitCode` with `from_status`, and `token::{encode, check}`. |
+| `crates/wikanvas-api/src/{lib,common,tree,page,auth,tokens,files,docs,boards,error,cli,token}.rs` | Every DTO of §7.1–§7.3 and §7.5, with serde, ts-rs and utoipa derives. Also `ErrorCode` (all 34 codes and their statuses), `ErrorBody`, `Page<T>`, `Scope`, `API_VERSION = "1.0"`, `cli::ExitCode` with `from_status`, and `token::{encode, check}`. |
 | `web/src/api/gen/*.ts` | 101 generated files. A regeneration into a scratch directory is identical. |
-| `crates/quire-core/src/*` | `cursor::{encode, decode, query_hash}` complete (D46). `pub use quire_api as api;`. The other modules (`ids`, `rank`, `tree`, `time`, `ytext`, `schema`, `board`, `convert/{mod,pm,ydiff,md_in,md_out}`) are doc-only stubs. |
-| `crates/quire-store/migrations/0001-init/up.sql` | The §5 DDL, byte for byte. |
-| `crates/quire-store/src/*` | Working: `db`, `migrate`, `backup`, `shared`, `revisions`, `blobs`, `docs`, `boards`, `collections`, `items`, `tokens` and `error`. The remaining modules (`tree`, `search`, `stars`, `views`, `lists`, `users`, `sessions`, `settings`, `attachments`, `previews`, `gc`, `export`, `seed`) are doc-only stubs. |
-| `crates/quire-store/tests/store/*` | `TestDb` harness, plus 40 integration tests over 10 modules (`auth.rs` is a stub). |
-| `crates/quire-server/src/*` | Frozen server types, `Auth<S>` with both branches of §7.3, the error envelope, the Host allowlist and CSRF check, `config.rs`, `serve`, `healthcheck`, and `admin create-owner` / `create-token`. The other admin commands exit 1 with "not implemented (W2)". 15 routers; minimal routes: GET /auth/me, GET and POST /tokens, DELETE /tokens/{id}, DELETE /tokens/current, POST /collections, GET /api/v1/openapi.json. Also `testing::TestServer` and a no-op `board_previews`. |
-| `crates/quire-server/tests/api/*` | `TestApp::{new, with_owner, with_token}` plus helpers, and 39 API tests. |
+| `crates/wikanvas-core/src/*` | `cursor::{encode, decode, query_hash}` complete (D46). `pub use wikanvas_api as api;`. The other modules (`ids`, `rank`, `tree`, `time`, `ytext`, `schema`, `board`, `convert/{mod,pm,ydiff,md_in,md_out}`) are doc-only stubs. |
+| `crates/wikanvas-store/migrations/0001-init/up.sql` | The §5 DDL, byte for byte. |
+| `crates/wikanvas-store/src/*` | Working: `db`, `migrate`, `backup`, `shared`, `revisions`, `blobs`, `docs`, `boards`, `collections`, `items`, `tokens` and `error`. The remaining modules (`tree`, `search`, `stars`, `views`, `lists`, `users`, `sessions`, `settings`, `attachments`, `previews`, `gc`, `export`, `seed`) are doc-only stubs. |
+| `crates/wikanvas-store/tests/store/*` | `TestDb` harness, plus 40 integration tests over 10 modules (`auth.rs` is a stub). |
+| `crates/wikanvas-server/src/*` | Frozen server types, `Auth<S>` with both branches of §7.3, the error envelope, the Host allowlist and CSRF check, `config.rs`, `serve`, `healthcheck`, and `admin create-owner` / `create-token`. The other admin commands exit 1 with "not implemented (W2)". 15 routers; minimal routes: GET /auth/me, GET and POST /tokens, DELETE /tokens/{id}, DELETE /tokens/current, POST /collections, GET /api/v1/openapi.json. Also `testing::TestServer` and a no-op `board_previews`. |
+| `crates/wikanvas-server/tests/api/*` | `TestApp::{new, with_owner, with_token}` plus helpers, and 39 API tests. |
 | `docs/api/openapi.json` | Generated. OpenAPI 3.1.0, 7 operations, the bearer and session security schemes. |
-| `crates/quire-assets/src/lib.rs` | `Web` and `Inkboard` embeds (relative folders, `allow_missing`). |
-| `crates/quire-cli/src/*` | clap tree with the nine §7.6 global flags, `--version`, and `exit-codes [--json]`. The §7.7 usage-error JSON line. Stubs for every `cmd/*.rs` and for `config`, `http` and `refs`. |
-| `crates/quire-cli/tests/cli/*` | `Sandbox` and `Harness` (TestServer plus assert_cmd), and 6 tests. `quire --version` runs against a live TestServer. |
+| `crates/wikanvas-assets/src/lib.rs` | `Web` and `Inkboard` embeds (relative folders, `allow_missing`). |
+| `crates/wikanvas-cli/src/*` | clap tree with the nine §7.6 global flags, `--version`, and `exit-codes [--json]`. The §7.7 usage-error JSON line. Stubs for every `cmd/*.rs` and for `config`, `http` and `refs`. |
+| `crates/wikanvas-cli/tests/cli/*` | `Sandbox` and `Harness` (TestServer plus assert_cmd), and 6 tests. `wikanvas --version` runs against a live TestServer. |
 | `web/**` (58 files plus `package.json` and `pnpm-lock.yaml`, not counting `src/api/gen`) | PLAN task 7: the §4.2 dependencies at exact versions; vite, tsconfig and Vitest config; every §9.1 route; the contract modules; `bridge.ts` (§10.4); the placeholder frame; and 43 tests in 8 files. |
 | `e2e/{package.json,pnpm-lock.yaml,playwright.config.ts,serve-static.mjs,tests/*.spec.ts}` | @playwright/test 1.64.1 only. Two projects, `frame` and `smoke`, with the SwiftShader flags. `serve-static.mjs` serves `.wasm` as `application/wasm` and never serves outside its root. |
 | `fixtures/ydoc/getting-started.bin`, `fixtures/boards/getting-started.inkboard` | `[0,0]`, and the empty light board (generated by a store test; `WRITE_FIXTURES=1` rewrites it only when its content differs). |
@@ -50,7 +50,7 @@ recreate should not need a full rebuild.
 | `CLAUDE.md` | Task 9: the `docker/Dockerfile` toolchain target, and the agent-harness / `docs/AGENTS.md` line. |
 | `docs/ARCHITECTURE.md` | §16 item 24 only (W0b pin checks). No other line changed. |
 
-Docker state: `quire-toolchain:latest` rebuilt (`8011426db92e`); `quire:1b59aa0-dirty` = `quire:latest`
+Docker state: `wikanvas-toolchain:latest` rebuilt (`8011426db92e`); `wikanvas:1b59aa0-dirty` = `wikanvas:latest`
 (`0285cc1c739b`, built from the final tree); `mcr.microsoft.com/playwright:v1.64.1-noble` pulled. No smoke or e2e
 container, network or volume is left. Git-ignored output left on disk: `web/dist-inkboard/` (the stub), the
 `node_modules` of `web/` and `e2e/`, `e2e/test-results/` and `e2e/playwright-report/`. `web/dist` was removed.
@@ -74,23 +74,23 @@ Each command ran verbatim in its own `bash -c` from the repo root, in this order
 | 11 | `cargo clippy --workspace --all-targets --locked -- -D warnings` | PASS |
 | 11b | the same with `--all-features` (R10) | PASS |
 | 12 | `scripts/fmt.sh --check` | PASS |
-| 13 | `cargo test -p quire-api export_bindings && git diff --exit-code web/src/api/gen` | PASS. The files are untracked, so `git diff` proves nothing yet. The sha256 over all 101 files was the same before and after the run, and a fresh export into `.cache/gen-check` (deleted afterwards) is identical (`diff -r`). |
-| 14 | `cargo test -p quire-server --test api -- openapi:: && git diff --exit-code docs/api/openapi.json` | PASS (3 tests; the file is untracked, its sha256 is unchanged) |
-| 15 | `cargo test -p quire-cli --locked --test cli` | PASS (6 tests) |
-| 16 | `! cargo tree -p quire-server … \| grep -qE '^(rustls\|ureq\|reqwest\|native-tls\|openssl) '` | PASS. cargo tree printed more than 100 lines, so the check really ran |
-| 17 | `! cargo tree -p quire-cli … \| grep -qE '^(openssl\|…\|webpki-roots) '` | PASS. More than 50 lines, so it ran |
-| 18 | `cargo run -p quire-cli -- exit-codes --json \| grep -q '"code": *9'` | PASS |
+| 13 | `cargo test -p wikanvas-api export_bindings && git diff --exit-code web/src/api/gen` | PASS. The files are untracked, so `git diff` proves nothing yet. The sha256 over all 101 files was the same before and after the run, and a fresh export into `.cache/gen-check` (deleted afterwards) is identical (`diff -r`). |
+| 14 | `cargo test -p wikanvas-server --test api -- openapi:: && git diff --exit-code docs/api/openapi.json` | PASS (3 tests; the file is untracked, its sha256 is unchanged) |
+| 15 | `cargo test -p wikanvas-cli --locked --test cli` | PASS (6 tests) |
+| 16 | `! cargo tree -p wikanvas-server … \| grep -qE '^(rustls\|ureq\|reqwest\|native-tls\|openssl) '` | PASS. cargo tree printed more than 100 lines, so the check really ran |
+| 17 | `! cargo tree -p wikanvas-cli … \| grep -qE '^(openssl\|…\|webpki-roots) '` | PASS. More than 50 lines, so it ran |
+| 18 | `cargo run -p wikanvas-cli -- exit-codes --json \| grep -q '"code": *9'` | PASS |
 | 19 | `pnpm --dir web install --frozen-lockfile` | PASS |
 | 20 | `pnpm --dir web typecheck && … test && … build` | PASS (both tsc projects; 8 files, 43 tests; vite 8.3.5 build). `web/dist` was removed afterwards |
 | 21 | `pnpm --dir e2e install --frozen-lockfile` | PASS |
 | 22 | `scripts/inkboard.sh stub && grep -q '"format_version": *2' …/manifest.json` | PASS |
 | 23 | `docker compose -f compose.yaml -f compose.e2e.yaml config -q` | PASS |
 | 24 | `docker compose -f compose.yaml -f compose.smoke.yaml config -q` | PASS |
-| 25 | `scripts/image.sh --build-arg INKBOARD_BUILD=stub && QUIRE_SMOKE_LEVEL=basic scripts/image-smoke.sh` | PASS. Every basic check passed: both `--version`s in the image; no published app port; Caddy only on 127.0.0.1:18443; Caddy's root read from its tmpfs; HTTPS `/healthz` 200 `{"status":"ok"}` with the CA, and curl exit 60 without it; the caps on both containers; cgroup parent none (no slice) |
+| 25 | `scripts/image.sh --build-arg INKBOARD_BUILD=stub && WIKANVAS_SMOKE_LEVEL=basic scripts/image-smoke.sh` | PASS. Every basic check passed: both `--version`s in the image; no published app port; Caddy only on 127.0.0.1:18443; Caddy's root read from its tmpfs; HTTPS `/healthz` 200 `{"status":"ok"}` with the CA, and curl exit 60 without it; the caps on both containers; cgroup parent none (no slice) |
 | 26 | `git -C vendor/inkboard status --porcelain \| wc -l \| grep -qx 0` | PASS |
 | R10 | `grep -rnE 'todo!\(\|unimplemented!\(\|TODO\(W'` over crates, web/src, web/inkboard-frame, scripts, e2e, docker, fixtures, patches, the compose files, Cargo.toml, rust-toolchain.toml, .cargo and docs/api | PASS (no match) |
 | extra | `scripts/e2e.sh smoke` (real image) / `scripts/e2e.sh frame` (stub dist) | PASS (1 passed / 2 passed) |
-| extra | no `quire-smoke*` or `quire-e2e*` container or network left | PASS |
+| extra | no `wikanvas-smoke*` or `wikanvas-e2e*` container or network left | PASS |
 
 Licences:
 - Cargo: all 372 locked packages offer an allowed licence option. No webpki-roots, openssl, native-tls, aws-lc or
@@ -105,10 +105,10 @@ is a choice the docs left open.
 
 ### Docker, compose and scripts
 
-- **D1. `compose.e2e.yaml` and `compose.smoke.yaml` are not verbatim §13.3.** The quire `/data` tmpfs has
+- **D1. `compose.e2e.yaml` and `compose.smoke.yaml` are not verbatim §13.3.** The wikanvas `/data` tmpfs has
   `mode: 0o1777`, and the comment above it says why.
   - Why: the runtime image has `/data` (0755, owner 65532). runc gives the new tmpfs that directory's mode (0755) but
-    owner root, so uid 65532 cannot create `/data/files`, and quire fails with "Permission denied".
+    owner root, so uid 65532 cannot create `/data/files`, and wikanvas fails with "Permission denied".
   - The §13.3 YAML assumes the tmpfs default of 1777; its own comment says "mode 1777 lets uid 65532 write".
   - `mode: 1777` does not work, because compose reads it as decimal. The YAML octal `0o1777` resolves to 1023.
   - The merged config keeps every runtime limit.
@@ -122,14 +122,14 @@ is a choice the docs left open.
 - **D4. `scripts/image.sh`.** It runs `toolchain.sh --builder-only` after taking the lock. `-dirty` is added only
   when git is available, never to `nocommit`. Extra arguments go to `docker buildx build`.
 - **D5. `scripts/image-smoke.sh`.**
-  - **Level and exit codes:** `QUIRE_SMOKE_LEVEL` defaults to `full`. Exit codes: 0 pass, 1 a check failed,
+  - **Level and exit codes:** `WIKANVAS_SMOKE_LEVEL` defaults to `full`. Exit codes: 0 pass, 1 a check failed,
     2 usage, 3 a missing prerequisite (docker, curl, jq or the image), 4 the project not healthy.
-  - **Environment:** besides the owner-facing variables, it unsets `QUIRE_PUBLIC_URL`, `QUIRE_ALLOWED_HOSTS`,
-    `QUIRE_BACKUP_*`, `QUIRE_MAX_*`, `QUIRE_TOKEN_*`, `QUIRE_MIN_FREE_MB` and `QUIRE_CORS_ORIGINS`. It keeps
-    `QUIRE_IMAGE` and `RUST_LOG`.
+  - **Environment:** besides the owner-facing variables, it unsets `WIKANVAS_PUBLIC_URL`, `WIKANVAS_ALLOWED_HOSTS`,
+    `WIKANVAS_BACKUP_*`, `WIKANVAS_MAX_*`, `WIKANVAS_TOKEN_*`, `WIKANVAS_MIN_FREE_MB` and `WIKANVAS_CORS_ORIGINS`. It
+    keeps `WIKANVAS_IMAGE` and `RUST_LOG`.
   - **Run:** it removes a leftover project first, waits at most 180 s, and prints log tails on failure.
   - **Extra basic checks:** Caddy publishes only `127.0.0.1:18443`; `/healthz` returns `{"status":"ok"}`; both
-    containers' cgroup parent equals `QUIRE_CGROUP_PARENT`; without `--cacert` curl must exit 60 or 35.
+    containers' cgroup parent equals `WIKANVAS_CGROUP_PARENT`; without `--cacert` curl must exit 60 or 35.
   - **`full` level:**
     - The CSP check requires only `default-src 'none'` and `frame-ancestors 'none'`.
     - The br byte count and the wasm path come from `GET /api/v1/config`. A null `inkboard` fails with a hint that a
@@ -142,9 +142,9 @@ is a choice the docs left open.
 - **D6. `scripts/e2e.sh`.**
   - Extra arguments go to Playwright.
   - The Playwright image is pinned by digest.
-  - Playwright's caps are min(4, `QUIRE_BUILD_CPUS`) and min(6g, `QUIRE_BUILD_MEM`). An explicit `QUIRE_BUILD_CPUSET`
-    is cut down to its last N CPUs.
-  - `smoke` removes a leftover `quire-e2e` project, waits at most 120 s, unsets the same variables as
+  - Playwright's caps are min(4, `WIKANVAS_BUILD_CPUS`) and min(6g, `WIKANVAS_BUILD_MEM`). An explicit
+    `WIKANVAS_BUILD_CPUSET` is cut down to its last N CPUs.
+  - `smoke` removes a leftover `wikanvas-e2e` project, waits at most 120 s, unsets the same variables as
     `image-smoke.sh`, and exits 3 or 4 like it.
 - **D7. `scripts/check-pins.sh`.**
   - "Equal versions" is two rules. inkboard-core resolves each shared crate to the same version in both lockfiles.
@@ -171,13 +171,13 @@ is a choice the docs left open.
   (`meta_version`, `rev`, sizes, …) is `number` in `web/src/api/gen`. It is recorded in §16 item 24; §3's layout line
   should mention it (request W7-3).
 - **D10. rust-embed without `interpolate-folder-path`.** §4.1 names that feature, but it pulls option-ext (MPL-2.0).
-  quire-assets uses `#[folder = "../../web/dist"]`, which rust-embed resolves against `CARGO_MANIFEST_DIR`. Recorded
+  wikanvas-assets uses `#[folder = "../../web/dist"]`, which rust-embed resolves against `CARGO_MANIFEST_DIR`. Recorded
   in §16 item 24.
 - **D11. Dependencies beyond the §4.1 table:**
-  - **quire-store:** inkboard-core, yrs, serde, serde_json, base64, thiserror, uuid (v7), getrandom, tracing, bytes,
+  - **wikanvas-store:** inkboard-core, yrs, serde, serde_json, base64, thiserror, uuid (v7), getrandom, tracing, bytes,
     futures-util, and tokio with rt, sync, fs and io-util.
-  - **quire-server:**
-    - quire-api, inkboard-core, tower (util), tokio and tokio-util (io);
+  - **wikanvas-server:**
+    - wikanvas-api, inkboard-core, tower (util), tokio and tokio-util (io);
     - bytes, futures-util, serde, serde_json, uuid, sha2, base64, thiserror, getrandom, rustix, tracing and
       tracing-subscriber (env-filter);
     - **rusqlite**, for the plain-SQL reads listed under D24;
@@ -196,7 +196,7 @@ is a choice the docs left open.
 
   ureq-proto stays at 0.6.5 (2026-10-17), because ureq 3.5.0 requires ^0.6.5.
 
-### quire-api and quire-core
+### wikanvas-api and wikanvas-core
 
 - **D13. DTO conventions:**
   - Times are `Timestamp(i64 ms)`: an RFC 3339 UTC string with milliseconds on the wire, `string` in TypeScript,
@@ -237,10 +237,10 @@ is a choice the docs left open.
     without decoding.
   - `query_hash(&[(name, value)])` sorts and length-prefixes the pairs. Callers include the list's name and leave out
     `cursor` and `limit`.
-  - **Added in review:** `impl From<CursorError> for quire_store::Error` (422 `validation`, field `cursor`), so the
+  - **Added in review:** `impl From<CursorError> for wikanvas_store::Error` (422 `validation`, field `cursor`), so the
     contract comment "CursorError → 422 validation" holds when a store function uses `?` on `cursor::decode`.
 
-### quire-store (frozen signatures that differ, then choices)
+### wikanvas-store (frozen signatures that differ, then choices)
 
 - **D19. `Db::write` and `Db::read` are `async fn`.** This is a change to a frozen signature. The PLAN listing shows
   `pub fn write<T>(&self, f) -> Result<T>`. deadpool-sqlite (D2) is async, so the pools can only be used this way.
@@ -272,7 +272,7 @@ is a choice the docs left open.
   - Added: `Sha256::{parse, of, from_digest, as_str}`.
   - `blobs::sniff` is a minimal sniffer: images, SVG, PDF, zip, gzip and UTF-8 text, otherwise octet-stream; sizes
     from imagesize. W2 extends it.
-- **D22. `quire_store::Error`** is a struct with public `code`, `message` and `details` fields, plus a private source
+- **D22. `wikanvas_store::Error`** is a struct with public `code`, `message` and `details` fields, plus a private source
   kept for logs.
   - A trigger's `RAISE(ABORT, '<code>')` maps to that ErrorCode, so `parent_invalid` arrives as 409.
   - `QueryReturnedNoRows` maps to `not_found`; everything else is `internal`.
@@ -298,7 +298,7 @@ is a choice the docs left open.
     - `purge_expired` deletes one depth level per DELETE, deepest first, then deleted collections.
   - **collections:** `create` trims the name to 1–100 characters. `icon` is `[a-z0-9-]{1,64}`. `color` is `#RRGGBB`,
     default `#8D8D8D`.
-  - **sort keys and ids:** crate-private ports in `shared`, because `quire_core::rank` and `ids` are still stubs:
+  - **sort keys and ids:** crate-private ports in `shared`, because `wikanvas_core::rank` and `ids` are still stubs:
     CC0 fractional-indexing `generateKeyBetween`, checked against the upstream vectors; `new_id` (UUIDv7); and
     `new_url_id` (10 base62 characters).
   - **docs:**
@@ -323,25 +323,25 @@ is a choice the docs left open.
     `tree::purge_depth_2000_leaves_first`, `items::pre_api_rule`, `boards::copy_shares_blobs`). Those owners may
     rewrite them.
 
-### quire-server
+### wikanvas-server
 
 - **D24. Plain SQL until the W2 store modules exist.** These read or write users, settings and sessions directly:
   `load_user`, `setting` and `load_workspace` in `routes/auth.rs`; the owner insert in `admin.rs`; the session lookup
   in `extract.rs`; and the parent `expires_at` read in `routes/tokens.rs`.
 - **D25. Configuration** (§8 and §13.3):
-  - **Defaults:** `QUIRE_LISTEN` 127.0.0.1:8080 (the image sets 0.0.0.0:8080) and `QUIRE_DATA_DIR` `./data`.
-  - **Public URL fallback:** `http://localhost:<QUIRE_LISTEN port>`. §8 says `http://localhost:8080`; that is the same
-    URL for a bare serve, and correct when the port is changed. This deviates from the text (request W7-7).
+  - **Defaults:** `WIKANVAS_LISTEN` 127.0.0.1:8080 (the image sets 0.0.0.0:8080) and `WIKANVAS_DATA_DIR` `./data`.
+  - **Public URL fallback:** `http://localhost:<WIKANVAS_LISTEN port>`. §8 says `http://localhost:8080`; that is the
+    same URL for a bare serve, and correct when the port is changed. This deviates from the text (request W7-7).
   - **Parsing:**
     - Every empty variable counts as unset.
     - Public URL and CORS origins are `scheme://host[:port]`, with no path.
-    - `QUIRE_DOMAIN` has no port.
+    - `WIKANVAS_DOMAIN` has no port.
     - An allowed-hosts entry is `host` or `host:port`.
-    - `QUIRE_BACKUP_INTERVAL` is `<n>s|m|h|d`.
-    - Limits must be at least 1; `QUIRE_MIN_FREE_MB` and `QUIRE_BACKUP_KEEP` may be 0.
+    - `WIKANVAS_BACKUP_INTERVAL` is `<n>s|m|h|d`.
+    - Limits must be at least 1; `WIKANVAS_MIN_FREE_MB` and `WIKANVAS_BACKUP_KEEP` may be 0.
     - A malformed value stops serve with "VAR: message" and exit 3.
 - **D26. `healthcheck`.**
-  - **Default URL:** `QUIRE_LISTEN`'s port on 127.0.0.1 when the listen address is unspecified (`0.0.0.0` in the
+  - **Default URL:** `WIKANVAS_LISTEN`'s port on 127.0.0.1 when the listen address is unspecified (`0.0.0.0` in the
     image, or `[::]`). A specific address (`127.0.0.1`, `[::1]`, a LAN IP) is probed as it is, because a server bound
     to one address does not answer on another. PLAN says "on 127.0.0.1"; this agrees for the image and for a bare
     serve. The §13.2 Dockerfile comment ("0.0.0.0 → 127.0.0.1") already describes this rule.
@@ -361,7 +361,7 @@ is a choice the docs left open.
     codes.
   - Any other 4xx becomes 422 and any other 5xx 500.
   - Request ids are always generated by the server (UUIDv7, 32 hex digits); a client's X-Request-Id is ignored.
-  - `X-Request-Id` is on every response; `Quire-Api-Version` only on `/api/v1` paths.
+  - `X-Request-Id` is on every response; `Wikanvas-Api-Version` only on `/api/v1` paths.
 - **D29. Host allowlist and CSRF are already enforced** (`csrf.rs`).
   - CSRF covers every non-bearer POST, PUT, PATCH and DELETE, unauthenticated ones included.
   - Every Sec-Fetch-Site value must be `same-origin` or `none`.
@@ -375,7 +375,7 @@ is a choice the docs left open.
     exact. The cheap parameters are m=MIN, t=1, p=1.
   - **`Auth<S>`:** the marker trait is `Require` and the Actor is cached in request extensions. Helpers on `Actor`:
     `has_scope`, `token_id`, `session_id`, `scopes`, `viewer` and `write_by`. `Viewer` (a re-export of
-    `quire_store::shared::Viewer`) authenticates without a scope check.
+    `wikanvas_store::shared::Viewer`) authenticates without a scope check.
   - **Path extractors:** `ItemRef` accepts a UUID or exactly 10 ASCII alphanumerics, anything else is 404. Added
     `IdPath` (UUID-only `{id}`).
   - **Sessions:** the cookie value is base64url of 32 bytes, and `token_hash` is sha256 of the decoded bytes.
@@ -399,16 +399,16 @@ is a choice the docs left open.
   - Commands open the database through `AppState::open`, on a current-thread runtime.
 - **D32. `serve`.**
   - **Logging:** tracing fmt filtered by RUST_LOG (default info).
-  - **Runtime:** `QUIRE_WORKER_THREADS` and `QUIRE_MAX_BLOCKING_THREADS` size it.
+  - **Runtime:** `WIKANVAS_WORKER_THREADS` and `WIKANVAS_MAX_BLOCKING_THREADS` size it.
   - **Shutdown:** SIGTERM or SIGINT drains, then runs `wal_checkpoint(TRUNCATE)`.
   - **Setup:** no setup code yet, because POST /setup is W2's; it logs a hint to run create-owner.
-  - **Version:** `--version` prints `quire-server 0.1.0 (<QUIRE_COMMIT or unknown>)`.
+  - **Version:** `--version` prints `wikanvas-server 0.1.0 (<WIKANVAS_COMMIT or unknown>)`.
   - **Layer order, outermost first:** SetSensitiveHeaders → Trace → envelope → CatchPanic → Timeout 30 s → 408 →
     body limit 1 MiB → Host/CSRF → routes.
 - **D33. Minimal pieces W2 completes:**
   - **`static_files`:** exact-path embeds, `/inkboard/<path>`, and index.html with no-cache for paths without an
     extension. Otherwise, and for any `..` segment, a plain-text 404. No precompressed variants, ETags or CSP yet.
-  - **`quire-assets`:** `web(path)`, `inkboard(path)` and the `*_paths()` functions return `Asset{data, mime,
+  - **`wikanvas-assets`:** `web(path)`, `inkboard(path)` and the `*_paths()` functions return `Asset{data, mime,
     sha256}`.
   - **`board_previews`:** `PreviewQueue::noop()`; `enqueue(&self, item_id: &str)` does nothing.
   - **`authz::require`:** the owner is always allowed, any other role gets 403.
@@ -418,13 +418,13 @@ is a choice the docs left open.
   - **TestApp:** `with_config`, `client`, `cookie_client`, `token_client`, `insert_owner`, `insert_session`,
     `mint_token`, `exec` and `assert_error`.
   - **Test names:** the tests sit in W2's modules under W2's planned names where they match (for example
-    `security::quire_bearer_wins_over_cookie`). `auth.rs` stays a stub.
+    `security::wikanvas_bearer_wins_over_cookie`). `auth.rs` stays a stub.
 
-### quire-cli
+### wikanvas-cli
 
 - **D35. CLI skeleton choices.**
-  - **`--version`:** prints `quire 0.1.0` without a commit. §7.6's `version` JSON has no CLI commit, and the cli
-    stages do not pass QUIRE_COMMIT.
+  - **`--version`:** prints `wikanvas 0.1.0` without a commit. §7.6's `version` JSON has no CLI commit, and the cli
+    stages do not pass WIKANVAS_COMMIT.
   - **Global flags:**
     - They have no clap `env =`; W8's `config.rs` reads the environment, so the `--profile` and URL/token-pair rules
       of §7.6 can hold.
@@ -434,7 +434,7 @@ is a choice the docs left open.
     `"status": null` (request W7-9).
   - **Output:**
     - `exit-codes --json` is pretty-printed.
-    - A bare `quire` prints help to stderr and exits 2.
+    - A bare `wikanvas` prints help to stderr and exits 2.
     - Colour is never printed.
     - clap's own `help` subcommand stays until W8's `help [--json]` replaces it.
     - A failed stdout write exits 1.
@@ -442,8 +442,8 @@ is a choice the docs left open.
     read, or clippy fails.
   - **Tests:**
     - `tests/cli` also has a `version` module.
-    - QUIRE_CONFIG is `<tmp>/config/config.toml`, outside HOME.
-    - The command drops every inherited `QUIRE_*`, XDG_CONFIG_HOME, SSL_CERT_*, and RUST_LOG.
+    - WIKANVAS_CONFIG is `<tmp>/config/config.toml`, outside HOME.
+    - The command drops every inherited `WIKANVAS_*`, XDG_CONFIG_HOME, SSL_CERT_*, and RUST_LOG.
 
 ### Web and e2e
 
@@ -469,7 +469,7 @@ is a choice the docs left open.
   - **tsconfig:** the frame project uses `allowJs`, `checkJs` and `allowImportingTsExtensions`, with skipLibCheck
     false.
   - **`bridge.ts`:** §10.4 verbatim, plus the aliases FrameError, FrameErrorKind, FrameHostKey and ConnectError, and a
-    `Window.quireBoardFrame` declaration.
+    `Window.wikanvasBoardFrame` declaration.
   - **`client.ts`:**
     - The `api<T>(method, path, opts)` options are `json`, `body`, `headers`, `etag`, `signal`, `keepalive` and
       `authLost`. A 304 resolves to undefined. `apiResponse<T>` also returns `{status, data, etag, notModified,
@@ -497,10 +497,10 @@ is a choice the docs left open.
     `useBoardFrame` needs an external store.
   - **W3 files filled in minimally:** App, queryClient, AuthGate, `lib/time`, useCanonicalPath, SaveStatus,
     StarToggle, useTitleAutosave, PlaceholderPage, tokens.css, global.css and favicon.svg.
-  - **Theme:** `theme-init.js` reads `localStorage['quire.theme']`.
+  - **Theme:** `theme-init.js` reads `localStorage['wikanvas.theme']`.
   - **Router:** an unknown settings section renders NotFound; there is no bare `/settings` route.
 - **D38. e2e package.**
-  - **package.json:** `quire-e2e`, private, `type: module`, with no scripts and no `packageManager`. There is no
+  - **package.json:** `wikanvas-e2e`, private, `type: module`, with no scripts and no `packageManager`. There is no
     typescript or @types/node, because §4.3 allows only @playwright/test.
   - **webServer:** runs with `cwd: '..'`, checks readiness by `port: 4173`, and also starts for smoke runs.
     `serve-static.mjs` treats a missing root as a warning and answers 404.
@@ -510,7 +510,7 @@ is a choice the docs left open.
 
 ### Licences, fixtures and docs
 
-- **D39.** `LICENSE-MIT` says "Copyright (c) 2026 The Quire contributors"; the owner may want his own name there.
+- **D39.** `LICENSE-MIT` says "Copyright (c) 2026 The Wikanvas contributors"; the owner may want his own name there.
   `LICENSE-APACHE` is the canonical text. The README stub has the usual dual-licence contribution clause. `.gitignore`
   keeps the existing unanchored `dist/`, so the added `/dist/` is redundant but harmless.
 - **D40. CLAUDE.md.** The toolchain bullet names the `toolchain` target and the `toolchain-base` / `toolchain` stages.
@@ -560,11 +560,11 @@ Where a reviewer offered two fixes, the one not taken is listed with its reason.
 | C1 / S3 | The compose overlays add `mode: 0o1777` to the `/data` tmpfs, and nothing records it | **Holds.** Recorded as D1, with request W7-1 to fix both §13.3 blocks. The files stay as they are. It is not recorded in §16, because finalize may add only pins there (task 9). |
 | C2 | `Db::write` / `Db::read` are `async` against the frozen PLAN listing, unrecorded | **Holds.** Recorded as D19, with the exact signatures, and request W7-4 to update PLAN "Produces". The code stays async, because deadpool-sqlite allows no other shape. |
 | C3 | `TokenRow.role` is an extra public field, unrecorded | **Holds.** Recorded as D20 (an additive change under R3). |
-| C4 | The public-URL fallback uses the listen port; healthcheck probes a non-loopback listen IP | **Holds, recorded** (D25, D26). The option to follow the text was not taken for either: a fixed `http://localhost:8080` names the wrong URL when `QUIRE_LISTEN` changes the port, and a server bound to one address does not answer a probe on 127.0.0.1. Both choices agree with the text for a bare serve and for the image. While checking, I found that `[::1]` (and any loopback address other than 127.0.0.1) was mapped to 127.0.0.1 and would fail; fixed in `config.rs`, with tests. |
+| C4 | The public-URL fallback uses the listen port; healthcheck probes a non-loopback listen IP | **Holds, recorded** (D25, D26). The option to follow the text was not taken for either: a fixed `http://localhost:8080` names the wrong URL when `WIKANVAS_LISTEN` changes the port, and a server bound to one address does not answer a probe on 127.0.0.1. Both choices agree with the text for a bare serve and for the image. While checking, I found that `[::1]` (and any loopback address other than 127.0.0.1) was mapped to 127.0.0.1 and would fail; fixed in `config.rs`, with tests. |
 | C5 | `TS_RS_LARGE_INT = "number"` changes the generated contract, unrecorded | **Holds.** Added to §16 item 24 as the fallback for the ts-rs 12 pin, and recorded as D9. Request W7-3 updates the §3 layout line, which finalize may not edit. |
-| C6 | Nothing maps `CursorError` to 422 `validation` | **Holds, fixed.** Added `impl From<quire_core::cursor::CursorError> for quire_store::Error` (422, `details.field = "cursor"`) in `crates/quire-store/src/error.rs`, with the test `error::tests::cursor_errors_are_422_on_the_cursor_field`. The reviewer's other option, a request to W1, was not needed: W0b still owns the file. `ApiError` gets the mapping through `From<quire_store::Error>`. |
+| C6 | Nothing maps `CursorError` to 422 `validation` | **Holds, fixed.** Added `impl From<wikanvas_core::cursor::CursorError> for wikanvas_store::Error` (422, `details.field = "cursor"`) in `crates/wikanvas-store/src/error.rs`, with the test `error::tests::cursor_errors_are_422_on_the_cursor_field`. The reviewer's other option, a request to W1, was not needed: W0b still owns the file. `ApiError` gets the mapping through `From<wikanvas_store::Error>`. |
 | S1 | lightningcss is MPL-2.0 | **Holds, unresolved.** It is the owner's decision, because both fixes change normative text (above). |
-| S2 | `/auth/me` searched the capped `tokens::list`, so 100 newer expired tokens made `auth.token` null | **Holds, fixed.** Added `quire_store::tokens::get(conn, user_id, token_id)`, and `get_me` now uses it. Tests: `tokens::get_finds_one_unrevoked_token_of_the_user` (store) and `tokens::me_describes_the_token_behind_100_newer_ones` (API, with 100 newer expired rows). |
+| S2 | `/auth/me` searched the capped `tokens::list`, so 100 newer expired tokens made `auth.token` null | **Holds, fixed.** Added `wikanvas_store::tokens::get(conn, user_id, token_id)`, and `get_me` now uses it. Tests: `tokens::get_finds_one_unrevoked_token_of_the_user` (store) and `tokens::me_describes_the_token_behind_100_newer_ones` (API, with 100 newer expired rows). |
 
 Earlier in W0b, the acceptance step set aside these agent requests as edits to normative text. They are listed here
 for W7 (below):
@@ -572,17 +572,17 @@ for W7 (below):
 - the rust, store, server and cli agents' §4.1, §3, §5/§7.2, §7.4, §7.7, §7.8 and §13.3 notes;
 - the docker agent's optional update of the §13.2 listing.
 
-The cli agent's optional `ARG QUIRE_COMMIT` for the cli stages was also not taken: the Dockerfile stays the §13.2
+The cli agent's optional `ARG WIKANVAS_COMMIT` for the cli stages was also not taken: the Dockerfile stays the §13.2
 text, and §7.6's `version` JSON has no CLI commit.
 
 ## Requests for the W1–W8 owners
 
-**W1** (`quire-store` shared/items/collections/error, `quire-core`):
-1. Once `quire_core::rank::key_between` and `quire_core::ids::{new_uuid, new_url_id}` exist, replace the crate-private
-   `shared::rank`, `shared::new_id`, `shared::new_url_id` and `shared::place` with them.
-2. `quire_store::Error: From<CursorError>` exists, so list functions can `?` on `cursor::decode` (D18).
+**W1** (`wikanvas-store` shared/items/collections/error, `wikanvas-core`):
+1. Once `wikanvas_core::rank::key_between` and `wikanvas_core::ids::{new_uuid, new_url_id}` exist, replace the
+   crate-private `shared::rank`, `shared::new_id`, `shared::new_url_id` and `shared::place` with them.
+2. `wikanvas_store::Error: From<CursorError>` exists, so list functions can `?` on `cursor::decode` (D18).
 
-**W2** (`quire-server`, `quire-assets`, store users/sessions/settings/tokens/seed):
+**W2** (`wikanvas-server`, `wikanvas-assets`, store users/sessions/settings/tokens/seed):
 1. Add `users::get`, `users::create_owner` (with the `NOT EXISTS owner` guard), `settings::{get, set}` and
    `sessions::lookup` to the store. Then replace the plain-SQL copies listed in D24.
 2. Wire `seed::getting_started` into `admin::create_owner`, and make `--no-seed` work (D31).
@@ -596,7 +596,7 @@ text, and §7.6's `version` JSON has no CLI commit.
    older live tokens behind 100 newer expired ones.
 6. Complete `static_files`: precompressed variants, ETags and CSP (§11); `blobs::sniff` (D21); and `authz` beyond the
    owner (D33).
-7. Run `scripts/dev.sh env UPDATE_OPENAPI=1 cargo test -p quire-server --locked --test api -- openapi::` with every
+7. Run `scripts/dev.sh env UPDATE_OPENAPI=1 cargo test -p wikanvas-server --locked --test api -- openapi::` with every
    route change (R4).
 
 **W3** (`web/package.json` and the shell):
@@ -609,9 +609,9 @@ text, and §7.6's `version` JSON has no CLI commit.
 3. W0b filled in some W3 files minimally (D37) and did not create `mockApi.ts`.
 
 **W4:**
-1. Replace the minimal Y walk in `quire-store/src/docs.rs` with `quire_core::ytext`, so that `init_with` also sets
+1. Replace the minimal Y walk in `wikanvas-store/src/docs.rs` with `wikanvas_core::ytext`, so that `init_with` also sets
    `item_links` and `item_attachments` and uses `\t` between table cells.
-2. The `DocSchema` DTO in `quire-api/src/docs.rs` is a proposal; refine it before anything depends on it.
+2. The `DocSchema` DTO in `wikanvas-api/src/docs.rs` is a proposal; refine it before anything depends on it.
 3. Markdown export reaches ItemMenu through `extraExports`.
 4. `pnpm --dir web fixtures` needs `src/editor/fixtures`.
 
@@ -621,15 +621,15 @@ text, and §7.6's `version` JSON has no CLI commit.
 2. `e2e/serve-static.mjs` is yours from now on. It sends no CSP and does no compression negotiation (D38).
 
 **W6:**
-1. In `quire-store/src/boards.rs`:
-   - Replace the inline-asset refusal in `init_with` with `quire_core::board::split` and BlobStore staging.
+1. In `wikanvas-store/src/boards.rs`:
+   - Replace the inline-asset refusal in `init_with` with `wikanvas_core::board::split` and BlobStore staging.
    - Replace the page-names-only text and meta with `board::inspect`.
    - Keep raw DEFLATE for `board_state.body`, or change docs, boards and revisions together.
 2. `useBoardFrame` needs an external store, and `BoardFrameContext` is only a proposal (D37).
 
 **W7** (docs and integration). Normative doc fixes that W0b could not make:
-1. §13.3: add `mode: 0o1777` to the quire `/data` tmpfs in both the `compose.e2e.yaml` and `compose.smoke.yaml` blocks
-   (D1).
+1. §13.3: add `mode: 0o1777` to the wikanvas `/data` tmpfs in both the `compose.e2e.yaml` and `compose.smoke.yaml`
+   blocks (D1).
 2. PLAN line 480: `bash -n scripts/*.sh scripts/lib/*.sh` checks only the first file. Use
    `for f in scripts/*.sh scripts/lib/*.sh; do bash -n "$f" || exit 1; done`.
 3. §3 `.cargo/config.toml` line: add `TS_RS_LARGE_INT = "number"` (D9).
@@ -640,10 +640,10 @@ text, and §7.6's `version` JSON has no CLI commit.
 5. §4.1:
    - drop rust-embed's `interpolate-folder-path`;
    - add bytes 1.12.1 and futures-util 0.3.34 to the workspace dependencies;
-   - add rusqlite to quire-server's row of the table (D11, D24).
+   - add rusqlite to wikanvas-server's row of the table (D11, D24).
 6. §5 or §7.2: name `details.field = "tokens"` for the 101st live token.
 7. §8, §7.8 and §13.3:
-   - the bare-serve defaults (QUIRE_LISTEN 127.0.0.1:8080, QUIRE_DATA_DIR ./data, the public URL from the listen
+   - the bare-serve defaults (WIKANVAS_LISTEN 127.0.0.1:8080, WIKANVAS_DATA_DIR ./data, the public URL from the listen
      port);
    - the healthcheck address rule (D25, D26);
    - the admin JSON shapes (D31). docs/AGENTS.md (W8) should repeat them.
@@ -654,19 +654,19 @@ text, and §7.6's `version` JSON has no CLI commit.
 11. From W0a, still open: §13.1 and PLAN W0a task 5 name `moby/buildkit:v0.34.1`, but the pin is v0.34.0 (§16 risk 23).
 12. THIRD_PARTY.md: complete it (every crate in Cargo.lock, the npm packages bundled into `web/dist`, borrowed code).
 
-**W8** (`quire-cli`):
+**W8** (`wikanvas-cli`):
 1. Remove `GlobalArgs`'s `expect(dead_code)` once every field is read, and replace clap's `help` subcommand with
    `help [--json]`.
-2. `config.rs` reads the `QUIRE_*` environment; the clap flags have no `env =` (D35).
-3. If the owner wants the commit in `quire --version`, the cli stages need `ARG QUIRE_COMMIT`. That is a §13.2 change,
-   for W7.
+2. `config.rs` reads the `WIKANVAS_*` environment; the clap flags have no `env =` (D35).
+3. If the owner wants the commit in `wikanvas --version`, the cli stages need `ARG WIKANVAS_COMMIT`. That is a §13.2
+   change, for W7.
 4. Write docs/AGENTS.md, which CLAUDE.md already points to.
 
 ## Follow-ups
 
 - Commit `web/src/api/gen/` and `docs/api/openapi.json` with W0b. Until then the PLAN `git diff --exit-code` lines
   cannot catch drift, and the checks above use sha256 comparisons instead.
-- The full image smoke (`QUIRE_SMOKE_LEVEL=full`) needs a real Inkboard build (W5). With the stub image it fails by
+- The full image smoke (`WIKANVAS_SMOKE_LEVEL=full`) needs a real Inkboard build (W5). With the stub image it fails by
   design.
 - Host port 443 is still taken by the owner's own Caddy (W0a "Environment findings"). The smoke uses 127.0.0.1:18443
   and is not affected.

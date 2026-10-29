@@ -1,5 +1,5 @@
 // Document autosave (docs/ARCHITECTURE.md §9.4): one DocSession per open document.
-// - Load: GET the doc and apply it with origin 'server'; then apply the IndexedDB outbox (`quire.outbox/<itemId>`)
+// - Load: GET the doc and apply it with origin 'server'; then apply the IndexedDB outbox (`wikanvas.outbox/<itemId>`)
 //   locally, which queues it.
 // - Queue and send: every local update is queued and the merged pending update is written to the outbox (at most one
 //   write per 250 ms, and always right before a POST). A 1 s debounce, at most 5 s apart, then POST
@@ -46,7 +46,7 @@ export function isBlankDoc(ydoc: Y.Doc, field: string): boolean {
   return first instanceof Y.XmlElement && first.nodeName === 'paragraph' && first.length === 0;
 }
 
-/** Where unsent updates wait: IndexedDB `quire.outbox`, one entry per item. */
+/** Where unsent updates wait: IndexedDB `wikanvas.outbox`, one entry per item. */
 export interface Outbox {
   get(itemId: string): Promise<Uint8Array | undefined>;
   set(itemId: string, update: Uint8Array): Promise<void>;
@@ -55,11 +55,11 @@ export interface Outbox {
 
 let store: UseStore | null = null;
 
-/** The IndexedDB outbox (`quire.outbox/<itemId>`). */
+/** The IndexedDB outbox (`wikanvas.outbox/<itemId>`). */
 export const idbOutbox: Outbox = {
-  get: (id) => get<Uint8Array>(id, (store ??= createStore('quire.outbox', 'updates'))),
-  set: (id, u) => set(id, u, (store ??= createStore('quire.outbox', 'updates'))),
-  del: (id) => del(id, (store ??= createStore('quire.outbox', 'updates'))),
+  get: (id) => get<Uint8Array>(id, (store ??= createStore('wikanvas.outbox', 'updates'))),
+  set: (id, u) => set(id, u, (store ??= createStore('wikanvas.outbox', 'updates'))),
+  del: (id) => del(id, (store ??= createStore('wikanvas.outbox', 'updates'))),
 };
 
 export interface DocSessionDeps {

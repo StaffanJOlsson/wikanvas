@@ -7,7 +7,7 @@
 //! that owns the token (the store checks `user_id`). Multi-user later changes only this function and
 //! `shared::visible_items`.
 
-use quire_api::{ErrorCode, Role};
+use wikanvas_api::{ErrorCode, Role};
 
 use crate::error::ApiError;
 use crate::extract::Actor;

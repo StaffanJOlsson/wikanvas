@@ -1,9 +1,10 @@
-// The Quire frame API (docs/ARCHITECTURE.md §10.4): what the board frame page (`web/inkboard-frame/frame.js`, loaded
-// from `/inkboard/{build}/frame.html`) installs as `window.quireBoardFrame`, and what the SPA's BoardFrameHost calls
-// through `iframe.contentWindow.quireBoardFrame` (same origin, plain JS calls). Types only: frame.js imports them
+// The Wikanvas frame API (docs/ARCHITECTURE.md §10.4): what the board frame page (`web/inkboard-frame/frame.js`, loaded
+// from `/inkboard/{build}/frame.html`) installs as `window.wikanvasBoardFrame`, and what the SPA's BoardFrameHost calls
+// through `iframe.contentWindow.wikanvasBoardFrame` (same origin, plain JS calls). Types only: frame.js imports them
 // through JSDoc, so this file must not import anything.
 
-export interface QuireBoardFrame { connect(events: FrameEvents): Promise<BoardFrameApi>; }  // window.quireBoardFrame
+// window.wikanvasBoardFrame
+export interface WikanvasBoardFrame { connect(events: FrameEvents): Promise<BoardFrameApi>; }
 export interface FrameEvents {
   onProgress?(p: { loaded: number; total: number }): void;   // decoded wasm bytes / manifest raw size
   onReady?(itemId: string): void;
@@ -27,7 +28,8 @@ export interface FrameEvents {
 }
 export interface OpenArgs { itemId: string; board: string | null; name: string; readOnly: boolean; theme: 'light' | 'dark' }
 export interface BoardFrameApi {
-  readonly engineVersion: string;     // inkboardEmbed.version + ".quire." + patchset, e.g. "0.2.0-beta.3+embed.quire.1"
+  // inkboardEmbed.version + ".wikanvas." + patchset, e.g. "0.2.0-beta.3+embed.wikanvas.1"
+  readonly engineVersion: string;
   readonly formatVersion: number;
   open(a: OpenArgs): Promise<void>;   // first call mounts on the frame's canvas; later calls setBoard + setReadOnly + setName
   current(): string | null;           // itemId shown
@@ -62,7 +64,7 @@ export interface BoardFrameApi {
 // its own viewport coordinates. devicePixelRatio never enters (the engine reports CSS pixels).
 
 /** The native drag type a sidebar document row carries (pragmatic-dnd `getInitialDataForExternal`, §18.6). */
-export type DragItemType = 'application/x-quire-item';
+export type DragItemType = 'application/x-wikanvas-item';
 
 /** The JSON under `DragItemType`. A reader ignores a value that does not parse, has another `v`, or is not a doc. */
 export interface DraggedItem {
@@ -191,6 +193,6 @@ export type ConnectError = { kind: FrameErrorKind; message: string };
 declare global {
   interface Window {
     /** Installed by the frame page's module script; absent until it ran (and on every other page). */
-    quireBoardFrame?: QuireBoardFrame;
+    wikanvasBoardFrame?: WikanvasBoardFrame;
   }
 }

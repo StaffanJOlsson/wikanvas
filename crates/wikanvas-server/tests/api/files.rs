@@ -9,7 +9,7 @@ use std::time::Duration;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use bytes::Bytes;
-use quire_api::{Attachment, ErrorCode, Scope};
+use wikanvas_api::{Attachment, ErrorCode, Scope};
 use serde_json::json;
 use tokio::sync::mpsc;
 use tower::ServiceExt as _;
@@ -250,7 +250,7 @@ async fn upload_over_limit_413() {
 async fn low_disk_507() {
     let mut app = TestApp::with_owner().await;
     app.state.free_space = Arc::new(|_, _| {
-        Err(quire_store::Error::new(
+        Err(wikanvas_store::Error::new(
             ErrorCode::InsufficientStorage,
             "the disk is full",
         ))
@@ -272,7 +272,7 @@ async fn low_disk_507() {
         .content_type("application/json")
         .await;
     assert_error(&res, 507, ErrorCode::InsufficientStorage);
-    let detail: quire_api::ItemDetail = app
+    let detail: wikanvas_api::ItemDetail = app
         .server
         .get(&format!("/api/v1/items/{board}"))
         .await

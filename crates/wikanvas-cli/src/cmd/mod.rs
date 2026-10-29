@@ -24,7 +24,7 @@ use std::cell::RefCell;
 use std::io::Read;
 use std::rc::Rc;
 
-use quire_api::cli::ExitCode;
+use wikanvas_api::cli::ExitCode;
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use serde_json::{Value, json};
@@ -116,8 +116,8 @@ pub const OPERATIONS: &[(&str, &str, &str)] = &[
     ("GET", "/api/v1/config", "version"),
 ];
 
-/// The web-only operations of §7.6 "Coverage", reachable through `quire api`; plus the spec document itself and the
-/// board's browser download, which `quire api` and `quire board get` cover (D-W8 in docs/handoff/W8.md).
+/// The web-only operations of §7.6 "Coverage", reachable through `wikanvas api`; plus the spec document itself and the
+/// board's browser download, which `wikanvas api` and `wikanvas board get` cover (D-W8 in docs/handoff/W8.md).
 pub const API_ONLY: &[(&str, &str)] = &[
     ("GET", "/api/v1/setup"),
     ("POST", "/api/v1/setup"),
@@ -263,7 +263,7 @@ impl Ctx {
             return self.call(req, None);
         }
         let client = self.client()?;
-        let page_size = l.limit.unwrap_or(quire_api::page::MAX_LIMIT) as usize;
+        let page_size = l.limit.unwrap_or(wikanvas_api::page::MAX_LIMIT) as usize;
         let mut items: Vec<Box<RawValue>> = Vec::new();
         let mut cursor = l.cursor.clone();
         let mut next: Option<String>;
@@ -332,7 +332,7 @@ fn read_stdin_text() -> std::io::Result<String> {
 /// Prints a 2xx response (see [`Ctx::call`]).
 pub fn print_response(t: &http::Text, id: Option<&str>) -> Res {
     if t.status == 204 || t.text.trim().is_empty() {
-        let rid = t.header(quire_api::common::header::REQUEST_ID);
+        let rid = t.header(wikanvas_api::common::header::REQUEST_ID);
         return output::print_ok(Some(t.status), rid.as_deref(), id);
     }
     print_json_text(&t.text)

@@ -1,9 +1,9 @@
 // The live editor's extensions (docs/ARCHITECTURE.md §6.1, §9.6.5): schema v1 with its node views, Collaboration on
 // the session's Y.Doc, the placeholder, heading anchors, the slash and mention menus, image paste/drop/upload with
-// progress and retry, Quire URLs pasted as item links, and Backspace at the start of an empty body back to the title.
-// A board card's editor (`variant: 'embed'`, §18.5) has no heading anchors (two cards of one document would repeat the
-// ids) and goes back to the card's own title input. `viewerExtensions` are the read-only static card's: the schema
-// and the node views only.
+// progress and retry, Wikanvas URLs pasted as item links, and Backspace at the start of an empty body back to the
+// title. A board card's editor (`variant: 'embed'`, §18.5) has no heading anchors (two cards of one document would
+// repeat the ids) and goes back to the card's own title input. `viewerExtensions` are the read-only static card's: the
+// schema and the node views only.
 import Collaboration from '@tiptap/extension-collaboration';
 import FileHandler from '@tiptap/extension-file-handler';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -50,7 +50,7 @@ interface Uploading {
   retry?: () => void;
 }
 
-export const uploadKey = new PluginKey<DecorationSet>('quireUploads');
+export const uploadKey = new PluginKey<DecorationSet>('wikanvasUploads');
 
 function widget(u: Uploading): HTMLElement {
   const el = document.createElement('div');
@@ -71,7 +71,7 @@ function widget(u: Uploading): HTMLElement {
 }
 
 const UploadPlaceholders = Extension.create({
-  name: 'quireUploads',
+  name: 'wikanvasUploads',
   addProseMirrorPlugins() {
     return [
       new Plugin<DecorationSet>({
@@ -138,14 +138,14 @@ export function uploadImages(editor: Editor, itemId: string, files: File[], pos:
 // ------------------------------------------------------------------------------------------------- pasted URLs
 
 /** A pasted same-instance item URL becomes `link{href, itemId}` once the item is found (§9.6.5). */
-function QuireUrlPaste(origin: string) {
+function WikanvasUrlPaste(origin: string) {
   return Extension.create({
-    name: 'quireUrlPaste',
+    name: 'wikanvasUrlPaste',
     addProseMirrorPlugins() {
       const editor = this.editor;
       return [
         new Plugin({
-          key: new PluginKey('quireUrlPaste'),
+          key: new PluginKey('wikanvasUrlPaste'),
           props: {
             handlePaste(view, event) {
               const text = event.clipboardData?.getData('text/plain')?.trim() ?? '';
@@ -189,11 +189,11 @@ function QuireUrlPaste(origin: string) {
  */
 export function LinkOpener(open: (target: LinkTarget) => void, origin: string) {
   return Extension.create({
-    name: 'quireLinkOpener',
+    name: 'wikanvasLinkOpener',
     addProseMirrorPlugins() {
       return [
         new Plugin({
-          key: new PluginKey('quireLinkOpener'),
+          key: new PluginKey('wikanvasLinkOpener'),
           props: {
             handleDOMEvents: {
               click(view, event) {
@@ -253,7 +253,7 @@ function BackspaceToTitle(titleInput: () => HTMLElement | null) {
  */
 function EscapeOut(onEscape: () => void) {
   return Extension.create({
-    name: 'quireEscapeOut',
+    name: 'wikanvasEscapeOut',
     priority: 1,
     addKeyboardShortcuts() {
       return {
@@ -266,7 +266,7 @@ function EscapeOut(onEscape: () => void) {
   });
 }
 
-export const mentionKey = new PluginKey('quireMention');
+export const mentionKey = new PluginKey('wikanvasMention');
 
 /** The `@` menu: a title search; the chosen item becomes a mention (§9.6.5). */
 function mentionSuggestion(popup: Popup) {
@@ -360,7 +360,7 @@ export function editorExtensions(s: EditorSetup): AnyExtension[] {
       onPaste: (editor, files) => uploadImages(editor, s.itemId, files, editor.state.selection.from),
       onDrop: (editor, files, pos) => uploadImages(editor, s.itemId, files, pos),
     }),
-    QuireUrlPaste(typeof window !== 'undefined' ? window.location.origin : ''),
+    WikanvasUrlPaste(typeof window !== 'undefined' ? window.location.origin : ''),
     ...(s.openLink ? [LinkOpener(s.openLink, typeof window !== 'undefined' ? window.location.origin : '')] : []),
     SlashCommand(s.slash, s.ctx),
     BackspaceToTitle(s.titleInput ?? (() => document.getElementById(TITLE_INPUT_ID))),

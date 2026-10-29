@@ -1,6 +1,6 @@
 // The board save loop (docs/ARCHITECTURE.md §9.5, D32). `onChange` schedules a save 1.5 s after the last change and
 // at most 10 s after the first unsaved one. A save takes the frame's `snapshot()`, writes it to IndexedDB as the
-// unsaved snapshot, and PUTs it with `If-Match: "r{rev}"` and `X-Quire-Engine`:
+// unsaved snapshot, and PUTs it with `If-Match: "r{rev}"` and `X-Wikanvas-Engine`:
 // - 200: `markSaved(snapshot.revision)` (changes made during the PUT stay dirty), the new rev, the snapshot cleared;
 // - 412: the loop stops and reports the conflict (ConflictBanner); 413: an error naming the limit;
 // - network error: `offline`, retried after 1, 2, 5, 10, then every 30 s, and at once when the browser is online;

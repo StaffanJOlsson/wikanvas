@@ -4,9 +4,9 @@
 
 use std::sync::Arc;
 
-use quire_api::{Config as ApiConfig, ErrorCode};
-use quire_server::headers::{FRAME_CSP, SPA_CSP};
-use quire_server::static_files::MemoryAssets;
+use wikanvas_api::{Config as ApiConfig, ErrorCode};
+use wikanvas_server::headers::{FRAME_CSP, SPA_CSP};
+use wikanvas_server::static_files::MemoryAssets;
 
 use crate::common::{TestApp, assert_error};
 
@@ -22,7 +22,7 @@ fn manifest(build: &str, engine: &str, format: u32) -> String {
 
 fn site(manifest_json: Option<String>) -> MemoryAssets {
     let mut assets = MemoryAssets::new()
-        .with_web("index.html", "<!doctype html><title>Quire</title>")
+        .with_web("index.html", "<!doctype html><title>Wikanvas</title>")
         .with_web("index.html.br", "BR index")
         .with_web("index.html.gz", "GZ index")
         .with_web("assets/app-abc123.js", "console.log('identity')")
@@ -50,7 +50,7 @@ async fn app() -> TestApp {
     let mut app = TestApp::new().await;
     app.set_assets(site(Some(manifest(
         BUILD,
-        "0.2.0-beta.3+embed.quire.1",
+        "0.2.0-beta.3+embed.wikanvas.1",
         inkboard_core::serial::VERSION,
     ))));
     app
@@ -62,7 +62,7 @@ async fn spa_fallback_vs_api_json_404() {
     for path in ["/", "/c/notes-abc", "/settings/tokens", "/index.html"] {
         let res = app.server.get(path).await;
         res.assert_status_ok();
-        assert_eq!(res.text(), "<!doctype html><title>Quire</title>", "{path}");
+        assert_eq!(res.text(), "<!doctype html><title>Wikanvas</title>", "{path}");
         assert_eq!(res.header("content-type"), "text/html; charset=utf-8");
         assert_eq!(res.header("cache-control"), "no-cache");
     }
@@ -289,7 +289,7 @@ async fn inkboard_manifest_served_next_to_the_frame() {
     let served: serde_json::Value = res.json();
     let embedded: serde_json::Value = serde_json::from_str(&manifest(
         BUILD,
-        "0.2.0-beta.3+embed.quire.1",
+        "0.2.0-beta.3+embed.wikanvas.1",
         inkboard_core::serial::VERSION,
     ))
     .unwrap();
@@ -318,7 +318,7 @@ async fn large_inkboard_manifest_is_not_gzipped() {
         ));
     }
     let big = format!(
-        r#"{{"build":"{BUILD}","engine_version":"0.2.0-beta.3+embed.quire.1","format_version":{},"patchset":"1",
+        r#"{{"build":"{BUILD}","engine_version":"0.2.0-beta.3+embed.wikanvas.1","format_version":{},"patchset":"1",
             "files":{{{files}"inkboard_bg.wasm":{{"raw":8,"br":5,"gz":6}}}}}}"#,
         inkboard_core::serial::VERSION
     );
@@ -373,13 +373,13 @@ async fn missing_manifest_gives_null_inkboard_config() {
     // A real build: base, versions and the wasm sizes from the manifest.
     app.set_assets(site(Some(manifest(
         BUILD,
-        "0.2.0-beta.3+embed.quire.1",
+        "0.2.0-beta.3+embed.wikanvas.1",
         inkboard_core::serial::VERSION,
     ))));
     let config: ApiConfig = app.server.get("/api/v1/config").await.json();
     let ink = config.inkboard.expect("an engine");
     assert_eq!(ink.base, format!("/inkboard/{BUILD}/"));
-    assert_eq!(ink.engine_version, "0.2.0-beta.3+embed.quire.1");
+    assert_eq!(ink.engine_version, "0.2.0-beta.3+embed.wikanvas.1");
     assert_eq!(ink.format_version, inkboard_core::serial::VERSION);
     assert_eq!(
         (ink.wasm_bytes.raw, ink.wasm_bytes.br, ink.wasm_bytes.gz),

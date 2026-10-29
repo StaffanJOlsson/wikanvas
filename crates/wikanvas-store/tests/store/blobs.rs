@@ -4,8 +4,8 @@
 //! attachment and blob GC with the orphan sweep (§5, D26, D36).
 
 use bytes::Bytes;
-use quire_core::api::ErrorCode;
-use quire_store::{BlobStore, Sha256, shared};
+use wikanvas_core::api::ErrorCode;
+use wikanvas_store::{BlobStore, Sha256, shared};
 
 use crate::common::{NOW, TestDb, count};
 
@@ -104,7 +104,7 @@ async fn commit_of_existing_blob_dedupes_and_drop_deletes_staged_file() {
     let e =
         t.db.write(move |tx| {
             blobs.commit(tx, staged, NOW)?;
-            Err::<(), _>(quire_store::Error::validation("x", "abort"))
+            Err::<(), _>(wikanvas_store::Error::validation("x", "abort"))
         })
         .await
         .unwrap_err();
@@ -214,10 +214,10 @@ async fn gc_keeps_referenced_blobs_including_revision_assets() {
     let owner = t.owner().await;
     let c = t.collection(&owner, "Notes").await;
     let doc = t
-        .item(&owner, c.id, None, quire_core::api::ItemKind::Doc, "d")
+        .item(&owner, c.id, None, wikanvas_core::api::ItemKind::Doc, "d")
         .await;
     let board = t
-        .item(&owner, c.id, None, quire_core::api::ItemKind::Board, "b")
+        .item(&owner, c.id, None, wikanvas_core::api::ItemKind::Board, "b")
         .await;
     let attached = put(&t, b"attachment bytes").await;
     let asset = put(&t, b"board asset bytes").await;
@@ -252,7 +252,7 @@ async fn gc_keeps_referenced_blobs_including_revision_assets() {
     })
     .await
     .unwrap();
-    let report = quire_store::gc::blobs(&t.db, &t.blobs).await.unwrap();
+    let report = wikanvas_store::gc::blobs(&t.db, &t.blobs).await.unwrap();
     assert_eq!(report.blobs, 1);
     let mut expect: Vec<String> = [&attached, &asset, &avatar, &revision]
         .iter()
@@ -273,7 +273,7 @@ async fn gc_keeps_referenced_blobs_including_revision_assets() {
     std::fs::create_dir_all(stray_path.parent().unwrap()).unwrap();
     std::fs::write(&stray_path, b"stray").unwrap();
     assert_eq!(
-        quire_store::gc::blobs(&t.db, &t.blobs)
+        wikanvas_store::gc::blobs(&t.db, &t.blobs)
             .await
             .unwrap()
             .orphan_files,
@@ -281,7 +281,7 @@ async fn gc_keeps_referenced_blobs_including_revision_assets() {
     );
     age(&stray_path, 3601);
     age(&t.blobs.path(&attached), 7200);
-    let report = quire_store::gc::blobs(&t.db, &t.blobs).await.unwrap();
+    let report = wikanvas_store::gc::blobs(&t.db, &t.blobs).await.unwrap();
     assert_eq!((report.blobs, report.orphan_files), (0, 1));
     assert!(!stray_path.exists() && t.blobs.path(&attached).exists());
     // Stale staging files go after a day.
@@ -290,7 +290,7 @@ async fn gc_keeps_referenced_blobs_including_revision_assets() {
     std::fs::write(&tmp, b"x").unwrap();
     age(&tmp, 25 * 3600);
     assert_eq!(
-        quire_store::gc::blobs(&t.db, &t.blobs)
+        wikanvas_store::gc::blobs(&t.db, &t.blobs)
             .await
             .unwrap()
             .stale_tmp,
@@ -307,7 +307,7 @@ async fn gc_between_stage_and_commit_never_leaves_row_without_file() {
     assert_eq!(staged.sha256(), &sha);
     // GC runs between stage and commit: the row and the file go, the staged file stays.
     assert_eq!(
-        quire_store::gc::blobs(&t.db, &t.blobs).await.unwrap().blobs,
+        wikanvas_store::gc::blobs(&t.db, &t.blobs).await.unwrap().blobs,
         1
     );
     assert!(!t.blobs.path(&sha).exists());
@@ -340,7 +340,7 @@ async fn gc_between_stage_and_commit_never_leaves_row_without_file() {
     .await
     .unwrap();
     assert_eq!(
-        quire_store::gc::blobs(&t.db, &t.blobs).await.unwrap().blobs,
+        wikanvas_store::gc::blobs(&t.db, &t.blobs).await.unwrap().blobs,
         0
     );
     for row in blob_rows(&t).await {
@@ -357,7 +357,7 @@ async fn attachment_gc_respects_refs_and_24h_grace() {
     let owner = t.owner().await;
     let c = t.collection(&owner, "Notes").await;
     let doc = t
-        .item(&owner, c.id, None, quire_core::api::ItemKind::Doc, "d")
+        .item(&owner, c.id, None, wikanvas_core::api::ItemKind::Doc, "d")
         .await;
     let sha = put(&t, b"image").await.to_string();
     let hour = 3_600_000;
@@ -385,13 +385,13 @@ async fn attachment_gc_respects_refs_and_24h_grace() {
              VALUES ('rev-1', ?1, 'manual', 'yjs', 1, x'00', '[\"in-revision\"]', 'd', 1, ?2)",
             rusqlite::params![doc_id, NOW],
         )?;
-        quire_store::settings::set(tx, quire_store::settings::WORKSPACE_LOGO, &serde_json::json!("logo"))?;
+        wikanvas_store::settings::set(tx, wikanvas_store::settings::WORKSPACE_LOGO, &serde_json::json!("logo"))?;
         Ok(())
     })
     .await
     .unwrap();
     let deleted =
-        t.db.write(|tx| quire_store::gc::attachments(tx, NOW))
+        t.db.write(|tx| wikanvas_store::gc::attachments(tx, NOW))
             .await
             .unwrap();
     assert_eq!(deleted, 1);
@@ -406,7 +406,7 @@ async fn attachment_gc_respects_refs_and_24h_grace() {
     assert_eq!(left, ["in-doc", "in-revision", "logo", "young"]);
     // The blob stays while any attachment refers to it.
     assert_eq!(
-        quire_store::gc::blobs(&t.db, &t.blobs).await.unwrap().blobs,
+        wikanvas_store::gc::blobs(&t.db, &t.blobs).await.unwrap().blobs,
         0
     );
     t.db.write(|tx| {
@@ -416,7 +416,7 @@ async fn attachment_gc_respects_refs_and_24h_grace() {
     .await
     .unwrap();
     assert_eq!(
-        quire_store::gc::blobs(&t.db, &t.blobs).await.unwrap().blobs,
+        wikanvas_store::gc::blobs(&t.db, &t.blobs).await.unwrap().blobs,
         1
     );
 }

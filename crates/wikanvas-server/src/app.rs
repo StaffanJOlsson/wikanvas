@@ -1,14 +1,14 @@
 //! Router assembly: the API routes, /healthz, static files and the middleware stack (owner: W2)
 //!
 //! [`app`] is the whole HTTP surface: `/api/v1` from [`crate::openapi::router`] (the same registrations as the spec,
-//! with the CORS layer of D48 when `QUIRE_CORS_ORIGINS` is set), `GET /healthz` outside the spec and the Host
+//! with the CORS layer of D48 when `WIKANVAS_CORS_ORIGINS` is set), `GET /healthz` outside the spec and the Host
 //! allowlist, the JSON 404 for any other path under `/api/`, and the static files for everything else. Layers,
 //! outermost first:
 //! 1. sensitive headers (`Authorization`, `Cookie` and `Set-Cookie` never reach a log);
 //! 2. the access log (one span per request with method, path, client IP and, for a token, `token_id`);
 //! 3. gzip at the fast level for JSON and Markdown bodies over 1 KiB, and for board-page SVG (§11; static files bring
 //!    their own variants, and attachments stay identity);
-//! 4. the error envelope with `X-Request-Id` / `Quire-Api-Version`;
+//! 4. the error envelope with `X-Request-Id` / `Wikanvas-Api-Version`;
 //! 5. [`crate::headers::layer`]: client address, security headers, HSTS, the renewed session cookie;
 //! 6. the panic catcher;
 //! 7. the deadline: 30 s, 120 s for uploads and board PUTs, none for the export and the on-demand backup (408
@@ -27,7 +27,7 @@ use axum::http::{HeaderMap, Method, StatusCode, Uri, header};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
-use quire_api::{ErrorCode, Health};
+use wikanvas_api::{ErrorCode, Health};
 use tower_http::catch_panic::CatchPanicLayer;
 use tower_http::compression::predicate::{Predicate as _, SizeAbove};
 use tower_http::compression::{CompressionLayer, CompressionLevel};
@@ -221,8 +221,8 @@ async fn fallback(
     res
 }
 
-/// `quire-server serve`: opens the state, logs the setup link while no owner exists, starts the background jobs,
-/// listens on `QUIRE_LISTEN`, serves until `shutdown`, drains, and checkpoints the WAL (§5).
+/// `wikanvas-server serve`: opens the state, logs the setup link while no owner exists, starts the background jobs,
+/// listens on `WIKANVAS_LISTEN`, serves until `shutdown`, drains, and checkpoints the WAL (§5).
 pub async fn run(
     config: Config,
     shutdown: impl Future<Output = ()> + Send + 'static,
@@ -237,7 +237,7 @@ pub async fn run(
         listen = %state.config.listen,
         public_url = %state.config.public_url,
         version = crate::cli::version(),
-        "quire-server is serving"
+        "wikanvas-server is serving"
     );
     if !state.owner_exists().await.unwrap_or(true) {
         tracing::info!("{}", state.setup_message());

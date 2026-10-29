@@ -35,7 +35,7 @@ export function AuthGate() {
     }
     return (
       <div className="placeholder-page" role="alert">
-        <h1>Quire could not load your account</h1>
+        <h1>Wikanvas could not load your account</h1>
         <p>{e?.message}</p>
         <button type="button" className="button" onClick={() => void me.refetch()}>Try again</button>
       </div>

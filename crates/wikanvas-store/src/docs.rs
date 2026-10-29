@@ -5,7 +5,7 @@
 //!   its placeholder item ids replaced, [`copy`] the state of another document; [`is_empty`] says whether a document
 //!   holds only empty paragraphs. Each initializer replaces whatever state the item had (seq 0, no stored updates, no
 //!   `pm_json`, no `last_token_id`) and derives the body text, `item_links` and `item_attachments`
-//!   (`quire_core::ytext`).
+//!   (`wikanvas_core::ytext`).
 //! - **Yjs sync** (§6.1): [`get`] (`?since`) and [`save_update`], the save path every writer goes through: decode,
 //!   apply on the stored state, 409 `missing_deps`, the no-op rule (state vector **and** delete set), the `pre-api`
 //!   recovery point (D53), the append, the derived text, links, attachments and `doc_clients`, the `pm_json` cache,
@@ -17,16 +17,16 @@
 use std::collections::BTreeSet;
 
 use base64::Engine as _;
-use quire_core::api::{
+use wikanvas_core::api::{
     ConversionWarning, DocJson, DocState, DocWriteResult, ErrorCode, InvalidDocumentDetails,
     ItemKind, LimitDetails, MissingDepsDetails, RevMismatchDetails, SCHEMA_VERSION, Timestamp,
     YFIELD,
 };
-use quire_core::convert::{
+use wikanvas_core::convert::{
     self, BaseError, ItemInfo, ItemRef, Lookup, Target, Warnings, md_in, md_out, pm, ydiff,
 };
-use quire_core::schema::{self, Invalid};
-use quire_core::ytext;
+use wikanvas_core::schema::{self, Invalid};
+use wikanvas_core::ytext;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -44,10 +44,10 @@ pub const EMPTY_YDOC: [u8; 2] = [0, 0];
 pub const COMPACT_ROWS: i64 = 200;
 /// …or when they hold more than this many bytes.
 pub const COMPACT_BYTES: i64 = 1024 * 1024;
-/// The default cap of a stored document (`QUIRE_MAX_DOC_MB`, D33).
+/// The default cap of a stored document (`WIKANVAS_MAX_DOC_MB`, D33).
 pub const DEFAULT_MAX_DOC_BYTES: usize = 16 * 1024 * 1024;
 
-/// Placeholder item ids in `fixtures/ydoc/getting-started.bin` ("Welcome to Quire"): the "Writing in Quire" page
+/// Placeholder item ids in `fixtures/ydoc/getting-started.bin` ("Welcome to Wikanvas"): the "Writing in Wikanvas" page
 /// it mentions and the example board it embeds. [`init_seed`] replaces them with the seeded items' ids.
 pub const SEED_WRITING_ID: &str = "00000000-0000-7000-8000-000000000001";
 pub const SEED_BOARD_ID: &str = "00000000-0000-7000-8000-000000000002";
@@ -509,7 +509,7 @@ fn attachment_rows(conn: &Connection, item_id: &str) -> Result<Vec<String>> {
 /// the store").
 pub struct DbLookup<'c> {
     pub conn: &'c Connection,
-    /// `QUIRE_PUBLIC_URL`, for absolute same-instance URLs.
+    /// `WIKANVAS_PUBLIC_URL`, for absolute same-instance URLs.
     pub public_origin: Option<String>,
 }
 
@@ -580,7 +580,7 @@ pub struct MarkdownDoc {
     pub title: String,
 }
 
-/// `GET …/doc/markdown`: Quire Markdown 1, with `# <title>` first when `include_title`.
+/// `GET …/doc/markdown`: Wikanvas Markdown 1, with `# <title>` first when `include_title`.
 pub fn markdown(
     conn: &Connection,
     item_id: &str,

@@ -12,8 +12,8 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 use std::thread::JoinHandle;
 
-use quire_api::Scope;
-use quire_api::tokens::NewToken;
+use wikanvas_api::Scope;
+use wikanvas_api::tokens::NewToken;
 use tokio::sync::oneshot;
 
 use crate::admin::{self, NewOwner};
@@ -21,7 +21,7 @@ use crate::config::{Config, Origin, Scheme};
 use crate::state::{self, AppState};
 
 /// The owner's email.
-pub const OWNER_EMAIL: &str = "owner@quire.invalid";
+pub const OWNER_EMAIL: &str = "owner@wikanvas.invalid";
 /// The owner's password.
 pub const OWNER_PASSWORD: &str = "test-owner-password";
 /// The owner's name.
@@ -39,7 +39,7 @@ pub struct TestServer {
     pub write_token: String,
     /// An `admin` token of the owner.
     pub admin_token: String,
-    /// The server's `QUIRE_DATA_DIR` (deleted on drop).
+    /// The server's `WIKANVAS_DATA_DIR` (deleted on drop).
     pub data_dir: PathBuf,
     /// The owner's user id.
     pub owner_id: String,
@@ -65,7 +65,7 @@ impl TestServer {
     /// listen address and public URL are set by the server).
     pub fn start_with(configure: impl FnOnce(&mut Config)) -> TestServer {
         let dir = tempfile::Builder::new()
-            .prefix("quire-test-server-")
+            .prefix("wikanvas-test-server-")
             .tempdir()
             .expect("a temporary data directory");
         let listener = std::net::TcpListener::bind("127.0.0.1:0")
@@ -88,7 +88,7 @@ impl TestServer {
         let (ready_tx, ready_rx) = mpsc::channel::<Result<Ready, String>>();
         let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
         let thread = std::thread::Builder::new()
-            .name("quire-test-server".into())
+            .name("wikanvas-test-server".into())
             .spawn(move || {
                 let runtime = match tokio::runtime::Builder::new_multi_thread()
                     .worker_threads(2)
@@ -122,7 +122,7 @@ impl TestServer {
                         let _ = shutdown_rx.await;
                     };
                     if let Err(e) = crate::app::serve(state, listener, shutdown).await {
-                        eprintln!("quire test server: {e}");
+                        eprintln!("wikanvas test server: {e}");
                     }
                 });
             })
@@ -213,9 +213,9 @@ mod tests {
         let server = TestServer::start();
         assert!(server.url.starts_with("http://127.0.0.1:"));
         for token in [&server.read_token, &server.write_token, &server.admin_token] {
-            assert!(quire_api::token::check(token).is_ok(), "{token}");
+            assert!(wikanvas_api::token::check(token).is_ok(), "{token}");
         }
-        assert!(server.data_dir.join("quire.db").exists());
+        assert!(server.data_dir.join("wikanvas.db").exists());
         let url = format!("{}/healthz", server.url);
         assert_eq!(
             crate::cli::probe(&url, std::time::Duration::from_secs(5)),

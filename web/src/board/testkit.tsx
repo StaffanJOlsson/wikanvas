@@ -41,7 +41,7 @@ export function config(inkboard = true): Config {
     setup_required: false,
     multi_user: false,
     inkboard: inkboard
-      ? { base: BASE, engine_version: '0.2.0-beta.3+embed.quire.1', format_version: 2, wasm_bytes: { raw: 10, br: 4, gz: 5 } }
+      ? { base: BASE, engine_version: '0.2.0-beta.3+embed.wikanvas.1', format_version: 2, wasm_bytes: { raw: 10, br: 4, gz: 5 } }
       : null,
     limits: {
       max_upload_mb: 25,

@@ -5,7 +5,7 @@
 
 use axum::Json;
 use axum::extract::State;
-use quire_api::{ErrorBody, Workspace, WorkspacePatch};
+use wikanvas_api::{ErrorBody, Workspace, WorkspacePatch};
 use serde_json::Value;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -50,7 +50,7 @@ async fn get_workspace(
     State(state): State<AppState>,
 ) -> Result<Json<Workspace>, ApiError> {
     authz::require(&auth, Action::Read, Resource::Workspace)?;
-    Ok(Json(state.db.read(quire_store::settings::workspace).await?))
+    Ok(Json(state.db.read(wikanvas_store::settings::workspace).await?))
 }
 
 /// Renames the workspace or sets its logo (`logo_attachment_id: null` removes it).
@@ -88,34 +88,34 @@ async fn patch_workspace(
         .db
         .write(move |tx| {
             if let Some(name) = &patch.name {
-                quire_store::settings::set(
+                wikanvas_store::settings::set(
                     tx,
-                    quire_store::settings::WORKSPACE_NAME,
+                    wikanvas_store::settings::WORKSPACE_NAME,
                     &Value::String(name.trim().to_owned()),
                 )?;
             }
             match patch.logo_attachment_id {
                 None => {}
                 Some(None) => {
-                    quire_store::settings::delete(tx, quire_store::settings::WORKSPACE_LOGO)?
+                    wikanvas_store::settings::delete(tx, wikanvas_store::settings::WORKSPACE_LOGO)?
                 }
                 Some(Some(id)) => {
                     let id = id.to_string();
-                    let found = quire_store::attachments::get(tx, &id)?;
+                    let found = wikanvas_store::attachments::get(tx, &id)?;
                     if !found.is_some_and(|a| LOGO_TYPES.contains(&a.mime.as_str())) {
-                        return Err(quire_store::Error::validation(
+                        return Err(wikanvas_store::Error::validation(
                             "logo_attachment_id",
                             "the logo must be an uploaded PNG, JPEG, GIF, WebP or AVIF image",
                         ));
                     }
-                    quire_store::settings::set(
+                    wikanvas_store::settings::set(
                         tx,
-                        quire_store::settings::WORKSPACE_LOGO,
+                        wikanvas_store::settings::WORKSPACE_LOGO,
                         &Value::String(id),
                     )?;
                 }
             }
-            quire_store::settings::workspace(tx)
+            wikanvas_store::settings::workspace(tx)
         })
         .await?;
     Ok(Json(workspace))

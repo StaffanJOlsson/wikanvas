@@ -12,7 +12,7 @@ use std::io::Write;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use quire_api::cli::ExitCode;
+use wikanvas_api::cli::ExitCode;
 use serde::Serialize;
 use serde_json::{Value, json};
 
@@ -80,9 +80,9 @@ pub fn warn_api_version_once(server: &str) {
             "api_version_older",
             &format!(
                 "the server speaks API {server}, older than this CLI's {}: a newer command may exit 7",
-                quire_api::API_VERSION
+                wikanvas_api::API_VERSION
             ),
-            Some(json!({ "server": server, "cli": quire_api::API_VERSION })),
+            Some(json!({ "server": server, "cli": wikanvas_api::API_VERSION })),
         );
     }
 }
@@ -290,16 +290,16 @@ mod tests {
     use clap::Parser;
 
     fn err(list: &[&str]) -> clap::Error {
-        Cli::try_parse_from(std::iter::once("quire").chain(list.iter().copied()))
+        Cli::try_parse_from(std::iter::once("wikanvas").chain(list.iter().copied()))
             .expect_err("a clap error")
     }
 
     #[test]
     fn json_flag_anywhere_in_argv() {
         let argv = |list: &[&str]| list.iter().map(OsString::from).collect::<Vec<_>>();
-        assert!(json_in_argv(&argv(&["quire", "exit-codes", "--json"])));
-        assert!(json_in_argv(&argv(&["quire", "--json", "x", "--bogus"])));
-        assert!(!json_in_argv(&argv(&["quire", "exit-codes"])));
+        assert!(json_in_argv(&argv(&["wikanvas", "exit-codes", "--json"])));
+        assert!(json_in_argv(&argv(&["wikanvas", "--json", "x", "--bogus"])));
+        assert!(!json_in_argv(&argv(&["wikanvas", "exit-codes"])));
         assert!(!json_in_argv(&argv(&["--json"])));
     }
 
@@ -361,7 +361,7 @@ mod tests {
             assert!(!text.contains('\u{1b}'), "no colour: {text}");
         }
         let (_, text, _) = render_clap_error(&err(&["--version"]), false);
-        assert_eq!(text, format!("quire {}\n", env!("CARGO_PKG_VERSION")));
+        assert_eq!(text, format!("wikanvas {}\n", env!("CARGO_PKG_VERSION")));
     }
 
     #[test]

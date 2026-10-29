@@ -1,6 +1,6 @@
-// Vite and Vitest configuration for Quire's web client (docs/ARCHITECTURE.md §4.2, §9, §11).
+// Vite and Vitest configuration for Wikanvas's web client (docs/ARCHITECTURE.md §4.2, §9, §11).
 // Run through scripts/dev.sh only: `scripts/dev.sh pnpm --dir web dev|build|test`. For `dev`, publish the port with
-// QUIRE_DEV_PORTS=127.0.0.1:5173:5173 and run the server on 127.0.0.1:8080, which the proxy below reaches.
+// WIKANVAS_DEV_PORTS=127.0.0.1:5173:5173 and run the server on 127.0.0.1:8080, which the proxy below reaches.
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
 

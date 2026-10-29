@@ -1,8 +1,8 @@
 {
-  "name": "quire-web",
+  "name": "wikanvas-web",
   "version": "0.1.0",
   "private": true,
-  "description": "Quire's web client (docs/ARCHITECTURE.md §9). Run every script through scripts/dev.sh, e.g. scripts/dev.sh pnpm --dir web test.",
+  "description": "Wikanvas's web client (docs/ARCHITECTURE.md §9). Run every script through scripts/dev.sh, e.g. scripts/dev.sh pnpm --dir web test.",
   "license": "MIT",
   "type": "module",
   "packageManager": "pnpm@11.24.0",

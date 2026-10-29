@@ -9,7 +9,7 @@ use axum::body::Bytes;
 use axum::extract::{FromRequest, Query, Request, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use quire_api::{
+use wikanvas_api::{
     DeleteItemQuery, ErrorBody, ItemDetail, ItemPatch, ItemSummary, ItemText, ItemTrashed,
     ItemsArchived, MoveItem, NewItem, PublishRequest, RestoredItem, StarRequest,
 };
@@ -69,7 +69,7 @@ impl<T: DeserializeOwned + Default, S: Send + Sync> FromRequest<S> for OptionalJ
         }
         if json != Some(true) {
             return Err(ApiError::new(
-                quire_api::ErrorCode::UnsupportedMediaType,
+                wikanvas_api::ErrorCode::UnsupportedMediaType,
                 "send the body as application/json",
             )
             .into_response());
@@ -106,14 +106,14 @@ pub fn meta_etag(meta_version: i64) -> String {
 }
 
 /// Whether the caller's theme is dark (new boards get the dark background): `users.theme` through
-/// `quire_store::users::get`; light when the user cannot be read.
+/// `wikanvas_store::users::get`; light when the user cannot be read.
 async fn dark_theme(state: &AppState, user_id: &str) -> bool {
     let user = user_id.to_owned();
     state
         .db
-        .read(move |conn| quire_store::users::get(conn, &user))
+        .read(move |conn| wikanvas_store::users::get(conn, &user))
         .await
-        .is_ok_and(|u| u.theme == quire_api::Theme::Dark)
+        .is_ok_and(|u| u.theme == wikanvas_api::Theme::Dark)
 }
 
 /// Creates a document or board, published (D23), with its content initialized, at `position` (omitted: last).
@@ -144,7 +144,7 @@ async fn create_item(
     let now = now_ms();
     let item = state
         .db
-        .write(move |tx| quire_store::items::create(tx, &actor, &new, dark, now))
+        .write(move |tx| wikanvas_store::items::create(tx, &actor, &new, dark, now))
         .await?;
     Ok((StatusCode::CREATED, Json(item)))
 }
@@ -176,8 +176,8 @@ async fn get_item(
     let detail = state
         .db
         .read(move |conn| {
-            let row = quire_store::items::find(conn, &item.value())?;
-            quire_store::items::detail(conn, &viewer, &row)
+            let row = wikanvas_store::items::find(conn, &item.value())?;
+            wikanvas_store::items::detail(conn, &viewer, &row)
         })
         .await?;
     let etag = meta_etag(detail.meta_version);
@@ -226,10 +226,10 @@ async fn patch_item(
         .db
         .write(move |tx| {
             let id = id.to_string();
-            let summary = quire_store::items::update(tx, &id, &patch, if_match, &actor, now)?;
+            let summary = wikanvas_store::items::update(tx, &id, &patch, if_match, &actor, now)?;
             Ok((
                 summary,
-                quire_store::shared::item_row(tx, &id)?.meta_version,
+                wikanvas_store::shared::item_row(tx, &id)?.meta_version,
             ))
         })
         .await?;
@@ -272,9 +272,9 @@ async fn delete_item(
         .write(move |tx| {
             let id = id.to_string();
             if q.discard_empty {
-                quire_store::items::discard_empty(tx, &id, now)
+                wikanvas_store::items::discard_empty(tx, &id, now)
             } else {
-                quire_store::items::trash(tx, &id, &actor, now)
+                wikanvas_store::items::trash(tx, &id, &actor, now)
             }
         })
         .await?;
@@ -304,7 +304,7 @@ async fn item_text(
 ) -> Result<Json<ItemText>, ApiError> {
     let text = state
         .db
-        .read(move |conn| quire_store::items::text(conn, &id.to_string()))
+        .read(move |conn| wikanvas_store::items::text(conn, &id.to_string()))
         .await?;
     Ok(Json(text))
 }
@@ -339,7 +339,7 @@ async fn move_item(
     let now = now_ms();
     let item = state
         .db
-        .write(move |tx| quire_store::items::move_item(tx, &id.to_string(), &mv, &actor, now))
+        .write(move |tx| wikanvas_store::items::move_item(tx, &id.to_string(), &mv, &actor, now))
         .await?;
     Ok(Json(item))
 }
@@ -370,7 +370,7 @@ async fn duplicate_item(
     let now = now_ms();
     let item = state
         .db
-        .write(move |tx| quire_store::items::duplicate(tx, &id.to_string(), &actor, now))
+        .write(move |tx| wikanvas_store::items::duplicate(tx, &id.to_string(), &actor, now))
         .await?;
     Ok((StatusCode::CREATED, Json(item)))
 }
@@ -406,7 +406,7 @@ async fn publish_item(
     let item = state
         .db
         .write(move |tx| {
-            quire_store::items::publish(tx, &id.to_string(), req.with_ancestors, &actor, now)
+            wikanvas_store::items::publish(tx, &id.to_string(), req.with_ancestors, &actor, now)
         })
         .await?;
     Ok(Json(item))
@@ -438,7 +438,7 @@ async fn unpublish_item(
     let now = now_ms();
     let item = state
         .db
-        .write(move |tx| quire_store::items::unpublish(tx, &id.to_string(), &actor, now))
+        .write(move |tx| wikanvas_store::items::unpublish(tx, &id.to_string(), &actor, now))
         .await?;
     Ok(Json(item))
 }
@@ -467,7 +467,7 @@ async fn archive_item(
     let now = now_ms();
     let archived = state
         .db
-        .write(move |tx| quire_store::items::archive(tx, &id.to_string(), now))
+        .write(move |tx| wikanvas_store::items::archive(tx, &id.to_string(), now))
         .await?;
     Ok(Json(ItemsArchived { archived }))
 }
@@ -496,7 +496,7 @@ async fn unarchive_item(
 ) -> Result<Json<RestoredItem>, ApiError> {
     let item = state
         .db
-        .write(move |tx| quire_store::items::unarchive(tx, &id.to_string()))
+        .write(move |tx| wikanvas_store::items::unarchive(tx, &id.to_string()))
         .await?;
     Ok(Json(item))
 }
@@ -525,7 +525,7 @@ async fn restore_item(
 ) -> Result<Json<RestoredItem>, ApiError> {
     let item = state
         .db
-        .write(move |tx| quire_store::items::restore(tx, &id.to_string()))
+        .write(move |tx| wikanvas_store::items::restore(tx, &id.to_string()))
         .await?;
     Ok(Json(item))
 }
@@ -561,7 +561,7 @@ async fn star_item(
     state
         .db
         .write(move |tx| {
-            quire_store::stars::star(tx, &actor, &id.to_string(), req.position.as_ref(), now)
+            wikanvas_store::stars::star(tx, &actor, &id.to_string(), req.position.as_ref(), now)
         })
         .await?;
     Ok(StatusCode::NO_CONTENT)
@@ -591,7 +591,7 @@ async fn unstar_item(
     let actor = auth.into_actor().user_id;
     state
         .db
-        .write(move |tx| quire_store::stars::unstar(tx, &actor, &id.to_string()))
+        .write(move |tx| wikanvas_store::stars::unstar(tx, &actor, &id.to_string()))
         .await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -622,7 +622,7 @@ async fn view_item(
     let now = now_ms();
     state
         .db
-        .write(move |tx| quire_store::views::record(tx, &actor, &id.to_string(), now))
+        .write(move |tx| wikanvas_store::views::record(tx, &actor, &id.to_string(), now))
         .await?;
     Ok(StatusCode::NO_CONTENT)
 }

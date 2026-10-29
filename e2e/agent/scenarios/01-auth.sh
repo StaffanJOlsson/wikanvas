@@ -10,7 +10,7 @@ for scope in read write admin; do
   esac
   q --as "$scope" auth whoami
   expect_rc 0
-  expect ".auth.method == \"token\" and .auth.token.scopes == $want and .user.email == \"agent@quire.invalid\""
+  expect ".auth.method == \"token\" and .auth.token.scopes == $want and .user.email == \"agent@wikanvas.invalid\""
   ok "auth whoami as $scope shows its scopes"
 done
 

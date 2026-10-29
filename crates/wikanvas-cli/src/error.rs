@@ -5,7 +5,7 @@
 //! `cli_usage` (2), `cli_config` (3), `network`, `timeout` or `tls` (4), or, for exit 1, `bad_response` (an
 //! unparseable response) and `cli_io` (a local file could not be written).
 
-use quire_api::cli::ExitCode;
+use wikanvas_api::cli::ExitCode;
 use serde_json::{Map, Value, json};
 
 /// A failed command: what `output::fail` prints and the exit code.

@@ -1,4 +1,4 @@
-//! Quire Markdown 1 output: Quire's deterministic printer and its block map (owner: W4)
+//! Wikanvas Markdown 1 output: Wikanvas's deterministic printer and its block map (owner: W4)
 //!
 //! Printing is two steps:
 //! 1. [`lower`] applies exactly the lossy rules of the §6.4 table to a normalized document, giving the tree the
@@ -22,7 +22,7 @@ use serde_json::{Map, Value, json};
 use crate::api::{ConversionWarningCode as W, ItemKind};
 use crate::convert::{
     ItemRef, Lookup, Warnings, attachment_url, image_allowed, item_ref, link_allowed,
-    quire_item_id, quire_item_url,
+    wikanvas_item_id, wikanvas_item_url,
 };
 use crate::schema::{self, BLOCK_ID, content_of, push_inline, type_of, v1};
 
@@ -838,12 +838,12 @@ fn trim_end_plain(out: &mut Vec<Value>) {
     }
 }
 
-/// A link mark after the rules: outside the allow-list it is dropped; an item link is `quire://item/<id>`.
+/// A link mark after the rules: outside the allow-list it is dropped; an item link is `wikanvas://item/<id>`.
 fn lower_link(mark: &Value, lookup: &dyn Lookup, w: &mut Warnings) -> Option<Value> {
     let href = str_attr(mark, "href").unwrap_or("");
     let item = str_attr(mark, "itemId");
     if let Some(id) = item {
-        let url = quire_item_url(id);
+        let url = wikanvas_item_url(id);
         let known = lookup.item(&ItemRef::Id(id.to_owned())).map(|i| i.id);
         return Some(json!({"type": "link", "attrs": {"href": url, "itemId": known}}));
     }
@@ -854,8 +854,8 @@ fn lower_link(mark: &Value, lookup: &dyn Lookup, w: &mut Warnings) -> Option<Val
     let known = item_ref(href, lookup.public_origin())
         .and_then(|r| lookup.item(&r))
         .map(|i| i.id);
-    let href = match (&known, quire_item_id(href)) {
-        (Some(id), Some(_)) => quire_item_url(id),
+    let href = match (&known, wikanvas_item_id(href)) {
+        (Some(id), Some(_)) => wikanvas_item_url(id),
         _ => href.to_owned(),
     };
     Some(json!({"type": "link", "attrs": {"href": href, "itemId": known}}))
@@ -986,7 +986,7 @@ fn render_block(
             vec![format!(
                 "![{}]({})",
                 escape_label(&title),
-                quire_item_url(id)
+                wikanvas_item_url(id)
             )]
         }
         "blockquote" => {
@@ -1409,7 +1409,7 @@ fn render_inline(nodes: &[Value], lookup: &dyn Lookup, ctx: InlineCtx) -> String
                 escape_bang(&mut cells);
                 push_syntax(
                     &mut cells,
-                    &format!("[@{}]({})", escape_label(&title), quire_item_url(id)),
+                    &format!("[@{}]({})", escape_label(&title), wikanvas_item_url(id)),
                 );
                 line_start = false;
             }

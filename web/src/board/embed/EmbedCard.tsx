@@ -1,7 +1,7 @@
 // One card of the overlay (docs/ARCHITECTURE.md §18.5): the host's content inside the engine's box, positioned in
 // world units by the controller (never by React). A header (kind icon, the live title, badges; while editing the
 // title input, the save status and "Open page"), a rule, and the body: a static read-only viewer, or the real editor
-// (`QuireEditor variant="embed"` on the card's DocSession) while this is the editing card.
+// (`WikanvasEditor variant="embed"` on the card's DocSession) while this is the editing card.
 // `data-state`: loading, static, editing, trashed, archived, missing (404, a non-UUID item, not a document), error.
 import { useQuery } from '@tanstack/react-query';
 import type { Editor, JSONContent } from '@tiptap/react';
@@ -13,7 +13,7 @@ import { useDocJson } from '../../api/queries/docs';
 import { fetchItem, itemKey } from '../../api/queries/items';
 import { KindIcon } from '../../components/item/KindIcon';
 import { useTitleAutosave } from '../../components/item/useTitleAutosave';
-import { QuireEditor } from '../../editor/QuireEditor';
+import { WikanvasEditor } from '../../editor/WikanvasEditor';
 import { itemPath } from '../../lib/urls';
 import { saveStateLabel, useSaveStatus } from '../../state/saveStatus';
 import { isEditableTarget, type DrawnCard, type EditingCard, type EmbedController } from './controller';
@@ -200,7 +200,7 @@ export function EmbedCard({ card, editing, readOnly, controller }: EmbedCardProp
   else if (isEditing && session) {
     body = (
       <div className="board-embed-editor">
-        <QuireEditor
+        <WikanvasEditor
           itemId={target}
           session={session}
           readOnly={false}
@@ -263,7 +263,7 @@ export function EmbedCard({ card, editing, readOnly, controller }: EmbedCardProp
           const pm = editorRef.current?.view.dom;
           if (!isEditing || !pm || pm.contains(e.target as Node)) return;
           const t = e.target as HTMLElement;
-          if (t !== e.currentTarget && !t.classList.contains('board-embed-editor') && !t.classList.contains('quire-editor-shell')) return;
+          if (t !== e.currentTarget && !t.classList.contains('board-embed-editor') && !t.classList.contains('wikanvas-editor-shell')) return;
           e.preventDefault();
           editorRef.current?.commands.focus('end');
         }}

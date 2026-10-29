@@ -87,7 +87,7 @@ describe('board page', () => {
       act(() => {
         events?.onHostKey?.({ key: 'k', mod: true, shift: false, alt: false });
         events?.onHostKey?.({ key: '.', mod: true, shift: false, alt: false });
-        // Mod+Shift+P (publish) is no Quire shortcut in M1.
+        // Mod+Shift+P (publish) is no Wikanvas shortcut in M1.
         events?.onHostKey?.({ key: 'P', mod: true, shift: true, alt: false });
       });
       expect(quick).toHaveBeenCalledTimes(1);

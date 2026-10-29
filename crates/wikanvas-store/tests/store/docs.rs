@@ -4,9 +4,9 @@
 //! derived text, links, attachments, `doc_clients`, read-only items, the D53 recovery points), and the content
 //! writes of §6.4 (one update through the save path, strict and merging `If-Match`, retries, `schema_too_new`).
 
-use quire_core::api::{ErrorCode, ItemKind, YFIELD};
-use quire_store::docs::{self, ContentInput, ContentWrite, IfMatch, PmJson};
-use quire_store::shared::WriteBy;
+use wikanvas_core::api::{ErrorCode, ItemKind, YFIELD};
+use wikanvas_store::docs::{self, ContentInput, ContentWrite, IfMatch, PmJson};
+use wikanvas_store::shared::WriteBy;
 use rusqlite::params;
 use serde_json::{Value, json};
 use yrs::updates::decoder::Decode;
@@ -162,7 +162,7 @@ impl Fixture {
         .await
     }
 
-    async fn post(&self, update: Vec<u8>, token: Option<&str>) -> quire_store::Result<docs::Saved> {
+    async fn post(&self, update: Vec<u8>, token: Option<&str>) -> wikanvas_store::Result<docs::Saved> {
         self.post_at(update, token, NOW).await
     }
 
@@ -171,7 +171,7 @@ impl Fixture {
         update: Vec<u8>,
         token: Option<&str>,
         now: i64,
-    ) -> quire_store::Result<docs::Saved> {
+    ) -> wikanvas_store::Result<docs::Saved> {
         let (id, owner, token) = (
             self.doc_id.clone(),
             self.owner.clone(),
@@ -223,7 +223,7 @@ impl Fixture {
         &self,
         req: ContentWrite,
         token: Option<&str>,
-    ) -> quire_store::Result<quire_core::api::DocWriteResult> {
+    ) -> wikanvas_store::Result<wikanvas_core::api::DocWriteResult> {
         let by = WriteBy {
             user_id: &self.owner,
             token_id: token,
@@ -257,7 +257,7 @@ fn md(s: &str) -> ContentInput {
 
 // ------------------------------------------------------------------------------------------------- initializers
 
-async fn is_empty(t: &TestDb, id: String) -> quire_store::Result<bool> {
+async fn is_empty(t: &TestDb, id: String) -> wikanvas_store::Result<bool> {
     t.db.write(move |tx| docs::is_empty(tx, &id)).await
 }
 
@@ -310,7 +310,7 @@ async fn init_seed_replaces_placeholder_ids() {
     let owner = t.owner().await;
     let c = t.collection(&owner, "Getting started").await;
     let welcome = t
-        .item(&owner, c.id, None, ItemKind::Doc, "Welcome to Quire")
+        .item(&owner, c.id, None, ItemKind::Doc, "Welcome to Wikanvas")
         .await;
     let bin = std::fs::read(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -606,7 +606,7 @@ async fn body_text_links_and_attachments_in_same_txn() {
                     docs::DEFAULT_MAX_DOC_BYTES,
                     NOW,
                 )?;
-                Err::<(), _>(quire_store::Error::validation("x", "roll back"))
+                Err::<(), _>(wikanvas_store::Error::validation("x", "roll back"))
             })
             .await;
     assert!(r.is_err());

@@ -8,11 +8,11 @@ use std::time::Duration;
 use axum::http::StatusCode;
 use axum_test::TestServer;
 use base64::Engine as _;
-use quire_api::{
+use wikanvas_api::{
     DocJson, DocSchema, DocState, DocUpdateResult, DocWriteResult, ErrorCode, ItemKind,
     NewCollection, NewItem, Scope, YFIELD,
 };
-use quire_core::convert::yrs;
+use wikanvas_core::convert::yrs;
 use serde_json::{Value, json};
 use yrs::updates::decoder::Decode;
 use yrs::updates::encoder::Encode;
@@ -39,7 +39,7 @@ async fn new_doc(app: &TestApp, title: &str) -> String {
         .state
         .db
         .write(move |tx| {
-            let c = quire_store::collections::create(
+            let c = wikanvas_store::collections::create(
                 tx,
                 &owner,
                 &NewCollection {
@@ -48,7 +48,7 @@ async fn new_doc(app: &TestApp, title: &str) -> String {
                 },
                 1,
             )?;
-            quire_store::items::create(
+            wikanvas_store::items::create(
                 tx,
                 &owner,
                 &NewItem {
@@ -280,7 +280,7 @@ async fn markdown_get_etag_and_warnings_header_never_304() {
     );
     assert_eq!(res.header("x-content-type-options"), "nosniff");
     assert_eq!(res.text(), "Text\n\n\\<span>html\\</span>\n");
-    assert!(res.maybe_header("quire-conversion-warnings").is_none());
+    assert!(res.maybe_header("wikanvas-conversion-warnings").is_none());
     // Never 304, even with the current ETag.
     let res = app
         .server
@@ -303,7 +303,7 @@ async fn markdown_get_etag_and_warnings_header_never_304() {
         .add_query_param("download", "true")
         .await;
     assert_eq!(
-        res.header("quire-conversion-warnings"),
+        res.header("wikanvas-conversion-warnings"),
         "empty_paragraph_dropped"
     );
     assert_eq!(res.text(), "# Title with spaces\n\nx\n");
@@ -418,7 +418,7 @@ async fn put_holds_two_permits() {
     let mut cookie_server = server;
     cookie_server.add_header(
         "cookie",
-        format!("quire_session={}", app.session.clone().unwrap()),
+        format!("wikanvas_session={}", app.session.clone().unwrap()),
     );
     cookie_server.add_header("host", "localhost");
     cookie_server.add_header("sec-fetch-site", "same-origin");

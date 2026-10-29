@@ -1,5 +1,5 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: quire <quire@localhost>
+From: wikanvas <wikanvas@localhost>
 Date: Wed, 28 Oct 2026 14:02:15 +0100
 Subject: [PATCH 3/6] optional net
 MIME-Version: 1.0
@@ -155,7 +155,7 @@ index 0000000..a6a5d7b
 --- /dev/null
 +++ b/crates/inkboard-app/src/session_net_off.rs
 @@ -0,0 +1,33 @@
-+// Changed for Quire (embed feature): see patches/inkboard/README.md
++// Changed for Wikanvas (embed feature): see patches/inkboard/README.md
 +//! Web build without the `net` feature: no network for shared sessions. Nothing installs a guest factory (`web.rs`), the menu does
 +//! not offer "Join a session…", and `platform` refuses every relay address. The "Join" window and the shutdown still call the small
 +//! settings functions below, which `session_net_web.rs` has too.
@@ -212,7 +212,7 @@ index 6f39927..2c5aef5 100644
 --- a/crates/inkboard-app/web/Trunk.toml
 +++ b/crates/inkboard-app/web/Trunk.toml
 @@ -1,3 +1,4 @@
-+# Changed for Quire (embed feature): see patches/inkboard/README.md
++# Changed for Wikanvas (embed feature): see patches/inkboard/README.md
  # Web build of Inkboard. Run `trunk build --release` (or `trunk serve`) from this folder, or use scripts/build_web.ps1 / build_web.sh.
  # Needs: rustup target add wasm32-unknown-unknown, cargo install trunk wasm-bindgen-cli --locked (trunk 0.22 needs a recent Rust).
  [build]
@@ -234,7 +234,7 @@ index 0b5a466..8254f1b 100644
 --- a/scripts/build_web.ps1
 +++ b/scripts/build_web.ps1
 @@ -1,3 +1,4 @@
-+# Changed for Quire (embed feature): see patches/inkboard/README.md
++# Changed for Wikanvas (embed feature): see patches/inkboard/README.md
  # Builds the web version of Inkboard: a static page in crates/inkboard-app/web/dist (index.html, .js, .wasm, icons.bin).
  #   .\scripts\build_web.ps1                      # WebGL renderer (light, default)
  #   .\scripts\build_web.ps1 -Renderer wgpu       # WebGPU with a WebGL fallback
@@ -254,7 +254,7 @@ index b2d641d..831f132 100755
 +++ b/scripts/build_web.sh
 @@ -1,4 +1,5 @@
  #!/usr/bin/env bash
-+# Changed for Quire (embed feature): see patches/inkboard/README.md
++# Changed for Wikanvas (embed feature): see patches/inkboard/README.md
  # Builds the web version of Inkboard: a static page in crates/inkboard-app/web/dist (index.html, .js, .wasm, icons.bin).
  #   scripts/build_web.sh                  # WebGL renderer (light, default)
  #   scripts/build_web.sh wgpu             # WebGPU with a WebGL fallback

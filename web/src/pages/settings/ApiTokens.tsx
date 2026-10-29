@@ -174,7 +174,7 @@ function CliNote() {
   return (
     <p className="form-note cli-note">
       To use a token with the CLI without putting it in a command line or the shell history, run{' '}
-      <code>quire auth login --url {url} --token-stdin</code>, then paste the token and press Ctrl-D.
+      <code>wikanvas auth login --url {url} --token-stdin</code>, then paste the token and press Ctrl-D.
     </p>
   );
 }
@@ -205,7 +205,7 @@ export function ApiTokens() {
         <h2 id="tokens-h">Personal access tokens</h2>
         <button type="button" className="button primary" onClick={() => setCreating(true)}>New token</button>
       </div>
-      <p>Tokens let scripts, agents and the <code>quire</code> CLI use the API as you, with the scope you choose.</p>
+      <p>Tokens let scripts, agents and the <code>wikanvas</code> CLI use the API as you, with the scope you choose.</p>
       {tokens.isError && <p className="form-error" role="alert">{tokens.error.message}</p>}
       {tokens.isSuccess && list.length === 0 && <p className="list-empty">No tokens yet.</p>}
       {list.length > 0 && (

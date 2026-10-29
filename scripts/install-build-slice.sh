@@ -1,7 +1,7 @@
 #!/bin/bash
-# Installs Quire's build slice (docs/ARCHITECTURE.md §13.1, D38), the one privileged step of M1, or checks it.
-#   scripts/install-build-slice.sh           # as root: install docker/quire.slice and docker/quire-build.slice into
-#                                            # /etc/systemd/system, daemon-reload, start the slice, then --check
+# Installs Wikanvas's build slice (docs/ARCHITECTURE.md §13.1, D38), the one privileged step of M1, or checks it.
+#   scripts/install-build-slice.sh           # as root: install docker/wikanvas.slice and docker/wikanvas-build.slice
+#                                            # into /etc/systemd/system, daemon-reload, start the slice, then --check
 #   scripts/install-build-slice.sh --check   # no root needed: print and verify the installed slices
 # It never calls sudo itself. Implementing agents never run the install; the coordinator runs it once, through the
 # owner's askpass dialog (the command is printed when it is started without root). Re-running it is harmless.
@@ -10,10 +10,10 @@
 #
 # Run as root, it trusts nothing the caller controls beyond the two unit files' approved content: /bin/bash and a
 # fixed PATH (never the caller's, which starts with user-writable directories), no sourced file, and it writes only
-# /etc/systemd/system/quire.slice and quire-build.slice (staged in a root-only /run directory that it removes). Each
-# source is read once (a regular file, not a symlink, at most 16 KiB) and installed byte for byte as checked, and only
-# if its directives are exactly the approved ones (UNIT_DIRECTIVES below), so a swapped or edited source can neither
-# raise a cap nor copy another file (a symlink to /etc/shadow, say) into a world-readable unit. A refused file's
+# /etc/systemd/system/wikanvas.slice and wikanvas-build.slice (staged in a root-only /run directory that it removes).
+# Each source is read once (a regular file, not a symlink, at most 16 KiB) and installed byte for byte as checked, and
+# only if its directives are exactly the approved ones (UNIT_DIRECTIVES below), so a swapped or edited source can
+# neither raise a cap nor copy another file (a symlink to /etc/shadow, say) into a world-readable unit. A refused file's
 # content is never printed.
 set -euo pipefail
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
@@ -30,8 +30,8 @@ usage() {
 # The approved directives of each unit, in order (comments and blank lines aside; any Description text of letters,
 # digits, spaces and ,.:()/- counts as "Description="). Changing a value means changing it here too, in the open.
 declare -A UNIT_DIRECTIVES=(
-  [quire.slice]=$'[Unit]\nDescription=\n[Slice]\nCPUWeight=20\nIOWeight=20\n'
-  [quire-build.slice]=$'[Unit]\nDescription=\n[Slice]\nCPUQuota=600%\nMemoryMax=12G\nMemorySwapMax=0\nCPUWeight=20\nIOWeight=20\nTasksMax=16384\n'
+  [wikanvas.slice]=$'[Unit]\nDescription=\n[Slice]\nCPUWeight=20\nIOWeight=20\n'
+  [wikanvas-build.slice]=$'[Unit]\nDescription=\n[Slice]\nCPUQuota=600%\nMemoryMax=12G\nMemorySwapMax=0\nCPUWeight=20\nIOWeight=20\nTasksMax=16384\n'
 )
 
 # read_unit NAME: prints docker/NAME as it will be installed, or names the reason and returns 1 (never the content).
@@ -81,7 +81,7 @@ read_unit() {
 print_install_command() {
   cat <<EOF
 SUDO_ASKPASS=/home/staffan/.local/bin/claude-askpass sudo -A \\
-  -p "install the Quire build cap (systemd slice: 6 CPUs, 12 GB RAM, no swap, low priority) :: $self" \\
+  -p "install the Wikanvas build cap (systemd slice: 6 CPUs, 12 GB RAM, no swap, low priority) :: $self" \\
   "$self"
 EOF
 }
@@ -139,39 +139,39 @@ check() {
   fi
 
   props="$(systemctl show --no-pager -p FragmentPath -p ActiveState -p ControlGroup -p CPUQuotaPerSecUSec -p MemoryMax \
-    -p MemorySwapMax -p CPUWeight -p IOWeight -p TasksMax quire-build.slice 2>/dev/null)" || props=""
+    -p MemorySwapMax -p CPUWeight -p IOWeight -p TasksMax wikanvas-build.slice 2>/dev/null)" || props=""
   if [ -z "$(sed -n 's/^FragmentPath=//p' <<<"$props")" ]; then
-    printf 'FAIL  quire-build.slice is not installed (no FragmentPath). The coordinator installs it once, through the owner'"'"'s askpass dialog:\n'
+    printf 'FAIL  wikanvas-build.slice is not installed (no FragmentPath). The coordinator installs it once, through the owner'"'"'s askpass dialog:\n'
     print_install_command
     return 3
   fi
-  expect quire-build.slice FragmentPath "$units/quire-build.slice"
+  expect wikanvas-build.slice FragmentPath "$units/wikanvas-build.slice"
   if [ "$(sed -n 's/^ActiveState=//p' <<<"$props")" = active ]; then
-    expect quire-build.slice ControlGroup /quire.slice/quire-build.slice
+    expect wikanvas-build.slice ControlGroup /wikanvas.slice/wikanvas-build.slice
   else
-    info "quire-build.slice is inactive (it starts with its first member): ControlGroup not checked"
+    info "wikanvas-build.slice is inactive (it starts with its first member): ControlGroup not checked"
   fi
-  expect quire-build.slice CPUQuotaPerSecUSec 6s
-  expect quire-build.slice MemoryMax 12884901888
-  expect quire-build.slice MemorySwapMax 0
-  expect quire-build.slice CPUWeight 20
-  expect quire-build.slice IOWeight 20
-  expect quire-build.slice TasksMax 16384
+  expect wikanvas-build.slice CPUQuotaPerSecUSec 6s
+  expect wikanvas-build.slice MemoryMax 12884901888
+  expect wikanvas-build.slice MemorySwapMax 0
+  expect wikanvas-build.slice CPUWeight 20
+  expect wikanvas-build.slice IOWeight 20
+  expect wikanvas-build.slice TasksMax 16384
 
-  props="$(systemctl show --no-pager -p FragmentPath -p CPUWeight -p IOWeight quire.slice 2>/dev/null)" || props=""
-  expect quire.slice FragmentPath "$units/quire.slice"
-  expect quire.slice CPUWeight 20
-  expect quire.slice IOWeight 20
+  props="$(systemctl show --no-pager -p FragmentPath -p CPUWeight -p IOWeight wikanvas.slice 2>/dev/null)" || props=""
+  expect wikanvas.slice FragmentPath "$units/wikanvas.slice"
+  expect wikanvas.slice CPUWeight 20
+  expect wikanvas.slice IOWeight 20
 
-  info "members of quire-build.slice:"
-  systemctl status quire-build.slice --no-pager || true
+  info "members of wikanvas-build.slice:"
+  systemctl status wikanvas-build.slice --no-pager || true
   disk_scheduler
 
   if [ "$failures" -gt 0 ]; then
     echo "$failures value(s) do not hold (the FAIL lines above)"
     return 1
   fi
-  echo "quire-build.slice holds every value"
+  echo "wikanvas-build.slice holds every value"
 }
 
 install_slices() {
@@ -188,23 +188,23 @@ install_slices() {
   unset DOCKER_HOST DOCKER_CONTEXT DOCKER_CONFIG DOCKER_CERT_PATH DOCKER_TLS_VERIFY
   # Both files are checked before either is written, so a refusal installs nothing.
   local u parent build
-  parent="$(read_unit quire.slice)" || exit 1
-  build="$(read_unit quire-build.slice)" || exit 1
+  parent="$(read_unit wikanvas.slice)" || exit 1
+  build="$(read_unit wikanvas-build.slice)" || exit 1
   # The checked bytes go through a root-only mktemp directory: `install` from /dev/stdin fails once the target exists
   # (uutils coreutils 0.10), which would break re-running. It lives in /run, never under $TMPDIR, which could be a
   # directory of the caller's, where the caller could swap the directory and plant symlinks for root to write through.
   umask 077
-  staging="$(mktemp -d /run/quire-install-slice.XXXXXXXX)"
+  staging="$(mktemp -d /run/wikanvas-install-slice.XXXXXXXX)"
   trap 'rm -rf -- "$staging"' EXIT
-  printf '%s\n' "$parent" >"$staging/quire.slice"
-  printf '%s\n' "$build" >"$staging/quire-build.slice"
+  printf '%s\n' "$parent" >"$staging/wikanvas.slice"
+  printf '%s\n' "$build" >"$staging/wikanvas-build.slice"
   umask 022
-  for u in quire.slice quire-build.slice; do
+  for u in wikanvas.slice wikanvas-build.slice; do
     install -o root -g root -m 0644 "$staging/$u" "$units/$u"
     echo "installed $units/$u"
   done
   systemctl daemon-reload
-  systemctl start quire-build.slice
+  systemctl start wikanvas-build.slice
   local rc=0
   check || rc=$?
   exit "$rc"

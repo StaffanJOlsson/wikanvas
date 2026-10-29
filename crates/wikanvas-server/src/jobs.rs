@@ -2,12 +2,13 @@
 //!
 //! §12: one tokio task per job, each using the writer through `Db`. [`spawn`] starts them for `serve` (the tests and
 //! the admin commands call the job bodies directly):
-//! - **purge and GC**, at startup and every 6 h: Trash roots older than 30 days ([`quire_store::items::purge_expired`],
-//!   leaves first), then attachment GC, then blob GC with the orphan sweep ([`purge_and_gc`]);
-//! - **revision prune**, daily ([`quire_store::revisions::prune`]);
-//! - **backup**, every `QUIRE_BACKUP_INTERVAL` while `QUIRE_BACKUP_KEEP` is not 0, single-flight with on-demand
+//! - **purge and GC**, at startup and every 6 h: Trash roots older than 30 days
+//!   ([`wikanvas_store::items::purge_expired`], leaves first), then attachment GC, then blob GC with the orphan sweep
+//!   ([`purge_and_gc`]);
+//! - **revision prune**, daily ([`wikanvas_store::revisions::prune`]);
+//! - **backup**, every `WIKANVAS_BACKUP_INTERVAL` while `WIKANVAS_BACKUP_KEEP` is not 0, single-flight with on-demand
 //!   backups and after the free-space check ([`backup_now`]). The first run is due one interval after the newest
-//!   `backups/quire-*.db`, so restarts never postpone it ([`first_backup_delay`]);
+//!   `backups/wikanvas-*.db`, so restarts never postpone it ([`first_backup_delay`]);
 //! - **hourly**: `PRAGMA optimize`, expired sessions, tokens 30 days after revocation or expiry, and the idle keys of
 //!   the rate limiters and the token last-use map ([`hourly`]).
 //!
@@ -17,8 +18,8 @@ use std::future::Future;
 use std::path::PathBuf;
 use std::time::{Duration, UNIX_EPOCH};
 
-use quire_api::ErrorCode;
-use quire_store::gc::BlobGc;
+use wikanvas_api::ErrorCode;
+use wikanvas_store::gc::BlobGc;
 use tokio::task::JoinHandle;
 
 use crate::config::Config;
@@ -64,13 +65,13 @@ pub async fn purge_and_gc(state: &AppState) -> Result<PurgeReport, ApiError> {
     let now = state.now();
     let items_purged = state
         .db
-        .write(move |tx| quire_store::items::purge_expired(tx, now - TRASH_RETENTION_MS))
+        .write(move |tx| wikanvas_store::items::purge_expired(tx, now - TRASH_RETENTION_MS))
         .await?;
     let attachments_deleted = state
         .db
-        .write(move |tx| quire_store::gc::attachments(tx, now))
+        .write(move |tx| wikanvas_store::gc::attachments(tx, now))
         .await?;
-    let blobs = quire_store::gc::blobs(&state.db, &state.blobs).await?;
+    let blobs = wikanvas_store::gc::blobs(&state.db, &state.blobs).await?;
     Ok(PurgeReport {
         items_purged,
         attachments_deleted,
@@ -83,7 +84,7 @@ pub async fn prune_revisions(state: &AppState) -> Result<u64, ApiError> {
     let now = state.now();
     Ok(state
         .db
-        .write(move |tx| quire_store::revisions::prune(tx, now))
+        .write(move |tx| wikanvas_store::revisions::prune(tx, now))
         .await?)
 }
 
@@ -100,8 +101,8 @@ pub async fn hourly(state: &AppState) -> Result<HourlyReport, ApiError> {
     let report = state
         .db
         .write(move |tx| {
-            let sessions_deleted = quire_store::sessions::delete_expired(tx, now)?;
-            let tokens_deleted = quire_store::tokens::purge(tx, now)?;
+            let sessions_deleted = wikanvas_store::sessions::delete_expired(tx, now)?;
+            let tokens_deleted = wikanvas_store::tokens::purge(tx, now)?;
             Ok(HourlyReport {
                 sessions_deleted,
                 tokens_deleted,
@@ -123,11 +124,11 @@ pub async fn hourly(state: &AppState) -> Result<HourlyReport, ApiError> {
 }
 
 /// A backup now (scheduled or on demand): single-flight (429 `busy`), after the free-space check (507), counted
-/// against `QUIRE_BACKUP_KEEP`. Returns the file and its size.
+/// against `WIKANVAS_BACKUP_KEEP`. Returns the file and its size.
 ///
 /// The check and the copy run on the blocking pool, which owns the single-flight guard: a caller that goes away (an
 /// HTTP client that left) never frees the flag while the copy is still being written. Another process's backup (the
-/// admin command while the server runs) holds the lock of [`quire_store::backup::create`] and also gives `busy`.
+/// admin command while the server runs) holds the lock of [`wikanvas_store::backup::create`] and also gives `busy`.
 pub async fn backup_now(state: &AppState) -> Result<(PathBuf, u64), ApiError> {
     let guard = state
         .single_flight
@@ -139,7 +140,7 @@ pub async fn backup_now(state: &AppState) -> Result<(PathBuf, u64), ApiError> {
         worker.check_free_space()?;
         let config = &worker.config;
         let path =
-            quire_store::backup::create(&worker.db, &config.data_dir, config.backup_keep, now)
+            wikanvas_store::backup::create(&worker.db, &config.data_dir, config.backup_keep, now)
                 .map_err(|e| {
                     if e.is(ErrorCode::RateLimited) {
                         ApiError::busy()
@@ -154,15 +155,15 @@ pub async fn backup_now(state: &AppState) -> Result<(PathBuf, u64), ApiError> {
     .map_err(ApiError::internal)?
 }
 
-/// When the scheduled backup first runs after startup (§12): `None` while `QUIRE_BACKUP_KEEP=0` turns it off (D21).
-/// Otherwise what is left of `QUIRE_BACKUP_INTERVAL` since the newest `backups/quire-*.db` (by modification time), and
-/// at least [`BACKUP_STARTUP_DELAY`], so a backup that is due, or missing, runs soon after startup. A server that
-/// restarts more often than the interval still gets its backups.
+/// When the scheduled backup first runs after startup (§12): `None` while `WIKANVAS_BACKUP_KEEP=0` turns it off (D21).
+/// Otherwise what is left of `WIKANVAS_BACKUP_INTERVAL` since the newest `backups/wikanvas-*.db` (by modification
+/// time), and at least [`BACKUP_STARTUP_DELAY`], so a backup that is due, or missing, runs soon after startup. A server
+/// that restarts more often than the interval still gets its backups.
 pub fn first_backup_delay(config: &Config, now_ms: i64) -> Option<Duration> {
     if config.backup_keep == 0 {
         return None;
     }
-    let newest_ms = quire_store::backup::list(&config.backups_dir())
+    let newest_ms = wikanvas_store::backup::list(&config.backups_dir())
         .unwrap_or_default()
         .iter()
         .filter_map(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok())

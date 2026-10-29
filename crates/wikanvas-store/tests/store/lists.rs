@@ -1,8 +1,8 @@
 //! List tests: visible_items, cursor pages and the lists (owner: W1).
 
-use quire_core::api::{ErrorCode, ItemKind, Position, Role};
-use quire_store::lists::{self, PageRequest};
-use quire_store::{Viewer, items, shared, stars, views};
+use wikanvas_core::api::{ErrorCode, ItemKind, Position, Role};
+use wikanvas_store::lists::{self, PageRequest};
+use wikanvas_store::{Viewer, items, shared, stars, views};
 use rusqlite::params;
 use uuid::Uuid;
 

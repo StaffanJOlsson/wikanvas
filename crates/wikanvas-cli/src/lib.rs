@@ -1,4 +1,4 @@
-//! The `quire` CLI over /api/v1 (ARCHITECTURE §7.6, §7.7; owner: W8)
+//! The `wikanvas` CLI over /api/v1 (ARCHITECTURE §7.6, §7.7; owner: W8)
 //!
 //! The binary (`src/main.rs`) calls [`main`]. The library exists so the tests can walk the clap tree ([`args`]) and
 //! check the API coverage table ([`OPERATIONS`], [`API_ONLY`]) against `docs/api/openapi.json`.

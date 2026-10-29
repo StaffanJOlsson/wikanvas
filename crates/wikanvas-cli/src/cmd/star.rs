@@ -1,4 +1,4 @@
-//! The `quire star` commands (owner: W8)
+//! The `wikanvas star` commands (owner: W8)
 
 use serde_json::json;
 

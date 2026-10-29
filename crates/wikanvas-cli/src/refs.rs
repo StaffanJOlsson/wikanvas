@@ -1,7 +1,7 @@
-//! References to items and collections: a UUID, a `url_id`, or a Quire URL (owner: W8)
+//! References to items and collections: a UUID, a `url_id`, or a Wikanvas URL (owner: W8)
 //!
 //! §7.6 "References": wherever a command takes `<i>` or `<c>`, it may be a UUID, a `url_id` (10 base62
-//! characters), or a Quire URL such as `https://wiki.example.org/doc/my-title-AbCdEfGhIj`, from which the CLI takes
+//! characters), or a Wikanvas URL such as `https://wiki.example.org/doc/my-title-AbCdEfGhIj`, from which the CLI takes
 //! the `url_id`. Only `GET /items/{id}` and `GET /collections/{id}` accept a `url_id`, so the commands resolve one to
 //! its UUID with that GET first.
 
@@ -60,7 +60,7 @@ pub fn parse(input: &str, what: &str) -> Result<Ref, Failure> {
         }
     }
     Err(Failure::usage(format!(
-        "{input:?} is not a {what} reference: use a UUID, a url_id (10 letters and digits) or a Quire URL"
+        "{input:?} is not a {what} reference: use a UUID, a url_id (10 letters and digits) or a Wikanvas URL"
     )))
 }
 
@@ -125,7 +125,7 @@ mod tests {
             "0192f3a4-5b6c-7d8e-9f01-23456789abcz",
         ] {
             let err = parse(bad, "item").expect_err(bad);
-            assert_eq!(err.exit, quire_api::cli::ExitCode::Usage, "{bad}");
+            assert_eq!(err.exit, wikanvas_api::cli::ExitCode::Usage, "{bad}");
         }
         assert!(uuid("AbCdEfGhIj", "attachment").is_err());
         assert_eq!(uuid(ID, "attachment").unwrap(), ID);

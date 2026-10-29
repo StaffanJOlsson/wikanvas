@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.12
 # Built only through scripts/image.sh (target runtime) and scripts/toolchain.sh (target toolchain), which use the capped
-# quire-limited builder. The three base images are pinned by index digest and binaryen by its release checksum (W0b,
+# wikanvas-limited builder. The three base images are pinned by index digest and binaryen by its release checksum (W0b,
 # 2026-10-28; docs/ARCHITECTURE.md §13.2).
 ARG RUST_IMAGE=rust:1.99.1-trixie@sha256:53766005847cbe02c3f59bfa49c1c4bb16695f2c9e5829c3d576a15406f5e733
 ARG NODE_IMAGE=node:24-trixie-slim@sha256:89c5244bc22a9bc3287d89ebc7e49b9cb5bb84cd40e6175ac3421d5a9f68b95a
@@ -34,7 +34,7 @@ RUN rustup component add clippy rustfmt && rustup target add wasm32-unknown-unkn
  && rm -rf /usr/local/cargo/registry /usr/local/cargo/git \
  && chmod -R a+rwX /usr/local/cargo /usr/local/rustup
 
-# Dev image quire-toolchain:latest (scripts/toolchain.sh). trunk is only for Inkboard's own public page.
+# Dev image wikanvas-toolchain:latest (scripts/toolchain.sh). trunk is only for Inkboard's own public page.
 FROM toolchain-base AS toolchain
 RUN cargo install --locked trunk@0.22.1 \
  && rm -rf /usr/local/cargo/registry /usr/local/cargo/git && chmod -R a+rwX /usr/local/cargo
@@ -46,17 +46,17 @@ COPY vendor/inkboard vendor/inkboard
 COPY patches/inkboard patches/inkboard
 COPY web/inkboard-frame web/inkboard-frame
 COPY scripts/inkboard.sh scripts/inkboard.sh
-RUN --mount=type=cache,id=quire-cargo-registry,target=/usr/local/cargo/registry \
-    --mount=type=cache,id=quire-inkboard-target,target=/cache/inkboard-target \
+RUN --mount=type=cache,id=wikanvas-cargo-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=wikanvas-inkboard-target,target=/cache/inkboard-target \
     if [ "$INKBOARD_BUILD" = stub ]; then scripts/inkboard.sh stub --out /out/inkboard; \
     else INKBOARD_TARGET_DIR=/cache/inkboard-target scripts/inkboard.sh build --out /out/inkboard; fi
 
 FROM toolchain-base AS web
 WORKDIR /src/web
 COPY web/package.json web/pnpm-lock.yaml ./
-RUN --mount=type=cache,id=quire-pnpm,target=/pnpm-store pnpm fetch --frozen-lockfile --store-dir /pnpm-store
+RUN --mount=type=cache,id=wikanvas-pnpm,target=/pnpm-store pnpm fetch --frozen-lockfile --store-dir /pnpm-store
 COPY web/ ./
-RUN --mount=type=cache,id=quire-pnpm,target=/pnpm-store \
+RUN --mount=type=cache,id=wikanvas-pnpm,target=/pnpm-store \
     pnpm install --offline --frozen-lockfile --store-dir /pnpm-store && pnpm build \
  && find dist -type f \( -name '*.js' -o -name '*.css' -o -name '*.html' -o -name '*.svg' -o -name '*.json' \) \
       -exec brotli -q 11 -k {} \; -exec gzip -9 -k -n {} \;
@@ -71,12 +71,12 @@ COPY .cargo .cargo
 COPY vendor/inkboard/Cargo.toml vendor/inkboard/LICENSE-MIT vendor/inkboard/LICENSE-APACHE vendor/inkboard/
 COPY vendor/inkboard/crates/inkboard-core vendor/inkboard/crates/inkboard-core
 COPY crates crates
-COPY <<'EOF' /usr/local/lib/quire-licenses.mjs
+COPY <<'EOF' /usr/local/lib/wikanvas-licenses.mjs
 // Writes licenses.txt, the licence list of Settings → About (docs/ARCHITECTURE.md §9.6.6, §13.2).
 //   node licenses.mjs <cargo metadata JSON> <pnpm licenses list --json --prod> <out>
 // Rust: every crate the workspace's binaries compile on this platform (normal and build dependencies, never dev).
 // npm: every production package of web/. Then the licence files those packages ship, each distinct text once with
-// the packages that carry it. Quire's own crates are left out (LICENSE).
+// the packages that carry it. Wikanvas's own crates are left out (LICENSE).
 import { readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
@@ -180,19 +180,19 @@ for (const [kind, pkgs] of [['crate', rust], ['npm', npm]]) {
 
 const rule = (title) => title + '\n' + '-'.repeat(title.length);
 const out = [
-  'Third-party software in Quire',
-  '=============================',
+  'Third-party software in Wikanvas',
+  '================================',
   '',
-  'Quire is licensed under the MIT License. It is built from the packages',
+  'Wikanvas is licensed under the MIT License. It is built from the packages',
   'below, each under its own licence. This file is generated when the image is built (docker/Dockerfile, stage',
   '"licenses"): the Rust crates come from `cargo metadata` over Cargo.lock (every crate the server and the CLI compile',
   'for Linux, build-time crates included, test-only crates left out), the npm packages from `pnpm licenses list --json',
   '--prod` over the web client. The licence files the packages ship follow the lists, each distinct text once, with the',
   'packages that carry it.',
   '',
-  "Code ported into Quire itself: quire-core's convert/pm.rs follows @tiptap/y-tiptap 3.0.10 (MIT, (c) Kevin Jahns",
-  "and Tiptap GmbH; its licence file is listed under @tiptap/y-tiptap below), and quire-core's rank.rs ports the",
-  'fractional-indexing algorithm of rocicorp/fractional-indexing (CC0-1.0).',
+  "Code ported into Wikanvas itself: wikanvas-core's convert/pm.rs follows @tiptap/y-tiptap 3.0.10 (MIT, (c) Kevin",
+  "Jahns and Tiptap GmbH; its licence file is listed under @tiptap/y-tiptap below), and wikanvas-core's rank.rs ports",
+  'the fractional-indexing algorithm of rocicorp/fractional-indexing (CC0-1.0).',
   '',
   'The whiteboard engine (Inkboard, MIT OR Apache-2.0) has its own list of libraries, fonts and icons:',
   'THIRD_PARTY_LICENSES.md and ICONS-LICENSES.txt, served with the engine under /inkboard/<build>/.',
@@ -218,12 +218,12 @@ console.error(
   'licenses.txt: ' + rust.length + ' crates, ' + npm.length + ' npm packages, ' + texts.size + ' licence texts',
 );
 EOF
-RUN --mount=type=cache,id=quire-cargo-registry,target=/usr/local/cargo/registry \
-    --mount=type=cache,id=quire-pnpm,target=/pnpm-store \
+RUN --mount=type=cache,id=wikanvas-cargo-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=wikanvas-pnpm,target=/pnpm-store \
     mkdir -p /out \
  && cargo metadata --format-version 1 --locked --filter-platform x86_64-unknown-linux-gnu >/tmp/cargo.json \
  && (cd web && pnpm licenses list --json --prod --config.store-dir=/pnpm-store) >/tmp/npm.json \
- && node /usr/local/lib/quire-licenses.mjs /tmp/cargo.json /tmp/npm.json /out/licenses.txt
+ && node /usr/local/lib/wikanvas-licenses.mjs /tmp/cargo.json /tmp/npm.json /out/licenses.txt
 
 FROM toolchain-base AS server
 WORKDIR /src
@@ -239,34 +239,34 @@ COPY fixtures fixtures
 COPY --from=web /src/web/dist web/dist
 COPY --from=licenses /out/licenses.txt web/dist/licenses.txt
 COPY --from=inkboard-web /out/inkboard web/dist-inkboard
-ARG QUIRE_COMMIT=unknown
-# quire-assets embeds web/dist and web/dist-inkboard with rust-embed, and cargo decides by mtime whether to compile it
-# again. The target directory is a cache mount shared by every image build, while the two dists come from other
+ARG WIKANVAS_COMMIT=unknown
+# wikanvas-assets embeds web/dist and web/dist-inkboard with rust-embed, and cargo decides by mtime whether to compile
+# it again. The target directory is a cache mount shared by every image build, while the two dists come from other
 # stages, whose cached outputs keep the mtimes of the build that made them: those can be older than the last compile
-# of quire-assets (a stub image and then a full one at one commit, a reverted web change, an older commit), and cargo
+# of wikanvas-assets (a stub image and then a full one at one commit, a reverted web change, an older commit), and cargo
 # then kept the expansion of another build's files (found by the M1.1 gate: a full image with the stub engine).
-# Touching them makes every run of this step embed them again (about 2 s; quire-server recompiles anyway, as
-# QUIRE_COMMIT changes with every commit). The binary is then checked to embed these two dists: every file name of
+# Touching them makes every run of this step embed them again (about 2 s; wikanvas-server recompiles anyway, as
+# WIKANVAS_COMMIT changes with every commit). The binary is then checked to embed these two dists: every file name of
 # both, and this engine's build id (a hash of its files). A binary that embeds another build's files fails the image
 # build instead of shipping.
-RUN --mount=type=cache,id=quire-cargo-registry,target=/usr/local/cargo/registry \
-    --mount=type=cache,id=quire-server-target,target=/cache/target \
+RUN --mount=type=cache,id=wikanvas-cargo-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=wikanvas-server-target,target=/cache/target \
     find web/dist web/dist-inkboard -type f -exec touch {} + \
- && QUIRE_COMMIT="$QUIRE_COMMIT" CARGO_TARGET_DIR=/cache/target cargo build --release --locked -p quire-server \
- && bin=/cache/target/release/quire-server \
+ && WIKANVAS_COMMIT="$WIKANVAS_COMMIT" CARGO_TARGET_DIR=/cache/target cargo build --release --locked -p wikanvas-server \
+ && bin=/cache/target/release/wikanvas-server \
  && for d in web/dist web/dist-inkboard; do \
       for f in $(cd "$d" && find . -type f -printf '%P\n'); do \
-        if ! LC_ALL=C grep -qaF "$f" "$bin"; then echo "quire-server does not embed $d/$f" >&2; exit 1; fi; \
+        if ! LC_ALL=C grep -qaF "$f" "$bin"; then echo "wikanvas-server does not embed $d/$f" >&2; exit 1; fi; \
       done; \
     done \
  && build="$(sed -n 's/^  "build": "\([^"]*\)",$/\1/p' web/dist-inkboard/manifest.json)" \
  && if ! LC_ALL=C grep -qaF "\"build\": \"$build\"," "$bin"; then \
-      echo "quire-server does not embed the manifest of engine build '$build'" >&2; exit 1; \
+      echo "wikanvas-server does not embed the manifest of engine build '$build'" >&2; exit 1; \
     fi \
- && install -D "$bin" /out/quire-server && mkdir -p /out/data
+ && install -D "$bin" /out/wikanvas-server && mkdir -p /out/data
 
 # The CLI (D54): a static musl binary, in the image and as a standalone download (scripts/cli-dist.sh). Cargo needs
-# every workspace manifest, including inkboard-core's, to resolve the lockfile, but compiles only quire-cli's graph.
+# every workspace manifest, including inkboard-core's, to resolve the lockfile, but compiles only wikanvas-cli's graph.
 FROM toolchain-base AS cli-src
 WORKDIR /src
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
@@ -277,36 +277,36 @@ COPY crates crates
 
 # For the runtime image: this COPY orders the CLI's rustc build after the server's, so two rustc builds never overlap.
 FROM cli-src AS cli
-COPY --from=server /out/quire-server /tmp/order-after-server
-RUN --mount=type=cache,id=quire-cargo-registry,target=/usr/local/cargo/registry \
-    --mount=type=cache,id=quire-cli-target,target=/cache/target \
-    CARGO_TARGET_DIR=/cache/target cargo build --release --locked -p quire-cli --target x86_64-unknown-linux-musl \
- && install -D /cache/target/x86_64-unknown-linux-musl/release/quire /out/quire
+COPY --from=server /out/wikanvas-server /tmp/order-after-server
+RUN --mount=type=cache,id=wikanvas-cargo-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=wikanvas-cli-target,target=/cache/target \
+    CARGO_TARGET_DIR=/cache/target cargo build --release --locked -p wikanvas-cli --target x86_64-unknown-linux-musl \
+ && install -D /cache/target/x86_64-unknown-linux-musl/release/wikanvas /out/wikanvas
 
 # For scripts/cli-dist.sh (`--target cli-dist --output type=local`): the same build without the server.
 FROM cli-src AS cli-alone
-RUN --mount=type=cache,id=quire-cargo-registry,target=/usr/local/cargo/registry \
-    --mount=type=cache,id=quire-cli-target,target=/cache/target \
-    CARGO_TARGET_DIR=/cache/target cargo build --release --locked -p quire-cli --target x86_64-unknown-linux-musl \
- && install -D /cache/target/x86_64-unknown-linux-musl/release/quire /out/quire
+RUN --mount=type=cache,id=wikanvas-cargo-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=wikanvas-cli-target,target=/cache/target \
+    CARGO_TARGET_DIR=/cache/target cargo build --release --locked -p wikanvas-cli --target x86_64-unknown-linux-musl \
+ && install -D /cache/target/x86_64-unknown-linux-musl/release/wikanvas /out/wikanvas
 FROM scratch AS cli-dist
-COPY --from=cli-alone /out/quire /quire-x86_64-unknown-linux-musl
+COPY --from=cli-alone /out/wikanvas /wikanvas-x86_64-unknown-linux-musl
 # THIRD_PARTY.md covers every crate in the workspace lock (W7), so also the CLI's.
 COPY LICENSE THIRD_PARTY.md /
 
 FROM ${RUNTIME_IMAGE} AS runtime
-COPY --from=server /out/quire-server /usr/local/bin/quire-server
-COPY --from=cli /out/quire /usr/local/bin/quire
+COPY --from=server /out/wikanvas-server /usr/local/bin/wikanvas-server
+COPY --from=cli /out/wikanvas /usr/local/bin/wikanvas
 COPY --from=server --chown=65532:65532 /out/data /data
-COPY LICENSE THIRD_PARTY.md /usr/share/doc/quire/
-COPY vendor/inkboard/LICENSE-MIT vendor/inkboard/LICENSE-APACHE vendor/inkboard/THIRD_PARTY_LICENSES.md /usr/share/doc/quire/inkboard/
-ENV QUIRE_DATA_DIR=/data QUIRE_LISTEN=0.0.0.0:8080 RUST_LOG=info MALLOC_ARENA_MAX=2
+COPY LICENSE THIRD_PARTY.md /usr/share/doc/wikanvas/
+COPY vendor/inkboard/LICENSE-MIT vendor/inkboard/LICENSE-APACHE vendor/inkboard/THIRD_PARTY_LICENSES.md /usr/share/doc/wikanvas/inkboard/
+ENV WIKANVAS_DATA_DIR=/data WIKANVAS_LISTEN=0.0.0.0:8080 RUST_LOG=info MALLOC_ARENA_MAX=2
 USER 65532:65532
 VOLUME /data
 EXPOSE 8080
-# quire-server healthcheck derives its URL from QUIRE_LISTEN (port; 0.0.0.0 → 127.0.0.1). --start-interval lets
+# wikanvas-server healthcheck derives its URL from WIKANVAS_LISTEN (port; 0.0.0.0 → 127.0.0.1). --start-interval lets
 # `compose up --wait` see "healthy" within about a second. The CLI derives its default URL the same way (§7.6).
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --start-interval=1s --retries=3 \
-  CMD ["/usr/local/bin/quire-server", "healthcheck"]
-ENTRYPOINT ["/usr/local/bin/quire-server"]
+  CMD ["/usr/local/bin/wikanvas-server", "healthcheck"]
+ENTRYPOINT ["/usr/local/bin/wikanvas-server"]
 CMD ["serve"]

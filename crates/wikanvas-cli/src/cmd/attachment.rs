@@ -1,4 +1,4 @@
-//! The `quire attachment` commands (owner: W8)
+//! The `wikanvas attachment` commands (owner: W8)
 
 use std::path::Path;
 

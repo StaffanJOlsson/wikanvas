@@ -9,12 +9,12 @@
 //! The item lists (`/recent`, `/updated`, `/collections/{id}/updated`, `/drafts`, `/starred`, `/archive`) select
 //! through `shared::visible_items`; all but `/archive` leave archived items out, and `/archive` lists archive roots.
 
-use quire_core::api::page::{DEFAULT_LIMIT, MAX_LIMIT};
-use quire_core::api::{
+use wikanvas_core::api::page::{DEFAULT_LIMIT, MAX_LIMIT};
+use wikanvas_core::api::{
     ListedItem, Page, Sidebar, Timestamp, TrashList, TrashedCollection, TrashedItem,
 };
-use quire_core::cursor::{self, Cursor, SortValue};
-use quire_core::time::purge_at;
+use wikanvas_core::cursor::{self, Cursor, SortValue};
+use wikanvas_core::time::purge_at;
 use rusqlite::types::Value;
 use rusqlite::{Connection, Row, params_from_iter};
 

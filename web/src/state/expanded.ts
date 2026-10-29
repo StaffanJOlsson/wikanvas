@@ -1,9 +1,9 @@
 // Which sidebar rows are expanded (docs/ARCHITECTURE.md §9.2): collection and item ids, persisted in
-// localStorage['quire.sidebar.expanded'] as a JSON array.
+// localStorage['wikanvas.sidebar.expanded'] as a JSON array.
 import { create } from 'zustand';
 import { readJson, writeStorage } from './storage';
 
-export const EXPANDED_KEY = 'quire.sidebar.expanded';
+export const EXPANDED_KEY = 'wikanvas.sidebar.expanded';
 /** At most this many ids are kept; the oldest expansions are dropped first. */
 export const EXPANDED_MAX = 5000;
 

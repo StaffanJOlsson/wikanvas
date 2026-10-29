@@ -1,10 +1,10 @@
-//! ApiError and the error envelope for every rejection, X-Request-Id and Quire-Api-Version (owner: W2).
+//! ApiError and the error envelope for every rejection, X-Request-Id and Wikanvas-Api-Version (owner: W2).
 //!
 //! Every error leaves the server as `{"error": {"code", "message", "details"?}, "request_id"}` (§7.1):
 //! - handlers and extractors return [`ApiError`];
 //! - [`envelope`], the outermost middleware, gives every request an id, renders each `ApiError` with it, turns the
 //!   remaining non-envelope errors under `/api/` (axum's own rejections, the timeout and body-limit layers, a caught
-//!   panic) into the same shape, and sets `X-Request-Id` on every response and `Quire-Api-Version` on every
+//!   panic) into the same shape, and sets `X-Request-Id` on every response and `Wikanvas-Api-Version` on every
 //!   `/api/v1` response.
 
 use axum::body::Body;
@@ -13,7 +13,7 @@ use axum::http::StatusCode;
 use axum::http::header::{self, HeaderMap, HeaderName, HeaderValue};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
-use quire_api::{
+use wikanvas_api::{
     ErrorBody, ErrorCode, ErrorInfo, InsufficientScopeDetails, InvalidTokenDetails,
     InvalidTokenReason, LimitDetails, RateLimitDetails, RateLimitReason, Scope, ValidationDetails,
 };
@@ -57,7 +57,7 @@ impl ApiError {
         }
     }
 
-    /// Adds `details` (one of the `*Details` types of `quire_api::error`).
+    /// Adds `details` (one of the `*Details` types of `wikanvas_api::error`).
     pub fn with_details(mut self, details: &impl Serialize) -> ApiError {
         self.details = serde_json::to_value(details).ok();
         self
@@ -202,8 +202,8 @@ impl IntoResponse for ApiError {
     }
 }
 
-impl From<quire_store::error::Error> for ApiError {
-    fn from(err: quire_store::error::Error) -> ApiError {
+impl From<wikanvas_store::error::Error> for ApiError {
+    fn from(err: wikanvas_store::error::Error) -> ApiError {
         crate::state::store_error(err)
     }
 }
@@ -244,8 +244,8 @@ pub async fn envelope(State(state): State<AppState>, mut req: Request, next: Nex
     }
     if v1 {
         headers.insert(
-            HeaderName::from_static("quire-api-version"),
-            HeaderValue::from_static(quire_api::API_VERSION),
+            HeaderName::from_static("wikanvas-api-version"),
+            HeaderValue::from_static(wikanvas_api::API_VERSION),
         );
     }
     res
@@ -344,12 +344,12 @@ pub fn api_not_found() -> ApiError {
 
 /// Response header names of the API contract, as `HeaderName`s.
 pub fn api_version_header() -> HeaderName {
-    HeaderName::from_static("quire-api-version")
+    HeaderName::from_static("wikanvas-api-version")
 }
 
 #[cfg(test)]
 mod tests {
-    use quire_api::common::header as api_header;
+    use wikanvas_api::common::header as api_header;
 
     use super::*;
 

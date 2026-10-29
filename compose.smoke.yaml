@@ -1,17 +1,17 @@
 services:
-  quire:
+  wikanvas:
     volumes: !override
       # mode 1777 lets uid 65532 write: without it the tmpfs takes the image's /data mode (0755) with owner root.
       - { type: tmpfs, target: /data, tmpfs: { size: 268435456, mode: 0o1777 } }
     environment:
-      QUIRE_SETUP_TOKEN: smoke-setup-code
-    cgroup_parent: ${QUIRE_CGROUP_PARENT:-}
+      WIKANVAS_SETUP_TOKEN: smoke-setup-code
+    cgroup_parent: ${WIKANVAS_CGROUP_PARENT:-}
   caddy:
-    # The same variable as the derived public URL, so the two cannot diverge. No port 80, never 443: a running Quire
+    # The same variable as the derived public URL, so the two cannot diverge. No port 80, never 443: a running Wikanvas
     # is untouched.
-    ports: !override ["127.0.0.1:${QUIRE_HTTPS_PORT:-18443}:443"]
+    ports: !override ["127.0.0.1:${WIKANVAS_HTTPS_PORT:-18443}:443"]
     volumes: !override
       - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
       - { type: tmpfs, target: /data, tmpfs: { size: 16777216 } }      # a fresh local CA per run
       - { type: tmpfs, target: /config, tmpfs: { size: 1048576 } }
-    cgroup_parent: ${QUIRE_CGROUP_PARENT:-}
+    cgroup_parent: ${WIKANVAS_CGROUP_PARENT:-}

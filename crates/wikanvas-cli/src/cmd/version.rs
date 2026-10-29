@@ -1,9 +1,9 @@
-//! The `quire version`, `quire exit-codes` and `quire help` commands (owner: W8)
+//! The `wikanvas version`, `wikanvas exit-codes` and `wikanvas help` commands (owner: W8)
 
 use std::fmt::Write;
 
 use clap::CommandFactory;
-use quire_api::cli::ExitCode;
+use wikanvas_api::cli::ExitCode;
 use serde_json::{Value, json};
 
 use super::{Ctx, Res};
@@ -12,11 +12,11 @@ use crate::error::Failure;
 use crate::http::{Client, Req};
 use crate::output;
 
-/// `quire version`: `{cli: {version, api_version}, server: {version, commit, api_version} | null}`. `server` is
+/// `wikanvas version`: `{cli: {version, api_version}, server: {version, commit, api_version} | null}`. `server` is
 /// null when no URL is configured; when the server cannot be asked, also with a `server_unavailable` warning.
 pub fn version(ctx: &Ctx) -> Res {
     let cli =
-        json!({ "version": env!("CARGO_PKG_VERSION"), "api_version": quire_api::API_VERSION });
+        json!({ "version": env!("CARGO_PKG_VERSION"), "api_version": wikanvas_api::API_VERSION });
     let server = match server_version(ctx) {
         Ok(v) => v,
         Err(f) => {
@@ -32,9 +32,9 @@ pub fn version(ctx: &Ctx) -> Res {
         return output::print_json(&json!({ "cli": cli, "server": server }));
     }
     let mut text = format!(
-        "quire {} (API {})\n",
+        "wikanvas {} (API {})\n",
         env!("CARGO_PKG_VERSION"),
-        quire_api::API_VERSION
+        wikanvas_api::API_VERSION
     );
     if !server.is_null() {
         let s = |k: &str| server[k].as_str().unwrap_or("-").to_owned();
@@ -61,7 +61,7 @@ fn server_version(ctx: &Ctx) -> Result<Value, Failure> {
     Ok(json!({ "version": v["version"], "commit": v["commit"], "api_version": v["api_version"] }))
 }
 
-/// `quire exit-codes`: the §7.7 table. `--json` prints `[{"code": 0, "name": "success", "meaning": "Success"}, …]`;
+/// `wikanvas exit-codes`: the §7.7 table. `--json` prints `[{"code": 0, "name": "success", "meaning": "Success"}, …]`;
 /// without it, one line per code with its name, meaning and typical causes.
 pub fn exit_codes() -> Res {
     if output::json() {
@@ -152,7 +152,7 @@ fn visible(a: &clap::Arg) -> bool {
     !a.is_hide_set() && !matches!(a.get_id().as_str(), "help" | "version")
 }
 
-/// The command tree of `quire help --json` for `cmd` (full path `path`).
+/// The command tree of `wikanvas help --json` for `cmd` (full path `path`).
 pub fn describe(cmd: &clap::Command, path: &str) -> Value {
     let args: Vec<&clap::Arg> = cmd
         .get_arguments()
@@ -216,25 +216,25 @@ pub fn tree() -> Value {
         .collect();
     let commands = describe(&root, "")["commands"].clone();
     json!({
-        "name": "quire",
+        "name": "wikanvas",
         "version": env!("CARGO_PKG_VERSION"),
-        "api_version": quire_api::API_VERSION,
+        "api_version": wikanvas_api::API_VERSION,
         "global_flags": global,
         "commands": commands,
         "exit_codes": ExitCode::table(),
     })
 }
 
-/// `quire help [COMMAND…] [--json]`.
+/// `wikanvas help [COMMAND…] [--json]`.
 pub fn help(a: HelpArgs) -> Res {
-    let mut root = Cli::command().bin_name("quire");
+    let mut root = Cli::command().bin_name("wikanvas");
     root.build();
     let mut cmd = &mut root;
     let mut path = Vec::new();
     for word in &a.command {
         path.push(word.as_str());
         cmd = cmd.find_subcommand_mut(word).ok_or_else(|| {
-            Failure::usage(format!("help: no command `quire {}`", path.join(" ")))
+            Failure::usage(format!("help: no command `wikanvas {}`", path.join(" ")))
         })?;
     }
     if output::json() {

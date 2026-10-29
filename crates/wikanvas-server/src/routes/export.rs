@@ -4,7 +4,7 @@
 //! blob file. Single-flight (429 `busy`) until the stream ends or the client goes away, and while a copy runs even
 //! when its request is gone; after the free-space check (507). The 30 s request deadline does not apply, because the
 //! copy is made before the response starts (`app::deadline`). With the session cookie the request must come from
-//! Quire itself: `Sec-Fetch-Site` `same-origin` or `none`, or, without fetch metadata, a same-origin `Referer` (403
+//! Wikanvas itself: `Sec-Fetch-Site` `same-origin` or `none`, or, without fetch metadata, a same-origin `Referer` (403
 //! `csrf_rejected`), because SameSite=Lax sends the cookie on cross-site navigations. The tar is produced on the
 //! blocking pool into 256 KiB chunks through a 4-chunk channel (D25), so at most about 1 MiB is in flight.
 
@@ -15,8 +15,8 @@ use axum::extract::State;
 use axum::http::{HeaderMap, HeaderValue, Uri, header};
 use axum::response::Response;
 use bytes::Bytes;
-use quire_api::{ErrorBody, ErrorCode};
-use quire_store::export::{CHUNK, Manifest};
+use wikanvas_api::{ErrorBody, ErrorCode};
+use wikanvas_store::export::{CHUNK, Manifest};
 use tokio::sync::mpsc;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -67,7 +67,7 @@ impl Write for ChannelWriter {
     }
 }
 
-/// Downloads the whole workspace: a tar of `manifest.json`, `quire.db` (without sessions, API tokens or password
+/// Downloads the whole workspace: a tar of `manifest.json`, `wikanvas.db` (without sessions, API tokens or password
 /// hashes) and `files/**`.
 #[utoipa::path(
     get,
@@ -77,7 +77,7 @@ impl Write for ChannelWriter {
     security(("bearer" = ["admin"]), ("session" = [])),
     responses(
         (status = 200, description = "The tar stream", content_type = "application/x-tar", body = Vec<u8>,
-            headers(("Content-Disposition" = String, description = "attachment; filename=\"quire-export-<time>.tar\""))),
+            headers(("Content-Disposition" = String, description = "attachment; filename=\"wikanvas-export-<time>.tar\""))),
         (status = 401, description = "`unauthenticated`, `invalid_token`", body = ErrorBody),
         (status = 403, description = "`insufficient_scope`, `csrf_rejected` (a cookie request from elsewhere)",
             body = ErrorBody),
@@ -98,7 +98,7 @@ async fn export(
         if !navigation_allowed(&state.config, &headers, &host) {
             return Err(ApiError::new(
                 ErrorCode::CsrfRejected,
-                "start the export from Quire itself (Settings), or use a token",
+                "start the export from Wikanvas itself (Settings), or use a token",
             ));
         }
     }
@@ -112,7 +112,7 @@ async fn export(
     let worker = state.clone();
     let (copy, guard) = tokio::task::spawn_blocking(move || {
         worker.check_free_space()?;
-        let copy = quire_store::export::prepare_copy(&worker.db, &worker.config.tmp_dir())?;
+        let copy = wikanvas_store::export::prepare_copy(&worker.db, &worker.config.tmp_dir())?;
         Ok::<_, ApiError>((copy, guard))
     })
     .await
@@ -126,7 +126,7 @@ async fn export(
             tx: tx.clone(),
             buf: Vec::with_capacity(CHUNK),
         };
-        let result = quire_store::export::write_tar(writer, &copy, &files_dir, &manifest)
+        let result = wikanvas_store::export::write_tar(writer, &copy, &files_dir, &manifest)
             .and_then(|mut w| Ok(w.send()?));
         if let Err(e) = result {
             tracing::warn!(error = %e, "export stopped");
@@ -147,8 +147,8 @@ async fn export(
     );
     h.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     let name = format!(
-        "attachment; filename=\"quire-export-{}.tar\"",
-        quire_store::backup::file_timestamp(now)
+        "attachment; filename=\"wikanvas-export-{}.tar\"",
+        wikanvas_store::backup::file_timestamp(now)
     );
     if let Ok(v) = HeaderValue::from_str(&name) {
         h.insert(header::CONTENT_DISPOSITION, v);

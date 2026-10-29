@@ -6,10 +6,10 @@
 //
 // playwright.config.ts starts it as its webServer for every project. A missing <root> is not an error, because the
 // `smoke` project never builds the dist: the server warns once and answers 404 until the directory exists.
-// What it shares with quire-server's static serving (§11), so that the frame test runs the engine as production does:
-// HTML gets the frame CSP and X-Frame-Options: SAMEORIGIN, and a file with precompressed variants is answered with
-// `name.br` or `name.gz` (Content-Encoding, Vary: Accept-Encoding) when Accept-Encoding offers them. Caching is not
-// shared: every answer is no-store.
+// What it shares with wikanvas-server's static serving (§11), so that the frame test runs the engine as production
+// does: HTML gets the frame CSP and X-Frame-Options: SAMEORIGIN, and a file with precompressed variants is answered
+// with `name.br` or `name.gz` (Content-Encoding, Vary: Accept-Encoding) when Accept-Encoding offers them. Caching is
+// not shared: every answer is no-store.
 import { createReadStream } from 'node:fs';
 import { realpath, stat } from 'node:fs/promises';
 import { createServer } from 'node:http';
@@ -31,7 +31,7 @@ const FRAME_CSP = [
   "object-src 'none'",
 ].join('; ');
 
-// Precompressed variants, in the order quire-server prefers them (§11): brotli, then gzip.
+// Precompressed variants, in the order wikanvas-server prefers them (§11): brotli, then gzip.
 const ENCODINGS = [
   ['br', '.br'],
   ['gzip', '.gz'],

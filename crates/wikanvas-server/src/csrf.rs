@@ -1,10 +1,10 @@
 //! The Host allowlist and the Fetch-Metadata / Origin CSRF checks (owner: W2).
 //!
 //! One middleware, [`layer`], applied to every route except `/healthz` (§8, D16, D43):
-//! - `Host` must be the public URL's host[:port], `QUIRE_DOMAIN` with any port, an entry of `QUIRE_ALLOWED_HOSTS`, or
-//!   loopback (`localhost`, `127.0.0.1`, `[::1]`) with any port; otherwise 421 `host_not_allowed`. It applies to
-//!   bearer requests too. Quire reads `Host` itself, never `X-Forwarded-Host`.
-//! - POST, PUT, PATCH and DELETE that are not Quire bearer requests ([`is_quire_bearer`]) must carry
+//! - `Host` must be the public URL's host[:port], `WIKANVAS_DOMAIN` with any port, an entry of
+//!   `WIKANVAS_ALLOWED_HOSTS`, or loopback (`localhost`, `127.0.0.1`, `[::1]`) with any port; otherwise 421
+//!   `host_not_allowed`. It applies to bearer requests too. Wikanvas reads `Host` itself, never `X-Forwarded-Host`.
+//! - POST, PUT, PATCH and DELETE that are not Wikanvas bearer requests ([`is_wikanvas_bearer`]) must carry
 //!   `Sec-Fetch-Site: same-origin | none`, or an `Origin` whose host[:port] is the public URL's or the request's
 //!   `Host`; otherwise 403 `csrf_rejected`, also when neither header is present.
 
@@ -12,20 +12,20 @@ use axum::extract::{Request, State};
 use axum::http::{HeaderMap, Method, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
-use quire_api::ErrorCode;
+use wikanvas_api::ErrorCode;
 
 use crate::config::{Config, Scheme, split_host_port};
 use crate::error::ApiError;
 use crate::state::AppState;
 
-/// Whether the request carries a Quire token: `Authorization` with scheme `Bearer` (any case) and credentials that
+/// Whether the request carries a Wikanvas token: `Authorization` with scheme `Bearer` (any case) and credentials that
 /// start with `qpat_`. Such a request is authenticated by the token alone (a bad token is 401, never a cookie
 /// fallback) and skips the CSRF checks. Any other `Authorization` value is ignored (D43).
-pub fn is_quire_bearer(headers: &HeaderMap) -> bool {
+pub fn is_wikanvas_bearer(headers: &HeaderMap) -> bool {
     bearer_token(headers).is_some()
 }
 
-/// The credentials of a Quire bearer request (see [`is_quire_bearer`]).
+/// The credentials of a Wikanvas bearer request (see [`is_wikanvas_bearer`]).
 pub fn bearer_token(headers: &HeaderMap) -> Option<&str> {
     let value = headers.get(header::AUTHORIZATION)?.to_str().ok()?;
     let (scheme, credentials) = value.trim().split_once(' ')?;
@@ -34,7 +34,7 @@ pub fn bearer_token(headers: &HeaderMap) -> Option<&str> {
     }
     let credentials = credentials.trim();
     credentials
-        .starts_with(quire_api::token::PREFIX)
+        .starts_with(wikanvas_api::token::PREFIX)
         .then_some(credentials)
 }
 
@@ -75,7 +75,7 @@ fn fetch_site_ok(headers: &HeaderMap) -> Option<bool> {
 
 /// Whether `url` (an `Origin` or a `Referer`: `scheme://host[:port]` and anything after) names this server: its
 /// host[:port] equals the public URL's or the request's `Host`. The scheme is not compared (§8): host[:port] already
-/// pins the origin to Quire. Default ports are normalized with the URL's own scheme.
+/// pins the origin to Wikanvas. Default ports are normalized with the URL's own scheme.
 fn same_authority(config: &Config, url: &str, host: &(String, Option<u16>)) -> bool {
     let (scheme, rest) = if let Some(rest) = url.strip_prefix("https://") {
         (Scheme::Https, rest)
@@ -149,14 +149,14 @@ pub async fn layer(State(state): State<AppState>, req: Request, next: Next) -> R
         return ApiError::new(
             ErrorCode::HostNotAllowed,
             format!(
-                "Host {} is not allowed; use {} or add it to QUIRE_ALLOWED_HOSTS",
+                "Host {} is not allowed; use {} or add it to WIKANVAS_ALLOWED_HOSTS",
                 host.0, config.public_url
             ),
         )
         .into_response();
     }
     if is_mutation(req.method())
-        && !is_quire_bearer(req.headers())
+        && !is_wikanvas_bearer(req.headers())
         && !origin_allowed(config, req.headers(), &host)
     {
         return ApiError::new(
@@ -191,23 +191,23 @@ mod tests {
     }
 
     #[test]
-    fn quire_bearer_predicate() {
+    fn wikanvas_bearer_predicate() {
         let token = "Bearer qpat_abc";
-        assert!(is_quire_bearer(&headers(&[("authorization", token)])));
-        assert!(is_quire_bearer(&headers(&[(
+        assert!(is_wikanvas_bearer(&headers(&[("authorization", token)])));
+        assert!(is_wikanvas_bearer(&headers(&[(
             "authorization",
             "bearer  qpat_x"
         )])));
-        assert!(!is_quire_bearer(&headers(&[(
+        assert!(!is_wikanvas_bearer(&headers(&[(
             "authorization",
             "Bearer eyJhbGciOi.x.y"
         )])));
-        assert!(!is_quire_bearer(&headers(&[(
+        assert!(!is_wikanvas_bearer(&headers(&[(
             "authorization",
             "Basic cXBhdF94Og=="
         )])));
-        assert!(!is_quire_bearer(&headers(&[("authorization", "qpat_abc")])));
-        assert!(!is_quire_bearer(&headers(&[])));
+        assert!(!is_wikanvas_bearer(&headers(&[("authorization", "qpat_abc")])));
+        assert!(!is_wikanvas_bearer(&headers(&[])));
         assert_eq!(
             bearer_token(&headers(&[("authorization", token)])),
             Some("qpat_abc")
@@ -217,22 +217,22 @@ mod tests {
     #[test]
     fn host_allowlist() {
         let c = config(&[
-            ("QUIRE_DOMAIN", "quire.lan"),
-            ("QUIRE_PUBLIC_URL", "https://wiki.example.org"),
-            ("QUIRE_ALLOWED_HOSTS", "quire"),
+            ("WIKANVAS_DOMAIN", "wikanvas.lan"),
+            ("WIKANVAS_PUBLIC_URL", "https://wiki.example.org"),
+            ("WIKANVAS_ALLOWED_HOSTS", "wikanvas"),
         ]);
         let ok = |h: &str, p: Option<u16>| host_allowed(&c, h, p);
         assert!(ok("wiki.example.org", None) && ok("wiki.example.org", Some(443)));
         assert!(!ok("wiki.example.org", Some(8443)));
-        assert!(ok("quire.lan", None) && ok("quire.lan", Some(8443)));
-        assert!(ok("quire", Some(8080)));
+        assert!(ok("wikanvas.lan", None) && ok("wikanvas.lan", Some(8443)));
+        assert!(ok("wikanvas", Some(8080)));
         assert!(ok("localhost", Some(5173)) && ok("127.0.0.1", None) && ok("[::1]", Some(1)));
-        assert!(!ok("evil.lan", None) && !ok("quire.lan.evil", None));
+        assert!(!ok("evil.lan", None) && !ok("wikanvas.lan.evil", None));
     }
 
     #[test]
     fn origin_rule() {
-        let c = config(&[("QUIRE_PUBLIC_URL", "https://wiki.example.org")]);
+        let c = config(&[("WIKANVAS_PUBLIC_URL", "https://wiki.example.org")]);
         let host = ("localhost".to_owned(), Some(8080));
         let ok =
             |pairs: &[(&'static str, &'static str)]| origin_allowed(&c, &headers(pairs), &host);
@@ -260,7 +260,7 @@ mod tests {
 
     #[test]
     fn navigation_rule() {
-        let c = config(&[("QUIRE_PUBLIC_URL", "https://wiki.example.org")]);
+        let c = config(&[("WIKANVAS_PUBLIC_URL", "https://wiki.example.org")]);
         let host = ("wiki.example.org".to_owned(), None);
         let ok =
             |pairs: &[(&'static str, &'static str)]| navigation_allowed(&c, &headers(pairs), &host);

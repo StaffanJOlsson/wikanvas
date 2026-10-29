@@ -11,7 +11,7 @@ use inkboard_core::geom::Frame;
 use inkboard_core::model::{BoxGeom, Document, ImageObj, Kind, Label, Object, Page};
 use inkboard_core::serial;
 use inkboard_core::style::{Align, Style};
-use quire_api::{BoardPutResult, ErrorCode, ItemKind, NewCollection, NewItem, Scope};
+use wikanvas_api::{BoardPutResult, ErrorCode, ItemKind, NewCollection, NewItem, Scope};
 use serde_json::{Value, json};
 
 use crate::common::{TestApp, assert_error};
@@ -26,7 +26,7 @@ async fn new_item(app: &TestApp, kind: ItemKind, title: &str) -> String {
     app.state
         .db
         .write(move |tx| {
-            let c = quire_store::collections::create(
+            let c = wikanvas_store::collections::create(
                 tx,
                 &owner,
                 &NewCollection {
@@ -35,7 +35,7 @@ async fn new_item(app: &TestApp, kind: ItemKind, title: &str) -> String {
                 },
                 0,
             )?;
-            let item = quire_store::items::create(
+            let item = wikanvas_store::items::create(
                 tx,
                 &owner,
                 &NewItem {
@@ -251,7 +251,7 @@ async fn get_sets_document_name_to_title() {
     let (owner, item) = (app.owner().to_owned(), id.clone());
     app.state
         .db
-        .write(move |tx| quire_store::items::rename(tx, &item, "Renamed \"plan\"", &owner, 1))
+        .write(move |tx| wikanvas_store::items::rename(tx, &item, "Renamed \"plan\"", &owner, 1))
         .await
         .unwrap();
     let res = app.server.get(&board_url(&id)).await;
@@ -280,7 +280,7 @@ async fn over_limit_413() {
         d.add_asset("image/png", (0..n).map(|i| (i % 251) as u8).collect());
         serial::to_json(&d, false)
     };
-    // Over QUIRE_MAX_BOARD_MB (2 MiB): 413 with the board limit.
+    // Over WIKANVAS_MAX_BOARD_MB (2 MiB): 413 with the board limit.
     let big = with_asset(1_800_000);
     assert!(big.len() > 2 * 1024 * 1024);
     let res = put(&server, &id, &big, "*").await;
@@ -328,12 +328,12 @@ async fn put_validates_media_type_engine_and_body() {
         .server
         .put(&board_url(&id))
         .add_header("if-match", "*")
-        .add_header("x-quire-engine", "x".repeat(200))
+        .add_header("x-wikanvas-engine", "x".repeat(200))
         .text(board("B", "x"))
         .content_type("application/json")
         .await;
     let body = assert_error(&res, 422, ErrorCode::Validation);
-    assert_eq!(body.error.details, Some(json!({"field": "X-Quire-Engine"})));
+    assert_eq!(body.error.details, Some(json!({"field": "X-Wikanvas-Engine"})));
     // A document's board, a trashed board.
     let doc = new_item(&app, ItemKind::Doc, "D").await;
     let body = assert_error(
@@ -380,12 +380,12 @@ async fn put_without_engine_header_stores_api() {
         .server
         .put(&board_url(&id))
         .add_header("if-match", "*")
-        .add_header("x-quire-engine", "0.2.0-beta.3+embed.quire.1")
+        .add_header("x-wikanvas-engine", "0.2.0-beta.3+embed.wikanvas.1")
         .text(board("B", "web"))
         .content_type("application/json")
         .await;
     res.assert_status_ok();
-    assert_eq!(engine(&app, &id).await, "0.2.0-beta.3+embed.quire.1");
+    assert_eq!(engine(&app, &id).await, "0.2.0-beta.3+embed.wikanvas.1");
 }
 
 #[tokio::test]
@@ -585,7 +585,7 @@ async fn preview_route_headers_immutable_307_and_current_without_rev() {
     let meta = app
         .state
         .db
-        .read(move |c| quire_store::boards::board_meta(c, &item))
+        .read(move |c| wikanvas_store::boards::board_meta(c, &item))
         .await
         .unwrap();
     assert_eq!(meta.preview_rev, Some(2));
@@ -597,7 +597,7 @@ async fn preview_route_headers_immutable_307_and_current_without_rev() {
         .server
         .get(&format!("/api/v1/items/{id}"))
         .await
-        .json::<quire_api::ItemDetail>();
+        .json::<wikanvas_api::ItemDetail>();
     assert_eq!(detail.board.as_ref(), Some(&meta));
     let item = id.clone();
     app.state
@@ -614,7 +614,7 @@ async fn preview_route_headers_immutable_307_and_current_without_rev() {
     let mixed = app
         .state
         .db
-        .read(move |c| quire_store::boards::board_meta(c, &item))
+        .read(move |c| wikanvas_store::boards::board_meta(c, &item))
         .await
         .unwrap();
     assert_eq!((mixed.preview_rev, mixed.pages[1].svg_len), (Some(2), None));
@@ -622,7 +622,7 @@ async fn preview_route_headers_immutable_307_and_current_without_rev() {
         .server
         .get(&format!("/api/v1/items/{id}"))
         .await
-        .json::<quire_api::ItemDetail>();
+        .json::<wikanvas_api::ItemDetail>();
     assert_eq!(detail.board, Some(mixed));
     // A new revision makes the old URL redirect, and the plain URL serve the new page.
     let mut d2 = d.clone();
@@ -677,7 +677,7 @@ fn gunzip(bytes: &[u8]) -> String {
         &[0x1f, 0x8b, 8, 0],
         "gzip, deflate, no optional fields"
     );
-    quire_store::boards::inflate(&bytes[10..bytes.len() - 8]).expect("inflate")
+    wikanvas_store::boards::inflate(&bytes[10..bytes.len() - 8]).expect("inflate")
 }
 
 #[tokio::test]
@@ -687,7 +687,7 @@ async fn preview_worker_renders_enqueued_boards() {
     let mut d = Document::new("Worker");
     d.pages[0].objects.push(label_box("Background"));
     put_ok(&app.server, &id, &serial::to_json(&d, false), "*").await;
-    let queue = quire_server::board_previews::spawn_with(
+    let queue = wikanvas_server::board_previews::spawn_with(
         app.state.clone(),
         Duration::from_millis(20),
         Duration::from_millis(200),
@@ -701,7 +701,7 @@ async fn preview_worker_renders_enqueued_boards() {
         let rev = app
             .state
             .db
-            .read(move |c| quire_store::previews::rev(c, &item))
+            .read(move |c| wikanvas_store::previews::rev(c, &item))
             .await
             .unwrap();
         if rev.is_some() {
@@ -715,11 +715,11 @@ async fn preview_worker_renders_enqueued_boards() {
     let stored = app
         .state
         .db
-        .read(move |c| quire_store::previews::get(c, &item, 0, 2))
+        .read(move |c| wikanvas_store::previews::get(c, &item, 0, 2))
         .await
         .unwrap();
     match stored {
-        Some(quire_store::previews::Preview::Svg(svg)) => {
+        Some(wikanvas_store::previews::Preview::Svg(svg)) => {
             assert!(svg.contains("Background"), "{svg}")
         }
         other => panic!("no stored preview: {other:?}"),
@@ -741,13 +741,13 @@ async fn streamed_body_over_limit_413_without_content_length() {
     let request = axum::http::Request::put(board_url(&id))
         .header("host", "localhost")
         .header("sec-fetch-site", "same-origin")
-        .header("cookie", format!("quire_session={session}"))
+        .header("cookie", format!("wikanvas_session={session}"))
         .header("if-match", "*")
         .header("content-type", "application/json")
         .body(Body::from_stream(futures_util::stream::iter(chunks)))
         .unwrap();
     assert!(request.headers().get("content-length").is_none());
-    let res = quire_server::app(app.state.clone())
+    let res = wikanvas_server::app(app.state.clone())
         .oneshot(request)
         .await
         .unwrap();
@@ -755,7 +755,7 @@ async fn streamed_body_over_limit_413_without_content_length() {
     let body = axum::body::to_bytes(res.into_body(), usize::MAX)
         .await
         .unwrap();
-    let body: quire_api::ErrorBody = serde_json::from_slice(&body).unwrap();
+    let body: wikanvas_api::ErrorBody = serde_json::from_slice(&body).unwrap();
     assert_eq!(body.error.code, ErrorCode::PayloadTooLarge);
     assert_eq!(body.error.details, Some(json!({"limit_bytes": 1048576})));
     // Nothing was written.
@@ -871,7 +871,7 @@ async fn page_request_that_waited_for_a_render_serves_the_stored_page() {
     app.state
         .db
         .write(move |tx| {
-            quire_store::previews::replace(tx, &item, 2, &[Some("<svg>stored</svg>".to_owned())])
+            wikanvas_store::previews::replace(tx, &item, 2, &[Some("<svg>stored</svg>".to_owned())])
         })
         .await
         .unwrap();
@@ -895,7 +895,7 @@ async fn page_after_the_preview_budget_is_a_card() {
     app.state
         .db
         .write(move |tx| {
-            quire_store::previews::replace(tx, &item, 2, &[Some("<svg>zero</svg>".to_owned())])
+            wikanvas_store::previews::replace(tx, &item, 2, &[Some("<svg>zero</svg>".to_owned())])
         })
         .await
         .unwrap();
@@ -911,7 +911,7 @@ async fn page_after_the_preview_budget_is_a_card() {
     );
     assert_eq!(
         res.text(),
-        quire_core::board::card_svg("#ffffff", quire_core::board::TOO_LARGE)
+        wikanvas_core::board::card_svg("#ffffff", wikanvas_core::board::TOO_LARGE)
     );
     // A page under 1 KiB is sent identity even to a gzip client: one compression rule, the layer's (§11).
     let res = app
@@ -1133,7 +1133,7 @@ async fn duplicate_board_copies_embed_links() {
         .post(&format!("/api/v1/items/{id}/duplicate"))
         .await;
     res.assert_status(axum::http::StatusCode::CREATED);
-    let copy: quire_api::ItemSummary = res.json();
+    let copy: wikanvas_api::ItemSummary = res.json();
     let copy = copy.id.to_string();
     assert_eq!(embed_links(&app, &copy).await, sorted(&[&doc, P2]));
     assert_eq!(embed_links(&app, &id).await, sorted(&[&doc, P2]));

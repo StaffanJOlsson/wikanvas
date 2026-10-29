@@ -1,6 +1,6 @@
 # The agent harness's loopback port (docs/ARCHITECTURE.md §13.3, §14.1). scripts/agent-test.sh adds this file to
-# compose.yaml + compose.e2e.yaml only for `up`, `run --keep` and QUIRE_AGENT_CLI. A plain ports: list, since
-# compose.yaml publishes nothing for quire.
+# compose.yaml + compose.e2e.yaml only for `up`, `run --keep` and WIKANVAS_AGENT_CLI. A plain ports: list, since
+# compose.yaml publishes nothing for wikanvas.
 services:
-  quire:
-    ports: ["127.0.0.1:${QUIRE_AGENT_PORT:-18080}:8080"]   # loopback only, straight to Quire; the Host allowlist accepts 127.0.0.1
+  wikanvas:
+    ports: ["127.0.0.1:${WIKANVAS_AGENT_PORT:-18080}:8080"]   # loopback only, straight to Wikanvas; the Host allowlist accepts 127.0.0.1

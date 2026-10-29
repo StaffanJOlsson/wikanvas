@@ -1,4 +1,4 @@
-//! Quire's HTTP server (docs/ARCHITECTURE.md §4.1, §7, §8). This module list is frozen (PLAN W7 "Owns").
+//! Wikanvas's HTTP server (docs/ARCHITECTURE.md §4.1, §7, §8). This module list is frozen (PLAN W7 "Owns").
 
 pub mod admin;
 pub mod app;

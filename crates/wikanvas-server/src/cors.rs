@@ -1,11 +1,11 @@
-//! CORS for bearer clients from QUIRE_CORS_ORIGINS, off by default (owner: W2).
+//! CORS for bearer clients from WIKANVAS_CORS_ORIGINS, off by default (owner: W2).
 //!
-//! D48, §8: without `QUIRE_CORS_ORIGINS` no CORS header is ever sent. With it (exact `scheme://host[:port]` origins;
+//! D48, §8: without `WIKANVAS_CORS_ORIGINS` no CORS header is ever sent. With it (exact `scheme://host[:port]` origins;
 //! `*` or a malformed origin stops startup in [`crate::config`]), a tower-http `CorsLayer` on the `/api/v1` routes
 //! answers preflights from those origins: methods GET, POST, PUT, PATCH and DELETE; request headers `Authorization`,
-//! `Content-Type`, `If-Match`, `If-None-Match` and `X-Quire-Engine`; exposed `ETag`, `Retry-After`, `X-Request-Id`,
-//! `Quire-Api-Version` and `Quire-Conversion-Warnings`; `max-age` 600; never `Access-Control-Allow-Credentials`. An
-//! allowed origin is not trusted by the CSRF check, so cross-origin cookie requests stay rejected.
+//! `Content-Type`, `If-Match`, `If-None-Match` and `X-Wikanvas-Engine`; exposed `ETag`, `Retry-After`, `X-Request-Id`,
+//! `Wikanvas-Api-Version` and `Wikanvas-Conversion-Warnings`; `max-age` 600; never `Access-Control-Allow-Credentials`.
+//! An allowed origin is not trusted by the CSRF check, so cross-origin cookie requests stay rejected.
 
 use std::time::Duration;
 
@@ -42,14 +42,14 @@ pub fn layer(config: &Config) -> Option<CorsLayer> {
                 header::CONTENT_TYPE,
                 header::IF_MATCH,
                 header::IF_NONE_MATCH,
-                HeaderName::from_static("x-quire-engine"),
+                HeaderName::from_static("x-wikanvas-engine"),
             ])
             .expose_headers([
                 header::ETAG,
                 header::RETRY_AFTER,
                 HeaderName::from_static("x-request-id"),
-                HeaderName::from_static("quire-api-version"),
-                HeaderName::from_static("quire-conversion-warnings"),
+                HeaderName::from_static("wikanvas-api-version"),
+                HeaderName::from_static("wikanvas-conversion-warnings"),
             ])
             .max_age(MAX_AGE)
             .allow_credentials(false),

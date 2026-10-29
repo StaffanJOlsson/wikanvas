@@ -62,7 +62,7 @@ describe('buildTree', () => {
     });
 
     it('title: the server\'s order, checked against fixtures/tree/title-order.json', () => {
-      // Relative to web/, where Vitest runs; quire_core::tree's title_order_fixture reads the same file.
+      // Relative to web/, where Vitest runs; wikanvas_core::tree's title_order_fixture reads the same file.
       const fixture = JSON.parse(readFileSync('../fixtures/tree/title-order.json', 'utf8')) as {
         sorted: string[];
         equal: [string, string][];

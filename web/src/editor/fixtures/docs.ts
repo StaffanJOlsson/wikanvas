@@ -1,6 +1,6 @@
 // The fixture documents of fixtures/ydoc/* (PLAN W4 "Fixtures"): together they use every node, mark and attribute of
 // schema v1, so the server's golden tests (ytext, convert::pm) cover all of it. `getting-started` is the "Welcome to
-// Quire" guide of docs/ARCHITECTURE.md §9.6.7 that the seed stores; `writing-in-quire` is its child page.
+// Wikanvas" guide of docs/ARCHITECTURE.md §9.6.7 that the seed stores; `writing-in-wikanvas` is its child page.
 import type { JSONContent } from '@tiptap/react';
 
 /** Placeholder item ids in the seed documents; the seed replaces them with the real ids (`docs::init_seed`). */
@@ -54,7 +54,7 @@ export const FIXTURE_DOCS: Record<string, JSONContent[]> = {
       t('strike', 'strike'), ', ', t('code', 'code'), ' and ', t('highlight', 'highlight'), '.'),
     p(t('bold italic', 'bold', 'italic'), t(' bold only', 'bold'), ' ', t('all', 'bold', 'italic', 'underline', 'strike', 'highlight')),
     p('A ', t('web link', link('https://example.com/a?b=c#d')), ', a ', t('mail', link('mailto:someone@example.com')),
-      ', an ', t('item link', link(`quire://item/${ITEM_A}`, ITEM_A)), ' and a ', t('bold link', 'bold', link('/doc/x-AbCdEfGh12')), '.'),
+      ', an ', t('item link', link(`wikanvas://item/${ITEM_A}`, ITEM_A)), ' and a ', t('bold link', 'bold', link('/doc/x-AbCdEfGh12')), '.'),
     p(t(' spaced ', 'italic'), 'edges', t(' ', 'bold')),
     p('Escapes: *stars* _under_ `ticks` [brackets] <angle> # hash 1. one'),
   ],
@@ -93,7 +93,7 @@ export const FIXTURE_DOCS: Record<string, JSONContent[]> = {
       type: 'table',
       content: [
         row(cell('tableHeader', {}, p('Name')), cell('tableHeader', {}, p('Kind')), cell('tableHeader', {}, p('Notes'))),
-        row(cell('tableCell', {}, p('Quire')), cell('tableCell', {}, p('Wiki')), cell('tableCell', { colwidth: [180] }, p('Self-hosted'))),
+        row(cell('tableCell', {}, p('Wikanvas')), cell('tableCell', {}, p('Wiki')), cell('tableCell', { colwidth: [180] }, p('Self-hosted'))),
         row(cell('tableCell', { colspan: 2 }, p('Spans two columns')), cell('tableCell', {}, p('One'), p('Two'))),
         row(cell('tableCell', {}, p()), cell('tableCell', {}, p(t('bold', 'bold'))), cell('tableCell', { align: 'right' }, p('right'))),
       ],
@@ -125,7 +125,7 @@ export const FIXTURE_DOCS: Record<string, JSONContent[]> = {
   ],
 
   'getting-started': [
-    p('Quire keeps your documents and whiteboards in one place. This page is a short tour; delete it whenever you like.'),
+    p('Wikanvas keeps your documents and whiteboards in one place. This page is a short tour; delete it whenever you like.'),
     h(2, 'Collections and pages'),
     p('Everything lives in ', t('collections', 'bold'), ', listed in the sidebar on the left. A collection holds '
       + 'documents and boards, and every page can hold more pages inside it, nested as deep as you need. Use the '
@@ -142,14 +142,14 @@ export const FIXTURE_DOCS: Record<string, JSONContent[]> = {
       + 'archived in Search to find it), and you can bring it back from the Archive. Deleted pages go to the Trash, '
       + 'where they stay for 30 days before they are removed for good.'),
     h(2, 'Backups'),
-    p('Quire backs up its database on a schedule into the ', t('backups', 'code'), ' folder of its data directory ('
+    p('Wikanvas backs up its database on a schedule into the ', t('backups', 'code'), ' folder of its data directory ('
       + '', t('/data/backups', 'code'), ' in the Docker image). Settings → Data exports everything as one file.'),
     h(2, 'Next'),
     p('Read ', mention(SEED_WRITING_ID), ' for the editor, or open the example board below.'),
     { type: 'boardEmbed', attrs: { itemId: SEED_BOARD_ID } },
   ],
 
-  'writing-in-quire': [
+  'writing-in-wikanvas': [
     p('The editor turns a few keystrokes into structure.'),
     h(2, 'The slash menu'),
     p('Type ', t('/', 'code'), ' at the start of a line to insert headings, lists, to-dos, quotes, code, callouts, '
@@ -165,7 +165,7 @@ export const FIXTURE_DOCS: Record<string, JSONContent[]> = {
     tasks(task(true, p('Try a to-do')), task(false, p('Tick it off'))),
     h(2, 'Mentions and links'),
     p('Type ', t('@', 'code'), ' and a few letters to mention another page. Mentions always show the page\'s current '
-      + 'title. Paste a link to a Quire page and it stays a link to that page, even after a rename.'),
+      + 'title. Paste a link to a Wikanvas page and it stays a link to that page, even after a rename.'),
     h(2, 'Images'),
     p('Paste or drop an image, or choose Image in the slash menu. Drag the handles to resize it and add a caption.'),
     h(2, 'Callouts'),

@@ -2,7 +2,7 @@
 //!
 //! §7.2, §8 "Uploads", §11:
 //! - `POST /attachments` (write): the raw body (clients send `application/octet-stream`; the form types a cross-site
-//!   form can send are 415) up to `QUIRE_MAX_UPLOAD_MB` (413). After the free-space check (507) it streams to
+//!   form can send are 415) up to `WIKANVAS_MAX_UPLOAD_MB` (413). After the free-space check (507) it streams to
 //!   `/data/tmp` under the `upload_work` permit, hashed and sniffed as it arrives, never buffered whole. The type is
 //!   sniffed, never taken from the client; image dimensions come from the header only, and more than 100 megapixels
 //!   is 422. The blob and the attachment row are committed in one writer transaction.
@@ -18,8 +18,8 @@ use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::Response;
 use futures_util::StreamExt;
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
-use quire_api::{Attachment, ErrorBody, ErrorCode, UploadQuery};
-use quire_store::Sha256;
+use wikanvas_api::{Attachment, ErrorBody, ErrorCode, UploadQuery};
+use wikanvas_store::Sha256;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
@@ -178,7 +178,7 @@ async fn upload(
         .db
         .write(move |tx| {
             let blob = blobs.commit(tx, staged, now)?;
-            quire_store::attachments::create(
+            wikanvas_store::attachments::create(
                 tx,
                 &blob,
                 item_id.as_deref(),
@@ -217,7 +217,7 @@ async fn download(
     authz::require(&auth, Action::Read, Resource::Attachment(&id))?;
     let row = state
         .db
-        .read(move |conn| quire_store::attachments::get(conn, &id))
+        .read(move |conn| wikanvas_store::attachments::get(conn, &id))
         .await?
         .ok_or_else(|| ApiError::not_found("no such attachment"))?;
     let sha = Sha256::parse(&row.sha256).map_err(ApiError::internal)?;

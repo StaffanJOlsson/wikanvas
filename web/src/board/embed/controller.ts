@@ -5,7 +5,7 @@
 //   editing), so a pan, a zoom or a drag touches no component.
 // - Editing: one card at a time (D65, D66). `onEmbedOpen` for a live, unarchived document of a writable board:
 //   `setEmbedEditing(id)`, the card focused at once, then a `DocSession` (after the previous one's last flush); the
-//   card renders `QuireEditor` on it. Editing ends on Esc (then `frame.focus()`), `onEmbedEditEnd`, a pointerdown in
+//   card renders `WikanvasEditor` on it. Editing ends on Esc (then `frame.focus()`), `onEmbedEditEnd`, a pointerdown in
 //   the parent outside the card and the popup root, a later layout without the card or no longer editing it, the
 //   board turning read-only, the target trashed or archived (also learnt from a save the server refuses as
 //   `read_only`), the board released, a frame reset. Ending is idempotent: the editor's last JSON goes into

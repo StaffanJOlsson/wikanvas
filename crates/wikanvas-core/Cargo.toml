@@ -1,6 +1,6 @@
 [package]
-name = "quire-core"
-description = "Quire's pure domain logic: ids, rank, tree rules, cursors, Y text, conversion and the board codec (no I/O)."
+name = "wikanvas-core"
+description = "Wikanvas's pure domain logic: ids, rank, tree rules, cursors, Y text, conversion and the board codec (no I/O)."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,7 +8,7 @@ license.workspace = true
 publish = false
 
 [dependencies]
-quire-api.workspace = true
+wikanvas-api.workspace = true
 inkboard-core.workspace = true
 yrs.workspace = true
 comrak.workspace = true

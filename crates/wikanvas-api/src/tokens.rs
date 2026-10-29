@@ -67,7 +67,7 @@ string_enum! {
         Web = "web",
         /// `POST /tokens` with a token, or the CLI.
         Api = "api",
-        /// `quire-server admin create-token`.
+        /// `wikanvas-server admin create-token`.
         Admin = "admin",
     }
 }

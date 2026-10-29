@@ -18,7 +18,7 @@ import { TopBar } from '../components/topbar/TopBar';
 import { activeHeading, headingAnchor, showContents, type Heading } from '../editor/contents';
 import { DocSession } from '../editor/docSession';
 import { docExports } from '../editor/exports';
-import { QuireEditor } from '../editor/QuireEditor';
+import { WikanvasEditor } from '../editor/WikanvasEditor';
 import { relativeTime } from '../lib/time';
 import { itemPath, urlIdFromSlugId } from '../lib/urls';
 import { useCanonicalPath } from '../lib/useCanonicalPath';
@@ -272,7 +272,7 @@ function DocView({ detail }: { detail: ItemDetail }) {
           <ItemHeader item={detail} readOnly={readOnly} onEnterBody={() => editorRef.current?.commands.focus('start')} />
           {error && <PlaceholderPage>{error}</PlaceholderPage>}
           {session && (
-            <QuireEditor
+            <WikanvasEditor
               itemId={id}
               session={session}
               readOnly={readOnly}

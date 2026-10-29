@@ -1,14 +1,14 @@
 // The link and image scheme allow-list of docs/ARCHITECTURE.md §6.4 (also TipTap Link's `protocols` and
-// `isAllowedUri`, §9.6.5): http, https, mailto (links only), quire, same-origin paths `/…` and fragments `#…`.
+// `isAllowedUri`, §9.6.5): http, https, mailto (links only), wikanvas, same-origin paths `/…` and fragments `#…`.
 // Everything else (`javascript:`, `data:`, `vbscript:`, protocol-relative `//host`, …) stays text.
 
 /** Schemes a link may use, besides same-origin paths and fragments. */
-export const LINK_SCHEMES = ['http', 'https', 'mailto', 'quire'] as const;
+export const LINK_SCHEMES = ['http', 'https', 'mailto', 'wikanvas'] as const;
 /** Schemes an external image may use. */
-export const IMAGE_SCHEMES = ['http', 'https', 'quire'] as const;
+export const IMAGE_SCHEMES = ['http', 'https', 'wikanvas'] as const;
 
-/** Item links: `quire://item/<uuid>` (§6.4). */
-export const QUIRE_ITEM_PREFIX = 'quire://item/';
+/** Item links: `wikanvas://item/<uuid>` (§6.4). */
+export const WIKANVAS_ITEM_PREFIX = 'wikanvas://item/';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -36,21 +36,22 @@ export function isAllowedImageSrc(src: string | null | undefined): boolean {
   return typeof src === 'string' && allowed(src, IMAGE_SCHEMES);
 }
 
-/** The item id of a `quire://item/<uuid>` URL, or null. */
-export function quireItemId(href: string | null | undefined): string | null {
-  if (typeof href !== 'string' || !href.startsWith(QUIRE_ITEM_PREFIX)) return null;
-  const id = href.slice(QUIRE_ITEM_PREFIX.length);
+/** The item id of a `wikanvas://item/<uuid>` URL, or null. */
+export function wikanvasItemId(href: string | null | undefined): string | null {
+  if (typeof href !== 'string' || !href.startsWith(WIKANVAS_ITEM_PREFIX)) return null;
+  const id = href.slice(WIKANVAS_ITEM_PREFIX.length);
   return UUID.test(id) ? id.toLowerCase() : null;
 }
 
-/** `quire://item/<id>`. */
-export function quireItemUrl(id: string): string {
-  return `${QUIRE_ITEM_PREFIX}${id}`;
+/** `wikanvas://item/<id>`. */
+export function wikanvasItemUrl(id: string): string {
+  return `${WIKANVAS_ITEM_PREFIX}${id}`;
 }
 
 /**
  * The SPA path that opens an item by its id, `/item/<uuid>`: the route redirects to the item's page (§9.1). An item
- * link's DOM `href` (the stored mark keeps `quire://item/<uuid>`), so "open in new tab" and "copy link address" work.
+ * link's DOM `href` (the stored mark keeps `wikanvas://item/<uuid>`), so "open in new tab" and "copy link address"
+ * work.
  */
 export function itemIdPath(id: string): string {
   return `/item/${encodeURIComponent(id)}`;
@@ -67,7 +68,7 @@ export type LinkTarget =
  * page, any other allowed URL opens in a new tab. Null for a URL outside the §6.4 allow-list.
  */
 export function linkTarget(href: string | null | undefined, itemId: string | null | undefined, origin: string): LinkTarget | null {
-  const id = itemId ?? quireItemId(href);
+  const id = itemId ?? wikanvasItemId(href);
   if (id) return { kind: 'route', to: itemIdPath(id) };
   if (!href || !isAllowedLink(href)) return null;
   if (href.startsWith('#')) return { kind: 'hash', hash: href };
@@ -86,7 +87,7 @@ export function linkTarget(href: string | null | undefined, itemId: string | nul
 
 /**
  * The url_id of a same-instance item URL (`/doc/<slug>-<url_id>` or `/board/<slug>-<url_id>`, relative or under
- * `origin`), or null. A pasted Quire URL becomes `link{itemId}` once the id is resolved (§9.6.5).
+ * `origin`), or null. A pasted Wikanvas URL becomes `link{itemId}` once the id is resolved (§9.6.5).
  */
 export function sameInstanceUrlId(href: string, origin: string): string | null {
   let path = href;

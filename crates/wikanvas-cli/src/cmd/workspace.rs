@@ -1,4 +1,4 @@
-//! The `quire workspace` and `quire sidebar` commands (owner: W8)
+//! The `wikanvas workspace` and `wikanvas sidebar` commands (owner: W8)
 
 use serde_json::{Map, Value};
 

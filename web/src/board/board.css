@@ -253,7 +253,7 @@
   transform-origin: 0 0;
 }
 
-/* Cards are paper (D67): Quire's light palette whatever the theme and the board background. `--shadow-pop` and
+/* Cards are paper (D67): Wikanvas's light palette whatever the theme and the board background. `--shadow-pop` and
    `--focus` are computed from the palette at :root, so they are re-declared here too (a selected image's ring). */
 .board-embed-card {
   color-scheme: light;
@@ -400,14 +400,14 @@ s.board-embed-card-title {
   overscroll-behavior: contain;
 }
 
-.board-embed-body .quire-editor {
+.board-embed-body .wikanvas-editor {
   min-height: 0;
   padding: 0;
 }
 
 .board-embed-editor,
-.board-embed-editor .quire-editor-shell,
-.board-embed-editor .quire-editor {
+.board-embed-editor .wikanvas-editor-shell,
+.board-embed-editor .wikanvas-editor {
   min-height: 100%;
 }
 
@@ -425,7 +425,7 @@ s.board-embed-card-title {
 }
 
 /* The editing card's popups (slash, mention, bubble and table menus): above the frame layer and the top bar; moved
-   into the frame layer while it is full screen. They follow the Quire theme. */
+   into the frame layer while it is full screen. They follow the Wikanvas theme. */
 .board-embed-popups {
   position: fixed;
   inset: 0;

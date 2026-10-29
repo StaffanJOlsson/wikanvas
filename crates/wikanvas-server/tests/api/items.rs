@@ -5,7 +5,7 @@
 //! `lists`, `search`).
 
 use axum::http::StatusCode;
-use quire_api::{
+use wikanvas_api::{
     Collection, ErrorCode, ItemDetail, ItemSummary, ItemText, ListedItem, Page, RestoredItem,
     Scope, Sidebar,
 };
@@ -494,7 +494,7 @@ async fn text_returns_derived_body() {
     let id = doc.id.to_string();
     app.state
         .db
-        .write(move |tx| quire_store::shared::set_body_text(tx, &id, "first line\nsecond line"))
+        .write(move |tx| wikanvas_store::shared::set_body_text(tx, &id, "first line\nsecond line"))
         .await
         .unwrap();
     let text: ItemText = app

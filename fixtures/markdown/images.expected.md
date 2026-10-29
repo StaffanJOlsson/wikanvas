@@ -8,8 +8,8 @@ Text before  and after.
 
 ![inline](https://example.com/inline.png)
 
-![Board C](quire://item/0192f0a0-3333-7000-8000-00000000000c)
+![Board C](wikanvas://item/0192f0a0-3333-7000-8000-00000000000c)
 
-[@Doc A](quire://item/0192f0a0-1111-7000-8000-00000000000a)
+[@Doc A](wikanvas://item/0192f0a0-1111-7000-8000-00000000000a)
 
 Unsafe

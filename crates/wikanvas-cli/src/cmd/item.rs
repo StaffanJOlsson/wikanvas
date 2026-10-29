@@ -1,4 +1,4 @@
-//! The `quire item` commands (owner: W8)
+//! The `wikanvas item` commands (owner: W8)
 
 use serde_json::value::RawValue;
 use serde_json::{Map, Value, json};

@@ -2,7 +2,8 @@
 [build]
 jobs = 6
 
-# ts-rs writes the TypeScript bindings of quire-api here (`cargo test -p quire-api export_bindings`, ARCHITECTURE §3).
+# ts-rs writes the TypeScript bindings of wikanvas-api here (`cargo test -p wikanvas-api export_bindings`,
+# ARCHITECTURE §3).
 [env]
 TS_RS_EXPORT_DIR = { value = "web/src/api/gen", relative = true }
 # JSON numbers are JavaScript numbers: i64/u64 fields are exported as `number`, not `bigint`.

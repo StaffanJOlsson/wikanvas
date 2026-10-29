@@ -1,17 +1,18 @@
 //! Configuration: flags, environment and the profile file; URL and token resolved as a pair (owner: W8)
 //!
 //! §7.6 "Configuration". With `--profile P`: URL = `--url`, else P's `url`; token = `--token-stdin` or
-//! `--token-file`, else P's token only when the URL is P's; `QUIRE_URL`, `QUIRE_TOKEN` and `QUIRE_TOKEN_FILE` are
-//! ignored. Otherwise: URL = `--url`, `QUIRE_URL`, the profile named by `QUIRE_PROFILE` or `default_profile`, or
-//! (inside the server container) `QUIRE_LISTEN`'s port on 127.0.0.1; token = `--token-stdin`, `--token-file`,
-//! `QUIRE_TOKEN`, `QUIRE_TOKEN_FILE`, then that profile's token only when the URL is the profile's. A URL counts as
-//! the profile's when it came from the profile or names the same origin. A profile token that would pair with a
+//! `--token-file`, else P's token only when the URL is P's; `WIKANVAS_URL`, `WIKANVAS_TOKEN` and `WIKANVAS_TOKEN_FILE`
+//! are ignored. Otherwise: URL = `--url`, `WIKANVAS_URL`, the profile named by `WIKANVAS_PROFILE` or `default_profile`,
+//! or (inside the server container) `WIKANVAS_LISTEN`'s port on 127.0.0.1; token = `--token-stdin`, `--token-file`,
+//! `WIKANVAS_TOKEN`, `WIKANVAS_TOKEN_FILE`, then that profile's token only when the URL is the profile's. A URL counts
+//! as the profile's when it came from the profile or names the same origin. A profile token that would pair with a
 //! foreign URL is exit 3 ("token not bound to this URL"). Every token is checked offline (`token::check`) before any
 //! request.
 //!
-//! The profile file is `QUIRE_CONFIG`, else `$XDG_CONFIG_HOME/quire/config.toml` (`~/.config/quire/config.toml`).
-//! A file that holds a `token` and is readable by group or others is refused; a group-readable token file only
-//! warns. The CLI creates the directory 0700 and writes the file as a 0600 temporary file renamed into place.
+//! The profile file is `WIKANVAS_CONFIG`, else `$XDG_CONFIG_HOME/wikanvas/config.toml`
+//! (`~/.config/wikanvas/config.toml`). A file that holds a `token` and is readable by group or others is refused; a
+//! group-readable token file only warns. The CLI creates the directory 0700 and writes the file as a 0600 temporary
+//! file renamed into place.
 
 use std::collections::{BTreeMap, HashMap};
 use std::fs::{self, DirBuilder, OpenOptions};
@@ -34,14 +35,14 @@ pub struct Env {
 }
 
 const NAMES: &[&str] = &[
-    "QUIRE_URL",
-    "QUIRE_TOKEN",
-    "QUIRE_TOKEN_FILE",
-    "QUIRE_PROFILE",
-    "QUIRE_CONFIG",
-    "QUIRE_LISTEN",
-    "QUIRE_CA_FILE",
-    "QUIRE_ALLOW_HTTP",
+    "WIKANVAS_URL",
+    "WIKANVAS_TOKEN",
+    "WIKANVAS_TOKEN_FILE",
+    "WIKANVAS_PROFILE",
+    "WIKANVAS_CONFIG",
+    "WIKANVAS_LISTEN",
+    "WIKANVAS_CA_FILE",
+    "WIKANVAS_ALLOW_HTTP",
     "SSL_CERT_FILE",
 ];
 
@@ -84,7 +85,7 @@ pub enum Scheme {
     Https,
 }
 
-/// A Quire URL: `scheme://host[:port]`, with no path, query or user info.
+/// A Wikanvas URL: `scheme://host[:port]`, with no path, query or user info.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Origin {
     pub scheme: Scheme,
@@ -104,7 +105,7 @@ impl Origin {
             (Scheme::Http, rest)
         } else {
             return Err(format!(
-                "{input:?} is not a Quire URL: it starts with https:// (or http://)"
+                "{input:?} is not a Wikanvas URL: it starts with https:// (or http://)"
             ));
         };
         let authority = rest.strip_suffix('/').unwrap_or(rest);
@@ -114,7 +115,7 @@ impl Origin {
         if authority.contains(['/', '?', '#', '@', '\\']) || authority.contains(char::is_whitespace)
         {
             return Err(format!(
-                "{input:?} is not a Quire URL: use scheme://host[:port], with no path, query or user"
+                "{input:?} is not a Wikanvas URL: use scheme://host[:port], with no path, query or user"
             ));
         }
         let (host, port) = if let Some(v6) = authority.strip_prefix('[') {
@@ -187,12 +188,12 @@ fn strip_prefix_ci<'a>(s: &'a str, prefix: &str) -> Option<&'a str> {
         .then(|| &s[prefix.len()..])
 }
 
-/// The default URL inside the server container: `QUIRE_LISTEN`'s port on 127.0.0.1 when it listens on every
-/// address (`0.0.0.0` in the image), otherwise the address itself (the rule of `quire-server healthcheck`).
+/// The default URL inside the server container: `WIKANVAS_LISTEN`'s port on 127.0.0.1 when it listens on every
+/// address (`0.0.0.0` in the image), otherwise the address itself (the rule of `wikanvas-server healthcheck`).
 fn listen_origin(listen: &str) -> Result<Origin, String> {
     let addr: SocketAddr = listen
         .parse()
-        .map_err(|_| format!("QUIRE_LISTEN={listen:?} is not an address such as 0.0.0.0:8080"))?;
+        .map_err(|_| format!("WIKANVAS_LISTEN={listen:?} is not an address such as 0.0.0.0:8080"))?;
     let ip = match addr.ip() {
         ip if ip.is_unspecified() => IpAddr::V4(Ipv4Addr::LOCALHOST),
         ip => ip,
@@ -228,18 +229,18 @@ pub struct Profile {
     pub allow_http: Option<bool>,
 }
 
-/// The profile file's path: `QUIRE_CONFIG`, else `$XDG_CONFIG_HOME/quire/config.toml`.
+/// The profile file's path: `WIKANVAS_CONFIG`, else `$XDG_CONFIG_HOME/wikanvas/config.toml`.
 pub fn config_path(env: &Env) -> Result<PathBuf, Failure> {
-    if let Some(path) = env.get("QUIRE_CONFIG") {
+    if let Some(path) = env.get("WIKANVAS_CONFIG") {
         return Ok(PathBuf::from(path));
     }
     use etcetera::BaseStrategy as _;
     let base = etcetera::choose_base_strategy().map_err(|e| {
         Failure::config(format!(
-            "no config directory ({e}): set QUIRE_CONFIG or HOME"
+            "no config directory ({e}): set WIKANVAS_CONFIG or HOME"
         ))
     })?;
-    Ok(base.config_dir().join("quire").join("config.toml"))
+    Ok(base.config_dir().join("wikanvas").join("config.toml"))
 }
 
 /// Whether group or others may read the file.
@@ -442,21 +443,21 @@ pub fn write_secret(path: &Path, secret: &str) -> Result<(), Failure> {
 
 // ------------------------------------------------------------------------------------------------- resolution
 
-/// The URL and token the CLI uses, with where they came from (`quire config show`).
+/// The URL and token the CLI uses, with where they came from (`wikanvas config show`).
 #[derive(Clone, Debug, Default)]
 pub struct Resolved {
     /// The profile file.
     pub path: PathBuf,
-    /// The profile in play: `--profile`, `QUIRE_PROFILE` or `default_profile`.
+    /// The profile in play: `--profile`, `WIKANVAS_PROFILE` or `default_profile`.
     pub profile: Option<String>,
     pub url: Option<Origin>,
-    /// `--url`, `QUIRE_URL`, `profile` or `QUIRE_LISTEN`.
+    /// `--url`, `WIKANVAS_URL`, `profile` or `WIKANVAS_LISTEN`.
     pub url_source: Option<&'static str>,
     pub token: Option<String>,
-    /// `--token-stdin`, `--token-file`, `QUIRE_TOKEN`, `QUIRE_TOKEN_FILE` or `profile`.
+    /// `--token-stdin`, `--token-file`, `WIKANVAS_TOKEN`, `WIKANVAS_TOKEN_FILE` or `profile`.
     pub token_source: Option<&'static str>,
     pub ca_file: Option<PathBuf>,
-    /// `QUIRE_ALLOW_HTTP=1`, or the profile's `allow_http = true` (when the URL is the profile's).
+    /// `WIKANVAS_ALLOW_HTTP=1`, or the profile's `allow_http = true` (when the URL is the profile's).
     pub allow_http: bool,
 }
 
@@ -497,12 +498,12 @@ pub fn read_token_file(path: &Path, what: &str) -> Result<String, Failure> {
 }
 
 pub fn check_token(token: &str, source: &str) -> Result<(), Failure> {
-    quire_api::token::check(token).map_err(|e| {
+    wikanvas_api::token::check(token).map_err(|e| {
         let reason = match e {
-            quire_api::token::TokenFormatError::Prefix => "prefix",
-            quire_api::token::TokenFormatError::Length => "length",
-            quire_api::token::TokenFormatError::Alphabet => "alphabet",
-            quire_api::token::TokenFormatError::Checksum => "checksum",
+            wikanvas_api::token::TokenFormatError::Prefix => "prefix",
+            wikanvas_api::token::TokenFormatError::Length => "length",
+            wikanvas_api::token::TokenFormatError::Alphabet => "alphabet",
+            wikanvas_api::token::TokenFormatError::Checksum => "checksum",
         };
         Failure::cli(
             "cli_config",
@@ -518,7 +519,7 @@ pub fn resolve(
     env: &Env,
     read_stdin: impl FnOnce() -> std::io::Result<String>,
 ) -> Result<Resolved, Failure> {
-    // Without a config directory (no HOME, no QUIRE_CONFIG) there is no profile file; the environment still works.
+    // Without a config directory (no HOME, no WIKANVAS_CONFIG) there is no profile file; the environment still works.
     let (path, file) = match config_path(env) {
         Ok(p) => {
             let f = load(&p)?;
@@ -539,8 +540,8 @@ pub fn resolve(
             }
         },
         None => {
-            let (name, from) = match env.get("QUIRE_PROFILE") {
-                Some(n) => (Some(n.to_owned()), "QUIRE_PROFILE"),
+            let (name, from) = match env.get("WIKANVAS_PROFILE") {
+                Some(n) => (Some(n.to_owned()), "WIKANVAS_PROFILE"),
                 None => (file.default_profile.clone(), "default_profile"),
             };
             match name {
@@ -574,17 +575,17 @@ pub fn resolve(
     let (url, url_source) = if let Some(u) = g.url.as_deref() {
         (Some(parse_url(u, "--url")?), Some("--url"))
     } else if explicit.is_none()
-        && let Some(u) = env.get("QUIRE_URL")
+        && let Some(u) = env.get("WIKANVAS_URL")
     {
-        (Some(parse_url(u, "QUIRE_URL")?), Some("QUIRE_URL"))
+        (Some(parse_url(u, "WIKANVAS_URL")?), Some("WIKANVAS_URL"))
     } else if let Some(u) = &profile_url {
         (Some(u.clone()), Some("profile"))
     } else if explicit.is_none()
-        && let Some(listen) = env.get("QUIRE_LISTEN")
+        && let Some(listen) = env.get("WIKANVAS_LISTEN")
     {
         (
             Some(listen_origin(listen).map_err(Failure::config)?),
-            Some("QUIRE_LISTEN"),
+            Some("WIKANVAS_LISTEN"),
         )
     } else {
         (None, None)
@@ -608,15 +609,15 @@ pub fn resolve(
             Some("--token-file"),
         )
     } else if explicit.is_none()
-        && let Some(t) = env.get("QUIRE_TOKEN")
+        && let Some(t) = env.get("WIKANVAS_TOKEN")
     {
-        (Some(t.trim().to_owned()), Some("QUIRE_TOKEN"))
+        (Some(t.trim().to_owned()), Some("WIKANVAS_TOKEN"))
     } else if explicit.is_none()
-        && let Some(f) = env.get("QUIRE_TOKEN_FILE")
+        && let Some(f) = env.get("WIKANVAS_TOKEN_FILE")
     {
         (
-            Some(read_token_file(Path::new(f), "QUIRE_TOKEN_FILE")?),
-            Some("QUIRE_TOKEN_FILE"),
+            Some(read_token_file(Path::new(f), "WIKANVAS_TOKEN_FILE")?),
+            Some("WIKANVAS_TOKEN_FILE"),
         )
     } else if let Some(p) = profile.filter(|p| p.token.is_some() || p.token_file.is_some()) {
         let name = profile_name.as_deref().unwrap_or_default();
@@ -662,11 +663,11 @@ pub fn resolve(
     let ca_file = g
         .ca_file
         .clone()
-        .or_else(|| env.get("QUIRE_CA_FILE").map(PathBuf::from))
+        .or_else(|| env.get("WIKANVAS_CA_FILE").map(PathBuf::from))
         .or_else(|| profile.filter(|_| bound).and_then(|p| p.ca_file.clone()));
-    let allow_http = matches!(env.get("QUIRE_ALLOW_HTTP"), Some("1" | "true"))
+    let allow_http = matches!(env.get("WIKANVAS_ALLOW_HTTP"), Some("1" | "true"))
         || (bound && profile.and_then(|p| p.allow_http) == Some(true))
-        || url_source == Some("QUIRE_LISTEN");
+        || url_source == Some("WIKANVAS_LISTEN");
 
     Ok(Resolved {
         path,
@@ -685,7 +686,7 @@ mod tests {
     use super::*;
 
     fn token(seed: u8) -> String {
-        quire_api::token::encode(&[seed; 32])
+        wikanvas_api::token::encode(&[seed; 32])
     }
 
     struct Dir(tempfile::TempDir);
@@ -706,7 +707,7 @@ mod tests {
     fn g(list: &[&str]) -> GlobalArgs {
         use clap::Parser;
         crate::args::Cli::try_parse_from(
-            std::iter::once("quire")
+            std::iter::once("wikanvas")
                 .chain(list.iter().copied())
                 .chain(["config", "show"]),
         )
@@ -773,7 +774,7 @@ mod tests {
         // The default profile.
         let r = resolve(
             &g(&[]),
-            &Env::from_pairs(&[("QUIRE_CONFIG", &cfg)]),
+            &Env::from_pairs(&[("WIKANVAS_CONFIG", &cfg)]),
             no_stdin,
         )
         .unwrap();
@@ -783,30 +784,30 @@ mod tests {
             (Some("profile"), Some("profile"))
         );
         assert_eq!(r.token.as_deref(), Some(a.as_str()));
-        // QUIRE_PROFILE picks another one.
-        let env = Env::from_pairs(&[("QUIRE_CONFIG", &cfg), ("QUIRE_PROFILE", "work")]);
+        // WIKANVAS_PROFILE picks another one.
+        let env = Env::from_pairs(&[("WIKANVAS_CONFIG", &cfg), ("WIKANVAS_PROFILE", "work")]);
         let r = resolve(&g(&[]), &env, no_stdin).unwrap();
         assert_eq!(r.token.as_deref(), Some(b.as_str()));
         // A foreign URL never gets the profile's token.
         let env = Env::from_pairs(&[
-            ("QUIRE_CONFIG", &cfg),
-            ("QUIRE_URL", "https://evil.example"),
+            ("WIKANVAS_CONFIG", &cfg),
+            ("WIKANVAS_URL", "https://evil.example"),
         ]);
         let err = resolve(&g(&[]), &env, no_stdin).unwrap_err();
-        assert_eq!(err.exit, quire_api::cli::ExitCode::Configuration);
+        assert_eq!(err.exit, wikanvas_api::cli::ExitCode::Configuration);
         assert!(err.message().contains("not bound"), "{}", err.message());
         // The same origin is the profile's URL.
         let env = Env::from_pairs(&[
-            ("QUIRE_CONFIG", &cfg),
-            ("QUIRE_URL", "https://HOME.example/"),
+            ("WIKANVAS_CONFIG", &cfg),
+            ("WIKANVAS_URL", "https://HOME.example/"),
         ]);
         let r = resolve(&g(&[]), &env, no_stdin).unwrap();
         assert_eq!(r.token_source, Some("profile"));
-        // An explicit --profile beats QUIRE_URL and QUIRE_TOKEN.
+        // An explicit --profile beats WIKANVAS_URL and WIKANVAS_TOKEN.
         let env = Env::from_pairs(&[
-            ("QUIRE_CONFIG", &cfg),
-            ("QUIRE_URL", "https://evil.example"),
-            ("QUIRE_TOKEN", &a),
+            ("WIKANVAS_CONFIG", &cfg),
+            ("WIKANVAS_URL", "https://evil.example"),
+            ("WIKANVAS_TOKEN", &a),
         ]);
         let r = resolve(&g(&["--profile", "work"]), &env, no_stdin).unwrap();
         assert_eq!(r.url.unwrap().base(), "https://work.example");
@@ -818,12 +819,12 @@ mod tests {
             no_stdin,
         )
         .unwrap_err();
-        assert_eq!(err.exit, quire_api::cli::ExitCode::Configuration);
+        assert_eq!(err.exit, wikanvas_api::cli::ExitCode::Configuration);
         // An explicit token pairs with any URL.
         let r = resolve(&g(&["--url", "https://x.example"]), &env, no_stdin).unwrap();
         assert_eq!(
             (r.url_source, r.token_source),
-            (Some("--url"), Some("QUIRE_TOKEN"))
+            (Some("--url"), Some("WIKANVAS_TOKEN"))
         );
         // --token-stdin.
         let r = resolve(&g(&["--token-stdin"]), &env, || Ok(format!("{b}\n"))).unwrap();
@@ -841,15 +842,15 @@ mod tests {
         let cfg = d.0.path().join("none.toml").to_string_lossy().into_owned();
         let r = resolve(
             &g(&[]),
-            &Env::from_pairs(&[("QUIRE_CONFIG", &cfg)]),
+            &Env::from_pairs(&[("WIKANVAS_CONFIG", &cfg)]),
             no_stdin,
         )
         .unwrap();
         assert!(r.url.is_none() && r.token.is_none());
-        let env = Env::from_pairs(&[("QUIRE_CONFIG", &cfg), ("QUIRE_LISTEN", "0.0.0.0:8080")]);
+        let env = Env::from_pairs(&[("WIKANVAS_CONFIG", &cfg), ("WIKANVAS_LISTEN", "0.0.0.0:8080")]);
         let r = resolve(&g(&[]), &env, no_stdin).unwrap();
         assert_eq!(r.url.unwrap().base(), "http://127.0.0.1:8080");
-        assert_eq!(r.url_source, Some("QUIRE_LISTEN"));
+        assert_eq!(r.url_source, Some("WIKANVAS_LISTEN"));
         assert!(r.allow_http);
     }
 
@@ -857,9 +858,9 @@ mod tests {
     fn malformed_and_unreadable() {
         let d = dir();
         let cfg = d.config("[profiles.a]\nurl = \"https://a.example\"\n");
-        let env = Env::from_pairs(&[("QUIRE_CONFIG", &cfg), ("QUIRE_TOKEN", "qpat_short")]);
+        let env = Env::from_pairs(&[("WIKANVAS_CONFIG", &cfg), ("WIKANVAS_TOKEN", "qpat_short")]);
         let err = resolve(&g(&[]), &env, no_stdin).unwrap_err();
-        assert_eq!(err.exit, quire_api::cli::ExitCode::Configuration);
+        assert_eq!(err.exit, wikanvas_api::cli::ExitCode::Configuration);
         assert_eq!(err.line()["error"]["details"]["reason"], "length");
         let with_token = d.config(&format!(
             "[profiles.a]\nurl = \"https://a.example\"\ntoken = \"{}\"\n",
@@ -868,7 +869,7 @@ mod tests {
         fs::set_permissions(&with_token, fs::Permissions::from_mode(0o640)).unwrap();
         let err = resolve(
             &g(&[]),
-            &Env::from_pairs(&[("QUIRE_CONFIG", &with_token)]),
+            &Env::from_pairs(&[("WIKANVAS_CONFIG", &with_token)]),
             no_stdin,
         )
         .unwrap_err();

@@ -1,9 +1,10 @@
 services:
-  quire:
+  wikanvas:
     volumes: !override
       # mode 1777 lets uid 65532 write: without it the tmpfs takes the image's /data mode (0755) with owner root.
       - { type: tmpfs, target: /data, tmpfs: { size: 268435456, mode: 0o1777 } }   # charged to mem_limit
     environment:
-      QUIRE_SETUP_TOKEN: e2e-setup-code
-      QUIRE_PUBLIC_URL: http://quire:8080      # direct, plain HTTP: the session cookie is quire_session (§8)
-    cgroup_parent: ${QUIRE_CGROUP_PARENT:-}    # quire-build.slice when installed (scripts/lib/slice.sh); else own caps
+      WIKANVAS_SETUP_TOKEN: e2e-setup-code
+      WIKANVAS_PUBLIC_URL: http://wikanvas:8080      # direct, plain HTTP: the session cookie is wikanvas_session (§8)
+    # wikanvas-build.slice when installed (scripts/lib/slice.sh); else own caps
+    cgroup_parent: ${WIKANVAS_CGROUP_PARENT:-}

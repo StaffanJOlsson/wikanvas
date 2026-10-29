@@ -1,5 +1,5 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: quire <quire@localhost>
+From: wikanvas <wikanvas@localhost>
 Date: Wed, 28 Oct 2026 13:51:55 +0100
 Subject: [PATCH 2/6] embed: js api
 
@@ -43,7 +43,7 @@ index 075c3ad..df30aa4 100644
 --- a/crates/inkboard-app/Cargo.toml
 +++ b/crates/inkboard-app/Cargo.toml
 @@ -1,3 +1,4 @@
-+# Changed for Quire (embed feature): see patches/inkboard/README.md
++# Changed for Wikanvas (embed feature): see patches/inkboard/README.md
  [package]
  name = "inkboard-app"
  description = "Inkboard desktop application (egui)."
@@ -62,7 +62,7 @@ index 7ce0815..e54512d 100644
 --- a/crates/inkboard-app/src/app.rs
 +++ b/crates/inkboard-app/src/app.rs
 @@ -1,3 +1,4 @@
-+// Changed for Quire (embed feature): see patches/inkboard/README.md
++// Changed for Wikanvas (embed feature): see patches/inkboard/README.md
  //! Application state, files, keyboard shortcuts and the main loop.
  
  use crate::fonts::{self, EguiMeasurer};
@@ -293,7 +293,7 @@ index fb79e6f..9d4d5f4 100644
 --- a/crates/inkboard-app/src/chrome.rs
 +++ b/crates/inkboard-app/src/chrome.rs
 @@ -1,3 +1,4 @@
-+// Changed for Quire (embed feature): see patches/inkboard/README.md
++// Changed for Wikanvas (embed feature): see patches/inkboard/README.md
  //! Application frame: floating cards above the full-screen canvas, like the web prototype
  //! (title bar and menu top left, tools top center, undo/zoom bottom left, help bottom right).
  
@@ -417,7 +417,7 @@ index 0000000..cea5dc4
 --- /dev/null
 +++ b/crates/inkboard-app/src/embed.rs
 @@ -0,0 +1,429 @@
-+// Changed for Quire (embed feature): see patches/inkboard/README.md
++// Changed for Wikanvas (embed feature): see patches/inkboard/README.md
 +//! JS API of the `embed` feature, for a page that shows a board inside its own interface and owns the file: the wasm `main`
 +//! installs `globalThis.inkboardEmbed` instead of starting the page of its own (`web.rs`). See `docs/WEB.md`, "Embedding".
 +//!
@@ -851,7 +851,7 @@ index 20f1319..f1d2f87 100644
 --- a/crates/inkboard-app/src/main.rs
 +++ b/crates/inkboard-app/src/main.rs
 @@ -1,3 +1,4 @@
-+// Changed for Quire (embed feature): see patches/inkboard/README.md
++// Changed for Wikanvas (embed feature): see patches/inkboard/README.md
  //! Inkboard desktop application (egui).
  // Test code counts, casts and compares freely: these `clippy::pedantic` lints are for the code that ships.
  #![cfg_attr(
@@ -889,7 +889,7 @@ index 1e979b4..de5822b 100644
 --- a/crates/inkboard-app/src/platform_web.rs
 +++ b/crates/inkboard-app/src/platform_web.rs
 @@ -1,7 +1,8 @@
-+// Changed for Quire (embed feature): see patches/inkboard/README.md
++// Changed for Wikanvas (embed feature): see patches/inkboard/README.md
  //! Browser side of [`crate::platform`].
  //!
  //! What the browser delivers late (a picked file, a pasted image, the downloaded icon pack) is queued here, then taken by
@@ -954,7 +954,7 @@ index 78695b6..e7f25de 100644
 --- a/crates/inkboard-app/src/session_guest.rs
 +++ b/crates/inkboard-app/src/session_guest.rs
 @@ -1,3 +1,4 @@
-+// Changed for Quire (embed feature): see patches/inkboard/README.md
++// Changed for Wikanvas (embed feature): see patches/inkboard/README.md
  //! Guest side of a shared session (lot D): joining by link, the mirror of the host's board, reconnection, network-failure diagnosis.
  //!
  //! `GuestSession` is independent of the interface and of the real network: it speaks to the host through a [`GuestLink`] (any
@@ -976,7 +976,7 @@ index c9ab247..b2b734b 100644
 --- a/crates/inkboard-app/src/web.rs
 +++ b/crates/inkboard-app/src/web.rs
 @@ -1,3 +1,4 @@
-+// Changed for Quire (embed feature): see patches/inkboard/README.md
++// Changed for Wikanvas (embed feature): see patches/inkboard/README.md
  //! Web entry point: mounts the application on the `<canvas id="inkboard_canvas">` of `web/index.html`.
  //!
  //! The page owns the "loading" indicator (`#loading`) and the error messages (`#error`, shown with `data-case="webgl"` or

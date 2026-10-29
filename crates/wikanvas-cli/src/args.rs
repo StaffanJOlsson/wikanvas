@@ -1,23 +1,23 @@
 //! The clap command tree of ARCHITECTURE §7.6 (owner: W8)
 //!
 //! The table of §7.6 is the contract for agents (R3): every command, flag and value below is part of it, and
-//! `quire help --json` prints the same tree. Environment variables and the profile file are read by `config` (the URL
-//! and the token resolve as a pair), never by clap.
+//! `wikanvas help --json` prints the same tree. Environment variables and the profile file are read by `config` (the
+//! URL and the token resolve as a pair), never by clap.
 
 use std::ffi::OsString;
 use std::path::PathBuf;
 
 use clap::{ArgAction, ArgGroup, Args, ColorChoice, Parser, Subcommand};
-use quire_api::cli::ExitCode;
+use wikanvas_api::cli::ExitCode;
 
 use crate::output;
 
-/// `quire`: the command-line client for Quire's HTTP API.
+/// `wikanvas`: the command-line client for Wikanvas's HTTP API.
 #[derive(Debug, Parser)]
 #[command(
-    name = "quire",
+    name = "wikanvas",
     version,
-    about = "The command-line client for Quire's HTTP API (/api/v1)",
+    about = "The command-line client for Wikanvas's HTTP API (/api/v1)",
     color = ColorChoice::Never,
     subcommand_required = true,
     arg_required_else_help = true,
@@ -37,11 +37,11 @@ pub struct GlobalArgs {
     #[arg(long, global = true, action = ArgAction::SetTrue)]
     pub json: bool,
 
-    /// The Quire URL, e.g. https://wiki.example.org (overrides QUIRE_URL and the profile's url)
+    /// The Wikanvas URL, e.g. https://wiki.example.org (overrides WIKANVAS_URL and the profile's url)
     #[arg(long, global = true, value_name = "URL")]
     pub url: Option<String>,
 
-    /// The profile of the config file to use (QUIRE_URL, QUIRE_TOKEN and QUIRE_TOKEN_FILE are then ignored)
+    /// The profile of the config file to use (WIKANVAS_URL, WIKANVAS_TOKEN and WIKANVAS_TOKEN_FILE are then ignored)
     #[arg(long, global = true, value_name = "NAME")]
     pub profile: Option<String>,
 
@@ -61,7 +61,7 @@ pub struct GlobalArgs {
     #[arg(long, global = true, value_name = "N", default_value_t = 2)]
     pub retries: u32,
 
-    /// Trust only the CA certificates in this PEM file (overrides QUIRE_CA_FILE and the system bundle)
+    /// Trust only the CA certificates in this PEM file (overrides WIKANVAS_CA_FILE and the system bundle)
     #[arg(long, global = true, value_name = "FILE")]
     pub ca_file: Option<PathBuf>,
 
@@ -127,13 +127,13 @@ pub enum Command {
     Backup,
     /// Call any API route, with auth, retries and error mapping
     Api(ApiArgs),
-    /// Run `quire-server admin …` (ARCHITECTURE §7.8)
+    /// Run `wikanvas-server admin …` (ARCHITECTURE §7.8)
     Admin(AdminArgs),
     /// The CLI's and the server's versions
     Version,
     /// Print the exit-code table (§7.7)
     ExitCodes,
-    /// Help for quire or one of its commands; --json prints the whole command tree
+    /// Help for wikanvas or one of its commands; --json prints the whole command tree
     Help(HelpArgs),
 }
 
@@ -282,7 +282,7 @@ pub enum WorkspaceCmd {
 pub struct WorkspaceSet {
     #[arg(long, value_name = "NAME")]
     pub name: Option<String>,
-    /// An attachment id (from `quire attachment upload`)
+    /// An attachment id (from `wikanvas attachment upload`)
     #[arg(long, value_name = "ATTACHMENT", conflicts_with = "no_logo")]
     pub logo: Option<String>,
     /// Remove the logo
@@ -314,7 +314,7 @@ pub enum CollectionCmd {
 
 #[derive(Debug, Args)]
 pub struct CollectionArg {
-    /// A UUID, url_id or Quire URL
+    /// A UUID, url_id or Wikanvas URL
     #[arg(value_name = "COLLECTION")]
     pub collection: String,
 }
@@ -402,7 +402,7 @@ pub enum ItemCmd {
 
 #[derive(Debug, Args)]
 pub struct ItemArg {
-    /// A UUID, url_id or Quire URL
+    /// A UUID, url_id or Wikanvas URL
     #[arg(value_name = "ITEM")]
     pub item: String,
 }
@@ -478,7 +478,7 @@ pub struct ItemTrash {
 
 #[derive(Debug, Args)]
 pub struct TreeArgs {
-    /// A UUID, url_id or Quire URL
+    /// A UUID, url_id or Wikanvas URL
     #[arg(value_name = "COLLECTION")]
     pub collection: String,
 }
@@ -719,7 +719,7 @@ pub struct ApiArgs {
 
 #[derive(Debug, Args)]
 pub struct AdminArgs {
-    /// The arguments of `quire-server admin`, e.g. create-token --name ci --scope write
+    /// The arguments of `wikanvas-server admin`, e.g. create-token --name ci --scope write
     #[arg(value_name = "ARGS", trailing_var_arg = true, allow_hyphen_values = true, num_args = 0..)]
     pub args: Vec<OsString>,
 }
@@ -828,7 +828,7 @@ mod tests {
     use clap::error::ErrorKind;
 
     fn parse_from(list: &[&str]) -> Result<Cli, clap::Error> {
-        Cli::try_parse_from(std::iter::once("quire").chain(list.iter().copied()))
+        Cli::try_parse_from(std::iter::once("wikanvas").chain(list.iter().copied()))
     }
 
     #[test]
@@ -874,7 +874,7 @@ mod tests {
             "--profile",
             "home",
             "--token-file",
-            "/run/secrets/quire-token",
+            "/run/secrets/wikanvas-token",
             "--timeout",
             "5",
             "--retries",
@@ -888,7 +888,7 @@ mod tests {
         assert_eq!(g.profile.as_deref(), Some("home"));
         assert_eq!(
             g.token_file.as_deref(),
-            Some(std::path::Path::new("/run/secrets/quire-token"))
+            Some(std::path::Path::new("/run/secrets/wikanvas-token"))
         );
         assert_eq!(g.timeout, Some(5));
         assert_eq!(g.retries, 4);
@@ -952,7 +952,7 @@ mod tests {
     fn doc_put_json_input_and_global_json() {
         let parse = |list: &[&str]| {
             try_parse_from(
-                std::iter::once("quire")
+                std::iter::once("wikanvas")
                     .chain(list.iter().copied())
                     .map(OsString::from)
                     .collect(),

@@ -36,7 +36,7 @@ expect_rc 0
 expect '.item.title == "From the heading"'
 ok "--title-h1 sets the title"
 
-# The goldens were made against W4's GoldenLookup (crates/quire-core/src/convert/tests.rs): the documents "Doc A" and
+# The goldens were made against W4's GoldenLookup (crates/wikanvas-core/src/convert/tests.rs): the documents "Doc A" and
 # "Doc B", the board "Board C", one attachment, and the public origin https://wiki.example.com. Their counterparts are
 # created here, and every golden id, url_id and the origin are mapped to the live ones in the input and in the expected
 # Markdown, so a golden checks link, mention, embed and image resolution against real items. Ids no golden item has
@@ -55,9 +55,9 @@ png="$(fixture pixel.png)" || exit 1
 q attachment upload - --filename pixel.png <"$png"
 expect_rc 0
 printf 's|%s|%s|g\n' 0192f0a0-4444-7000-8000-000000000001 "$(val .id)" >>"$golden_map"
-# The server's public URL (QUIRE_PUBLIC_URL of the project, compose.e2e.yaml), which item URLs in Markdown name.
-public="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$AGENT_CID" | sed -n 's/^QUIRE_PUBLIC_URL=//p')"
-[ -n "$public" ] || _fail "the quire container has no QUIRE_PUBLIC_URL"
+# The server's public URL (WIKANVAS_PUBLIC_URL of the project, compose.e2e.yaml), which item URLs in Markdown name.
+public="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$AGENT_CID" | sed -n 's/^WIKANVAS_PUBLIC_URL=//p')"
+[ -n "$public" ] || _fail "the wikanvas container has no WIKANVAS_PUBLIC_URL"
 printf 's|https://wiki\\.example\\.com|%s|g\n' "$public" >>"$golden_map"
 ok "the goldens' documents, board and attachment exist on the server"
 

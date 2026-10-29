@@ -1,4 +1,4 @@
-# Quire architecture (milestone 1)
+# Wikanvas architecture (milestone 1)
 
 Status: binding for M1 implementation. Paths are relative to the repo root. "Inkboard" is `vendor/inkboard`, a submodule
 pinned at `v0.2.0-beta.3` (`41e0295`). This document is self-contained: the design-stage UX spec and the reader reports
@@ -11,18 +11,18 @@ workstreams' deviations were folded into this document (W7, 2026-10-28). §18 is
 document embeds (owner request of 2026-10-28; D58–D75), built after M1 by PLAN's workstreams E1–E3.
 
 Hard rules (from CLAUDE.md, repeated because they constrain the design):
-- No compiler, bundler or package manager runs on the host. Everything goes through `scripts/dev.sh` (quire-toolchain
+- No compiler, bundler or package manager runs on the host. Everything goes through `scripts/dev.sh` (wikanvas-toolchain
   image, capped at 6 CPU / 12 GB / no swap, pinned to 6 cores, nice 10). Images are built only with
-  `docker buildx build --builder quire-limited`. Git runs on the host; it is not a build tool.
-- Caps are kernel-enforced (§13.1, D38): per container, and in total by the systemd slice `quire-build.slice`. One
+  `docker buildx build --builder wikanvas-limited`. Git runs on the host; it is not a build tool.
+- Caps are kernel-enforced (§13.1, D38): per container, and in total by the systemd slice `wikanvas-build.slice`. One
   capped build runs at a time: `scripts/dev.sh`, `scripts/image.sh`, `scripts/image-smoke.sh`, `scripts/e2e.sh`,
   `scripts/agent-test.sh`, `scripts/cli-dist.sh` and `scripts/toolchain.sh` take one per-user lock.
 - No implementing agent runs `sudo` or any root step. The one privileged step (`scripts/install-build-slice.sh`) is
   prepared as a script and run by the coordinator through the owner's askpass dialog (§13.1).
 - Never build inside `vendor/inkboard`. Inkboard builds run from the patched copy `.cache/inkboard-src` (§10.5).
-- Licensing: Quire is MIT. No code from AGPL or BSL projects (Outline, Lore, Docmost, Wiki.js, Drafft.ink),
+- Licensing: Wikanvas is MIT. No code from AGPL or BSL projects (Outline, Lore, Docmost, Wiki.js, Drafft.ink),
   and no design tokens lifted from them. Code borrowed from GetPaper (MIT) gets a header comment plus an entry in
-  `THIRD_PARTY.md`. A changed Inkboard file gets a "Changed for Quire" notice line (§10.2).
+  `THIRD_PARTY.md`. A changed Inkboard file gets a "Changed for Wikanvas" notice line (§10.2).
 
 ---
 
@@ -39,8 +39,8 @@ CLI so we can have agents testing the tooling"):
 - a **stable, versioned public HTTP API** under `/api/v1` with an OpenAPI 3.1 spec. The web client uses the same API
   with its session cookie; external clients use **personal access tokens** (§7). Documents are readable and writable as
   Markdown and ProseMirror JSON, boards as native Inkboard JSON (§6.4, §7.5);
-- the **`quire` CLI** over that API, with `--json` output and stable exit codes (§7.6, §7.7), and server-side admin
-  commands in `quire-server admin` (§7.8);
+- the **`wikanvas` CLI** over that API, with `--json` output and stable exit codes (§7.6, §7.7), and server-side admin
+  commands in `wikanvas-server admin` (§7.8);
 - an **agent test harness**, `scripts/agent-test.sh`, that runs CLI scenarios against the production image (§14.1).
 
 M1.1 adds **board document embeds** (§18): a text document is placed on a board as a card, shown and edited in
@@ -60,12 +60,12 @@ layout slots (§15).
 
 | # | Decision | Rationale |
 |---|---|---|
-| D1 | Rust 2024, axum 0.8.9, tokio 1.54. One server binary `quire-server` with subcommands `serve`, `healthcheck` and `admin {create-owner, create-token, list-tokens, revoke-token, reset-password, backup, check}` (§7.8); the CLI is a second binary, `quire` (D54, D55) | Single self-hosted server artifact; the distroless image has no shell, so the binary does its own healthcheck. Admin commands need the database, so they live in the server binary. |
+| D1 | Rust 2024, axum 0.8.9, tokio 1.54. One server binary `wikanvas-server` with subcommands `serve`, `healthcheck` and `admin {create-owner, create-token, list-tokens, revoke-token, reset-password, backup, check}` (§7.8); the CLI is a second binary, `wikanvas` (D54, D55) | Single self-hosted server artifact; the distroless image has no shell, so the binary does its own healthcheck. Admin commands need the database, so they live in the server binary. |
 | D2 | **rusqlite 0.40.2** (bundled SQLite with FTS5) plus deadpool-sqlite 0.14: one writer pool of size 1 using `BEGIN IMMEDIATE`, one reader pool of size 4 (`query_only`), and an on-demand **maintenance connection** (same PRAGMAs, no `query_only`, never used for app writes) for `VACUUM INTO`. Not sqlx. rusqlite, deadpool-sqlite and rusqlite_migration must resolve to one `libsqlite3-sys` (W0b checks with `cargo tree -i`). If deadpool-sqlite or rusqlite_migration lag rusqlite 0.40, W0b replaces them with a ~100-line pool in `db.rs` or a `user_version` runner in `migrate.rs` and records it in §16. | Matches SQLite's single-writer model. Gives synchronous transactions for tree logic, and the backup and hooks APIs. Compiles lighter under the 6-CPU cap. `VACUUM INTO` fails with SQLITE_READONLY on a `query_only` connection (checked on SQLite 3.46.1). |
-| D3 | Migrations use `rusqlite_migration` 2.6 `from_directory`: `crates/quire-store/migrations/NNNN-name/up.sql`, embedded with `include_dir`. Until the first release, `0001-init` holds the whole M1 schema and only its owner (W1) edits it (PLAN rule R5). After the first release, migrations are append-only. | No registry file to edit, consecutive numbering, and nothing shipped that would need a migration chain before M1. |
+| D3 | Migrations use `rusqlite_migration` 2.6 `from_directory`: `crates/wikanvas-store/migrations/NNNN-name/up.sql`, embedded with `include_dir`. Until the first release, `0001-init` holds the whole M1 schema and only its owner (W1) edits it (PLAN rule R5). After the first release, migrations are append-only. | No registry file to edit, consecutive numbering, and nothing shipped that would need a migration chain before M1. |
 | D4 | IDs are UUIDv7 TEXT primary keys. Items and collections also get a `url_id` (10 random base62 characters, UNIQUE) used only in URLs | UUIDv7 is standard, sortable and readable in tools. The short id keeps URLs like `/doc/<slug>-<url_id>`. |
 | D5 | Time is stored as INTEGER unix milliseconds and sent in the API as RFC 3339 UTC strings | Cheap comparisons in SQL; unambiguous on the wire. |
-| D6 | Sibling, collection and star order use fractional-index base62 keys generated **on the server** (`quire-core::rank`, a port of the CC0 `fractional-indexing` algorithm). The client sends `{after_id, before_id}`. | A move writes one row. Clients never compute keys, which avoids divergent implementations. |
+| D6 | Sibling, collection and star order use fractional-index base62 keys generated **on the server** (`wikanvas-core::rank`, a port of the CC0 `fractional-indexing` algorithm). The client sends `{after_id, before_id}`. | A move writes one row. Clients never compute keys, which avoids divergent implementations. |
 | D7 | Document bodies are **Yjs (v1 update encoding) from day one**. The client runs TipTap Collaboration with no provider and POSTs incremental updates. The server (yrs 0.28) validates them, appends them to `doc_updates`, compacts, and derives text, links and image references. ProseMirror JSON is only a cache. A save is a no-op only when both the state vector and the delete set are unchanged (§6.1). | The future WebSocket sync writes the same log, so there is never a conversion. Two tabs already merge in M1. A delete-only update moves no clock, so the state vector alone cannot detect a no-op. |
 | D8 | Boards store the **native Inkboard envelope** `{"format":"inkboard","version":2,"document":…}` as received. Image bytes are split out into a sha256 blob store (`board_assets`), and the rest is deflated. | This is the format the engine reads and writes. sha256 is the hash inkboard-session uses for its asset manifest, and the snapshot becomes `Sequencer::new(doc, cap)` for server-owned sync later. |
 | D9 | The server never re-serializes a board through the typed model. It validates with `inkboard_core::serial::from_json` and splices assets on the raw JSON with `serde_json::value::RawValue`. | An engine-version mismatch cannot silently drop unknown fields. Peak memory stays about 3× the body size, because no `serde_json::Value` tree is built. |
@@ -73,56 +73,57 @@ layout slots (§15).
 | D11 | **The board engine runs in one persistent same-origin `<iframe>`** (`/inkboard/{build}/frame.html`) mounted at the app-shell level. It is mounted once and boards are swapped with `setBoard`. Off board routes it is paused (`setActive(false)`). | The iframe isolates Inkboard's page-global listeners (hash stealing, paste stealing), its thread-local singletons, the eframe 0.33 IME `<input>` that scrolls the page, and its keyboard capture. The relative `icons.bin` URL just works. One instance avoids the destroy/remount path. Pausing stops the unconditional 500 ms repaint (`app.rs:1192`). |
 | D12 | The Inkboard patch adds a cargo feature **`embed`** with the JS API `globalThis.inkboardEmbed.mount(canvas, opts) → Promise<Handle>` (§10.3), and an optional feature **`net`** that makes iroh optional. `mount` refuses a second live mount: the engine's state is per-window thread-locals (`platform_web.rs:33-40`). Kept as a patch series in `patches/inkboard/`, applied to a copy; the submodule is never modified. | Small and generic enough to upstream; the pinned submodule stays clean and is easy to rebase. |
 | D13 | **No eframe upgrade in M1** (stays on 0.33.3). The engine is never started or switched while `document.visibilityState` is `hidden` (§10.4), and a frame test covers a dirty board in a background page (§14). | The iframe makes the IME and text-agent fixes of 0.34–0.37 irrelevant. The background-tab texture panic (fixed in 0.36, egui #8313) is triggered by loading in a hidden tab, which the visibility wait avoids. The upgrade touches about 14k lines of Inkboard tests; leave it to upstream. |
-| D14 | The wasm is built **without trunk**: `cargo build` → `wasm-bindgen --target web` → `wasm-opt -Os` (binaryen version_131, installed in the `toolchain-base` stage by W0b), plus a Quire-owned `frame.html`/`frame.js` | Deterministic, with no tool download at build time. The frame page has no inline script, so its CSP needs no hashes. |
-| D15 | Static files are embedded with rust-embed 8.13 in a separate `quire-assets` crate. The build makes brotli and gzip variants; the server picks one from `Accept-Encoding` | Single binary. A frontend change recompiles only the small assets crate. |
-| D16 | Request origin checks: a **Host allowlist** on every route except `/healthz` (blocks DNS rebinding), SameSite=Lax cookie, a Quire CSRF middleware that checks `Sec-Fetch-Site`/`Origin` on cookie-authenticated mutations and rejects those that carry neither header (§8), and mutating bodies never of a CORS-safelisted type (JSON, or a route's declared type such as `text/markdown`). No CSRF token. Requests authenticated by a Quire bearer token skip the CSRF checks (D43). | Equivalent protection for a same-origin SPA, with no token plumbing. Browsers send `Origin` on every non-GET request, and over plain HTTP (no `Sec-Fetch-*`) that rule carries the check; both paths are tested. Non-browser clients use tokens, so a cookie mutation with neither header has no legitimate sender. |
+| D14 | The wasm is built **without trunk**: `cargo build` → `wasm-bindgen --target web` → `wasm-opt -Os` (binaryen version_131, installed in the `toolchain-base` stage by W0b), plus a Wikanvas-owned `frame.html`/`frame.js` | Deterministic, with no tool download at build time. The frame page has no inline script, so its CSP needs no hashes. |
+| D15 | Static files are embedded with rust-embed 8.13 in a separate `wikanvas-assets` crate. The build makes brotli and gzip variants; the server picks one from `Accept-Encoding` | Single binary. A frontend change recompiles only the small assets crate. |
+| D16 | Request origin checks: a **Host allowlist** on every route except `/healthz` (blocks DNS rebinding), SameSite=Lax cookie, a Wikanvas CSRF middleware that checks `Sec-Fetch-Site`/`Origin` on cookie-authenticated mutations and rejects those that carry neither header (§8), and mutating bodies never of a CORS-safelisted type (JSON, or a route's declared type such as `text/markdown`). No CSRF token. Requests authenticated by a Wikanvas bearer token skip the CSRF checks (D43). | Equivalent protection for a same-origin SPA, with no token plumbing. Browsers send `Origin` on every non-GET request, and over plain HTTP (no `Sec-Fetch-*`) that rule carries the check; both paths are tested. Non-browser clients use tokens, so a cookie mutation with neither header has no legitimate sender. |
 | D17 | Passwords use argon2id (`argon2` 0.6 defaults: m=19456 KiB, t=2, p=1) inside `spawn_blocking`, behind a `Semaphore(2)` | Current OWASP baseline. The semaphore bounds memory under the container cap. |
-| D18 | Sessions are opaque 32-byte tokens; only their sha256 is stored. The cookie is `__Host-quire_session; Secure` on a request that arrived over HTTPS (`X-Forwarded-Proto: https` from the trusted proxy, §8, D57), and `quire_session` on a plain-HTTP request | No JWT, and sessions can be revoked. The cookie follows how the browser actually reached Quire, so the direct plain-HTTP paths (e2e, agent harness) keep working. |
-| D19 | First-run setup requires a setup code, printed in the log (or set with `QUIRE_SETUP_TOKEN`). `/api/v1/setup` shares the login per-IP rate limiter. | A fresh container on a LAN cannot be claimed by whoever opens `/setup` first. |
+| D18 | Sessions are opaque 32-byte tokens; only their sha256 is stored. The cookie is `__Host-wikanvas_session; Secure` on a request that arrived over HTTPS (`X-Forwarded-Proto: https` from the trusted proxy, §8, D57), and `wikanvas_session` on a plain-HTTP request | No JWT, and sessions can be revoked. The cookie follows how the browser actually reached Wikanvas, so the direct plain-HTTP paths (e2e, agent harness) keep working. |
+| D19 | First-run setup requires a setup code, printed in the log (or set with `WIKANVAS_SETUP_TOKEN`). `/api/v1/setup` shares the login per-IP rate limiter. | A fresh container on a LAN cannot be claimed by whoever opens `/setup` first. |
 | D20 | Frontend: React 19, TypeScript, Vite 8, React Router (data router), TanStack Query for server state, Zustand for UI state, lucide-react icons (ISC), `@atlaskit/pragmatic-drag-and-drop` (Apache-2.0) | All permissively licensed, small, and well known. |
 | D21 | The sidebar loads **a whole collection's live tree as one flat list** (`GET /api/v1/collections/{id}/tree`, with ETag `"t{tree_version}.{viewer_epoch}"` and 304) and builds the tree on the client. Rows are virtualized when there are more than 300 visible. | One request, and no recursive lazy-load states. Enough for a personal wiki: 5k items is about 150 KB gzipped. `viewer_epoch` is 0 in M1 and becomes a per-user permission epoch later. |
-| D22 | API DTOs are Rust structs in the crate `quire-api` (D40), re-exported as `quire-core::api::*`. They are exported to TypeScript with ts-rs 12 into `web/src/api/gen/` (one file per type, committed) and to the OpenAPI spec with utoipa (D41). CI fails on a diff of either. | One source of truth for the contract between parallel workstreams, the web client, the CLI and external clients. |
+| D22 | API DTOs are Rust structs in the crate `wikanvas-api` (D40), re-exported as `wikanvas-core::api::*`. They are exported to TypeScript with ts-rs 12 into `web/src/api/gen/` (one file per type, committed) and to the OpenAPI spec with utoipa (D41). CI fails on a diff of either. | One source of truth for the contract between parallel workstreams, the web client, the CLI and external clients. |
 | D23 | **Items are published on create** (`published_at = created_at`; owner decision 2026-10-28, §17.3). The draft state stays in the data model and the API, so a Drafts workflow can be switched on with multi-user: `published_at IS NULL` is a draft, which in M1 only `POST …/unpublish` (API or CLI) makes; `POST …/publish` (`with_ancestors` publishes draft ancestors too), `GET /drafts`, `drafts_count` and `include_drafts` work as specified. Visibility is **derived**: an item is *effectively published* when it and every ancestor are published; unpublish, move, restore and unarchive need no publish rules. The M1 web client has no draft UI: no Publish button or step, no Draft pill, no Drafts entry or page, no publish shortcut; an unpublished item looks like any other (single-user visibility ignores publication, §5). When multi-user arrives, new items may start as drafts again, drafts stay private to their author, the draft UI appears with `config.multi_user`, and the upgrade offers "Publish all drafts". | A single owner gains nothing from a Publish step. Keeping the column, routes and derived rule costs little and turns the multi-user workflow into a default change plus UI, not a migration. A derived rule cannot be broken by moves or restores, so nothing needs enforcing. |
 | D24 | Soft states are timestamps (`published_at`, `archived_at`, `deleted_at`) plus a root pointer (`archive_root_id`, `trash_root_id`), so a subtree is restored as one unit. Deleting a collection sets `trash_root_id = <collection id>` on its live items. | Trash, Archive and Drafts are queries. Nothing is copied. |
-| D25 | Runtime container: distroless `cc-debian13:nonroot`, read-only rootfs, `cap_drop: ALL`, **2 CPUs / 1 GiB / no swap / 256 pids** by default (`QUIRE_CPUS=2`, `QUIRE_MEM=1g`, overridable; owner decision 2026-10-28, §17.3). Tokio runs 2 worker threads (one per CPU) and at most 16 blocking threads. Work permits: `board_work` (1) for board GET, PUT and previews; `doc_work` (3), one per document read or Yjs POST, and two at once (`acquire_many(2)`, taken once, before the body is read) for a whole-document PUT (§6.4), so one PUT and one document read can run side by side; `upload_work` (2) for attachment uploads, which stream to `/data/tmp`; export and backup are single-flight (D47). Permits are owned and moved into the blocking work they guard, so a request that is dropped (timeout, client gone) keeps its permit until that work ends. Board response bodies of 1 MiB or more (the envelope GET, the `.inkboard` download, page SVGs) also take a share of a 96 MiB **body budget** (their size in MiB) before the body is built; it is always taken before `board_work`, never while holding it, the body is sent in 256 KiB chunks through a 4-chunk channel, a client that reads nothing for 30 s or is not done after 600 s loses it, and a body that waits more than 10 s for its share answers 429 `busy` with `Retry-After: 5`. Apart from that fixed order, no code path acquires a permit while holding one. | The owner requires limits. Budget for 1024 MiB: board work ≤ 150 MiB (one 50 MB save at about 3×); doc work ≤ 480 MiB (three loaded docs at up to 10× their 16 MiB cap, or one PUT's parse result and base, bounded by the 1 MiB / 4 MiB inputs and the nesting pre-scan, beside one loaded doc); uploads ≤ 16 MiB of buffers; export or backup ≤ 16 MiB (the maintenance connection's 8 MiB cache; the database copy and files streamed in 256 KiB chunks through a 4-chunk channel, never a whole file in memory); argon2 2 × 19 MiB; SQLite caches 5 × 8 MiB; the 32 MiB `/tmp` tmpfs, which the kernel charges to the container's memory. That is 772 MiB; the remaining ~250 MiB covers the runtime, thread stacks, response buffers and an in-container `quire` CLI (one body copy at most, §7.6); the body budget bounds what large board responses add to it. The second CPU and the extra 256 MiB buy a third doc permit, not a bigger board: the board limit stays 50 MB, and the headroom grows from about 170 MiB (768 MiB, tmpfs counted) to about 250 MiB. Because a PUT takes its two permits in one step (tokio's semaphore is fair and all-or-nothing), two PUTs cannot deadlock. In e2e and agent runs the 256 MiB `/data` tmpfs is charged to the same limit; their data stays far below it. |
+| D25 | Runtime container: distroless `cc-debian13:nonroot`, read-only rootfs, `cap_drop: ALL`, **2 CPUs / 1 GiB / no swap / 256 pids** by default (`WIKANVAS_CPUS=2`, `WIKANVAS_MEM=1g`, overridable; owner decision 2026-10-28, §17.3). Tokio runs 2 worker threads (one per CPU) and at most 16 blocking threads. Work permits: `board_work` (1) for board GET, PUT and previews; `doc_work` (3), one per document read or Yjs POST, and two at once (`acquire_many(2)`, taken once, before the body is read) for a whole-document PUT (§6.4), so one PUT and one document read can run side by side; `upload_work` (2) for attachment uploads, which stream to `/data/tmp`; export and backup are single-flight (D47). Permits are owned and moved into the blocking work they guard, so a request that is dropped (timeout, client gone) keeps its permit until that work ends. Board response bodies of 1 MiB or more (the envelope GET, the `.inkboard` download, page SVGs) also take a share of a 96 MiB **body budget** (their size in MiB) before the body is built; it is always taken before `board_work`, never while holding it, the body is sent in 256 KiB chunks through a 4-chunk channel, a client that reads nothing for 30 s or is not done after 600 s loses it, and a body that waits more than 10 s for its share answers 429 `busy` with `Retry-After: 5`. Apart from that fixed order, no code path acquires a permit while holding one. | The owner requires limits. Budget for 1024 MiB: board work ≤ 150 MiB (one 50 MB save at about 3×); doc work ≤ 480 MiB (three loaded docs at up to 10× their 16 MiB cap, or one PUT's parse result and base, bounded by the 1 MiB / 4 MiB inputs and the nesting pre-scan, beside one loaded doc); uploads ≤ 16 MiB of buffers; export or backup ≤ 16 MiB (the maintenance connection's 8 MiB cache; the database copy and files streamed in 256 KiB chunks through a 4-chunk channel, never a whole file in memory); argon2 2 × 19 MiB; SQLite caches 5 × 8 MiB; the 32 MiB `/tmp` tmpfs, which the kernel charges to the container's memory. That is 772 MiB; the remaining ~250 MiB covers the runtime, thread stacks, response buffers and an in-container `wikanvas` CLI (one body copy at most, §7.6); the body budget bounds what large board responses add to it. The second CPU and the extra 256 MiB buy a third doc permit, not a bigger board: the board limit stays 50 MB, and the headroom grows from about 170 MiB (768 MiB, tmpfs counted) to about 250 MiB. Because a PUT takes its two permits in one step (tokio's semaphore is fair and all-or-nothing), two PUTs cannot deadlock. In e2e and agent runs the 256 MiB `/data` tmpfs is charged to the same limit; their data stays far below it. |
 | D26 | Blobs are content-addressed files under `/data/files/aa/bb/<sha256>`, with metadata in a `blobs` table. Write path: `stage` (write tmp in `/data/tmp`, fsync; outside the writer), then `commit` (rename into place, or drop the tmp and refresh the mtime when the file exists, then `INSERT OR IGNORE` the row; inside the writer transaction). GC runs in one writer closure: delete unreferenced rows, commit, unlink the files while still holding the writer. A sweep removes files that have no row and are older than 1 h. | Off-host backups (restic or rsync) dedupe immutable files, and blobs stay out of the WAL. Every rename and every unlink happens under the single writer, so a concurrent save can never end with a row whose file was deleted. |
 | D27 | Search: FTS5 external-content table over `item_text(title, body)`, tokenizer `unicode61 remove_diacritics 2`, prefixes 2 and 3, bm25 with the title weighted 8×. The query builder is in §5. | Built in, fast, and ignores accents. Folding also merges å/ä→a and ö→o (§17); the index is derived data, so a tokenizer change later is a rebuild, not a migration. |
 | D28 | Board conflicts use `If-Match: "r{rev}"`, answered with **412** `rev_mismatch`. Yjs update POSTs cannot conflict (CRDT); whole-document writes over the API use `If-Match: "d{seq}"` with the same 412 (D45, D50). | HTTP semantics. |
-| D29 | No outbound network calls from the server in M1: no reqwest, no TLS stack, no relay. HTTPS and ACME live in the Caddy container in front of it (D57). The CLI (`quire-cli`) is a client and has its own rustls stack (D54); it is never linked into `quire-server` (checked with `cargo tree`, §14). | Self-hosted privacy, and less to compile. |
+| D29 | No outbound network calls from the server in M1: no reqwest, no TLS stack, no relay. HTTPS and ACME live in the Caddy container in front of it (D57). The CLI (`wikanvas-cli`) is a client and has its own rustls stack (D54); it is never linked into `wikanvas-server` (checked with `cargo tree`, §14). | Self-hosted privacy, and less to compile. |
 | D30 | The Inkboard **iroh live sharing is compiled out** of the embedded wasm (`--no-default-features --features web-glow,embed`). If the `net` patch is dropped, the code is still built but its UI is hidden and the frame CSP blocks relay sockets. | A self-hosted wiki must not contact a third-party relay. |
-| D31 | The board title is owned by Quire (`items.title`). The server overwrites `document.name` when it returns a board, and ignores it on save. | One source of truth for the tree, breadcrumbs and search. |
+| D31 | The board title is owned by Wikanvas (`items.title`). The server overwrites `document.name` when it returns a board, and ignores it on save. | One source of truth for the tree, breadcrumbs and search. |
 | D32 | Doc autosave: 1 s debounce, at most 5 s apart, plus a flush on hide, blur, navigation and Ctrl/Cmd+S. Board autosave: 1.5 s quiet, at most 10 s apart, plus the same flushes. Title autosave: 500 ms debounce, registered in the same pending registry. | A board save sends the whole snapshot, so it is less frequent. |
-| D33 | Limits: upload 25 MB (`QUIRE_MAX_UPLOAD_MB`); image 100 megapixels (read from the header only); board 50 MB (`QUIRE_MAX_BOARD_MB`, warning at 15 MB); stored Y document 16 MiB (`QUIRE_MAX_DOC_MB`); a single update POST up to 16 MiB; a Markdown document PUT up to 1 MiB and a ProseMirror JSON PUT up to 4 MiB (nesting depth 100); every other body 1 MiB; per-token body bytes (D47). Writes that stage files (uploads, board PUTs, export, backup) first check free space on `/data` (`statvfs`, rustix): below the smaller of `QUIRE_MIN_FREE_MB` (default 1024) and 10% of the filesystem they answer 507 `insufficient_storage` | A loaded yrs Doc takes 5–10× its encoded size, so 16 MiB (at most 160 MiB loaded, one `doc_work` permit) is the ceiling the 1 GiB budget of D25 is built on. A full disk would stop SQLite, and with it the whole wiki. |
-| D34 | Export in M1: `GET /api/v1/export` streams a tar of `manifest.json`, a copy of `quire.db` (made with `VACUUM INTO` under `/data/tmp`, then sessions and API tokens deleted, password hashes cleared, and the `sqlite_stat1`/`sqlite_stat4` rows of the credential tables deleted, because `PRAGMA optimize` samples index keys such as token hashes into them, on a connection with `journal_mode=DELETE` and `secure_delete=ON`, closed before streaming, so no `-wal` file keeps the deleted rows; then a second `VACUUM INTO` from that scrubbed copy writes the file that is streamed, because the unused space of the first copy's pages can still hold older copies of deleted rows, such as stat4 samples of token hashes; the first copy is deleted) and `files/**`. Single-flight (D47). Per item: a document exports as Markdown (server, `GET …/doc/markdown`, §6.4) or HTML (client-side), a board as `.inkboard` or SVG (server). | Exact and cheap, and the download carries no credentials. A whole-workspace Markdown zip is deferred to M2; with server-side Markdown (D49) it is a loop over items. Full backups (§12) keep everything. |
-| D35 | Passwords are 12–1024 bytes. Reset is done with `quire admin reset-password --email X` (`quire-server admin …`, §7.8), which sets a random temporary password, prints it, sets `must_change_password`, and revokes all sessions; with `--revoke-tokens` also every API token of that user (the compromise switch) | M1 sends no email. A one-time password needs no reset-link route. |
+| D33 | Limits: upload 25 MB (`WIKANVAS_MAX_UPLOAD_MB`); image 100 megapixels (read from the header only); board 50 MB (`WIKANVAS_MAX_BOARD_MB`, warning at 15 MB); stored Y document 16 MiB (`WIKANVAS_MAX_DOC_MB`); a single update POST up to 16 MiB; a Markdown document PUT up to 1 MiB and a ProseMirror JSON PUT up to 4 MiB (nesting depth 100); every other body 1 MiB; per-token body bytes (D47). Writes that stage files (uploads, board PUTs, export, backup) first check free space on `/data` (`statvfs`, rustix): below the smaller of `WIKANVAS_MIN_FREE_MB` (default 1024) and 10% of the filesystem they answer 507 `insufficient_storage` | A loaded yrs Doc takes 5–10× its encoded size, so 16 MiB (at most 160 MiB loaded, one `doc_work` permit) is the ceiling the 1 GiB budget of D25 is built on. A full disk would stop SQLite, and with it the whole wiki. |
+| D34 | Export in M1: `GET /api/v1/export` streams a tar of `manifest.json`, a copy of `wikanvas.db` (made with `VACUUM INTO` under `/data/tmp`, then sessions and API tokens deleted, password hashes cleared, and the `sqlite_stat1`/`sqlite_stat4` rows of the credential tables deleted, because `PRAGMA optimize` samples index keys such as token hashes into them, on a connection with `journal_mode=DELETE` and `secure_delete=ON`, closed before streaming, so no `-wal` file keeps the deleted rows; then a second `VACUUM INTO` from that scrubbed copy writes the file that is streamed, because the unused space of the first copy's pages can still hold older copies of deleted rows, such as stat4 samples of token hashes; the first copy is deleted) and `files/**`. Single-flight (D47). Per item: a document exports as Markdown (server, `GET …/doc/markdown`, §6.4) or HTML (client-side), a board as `.inkboard` or SVG (server). | Exact and cheap, and the download carries no credentials. A whole-workspace Markdown zip is deferred to M2; with server-side Markdown (D49) it is a loop over items. Full backups (§12) keep everything. |
+| D35 | Passwords are 12–1024 bytes. Reset is done with `wikanvas admin reset-password --email X` (`wikanvas-server admin …`, §7.8), which sets a random temporary password, prints it, sets `must_change_password`, and revokes all sessions; with `--revoke-tokens` also every API token of that user (the compromise switch) | M1 sends no email. A one-time password needs no reset-link route. |
 | D36 | Doc images are referenced through `item_attachments`, rebuilt from the ytext walk in every save transaction and copied by duplicate. Yjs revisions record their attachment ids. Attachments that no live item, revision or setting references are deleted after 24 h. `attachments.item_id` is the upload context only and is never used for authorization. | Images removed from docs are eventually freed, and later multi-user authorization of `GET /api/v1/attachments/{id}` can go through the referencing items. |
 | D37 | Open-ended value lists are lookup tables, not CHECKs: `content_formats`, `revision_reasons`, `link_kinds` (like `user_roles` and `item_kinds`). Formats are stored as `(format, format_version)`, e.g. `('inkboard', 2)`, `('yjs', 1)`. | SQLite cannot alter a CHECK without a 12-step table rebuild; `revisions` holds large binary snapshots. A new format or link kind is one `INSERT`. |
-| D38 | Build caps are enforced by the kernel at two levels: each build container (`--cpus 6 --memory 12g --memory-swap 12g`, pinned to the host's last 6 cores with `--cpuset-cpus`), and the systemd slice `quire-build.slice` (`CPUQuota=600%`, `MemoryMax=12G`, `MemorySwapMax=0`, `CPUWeight=20`, `IOWeight=20`; the weights also on its parent `quire.slice`), installed once by the coordinator through the owner's askpass dialog (owner decision 2026-10-28, §17.3). Every build container, the BuildKit daemon behind `quire-limited`, and the e2e, agent and smoke containers join it as their cgroup parent (Docker's systemd cgroup driver takes the slice name; checked at run time by `scripts/lib/slice.sh`). Without the slice everything still runs, with the per-container caps and a warning. The flock only queues builds. | The owner's machine has been brought to 100% by Rust builds; caps were requested "asap". The slice caps the total even if several capped containers run at once, or if someone runs `docker buildx build --builder quire-limited` outside the scripts. buildx's `docker-container` driver applies `cgroup-parent` only under the cgroupfs driver (checked in buildx's driver source and docs, 2026-10-28), so `scripts/toolchain.sh` starts the BuildKit container itself and registers it with the `remote` driver (§13.1). Pinning makes `nproc`, Node's `availableParallelism()`, rayon and Go see 6 cores. |
+| D38 | Build caps are enforced by the kernel at two levels: each build container (`--cpus 6 --memory 12g --memory-swap 12g`, pinned to the host's last 6 cores with `--cpuset-cpus`), and the systemd slice `wikanvas-build.slice` (`CPUQuota=600%`, `MemoryMax=12G`, `MemorySwapMax=0`, `CPUWeight=20`, `IOWeight=20`; the weights also on its parent `wikanvas.slice`), installed once by the coordinator through the owner's askpass dialog (owner decision 2026-10-28, §17.3). Every build container, the BuildKit daemon behind `wikanvas-limited`, and the e2e, agent and smoke containers join it as their cgroup parent (Docker's systemd cgroup driver takes the slice name; checked at run time by `scripts/lib/slice.sh`). Without the slice everything still runs, with the per-container caps and a warning. The flock only queues builds. | The owner's machine has been brought to 100% by Rust builds; caps were requested "asap". The slice caps the total even if several capped containers run at once, or if someone runs `docker buildx build --builder wikanvas-limited` outside the scripts. buildx's `docker-container` driver applies `cgroup-parent` only under the cgroupfs driver (checked in buildx's driver source and docs, 2026-10-28), so `scripts/toolchain.sh` starts the BuildKit container itself and registers it with the `remote` driver (§13.1). Pinning makes `nproc`, Node's `availableParallelism()`, rayon and Go see 6 cores. |
 | D39 | **One public API under `/api/v1`, used by the web client and by external clients alike** (§7). Every route the SPA calls is in the OpenAPI spec; there are no private routes. Two authentication methods: the session cookie (browser) and personal access tokens (`Authorization: Bearer`). Within v1, changes are additive only (§7.1); a breaking change ships as `/api/v2` next to v1. | The public API can never lag the UI, and the web client, the CLI and agents exercise the same handlers. A version prefix costs nothing now and avoids a flag day later. |
-| D40 | **DTOs live in their own crate `quire-api`** (serde, ts-rs, utoipa; no I/O, no yrs, no Inkboard). `quire-core` re-exports it as `quire_core::api`, so every `quire-core::api::*` path in this document stays valid. It also holds `ErrorCode`, the error envelope, `Page<T>`, `Scope` and the CLI exit-code table. | The CLI shares the request and response types with the server without compiling yrs, inkboard-core or comrak (§4.1). |
+| D40 | **DTOs live in their own crate `wikanvas-api`** (serde, ts-rs, utoipa; no I/O, no yrs, no Inkboard). `wikanvas-core` re-exports it as `wikanvas_core::api`, so every `wikanvas-core::api::*` path in this document stays valid. It also holds `ErrorCode`, the error envelope, `Page<T>`, `Scope` and the CLI exit-code table. | The CLI shares the request and response types with the server without compiling yrs, inkboard-core or comrak (§4.1). |
 | D41 | **OpenAPI 3.1 is generated with utoipa 6.0.0 and utoipa-axum 0.3.0** (checked on crates.io and docs.rs 2026-10-27: utoipa 6 serializes `openapi: "3.1.0"` by default, `OpenApiVersion::Version31`; utoipa-axum 0.3.0 requires axum ^0.8.4). Route modules return `OpenApiRouter<AppState>` and register handlers only through `routes!` on `#[utoipa::path]` handlers; DTOs derive `ToSchema` next to ts-rs `TS`. Served at `GET /api/v1/openapi.json`, committed as `docs/api/openapi.json`, and a test fails on drift (§7.4). No interactive docs UI. Fallback if utoipa 6 does not build: utoipa 5.5.0 + utoipa-axum 0.2.0, recorded in §16. | aide's stable line (0.15.1, 2025-08) depends on schemars 0.9 while schemars is at 1.2.3, its 0.16 is still alpha, and it needs `OperationInput` impls for every custom extractor. With `routes!` the path and method come from the same annotation as the spec, so they cannot diverge. utoipa's path and schema maps are ordered maps (`preserve_order` and `preserve_path_order` stay off), so the committed JSON does not depend on merge order. Swagger UI or Scalar would need a build-time download or CDN scripts (D29, CLAUDE.md). |
 | D42 | **Personal access tokens**: `qpat_` + 40 base62 random characters + 6 base62 characters of CRC32 over them (51 characters). Only sha256(token) and a 12-character display prefix are stored (`api_tokens`, §5); the secret is shown once. Scopes `read` ⊂ `write` ⊂ `admin`, stored expanded in `api_token_scopes`. Optional expiry (default 90 days, `null` = never). `last_used_at`/`last_used_ip` are written at most once per minute. Revocation takes effect on the next request (no cache). At most 100 live tokens per user. A token created by a token never has `admin` scope, never outlives its parent, and is revoked with it (`parent_token_id`); a session re-enters the password to create an `admin` or never-expiring token. | High-entropy secrets need a fast hash, not argon2 (same reasoning as D18). The prefix makes leaked tokens findable by secret scanners; the checksum lets the CLI reject a mistyped token without a request. A scope junction table allows finer scopes later with one INSERT (D37). A leaked token cannot outlive or escalate itself, and an XSS in the web session cannot silently mint a permanent admin credential. |
-| D43 | **A Quire bearer token wins.** One predicate, `is_quire_bearer` (an `Authorization` header with scheme `Bearer` and credentials starting `qpat_`), is used by both `Auth<S>` and the CSRF layer. A matching request is authenticated by the token alone (a bad token is 401 `invalid_token`, never a cookie fallback) and skips the CSRF/Fetch-Metadata checks (D16). Any other `Authorization` value (HTTP Basic from a proxy, an oauth2-proxy JWT) is ignored: the request takes the cookie path with the full CSRF checks. Session-only routes (password change, logout) answer token requests with 403 `session_required`. | A browser cannot attach a custom `Authorization` value to a cross-site request without a CORS preflight, which Quire refuses by default (D48), so Quire bearer requests carry no ambient authority and may send any `Origin`. Browsers do replay cached Basic credentials and proxies add their own headers, so those must neither disable the cookie nor skip CSRF. |
+| D43 | **A Wikanvas bearer token wins.** One predicate, `is_wikanvas_bearer` (an `Authorization` header with scheme `Bearer` and credentials starting `qpat_`), is used by both `Auth<S>` and the CSRF layer. A matching request is authenticated by the token alone (a bad token is 401 `invalid_token`, never a cookie fallback) and skips the CSRF/Fetch-Metadata checks (D16). Any other `Authorization` value (HTTP Basic from a proxy, an oauth2-proxy JWT) is ignored: the request takes the cookie path with the full CSRF checks. Session-only routes (password change, logout) answer token requests with 403 `session_required`. | A browser cannot attach a custom `Authorization` value to a cross-site request without a CORS preflight, which Wikanvas refuses by default (D48), so Wikanvas bearer requests carry no ambient authority and may send any `Origin`. Browsers do replay cached Basic credentials and proxies add their own headers, so those must neither disable the cookie nor skip CSRF. |
 | D44 | **Scope enforcement is a typed extractor `Auth<S>`** (`S` = `Read`, `Write`, `Admin`, `Session`, `AnyToken`), always the first handler argument, so a missing scope is answered (403 `insufficient_scope`) before any path, query or body parsing. A test calls every operation of the generated spec with a token one scope below the declared one (§7.4), and another pins the exact list of public operations, so a handler annotated `security: []` by mistake fails. | One enforcement point and one generic test instead of one test per route; the spec documents exactly what is enforced. |
 | D45 | **Optimistic concurrency is ETag/If-Match with 412 `rev_mismatch` everywhere**: boards `"r{rev}"` (D28), documents `"d{seq}"` (seq of the newest stored update), item metadata `"m{meta_version}"` (optional on PATCH; replaces the earlier `meta_version` body field). Content writes require `If-Match` (428 otherwise); `If-Match: *` is an explicit last-write-wins. A `W/` prefix on these tags is ignored. `GET /items/{id}`, the Markdown GET and the board GET send their tag for `If-Match` but never answer 304, because their bodies hold data the tag does not version (stars, breadcrumbs, board meta, live titles, the board's `document.name`). | One rule for the web client, the CLI and external clients, reusing the board rule that already existed. A proxy that weakens ETags (nginx gzip) must not break writes. |
 | D46 | **Cursor pagination**: opaque base64url cursors over a keyset `(sort value, id)`, bound to the normalized query by an 8-byte hash (a cursor reused with other parameters gives 422 `validation`, `details.field = "cursor"`). Relevance-sorted search uses an offset cursor, capped at 1,000 results. Every paginated list returns `{items, next_cursor}`, `next_cursor = null` on the last page. | Stable under inserts and deletes, no server state, one page shape for every list. |
-| D47 | **Per-token limits** with governor keyed by token id: `QUIRE_TOKEN_RATE` requests per minute (default 600, burst 120) and `QUIRE_TOKEN_BYTES_PER_HOUR` of request body (default 1 GiB, counted in KiB as bodies are read), answered with 429 `rate_limited` (`details.reason` `requests` or `bytes`) and `Retry-After`. Failed bearer authentications are counted per IP (30 per minute; the client IP of §8, from Caddy's `X-Forwarded-For`); over that, a token that fails lookup gets 429 instead of 401, while valid tokens from the same IP keep working. Export and on-demand backup are single-flight (429, `reason: "busy"`). Cookie sessions keep only the login limits (§8). Limiter keys are pruned hourly (`retain_recent`). | Protects the 2-CPU container and the disk from a runaway agent loop, without locking out every client behind one IP. The CLI retries 429 honouring `Retry-After`. |
-| D48 | **CORS is off by default.** `QUIRE_CORS_ORIGINS` (exact origins, comma-separated; `*` refused at startup) enables tower-http `CorsLayer` (feature `cors`) on `/api/v1/*` for bearer clients; `Access-Control-Allow-Credentials` is never sent, so cookies never work cross-origin. | Browser-based tools can opt in to tokens without weakening the cookie model. |
-| D49 | **Documents are readable and writable as Markdown and ProseMirror JSON, converted in Rust** (`quire-core::convert`, §6.4). Y `XmlFragment` ↔ ProseMirror JSON mirrors `@tiptap/y-tiptap` 3.0.10 (MIT, the editor's binding) exactly, and the API's JSON is the normalized shape of `editor.getJSON()`; Markdown is parsed with **comrak 0.59** (`default-features = false`; BSD-2-Clause) and written by Quire's own deterministic printer. The web client's "Export Markdown" uses the same endpoint, so `prosemirror-markdown` leaves the web package. | One Markdown dialect, one implementation. comrak gives an AST plus GFM tables, task lists, strikethrough, autolinks, GitHub alerts (callouts) and `==highlight==`; pulldown-cmark 0.13 has no highlight. Quire's own printer keeps golden files stable across comrak upgrades and controls escaping. comrak's default features (`cli`, `syntect-onig`, a C library) are off. |
+| D47 | **Per-token limits** with governor keyed by token id: `WIKANVAS_TOKEN_RATE` requests per minute (default 600, burst 120) and `WIKANVAS_TOKEN_BYTES_PER_HOUR` of request body (default 1 GiB, counted in KiB as bodies are read), answered with 429 `rate_limited` (`details.reason` `requests` or `bytes`) and `Retry-After`. Failed bearer authentications are counted per IP (30 per minute; the client IP of §8, from Caddy's `X-Forwarded-For`); over that, a token that fails lookup gets 429 instead of 401, while valid tokens from the same IP keep working. Export and on-demand backup are single-flight (429, `reason: "busy"`). Cookie sessions keep only the login limits (§8). Limiter keys are pruned hourly (`retain_recent`). | Protects the 2-CPU container and the disk from a runaway agent loop, without locking out every client behind one IP. The CLI retries 429 honouring `Retry-After`. |
+| D48 | **CORS is off by default.** `WIKANVAS_CORS_ORIGINS` (exact origins, comma-separated; `*` refused at startup) enables tower-http `CorsLayer` (feature `cors`) on `/api/v1/*` for bearer clients; `Access-Control-Allow-Credentials` is never sent, so cookies never work cross-origin. | Browser-based tools can opt in to tokens without weakening the cookie model. |
+| D49 | **Documents are readable and writable as Markdown and ProseMirror JSON, converted in Rust** (`wikanvas-core::convert`, §6.4). Y `XmlFragment` ↔ ProseMirror JSON mirrors `@tiptap/y-tiptap` 3.0.10 (MIT, the editor's binding) exactly, and the API's JSON is the normalized shape of `editor.getJSON()`; Markdown is parsed with **comrak 0.59** (`default-features = false`; BSD-2-Clause) and written by Wikanvas's own deterministic printer. The web client's "Export Markdown" uses the same endpoint, so `prosemirror-markdown` leaves the web package. | One Markdown dialect, one implementation. comrak gives an AST plus GFM tables, task lists, strikethrough, autolinks, GitHub alerts (callouts) and `==highlight==`; pulldown-cmark 0.13 has no highlight. Wikanvas's own printer keeps golden files stable across comrak upgrades and controls escaping. comrak's default features (`cli`, `syntect-onig`, a C library) are off. |
 | D50 | **External document writes are diffs, not replacements.** A Markdown or JSON PUT is diffed against the document at its `If-Match` base: Markdown in Markdown space (the base printed and re-parsed, so a block whose Markdown the input leaves alone is never touched), JSON against the normalized base. Children are anchored by `blockId` (JSON) and by content hash (an order-preserving diff); the runs between anchors are paired by type and similarity and updated in place; text gets a character-level diff (§6.4). The result is one Yjs update whose client id and new `blockId`s derive from a hash of the request, so a repeated request is a no-op; it is saved through the normal path (§6.1). The writer re-checks the base: a stale base gives 412 (also when it went stale during the PUT), unless the target already equals the current state (200 `changed: false`), or `?merge=true` and the base is still reconstructible (`seq ≥ compacted_seq`), when the CRDT merges it with the newer updates. | Unchanged blocks keep their Y identity and `blockId`s, so open editors, outboxes, heading anchors and the later live sync merge cleanly, and nothing outside the Yjs log is written. Strict by default (as D28); the opt-in merge lets an agent edit while the owner types; retries are safe. |
-| D51 | **Boards over the API use the web path unchanged** (D8, D9, D31): the native envelope in and out, raw-JSON splicing, unknown fields preserved, `document.name` owned by the title, `If-Match` required (`"r{rev}"` or `*`), SVG page previews. `X-Quire-Engine` is optional for API clients (`engine_version = "api"` when absent). | One pipeline and one set of preservation tests for every client. |
-| D52 | **Server-side board import (draw.io, Excalidraw, Mermaid, JSON Canvas) is deferred.** `inkboard-formats` has no cargo features (`vendor/inkboard/crates/inkboard-formats/Cargo.toml:9-23`): over inkboard-core it adds 104 crates (two resvg/usvg/fontdb/tiny-skia stacks, svg2pdf, image codecs, latex-rust; counted from `vendor/inkboard/Cargo.lock`). The importers themselves (`import_any`, `lib.rs:109`) use only quick-xml, regex, flate2, percent-encoding and inkboard-icons (13 crates) plus `inkboard_core::text::ApproxMeasurer` (`inkboard-core/src/text.rs:214`); resvg and svg2pdf are used only by `raster.rs`, latex-rust only by `math.rs`. `POST /api/v1/items/{id}/board/import` and `quire board import` are reserved. | The weight is not acceptable under the 6-CPU build cap and in the 1 GiB container, and Quire compiles Inkboard's crates unpatched (§4.1), so a local feature split is not possible. An upstream patch that makes `raster`, `pdf` and `latex` optional (§15) turns import into a 13-crate addition. Quire's tooling does not build Inkboard's own `ink convert` (`crates/inkboard-cli/src/main.rs:1-7`) in M1 either, because it links the same crates; a user who has it installed can convert files offline before `quire board put`. |
+| D51 | **Boards over the API use the web path unchanged** (D8, D9, D31): the native envelope in and out, raw-JSON splicing, unknown fields preserved, `document.name` owned by the title, `If-Match` required (`"r{rev}"` or `*`), SVG page previews. `X-Wikanvas-Engine` is optional for API clients (`engine_version = "api"` when absent). | One pipeline and one set of preservation tests for every client. |
+| D52 | **Server-side board import (draw.io, Excalidraw, Mermaid, JSON Canvas) is deferred.** `inkboard-formats` has no cargo features (`vendor/inkboard/crates/inkboard-formats/Cargo.toml:9-23`): over inkboard-core it adds 104 crates (two resvg/usvg/fontdb/tiny-skia stacks, svg2pdf, image codecs, latex-rust; counted from `vendor/inkboard/Cargo.lock`). The importers themselves (`import_any`, `lib.rs:109`) use only quick-xml, regex, flate2, percent-encoding and inkboard-icons (13 crates) plus `inkboard_core::text::ApproxMeasurer` (`inkboard-core/src/text.rs:214`); resvg and svg2pdf are used only by `raster.rs`, latex-rust only by `math.rs`. `POST /api/v1/items/{id}/board/import` and `wikanvas board import` are reserved. | The weight is not acceptable under the 6-CPU build cap and in the 1 GiB container, and Wikanvas compiles Inkboard's crates unpatched (§4.1), so a local feature split is not possible. An upstream patch that makes `raster`, `pdf` and `latex` optional (§15) turns import into a 13-crate addition. Wikanvas's tooling does not build Inkboard's own `ink convert` (`crates/inkboard-cli/src/main.rs:1-7`) in M1 either, because it links the same crates; a user who has it installed can convert files offline before `wikanvas board put`. |
 | D53 | **API content writes keep a recovery point**: before a token-authenticated content write (document Markdown/JSON PUT, Yjs POST, board PUT), `revisions::pre_api` stores a `pre-api` revision of the current state, unless the last content write came from the same token (`last_token_id` on `doc_state`/`board_state`) or the newest revision already holds the current state (`revisions.source_seq`). | The owner's latest work is always in a revision before an agent overwrites it, and an agent's own consecutive writes add none. Recoverable once the history UI ships (M2); the data exists from M1. |
-| D54 | **The CLI `quire`** is its own crate `quire-cli`: clap 4.6, **ureq 3.5** (blocking; `default-features = false`, features `rustls-no-provider`, `json`, `gzip`) with rustls 0.23's `ring` provider passed in its `TlsConfig`; root certificates come from the system CA bundle, or `--ca-file` for a private CA (`RootCerts::Specific` either way); no OpenSSL and no bundled webpki-roots. etcetera 0.11 (XDG config dir), toml 1.1. It depends on `quire-api` and rustls only. Every command takes `--json`, exit codes are a contract (§7.7), and it never prompts. Shipped as a static `x86_64-unknown-linux-musl` binary, standalone and in the image. | Blocking ureq compiles far lighter than reqwest 0.13, which pulls tokio and hyper, defaults to aws-lc-rs, and depends on tower-http 0.6 next to Quire's 0.7. ureq's `rustls` feature adds webpki-roots, whose CDLA-Permissive-2.0 licence is not on Quire's allow-list (§4.1); every Linux host and the distroless image ship a CA bundle, and Caddy's local CA (D57) is trusted the same way, by adding its root to the system bundle or with `--ca-file` (owner-accepted default, §17.3). A static musl binary runs on any Linux and in the distroless image. |
-| D55 | **Admin commands live in the server binary** (`quire-server admin …`, §7.8) because they open the database directly. The CLI's `quire admin …` execs `quire-server admin …`, found through `QUIRE_SERVER_BIN`, then next to the `quire` binary, then on `PATH`, so `docker compose exec quire quire admin …` works. | The CLI stays free of rusqlite and the store; the server stays free of TLS. One spelling in the docs either way. |
-| D56 | **Agent testing** has three layers: `crates/quire-cli/tests/cli` runs the CLI binary (assert_cmd 2.2) against an in-process server; `scripts/agent-test.sh` runs the production image with `compose.e2e.yaml` (the compose caps, the build lock, the build slice when installed), talks to Quire directly on the project network (Caddy is not started), refuses an image built from another commit, provisions an owner and tokens with `quire admin`, and runs bash scenarios of `quire --json` calls asserted with jq (§14.1); its `up` keeps the app for exploration for a bounded time (default 15 min) while a background holder keeps the build lock (owner-accepted default, §17.3); `docs/AGENTS.md` tells agents how to use the CLI. | Agents and CI exercise the shipped artifacts end to end with one command, under the owner's resource caps. |
-| D57 | **HTTPS is terminated by Caddy in the compose project** (official image `caddy:2.11.7`, pinned by digest; `docker/Caddyfile`, §13.4; owner decision 2026-10-28, §17.3). Quire listens only on the project network (`expose: 8080`, no published port); Caddy publishes 80 and 443 and has its own caps (0.5 CPU, 128 MiB, no swap) and volumes for `/data` and `/config`. Two modes from env: `QUIRE_TLS=acme` with a public `QUIRE_DOMAIN` (automatic certificates), and `QUIRE_TLS=internal` (default, with `QUIRE_DOMAIN=localhost`) for `localhost` or LAN names such as `quire.lan`, using Caddy's local CA, whose root the owner trusts by hand (§13.4). Caddy has a fixed address on a fixed project subnet, outside the subnet's dynamic `ip_range` so no other container can be given it (§13.3), and `QUIRE_TRUSTED_PROXIES` is exactly that address, so only Caddy's `X-Forwarded-For` (rate limits, logs) and `X-Forwarded-Proto` (Secure cookie, HSTS) count (§8). `QUIRE_DOMAIN` joins the Host allowlist. The Caddyfile has no `encode` and proxies with `compression off`, so Quire's precompressed br/gzip bytes pass through untouched. HSTS (`max-age=31536000`, no `includeSubDomains`, no `preload`) is sent by Quire, only on HTTPS requests in `acme` mode. The CSP is unchanged. | Quire stays free of TLS and outbound calls (D29): ACME runs in Caddy. Browsers offer brotli only over HTTPS, send `Sec-Fetch-*` only to secure origins, and accept `__Host-` cookies only over HTTPS, and Inkboard's copy-as-image needs a secure context. An address rule needs no shared secret and no DNS lookup from Quire. HSTS on `localhost` or on names signed by a private CA would pin every local server, or every LAN device without the root, to HTTPS for a year, so it is public-mode only; keeping it in Quire keeps every security header in one tested place (§11). |
+| D54 | **The CLI `wikanvas`** is its own crate `wikanvas-cli`: clap 4.6, **ureq 3.5** (blocking; `default-features = false`, features `rustls-no-provider`, `json`, `gzip`) with rustls 0.23's `ring` provider passed in its `TlsConfig`; root certificates come from the system CA bundle, or `--ca-file` for a private CA (`RootCerts::Specific` either way); no OpenSSL and no bundled webpki-roots. etcetera 0.11 (XDG config dir), toml 1.1. It depends on `wikanvas-api` and rustls only. Every command takes `--json`, exit codes are a contract (§7.7), and it never prompts. Shipped as a static `x86_64-unknown-linux-musl` binary, standalone and in the image. | Blocking ureq compiles far lighter than reqwest 0.13, which pulls tokio and hyper, defaults to aws-lc-rs, and depends on tower-http 0.6 next to Wikanvas's 0.7. ureq's `rustls` feature adds webpki-roots, whose CDLA-Permissive-2.0 licence is not on Wikanvas's allow-list (§4.1); every Linux host and the distroless image ship a CA bundle, and Caddy's local CA (D57) is trusted the same way, by adding its root to the system bundle or with `--ca-file` (owner-accepted default, §17.3). A static musl binary runs on any Linux and in the distroless image. |
+| D55 | **Admin commands live in the server binary** (`wikanvas-server admin …`, §7.8) because they open the database directly. The CLI's `wikanvas admin …` execs `wikanvas-server admin …`, found through `WIKANVAS_SERVER_BIN`, then next to the `wikanvas` binary, then on `PATH`, so `docker compose exec wikanvas wikanvas admin …` works. | The CLI stays free of rusqlite and the store; the server stays free of TLS. One spelling in the docs either way. |
+| D56 | **Agent testing** has three layers: `crates/wikanvas-cli/tests/cli` runs the CLI binary (assert_cmd 2.2) against an in-process server; `scripts/agent-test.sh` runs the production image with `compose.e2e.yaml` (the compose caps, the build lock, the build slice when installed), talks to Wikanvas directly on the project network (Caddy is not started), refuses an image built from another commit, provisions an owner and tokens with `wikanvas admin`, and runs bash scenarios of `wikanvas --json` calls asserted with jq (§14.1); its `up` keeps the app for exploration for a bounded time (default 15 min) while a background holder keeps the build lock (owner-accepted default, §17.3); `docs/AGENTS.md` tells agents how to use the CLI. | Agents and CI exercise the shipped artifacts end to end with one command, under the owner's resource caps. |
+| D57 | **HTTPS is terminated by Caddy in the compose project** (official image `caddy:2.11.7`, pinned by digest; `docker/Caddyfile`, §13.4; owner decision 2026-10-28, §17.3). Wikanvas listens only on the project network (`expose: 8080`, no published port); Caddy publishes 80 and 443 and has its own caps (0.5 CPU, 128 MiB, no swap) and volumes for `/data` and `/config`. Two modes from env: `WIKANVAS_TLS=acme` with a public `WIKANVAS_DOMAIN` (automatic certificates), and `WIKANVAS_TLS=internal` (default, with `WIKANVAS_DOMAIN=localhost`) for `localhost` or LAN names such as `wikanvas.lan`, using Caddy's local CA, whose root the owner trusts by hand (§13.4). Caddy has a fixed address on a fixed project subnet, outside the subnet's dynamic `ip_range` so no other container can be given it (§13.3), and `WIKANVAS_TRUSTED_PROXIES` is exactly that address, so only Caddy's `X-Forwarded-For` (rate limits, logs) and `X-Forwarded-Proto` (Secure cookie, HSTS) count (§8). `WIKANVAS_DOMAIN` joins the Host allowlist. The Caddyfile has no `encode` and proxies with `compression off`, so Wikanvas's precompressed br/gzip bytes pass through untouched. HSTS (`max-age=31536000`, no `includeSubDomains`, no `preload`) is sent by Wikanvas, only on HTTPS requests in `acme` mode. The CSP is unchanged. | Wikanvas stays free of TLS and outbound calls (D29): ACME runs in Caddy. Browsers offer brotli only over HTTPS, send `Sec-Fetch-*` only to secure origins, and accept `__Host-` cookies only over HTTPS, and Inkboard's copy-as-image needs a secure context. An address rule needs no shared secret and no DNS lookup from Wikanvas. HSTS on `localhost` or on names signed by a private CA would pin every local server, or every LAN device without the root, to HTTPS for a year, so it is public-mode only; keeping it in Wikanvas keeps every security header in one tested place (§11). |
 | D58 | **Board document embeds (M1.1, §18): a card is a `rect` box whose box kind carries an optional `embed {item}`** (§18.2). | The unpatched `inkboard-core` the server compiles ignores the field and D9's raw splicing keeps it; a new `Kind` or `BoxGeom` would make `from_json` refuse the board. |
 | D59 | Patch 0005 adds that field to `inkboard-core` (lenient deserialization); the server keeps the unpatched core (§18.3). | The engine serializes through the model, so it must know the field; the server never re-serializes. |
 | D60 | The server refuses no value of `embed` (only a repeated `embed` key, which the engine could not load) and links canonical-UUID targets as `item_links` kind `embed`, which also keep `discard_empty` from deleting an embedded item (§18.8). | Additive to v1 (§7.1); links feed backlinks later. |
 | D61–D63 | The host, not the engine, draws a card's content in an overlay over the iframe, placed from a per-frame engine layout report and clipped out of the engine's own interface (§18.5). | Only the SPA has the document editor; one transform per frame keeps the overlay on the canvas. |
-| D64–D66 | Static cards are read-only TipTap viewers of `DocJson`; one card at a time is edited with `QuireEditor` on a `DocSession`; the engine holds the editing state and ends it on a press or focus (§18.5). | No writes from looking; the editing card behaves like Inkboard's own text. |
+| D64–D66 | Static cards are read-only TipTap viewers of `DocJson`; one card at a time is edited with `WikanvasEditor` on a `DocSession`; the engine holds the editing state and ends it on a press or focus (§18.5). | No writes from looking; the editing card behaves like Inkboard's own text. |
 | D67–D75 | Paper cards, live titles with a stored snapshot, the three ways to add a card, the sidebar drag through native external data, tree semantics, no new API, Focus over the layer, patches 0005/0006, read-only rules (§18.14). | See §18.14 for each with its rejected alternatives. |
+| D100 | **Renamed from Quire to Wikanvas (wiki + canvas) in v0.1.0-alpha.1.** Every name the project owns changed, with no legacy alias: crates `wikanvas-*`, binaries `wikanvas` and `wikanvas-server`, `WIKANVAS_*` settings, the `wikanvas_session` cookie, the `Wikanvas-*` and `X-Wikanvas-Engine` headers, `wikanvas://item/` links, `wikanvas.db` with its backups and exports, the browser storage keys, the frame global and drag type, the image, builder and slice names, and the patches' `Changed for Wikanvas` notices and author; the docs, handoff notes included, use the new names, with commits and version numbers as recorded. The engine version became `0.2.0-beta.3+embed.wikanvas.3` (patchset 3 had still not shipped, D99). The token prefix `qpat_` stays. | "Quire" is taken: Quire.io holds a Class 42 trademark that covers document management and ships a `quire` CLI, and Getty's Quire is a trademark with a `quire` CLI too. Aliases would keep the old name in the code for good; the one live instance was migrated once instead (volumes copied, the database file and backups renamed, `.env` and stored links rewritten), and its users sign in again once. `qpat_` does not contain the name, and changing it would invalidate every issued token. |
 
 ### 2.2 Alternatives considered
 
@@ -131,7 +132,7 @@ The source reports are not in the repo; this table is the record. "UX" marks a v
 | Question | Rejected | Chosen |
 |---|---|---|
 | Embed | In-page canvas; iframe with a custom `window.inkboardHost` | **Iframe, using the generic `inkboardEmbed.mount` API inside it** (D11, D12). One engine instance per session. |
-| Feature name | `quire-host` | `embed` (generic, upstreamable). |
+| Feature name | `wikanvas-host` | `embed` (generic, upstreamable). |
 | eframe 0.33→0.37 | Upgrade as a precondition (UX) | Not needed (D13), with the visibility wait. |
 | Wasm build | trunk | cargo + wasm-bindgen + wasm-opt (D14). trunk stays in the dev toolchain only for Inkboard's own page. |
 | `icons.bin` URL | A `set_icon_pack_url` patch | Dropped. The relative URL resolves to `/inkboard/{build}/icons.bin` inside the iframe. |
@@ -153,46 +154,46 @@ The source reports are not in the repo; this table is the record. "UX" marks a v
 | Seed | No seed | A "Getting started" collection (§9.6.7). The Y document fixture is produced by the web test suite (W4), the board fixture is a JSON file. |
 | Export | Markdown zip (UX) | Tar archive (D34). |
 | Offline storage | y-indexeddb for the whole doc (UX) | An outbox of unsent merged updates in IndexedDB (`idb-keyval`), cleared when the server acknowledges them. Bounded; the server remains the source of truth. |
-| Contents column | TipTap TableOfContents extension | Computed by Quire from `heading` nodes and their `blockId`. The extension stores a second random id per heading in the Y document. |
+| Contents column | TipTap TableOfContents extension | Computed by Wikanvas from `heading` nodes and their `blockId`. The extension stores a second random id per heading in the Y document. |
 | Publish rule | Invariant "published ⇒ ancestors published", enforced on each action | Derived effective visibility (D23). |
 | New items | Draft first with a Publish step and a Drafts badge (UX); a Drafts entry shown only while `drafts_count > 0` | Published on create; the draft state stays in the model and the API, with no draft UI in M1 (D23, owner 2026-10-28). |
-| TLS | Quire's own rustls listener with ACME; Traefik; README advice only | Caddy 2.11.7 in the compose project (D57). |
-| Trusting forwarded headers | The whole compose subnet; a shared-secret header from Caddy; a DNS lookup of `caddy` from Quire; a Unix socket between the two | Caddy's fixed address on a fixed project subnet as `QUIRE_TRUSTED_PROXIES` (D57). |
-| HSTS | From Caddy; in every mode | From Quire, HTTPS requests in `acme` mode only (D57). |
-| e2e and agent runs | Through Caddy with `tls internal` | Directly to Quire on the project network; the HTTPS path has its own smoke check (§14). |
+| TLS | Wikanvas's own rustls listener with ACME; Traefik; README advice only | Caddy 2.11.7 in the compose project (D57). |
+| Trusting forwarded headers | The whole compose subnet; a shared-secret header from Caddy; a DNS lookup of `caddy` from Wikanvas; a Unix socket between the two | Caddy's fixed address on a fixed project subnet as `WIKANVAS_TRUSTED_PROXIES` (D57). |
+| HSTS | From Caddy; in every mode | From Wikanvas, HTTPS requests in `acme` mode only (D57). |
+| e2e and agent runs | Through Caddy with `tls internal` | Directly to Wikanvas on the project network; the HTTPS path has its own smoke check (§14). |
 | BuildKit in the slice | buildx `docker-container` driver with `cgroup-parent` (ignored under Docker's systemd cgroup driver); a daemon-wide `cgroup-parent` (would also capture the hosted app) | A BuildKit container started by `scripts/toolchain.sh` with `--cgroup-parent`, registered with the `remote` driver (D38). |
 | Public API | A second, separate API next to the web's `/api` | One versioned API, `/api/v1`, for the web client and external clients (D39). |
 | OpenAPI generator | aide 0.15 (schemars 0.9), hand-written YAML | utoipa 6.0 + utoipa-axum 0.3 (D41). |
 | API docs UI | Swagger UI, Scalar | None in M1: the spec is served and committed (D41). |
 | Token storage | argon2 hash, JWT | sha256 of a 238-bit random token, revocable (D42). |
 | External doc writes | Replace the whole Y fragment; diff Markdown in ProseMirror space (rewrites attrs Markdown cannot express); pair children left to right (one insertion shifts the identity of every later block) | Diff against the If-Match base, in Markdown space for Markdown, anchored by `blockId` and content hash; optional CRDT merge (D50). |
-| Markdown | pulldown-cmark, comrak's own CommonMark formatter, client-side prosemirror-markdown | comrak parser + Quire's printer, on the server (D49). |
+| Markdown | pulldown-cmark, comrak's own CommonMark formatter, client-side prosemirror-markdown | comrak parser + Wikanvas's printer, on the server (D49). |
 | Board import over the API | Link `inkboard-formats` now | Deferred until an upstream feature split (D52). |
 | CLI HTTP client | reqwest 0.13 (tokio, aws-lc-rs) | ureq 3.5 with rustls + ring (D54). |
 | CLI TLS roots | Bundled webpki-roots (CDLA-Permissive-2.0, not on the allow-list) | The system CA bundle, or `--ca-file` (D54). |
-| Admin commands | In the CLI over HTTP, a separate admin binary | `quire-server admin`, reached through `quire admin` (D55). |
+| Admin commands | In the CLI over HTTP, a separate admin binary | `wikanvas-server admin`, reached through `wikanvas admin` (D55). |
 
 ---
 
 ## 3. Repository layout
 
 ```
-Quire/
-  Cargo.toml  Cargo.lock              # Quire workspace (exclude = ["vendor"]); lockfile committed
+Wikanvas/
+  Cargo.toml  Cargo.lock              # Wikanvas workspace (exclude = ["vendor"]); lockfile committed
   .cargo/config.toml                  # jobs = 6; [env] TS_RS_EXPORT_DIR = web/src/api/gen (relative),
                                       # TS_RS_LARGE_INT = "number" (i64/u64 DTO fields are `number` in TypeScript)
   rust-toolchain.toml                 # channel = "1.99.1", targets = ["wasm32-unknown-unknown", "x86_64-unknown-linux-musl"],
                                       # components = ["clippy", "rustfmt"], profile = "minimal" (= the image)
   LICENSE  THIRD_PARTY.md  CLAUDE.md  README.md
   crates/
-    quire-api/       # DTOs (serde + ts-rs + utoipa ToSchema), ErrorCode, error envelope, Page<T>, Scope, exit codes (D40)
-    quire-core/      # pure domain: ids, rank, tree rules, cursor, ytext (Y→text/links/images), convert (Y ↔ ProseMirror
-                     # JSON ↔ Markdown, §6.4), schema (schema v1 as data), board codec; re-exports quire-api as `api`
-    quire-store/     # rusqlite: Db, migrations/, repositories, blob store, tokens, backup/export, seed
-    quire-server/    # axum: lib.rs (library target for tests) + main.rs; bin `quire-server`: routes, auth, tokens, csrf,
-                     # cors, limits, headers, OpenAPI, jobs, admin commands; feature `testing` (TestServer for quire-cli)
-    quire-assets/    # rust-embed of web/dist and web/dist-inkboard only
-    quire-cli/       # bin `quire`: the CLI over /api/v1 (§7.6); tests/cli: assert_cmd against an in-process server
+    wikanvas-api/    # DTOs (serde + ts-rs + utoipa ToSchema), ErrorCode, error envelope, Page<T>, Scope, exit codes (D40)
+    wikanvas-core/   # pure domain: ids, rank, tree rules, cursor, ytext (Y→text/links/images), convert (Y ↔ ProseMirror
+                     # JSON ↔ Markdown, §6.4), schema (schema v1 as data), board codec; re-exports wikanvas-api as `api`
+    wikanvas-store/  # rusqlite: Db, migrations/, repositories, blob store, tokens, backup/export, seed
+    wikanvas-server/ # axum: lib.rs (library target for tests) + main.rs; bin `wikanvas-server`: routes, auth, tokens, csrf,
+                     # cors, limits, headers, OpenAPI, jobs, admin commands; feature `testing` (TestServer for wikanvas-cli)
+    wikanvas-assets/ # rust-embed of web/dist and web/dist-inkboard only
+    wikanvas-cli/    # bin `wikanvas`: the CLI over /api/v1 (§7.6); tests/cli: assert_cmd against an in-process server
   web/               # React + TS + Vite + TipTap (pnpm). Output: web/dist
     inkboard-frame/  # frame.html, frame.js, frame.css, inkboard.d.ts, tsconfig.json: the iframe page (plain ES module)
     dist-inkboard/   # (git-ignored) output of scripts/inkboard.sh build|stub
@@ -205,9 +206,10 @@ Quire/
                      # sizes), check-baseline.txt (the warning counts of `inkboard.sh check` on the base, §10.5)
   docker/Dockerfile  # stages: node, toolchain-base, toolchain, inkboard-web, web, licenses, server, cli-src, cli,
                      # cli-alone, cli-dist, runtime (§13.2)
-  docker/buildkitd.toml       # quire-buildkit daemon behind the quire-limited builder: max-parallelism = 2, GC 30 GB
-  docker/quire-build.slice    # systemd slice: the total build cap (D38)
-  docker/quire.slice          # its parent: low CPU and IO weight (D38)
+  docker/buildkitd.toml       # wikanvas-buildkit daemon behind the wikanvas-limited builder: max-parallelism = 2,
+                              # GC 30 GB
+  docker/wikanvas-build.slice # systemd slice: the total build cap (D38)
+  docker/wikanvas.slice       # its parent: low CPU and IO weight (D38)
   docker/Caddyfile            # the HTTPS front (D57, §13.4)
   compose.yaml  compose.e2e.yaml  compose.agent.yaml  compose.smoke.yaml  .dockerignore
   scripts/  dev.sh toolchain.sh image.sh image-smoke.sh inkboard.sh e2e.sh agent-test.sh cli-dist.sh fmt.sh
@@ -263,7 +265,7 @@ features off: no xattr), getrandom 0.4, clap 4.6.7
 (`derive`, `env`), tracing, tracing-subscriber, cookie, imagesize, percent-encoding, utoipa 6.0.0 (`macros`, `uuid`;
 never `preserve_order` or `preserve_path_order`), utoipa-axum 0.3.0, comrak 0.59.0 (`default-features = false`),
 crc32fast 1.5, rustix (`fs`: `statvfs` for the free-space floor, D33). ts-rs gets `uuid-impl` and `serde-json-impl`;
-tower-http also gets `cors`. CLI only (`quire-cli`): ureq 3.5.0 (`default-features = false`, `rustls-no-provider`,
+tower-http also gets `cors`. CLI only (`wikanvas-cli`): ureq 3.5.0 (`default-features = false`, `rustls-no-provider`,
 `json`, `gzip`; never its `rustls` feature, which adds webpki-roots, D54), rustls 0.23 (`default-features = false`,
 `ring`, `std`, `tls12`), etcetera 0.11.0, toml 1.1. Dev dependencies: axum-test 21.1, tempfile 3.27, proptest,
 assert_cmd 2.2.2, oas3 0.22.0 (`default-features = false`; parses the spec as OpenAPI 3.1 in a test; its default
@@ -273,26 +275,26 @@ checked on crates.io on 2026-10-27 (utoipa, utoipa-axum, ureq, clap, assert_cmd,
 rustls: Apache-2.0 OR ISC OR MIT; ring: Apache-2.0 AND ISC; comrak: BSD-2-Clause; oas3: MIT). comrak 0.59.0 and ureq
 3.5.0 are days old: W0b re-checks both (§16). Versions W0b picked where this list gives none are in `Cargo.toml` and
 §16 item 24; unicode-normalization 0.1.25 (MIT OR Apache-2.0, already in the lock through comrak) is a plain
-dependency of `quire-core` for `ids::slugify`.
+dependency of `wikanvas-core` for `ids::slugify`.
 
 Crates shared with Inkboard (serde, serde_json, base64, thiserror) must have the same versions in `Cargo.lock` as in
 `vendor/inkboard/Cargo.lock`; `scripts/check-pins.sh` enforces this (§15 "exact protocol match").
 
 | Crate | Depends on | Contents |
 |---|---|---|
-| `quire-api` | serde, serde_json, ts-rs, utoipa, uuid, crc32fast | `{common,tree,page,auth,tokens,files,docs,boards,error,cli,token}.rs`: every DTO of §7, `ErrorCode` with its HTTP status, `ErrorBody` (the envelope), `Page<T>`, `Scope`, `API_VERSION`, `cli::ExitCode` (§7.7), and `token::{encode, check}` (format and CRC32 checksum, D42; no randomness). No I/O. Used by quire-core (re-exported as `quire_core::api`), quire-server and quire-cli (D40). |
-| `quire-core` | quire-api, inkboard-core, yrs, comrak, unicode-normalization, serde, serde_json, uuid, sha2, base64, thiserror, getrandom | `ids` (UUIDv7, url_id, slug), `rank`, `tree` (move validation rules), `time`, `cursor` (D46), `ytext` (Y walk → plain text, links, attachment ids, emptiness), `schema` (schema v1 as data), `convert/{pm,ydiff,md_in,md_out}.rs` (§6.4), `board` (envelope split/splice, text, meta, preview). `pub use quire_api as api`. No I/O. |
-| `quire-store` | quire-core, inkboard-core, yrs, rusqlite, deadpool-sqlite, rusqlite_migration, include_dir, flate2, sha2, tokio, tar, imagesize, rustix, serde, serde_json, base64, thiserror, uuid, getrandom, tracing, bytes, futures-util | `error`, `db` (pools, PRAGMAs, maintenance connection), `migrate`, `shared` (helpers used across workstreams, `visible_items`, `WriteBy`, the free-space check), `collections`, `items`, `tree`, `search`, `stars`, `views`, `lists`, `users`, `sessions`, `tokens`, `settings`, `blobs`, `attachments`, `docs`, `boards`, `previews`, `revisions`, `gc`, `backup`, `export`, `seed` |
-| `quire-server` | quire-core, quire-store, quire-assets, quire-api, inkboard-core, rusqlite (plain-SQL reads of its own), axum, tower, tower-http, tokio, tokio-util, bytes, futures-util, argon2, governor, clap, cookie, percent-encoding, utoipa, utoipa-axum, serde, serde_json, uuid, sha2, base64, thiserror, getrandom, rustix, tracing, tracing-subscriber; tempfile under `testing` | Binary `quire-server`. `lib` (module list, `pub fn app(state) -> Router`), `main`, `cli` (subcommands), `admin` (§7.8), `config`, `app` (router assembly), `state`, `error`, `extract` (`Auth<S>`, Actor, Viewer, ItemRef), `authz`, `csrf` (Host allowlist + origin checks), `cors`, `ratelimit`, `headers`, `static_files`, `jobs`, `board_previews` (preview worker), `openapi` (spec assembly, §7.4), `testing` (feature `testing`: `TestServer`), `routes/{auth,setup,workspace,tokens,collections,items,tree,lists,search,docs,boards,files,export,config,admin}.rs`. No TLS crate (D29). |
-| `quire-assets` | rust-embed | `Web` (`web/dist`) and `Inkboard` (`web/dist-inkboard`) embeds with `#[allow_missing = true]`. Debug builds read from disk. |
-| `quire-cli` | quire-api, clap, ureq, rustls, serde, serde_json, etcetera, toml, base64, sha2, thiserror | Binary `quire` (§7.6). `main`, `args` (clap tree), `config` (flags, env, profile file), `http` (ureq agent, retries, error mapping), `output` (human and `--json`), `refs` (UUID, url_id or Quire URL), `cmd/{auth,token,workspace,collection,item,tree,list,search,star,trash,doc,board,attachment,export,api,admin,version}.rs`. Dev-dependencies: assert_cmd, tempfile, `quire-server` with feature `testing`. Never depends on quire-core, quire-store, rusqlite, yrs or Inkboard. |
+| `wikanvas-api` | serde, serde_json, ts-rs, utoipa, uuid, crc32fast | `{common,tree,page,auth,tokens,files,docs,boards,error,cli,token}.rs`: every DTO of §7, `ErrorCode` with its HTTP status, `ErrorBody` (the envelope), `Page<T>`, `Scope`, `API_VERSION`, `cli::ExitCode` (§7.7), and `token::{encode, check}` (format and CRC32 checksum, D42; no randomness). No I/O. Used by wikanvas-core (re-exported as `wikanvas_core::api`), wikanvas-server and wikanvas-cli (D40). |
+| `wikanvas-core` | wikanvas-api, inkboard-core, yrs, comrak, unicode-normalization, serde, serde_json, uuid, sha2, base64, thiserror, getrandom | `ids` (UUIDv7, url_id, slug), `rank`, `tree` (move validation rules), `time`, `cursor` (D46), `ytext` (Y walk → plain text, links, attachment ids, emptiness), `schema` (schema v1 as data), `convert/{pm,ydiff,md_in,md_out}.rs` (§6.4), `board` (envelope split/splice, text, meta, preview). `pub use wikanvas_api as api`. No I/O. |
+| `wikanvas-store` | wikanvas-core, inkboard-core, yrs, rusqlite, deadpool-sqlite, rusqlite_migration, include_dir, flate2, sha2, tokio, tar, imagesize, rustix, serde, serde_json, base64, thiserror, uuid, getrandom, tracing, bytes, futures-util | `error`, `db` (pools, PRAGMAs, maintenance connection), `migrate`, `shared` (helpers used across workstreams, `visible_items`, `WriteBy`, the free-space check), `collections`, `items`, `tree`, `search`, `stars`, `views`, `lists`, `users`, `sessions`, `tokens`, `settings`, `blobs`, `attachments`, `docs`, `boards`, `previews`, `revisions`, `gc`, `backup`, `export`, `seed` |
+| `wikanvas-server` | wikanvas-core, wikanvas-store, wikanvas-assets, wikanvas-api, inkboard-core, rusqlite (plain-SQL reads of its own), axum, tower, tower-http, tokio, tokio-util, bytes, futures-util, argon2, governor, clap, cookie, percent-encoding, utoipa, utoipa-axum, serde, serde_json, uuid, sha2, base64, thiserror, getrandom, rustix, tracing, tracing-subscriber; tempfile under `testing` | Binary `wikanvas-server`. `lib` (module list, `pub fn app(state) -> Router`), `main`, `cli` (subcommands), `admin` (§7.8), `config`, `app` (router assembly), `state`, `error`, `extract` (`Auth<S>`, Actor, Viewer, ItemRef), `authz`, `csrf` (Host allowlist + origin checks), `cors`, `ratelimit`, `headers`, `static_files`, `jobs`, `board_previews` (preview worker), `openapi` (spec assembly, §7.4), `testing` (feature `testing`: `TestServer`), `routes/{auth,setup,workspace,tokens,collections,items,tree,lists,search,docs,boards,files,export,config,admin}.rs`. No TLS crate (D29). |
+| `wikanvas-assets` | rust-embed | `Web` (`web/dist`) and `Inkboard` (`web/dist-inkboard`) embeds with `#[allow_missing = true]`. Debug builds read from disk. |
+| `wikanvas-cli` | wikanvas-api, clap, ureq, rustls, serde, serde_json, etcetera, toml, base64, sha2, thiserror | Binary `wikanvas` (§7.6). `main`, `args` (clap tree), `config` (flags, env, profile file), `http` (ureq agent, retries, error mapping), `output` (human and `--json`), `refs` (UUID, url_id or Wikanvas URL), `cmd/{auth,token,workspace,collection,item,tree,list,search,star,trash,doc,board,attachment,export,api,admin,version}.rs`. Dev-dependencies: assert_cmd, tempfile, `wikanvas-server` with feature `testing`. Never depends on wikanvas-core, wikanvas-store, rusqlite, yrs or Inkboard. |
 
-Inkboard enters Quire's graph only through `inkboard-core` (serde-only; later `inkboard-session`, also pure Rust).
+Inkboard enters Wikanvas's graph only through `inkboard-core` (serde-only; later `inkboard-session`, also pure Rust).
 Patches never touch these crates, so the server compiles them unpatched from the same commit as the wasm. Cargo reads
 `vendor/inkboard/Cargo.toml` only for inherited fields (`version`, `edition`, `license`, `rust-version`, `[lints]`).
 
-Formatting: always `scripts/fmt.sh [--check]`, which runs `cargo fmt -p quire-api -p quire-core -p quire-store
--p quire-server -p quire-assets -p quire-cli`. Never `cargo fmt --all`: it follows the path dependency into Inkboard's workspace and reformats or
+Formatting: always `scripts/fmt.sh [--check]`, which runs `cargo fmt -p wikanvas-api -p wikanvas-core -p wikanvas-store
+-p wikanvas-server -p wikanvas-assets -p wikanvas-cli`. Never `cargo fmt --all`: it follows the path dependency into Inkboard's workspace and reformats or
 fails on `vendor/inkboard`.
 
 ### 4.2 Web package (`web/package.json`, pnpm 11.24.0, exact versions, lockfile committed)
@@ -324,9 +326,9 @@ from the toolchain image and run from the Playwright image (§14). `playwright.c
 
 ---
 
-## 5. Data model (`crates/quire-store/migrations/0001-init/up.sql`)
+## 5. Data model (`crates/wikanvas-store/migrations/0001-init/up.sql`)
 
-PRAGMAs are set per connection in code: `journal_mode=WAL`, `synchronous=NORMAL` (`QUIRE_SYNC=FULL` to override),
+PRAGMAs are set per connection in code: `journal_mode=WAL`, `synchronous=NORMAL` (`WIKANVAS_SYNC=FULL` to override),
 `foreign_keys=ON`, `busy_timeout=5000`, `temp_store=MEMORY`, `cache_size=-8000`, `journal_size_limit=67108864`,
 `trusted_schema=OFF`, `PRAGMA optimize=0x10002` when a connection opens, and `query_only=ON` on readers (not on the
 writer, not on the maintenance connection). `PRAGMA optimize` also runs hourly. On SIGTERM the server drains requests,
@@ -500,7 +502,7 @@ CREATE TABLE doc_state (
   item_id        TEXT PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE,
   ydoc           BLOB NOT NULL,         -- compacted Yjs v1 update of the whole doc; new doc = encodeStateAsUpdate(empty)
   yfield         TEXT NOT NULL DEFAULT 'default',
-  schema_version INTEGER NOT NULL DEFAULT 1,   -- Quire TipTap schema version (§6.1)
+  schema_version INTEGER NOT NULL DEFAULT 1,   -- Wikanvas TipTap schema version (§6.1)
   compacted_seq  INTEGER NOT NULL DEFAULT 0,
   next_seq       INTEGER NOT NULL DEFAULT 1,
   pm_json        TEXT CHECK (pm_json IS NULL OR json_valid(pm_json)),  -- cache sent by the client; rebuildable
@@ -532,7 +534,7 @@ CREATE TABLE board_state (
   body_sha256    BLOB NOT NULL,          -- sha256 of the uncompressed stripped envelope → skip no-op saves
   raw_len        INTEGER NOT NULL,
   format_version INTEGER NOT NULL,       -- envelope "version" (2)
-  engine_version TEXT NOT NULL,          -- X-Quire-Engine of the writer, e.g. "0.2.0-beta.3+embed.quire.1"; "server" for seeds
+  engine_version TEXT NOT NULL,          -- X-Wikanvas-Engine of the writer, e.g. "0.2.0-beta.3+embed.wikanvas.1"; "server" for seeds
   rev            INTEGER NOT NULL DEFAULT 1,   -- ETag "r{rev}"
   seq            INTEGER NOT NULL DEFAULT 0,   -- Sequencer seq (server-owned live sync, later)
   meta           TEXT NOT NULL CHECK (json_valid(meta)),  -- {"pages":[{"id","name"}],"objects":n,"background":"#rrggbb","bytes":n,"text_excerpt":"…"}
@@ -676,7 +678,7 @@ Rules for the data model:
   archive unit becomes the archive root of its own part of that unit when it goes to the top (one `UPDATE … WHERE
   archive_root_id = :old AND id IN subtree(:root)`, which also bumps their `meta_version`): it shows in `/archive`,
   unarchives by itself, and survives a purge of the old root. Every trash or archive root is therefore the row itself
-  or an ancestor, with every row between them in the same unit (`quire_core::tree::Model::check_invariants`).
+  or an ancestor, with every row between them in the same unit (`wikanvas_core::tree::Model::check_invariants`).
   - Restore and unarchive act on the unit: they clear the item's trash or archive root, which may be an ancestor, and
     return that root (`RestoredItem`, with `moved_to_top`). Restoring a live item or unarchiving an unarchived one is
     409 `conflict`; unarchiving a trashed item is 409 `read_only`.
@@ -696,7 +698,7 @@ Rules for the data model:
 - **Sort keys.** When a sibling's key grows past 64 characters, the whole sibling group is rebalanced in one
   transaction (a collection rebalance bumps `tree_version` of every collection whose key it rewrites). Non-manual sorts
   are computed at read time; `sort_key` still applies to `manual`. Tree order: parents before children, depth first;
-  siblings by `child_order`: `manual` by `sort_key`, `title` A–Z by `quire_core::tree::title_key` (case- and
+  siblings by `child_order`: `manual` by `sort_key`, `title` A–Z by `wikanvas_core::tree::title_key` (case- and
   accent-insensitive, numbers by value; §9.6.2, the web client's order too), `updated` and `created` newest first;
   ties go to `sort_key`, then the id. `…/children` uses the same order.
 - **Versions.** `meta_version` goes up on every change to the item row except a content save: title, `full_width`,
@@ -706,7 +708,7 @@ Rules for the data model:
   publication change, archive, unarchive, trash, restore, discard, duplicate and rebalance, on any collection edit or
   reorder, and on collection delete and restore; `touch_content` bumps it only when the collection sorts by `updated`
   (so under the other orders a 304 tree may show an older `updated_at`, which is not structural, D21).
-- **Search query** (built in Rust, `quire_store::search::build_match`; quire-core's module list has no `search`):
+- **Search query** (built in Rust, `wikanvas_store::search::build_match`; wikanvas-core's module list has no `search`):
   - tokens are split on whitespace; `"…"` keeps a phrase; every positive token or phrase is double-quoted (embedded `"`
     doubled), and the last positive token gets `*`;
   - `-word` or `-"phrase"` is a negative term;
@@ -729,8 +731,8 @@ Rules for the data model:
   setting.
 - **Blob GC** (after attachment GC) deletes every blob that is not referenced by `attachments`, `board_assets`,
   `users.avatar_sha256` or `json_each(revisions.assets)`, as one writer closure (D26), then sweeps orphan files.
-- **`quire admin check`** runs `quick_check`, `foreign_key_check`, a bounded cycle scan, the FTS `integrity-check`, and
-  reports blob rows whose file is missing.
+- **`wikanvas admin check`** runs `quick_check`, `foreign_key_check`, a bounded cycle scan, the FTS `integrity-check`,
+  and reports blob rows whose file is missing.
 - **Previews** (`board_previews`, §12). A render stores one row per rendered page at one rev, in one writer
   transaction, and removes the rows after them. The rendering is bounded (W6): at most `PAGE_SVG_MAX` (16 MiB) per page
   and `BOARD_SVG_MAX` (48 MiB) per board, estimated from the model before rendering and counted with the real lengths.
@@ -783,7 +785,7 @@ Rules for the data model:
     is computed from `heading` nodes (no TableOfContents extension).
   - Pasted or dropped HTML images whose `src` is not same-origin keep `src` with `attachmentId: null` and render as a
     placeholder card ("External image, not loaded" + "Open link"); the CSP never loads them (§11).
-- **Server, `quire-core::ytext`.**
+- **Server, `wikanvas-core::ytext`.**
   - The walk over `XmlFragment("default")` (an explicit stack; more than 5000 levels are refused) produces:
     - plain text, one line per paragraph, heading and code block; a hard break ends a line; an image caption is a
       line; a table row is one line with `\t` between its cells (a cell's own lines joined by a space); every other
@@ -794,7 +796,7 @@ Rules for the data model:
       an empty fragment when the editor starts, so empty bytes are not the test).
   - Golden fixtures in `fixtures/ydoc/*.bin` are produced by a headless TipTap test in `web/` and checked against
     `*.txt` and `*.links.json` (`{links: [{target_id, kind}], attachment_ids, is_empty}`, computed by the web writer
-    independently of Rust) by `cargo test -p quire-core ytext`.
+    independently of Rust) by `cargo test -p wikanvas-core ytext`.
 - **Save (`POST …/doc/updates`, under a `doc_work` permit, taken after the header checks and before the body is
   read; the JSON and base64 work runs in `spawn_blocking`).**
   1. `Update::decode_v1`; an update that does not decode gets 422 `invalid_update`.
@@ -826,7 +828,7 @@ Rules for the data model:
 
 ### 6.2 Boards: the Inkboard envelope
 
-`quire-core::board` (every function returns `Result<_, BoardError>`, which maps to 422 `invalid_board` or
+`wikanvas-core::board` (every function returns `Result<_, BoardError>`, which maps to 422 `invalid_board` or
 `board_too_new`):
 - `split(body: &str) -> Split { stripped: String, assets: Vec<SplitAsset{id, mime, bytes}>, format_version }`
   - Parses `{format, version, document: &RawValue}`. `document` is parsed as an ordered map of `&RawValue`; the
@@ -848,7 +850,7 @@ Rules for the data model:
     and the SVG export would index it out of bounds.
   - Text, one entry per line: the page name, then per object the box label (`to_plain()`), the connector label, the
     table rows (cells separated by `\t`) and the image `latex`; empty entries are skipped.
-  - Meta (`Meta`/`MetaPage`, re-exported as `quire_store::boards::{Meta, MetaPage}`): pages `[{id, name}]`, object
+  - Meta (`Meta`/`MetaPage`, re-exported as `wikanvas_store::boards::{Meta, MetaPage}`): pages `[{id, name}]`, object
     count, background hex, bytes, and `text_excerpt`, the first 4096 bytes of the text cut at a character boundary.
 - `preview(full: &str, page: usize) -> Result<Option<String>>`: `from_json`, then `svg::export_approx(&doc,
   &doc.pages[page])`; a missing page is `None`. `previews(full)` renders every page from one parse and stops when the
@@ -857,10 +859,10 @@ Rules for the data model:
 
 Save (`PUT …/board`, If-Match required, otherwise 428 `precondition_required`; `If-Match: *` skips the rev check, D45).
 The web client and API clients use this same pipeline (D51):
-1. Before the body is read, in this order: `If-Match` (428), `Content-Type: application/json` (415), `X-Quire-Engine`
-   when sent (1–128 printable ASCII characters, else 422 `validation`, `field: "X-Quire-Engine"`), `Content-Length`
-   against the limit, `QUIRE_MAX_BOARD_MB` × 1 MiB (413 with `details.limit_bytes`), then the item (404; a document is
-   422 `validation`, `field: "kind"`; trashed or archived, 409 `read_only`).
+1. Before the body is read, in this order: `If-Match` (428), `Content-Type: application/json` (415), `X-Wikanvas-Engine`
+   when sent (1–128 printable ASCII characters, else 422 `validation`, `field: "X-Wikanvas-Engine"`), `Content-Length`
+   against the limit, `WIKANVAS_MAX_BOARD_MB` × 1 MiB (413 with `details.limit_bytes`), then the item (404; a document
+   is 422 `validation`, `field: "kind"`; trashed or archived, 409 `read_only`).
 2. Acquire the `board_work` permit (1), then read the body within the limit and the 120 s body deadline (413 also for
    a streamed body without `Content-Length`; 408 at the deadline). Taking the permit first keeps one board body in
    memory at a time, about 3× its size (D25); a slow upload delays other board work, at most for its deadline.
@@ -895,8 +897,8 @@ Other operations:
 - **Create:** a new board's envelope is `serial::to_json(&Document::new(""), false)`, with `background.preset` set to
   `white`, or to `slate` when the owner's theme is dark. It gets `engine_version = "server"` and rev 1. The server calls
   `inkboard_core::model::seed_ids(<random u64>)` once at startup, so ids it creates never repeat across restarts.
-- **Writer version:** the web client sends `X-Quire-Engine: <engineVersion>` (§10.4). The server stores it, so a future
-  engine-format bump can be found per board. API clients may omit it; the server then stores `"api"`.
+- **Writer version:** the web client sends `X-Wikanvas-Engine: <engineVersion>` (§10.4). The server stores it, so a
+  future engine-format bump can be found per board. API clients may omit it; the server then stores `"api"`.
 - **Embedded documents (M1.1, §18.8):** a board's cards (§18.2) become `item_links` rows (board → document, kind
   `embed`) in the PUT's writer transaction; `init_with` sets them and `copy` copies them. Nothing about them is ever
   refused.
@@ -914,13 +916,13 @@ Other operations:
   room broadcasts it like any peer's update. An API board PUT stays a whole-board replace guarded by `If-Match`; with a
   server-owned Sequencer it becomes a diff against the room's document (same idea as §6.4), which needs no format change.
 
-### 6.4 Document conversion: ProseMirror JSON and Markdown (`quire-core::convert`, `quire-core::schema`)
+### 6.4 Document conversion: ProseMirror JSON and Markdown (`wikanvas-core::convert`, `wikanvas-core::schema`)
 
 Used by `GET`/`PUT /api/v1/items/{id}/doc/{markdown,prosemirror}` (§7.5) and by the web "Export Markdown" (D49).
 
-**Schema mirror.** `quire-core::schema` holds schema v1 as data: every node (name, group, content expression, `inline`,
-`atom`, attrs with type and default) and every mark (name, attrs, `excludes`, rank). The web fixture writer dumps the
-live TipTap schema (`editor.schema`, with each attr's default) to `fixtures/schema/v1.json`, and
+**Schema mirror.** `wikanvas-core::schema` holds schema v1 as data: every node (name, group, content expression,
+`inline`, `atom`, attrs with type and default) and every mark (name, attrs, `excludes`, rank). The web fixture writer
+dumps the live TipTap schema (`editor.schema`, with each attr's default) to `fixtures/schema/v1.json`, and
 `schema::tests::matches_tiptap_fixture` compares it with the Rust table, so attrs TipTap adds beyond the §6.1 list (for
 example `orderedList.start`, table cells' `colspan`, `rowspan`, `colwidth`) are covered.
 `schema::tests::every_mark_excludes_itself` asserts that no v1 mark allows overlapping copies of itself (y-tiptap would
@@ -1036,41 +1038,41 @@ after the wait for permits:
 An open web editor sees the write the next time it fetches `?since=` (focus or visibility, §9.4) and never loses its own
 unsent edits, which are CRDT updates as well. Live push arrives with the WebSocket (§15).
 
-**Quire Markdown 1** (`convert::md_in`, `convert::md_out`):
+**Wikanvas Markdown 1** (`convert::md_in`, `convert::md_out`):
 - Parser: comrak with the extensions `table`, `strikethrough`, `tasklist`, `autolink`, `alerts` and `highlight` on. Off:
   `underline` (so `__x__` stays bold, as in CommonMark), footnotes, math, wikilinks, front matter, description lists,
   superscript, subscript, spoiler, shortcodes, header ids and smart punctuation. Raw HTML is never rendered: an HTML
   block becomes a paragraph of its literal text (its lines joined by hard breaks), inline HTML becomes literal text,
   except the exact pair `<u>`…`</u>`. A list item that starts with a non-paragraph gets an empty first paragraph
   (TipTap's `paragraph block*`).
-- Printer (Quire's own, deterministic): ATX headings; `-` bullets, alternating with `*` for a bullet or task list that
-  directly follows another (so the two stay separate lists); `1.`-style ordered lists starting at `start`, alternating
-  with `1)` after another ordered list; an empty item prints its marker alone; fenced code with a fence longer than any
-  backtick run inside; `---` rules; backslash hard breaks; whitespace at the edge of a marked run printed outside its
-  delimiters; one blank line between blocks, LF line endings, one trailing newline, and CommonMark backslash escapes
-  for punctuation that would otherwise start a construct. Bare URLs in text are escaped (`https\://`, `&#119;ww.`) so
-  they do not autolink. Inline content is written as cells and then passed through `md_out::fix_runs`, a linear pass
-  that mirrors comrak's flanking rules (CommonMark's, with `~` and `=` skipped when looking at a run's neighbours): a
-  letter (or a non-ASCII character Rust cannot classify) next to a delimiter that would otherwise not open or close is
-  written as a decimal character reference (`&#120;*\_y\_*`), and so is whitespace at the inside edge of a mark that
-  the lowering does not move (a no-break space); text `=` or `_` that could open, or close an open, highlight or `_`
-  emphasis is escaped. Bold and italic use `_`/`__` instead of `*`/`**` right after a `*` closer (so closers and openers
-  never merge into one run) and when opened while the other is open from a `***` run; italic inside a lone `**`, and
-  the reverse, keep `*`. An `@` with an e-mail local-part character before it and a domain character after it is
-  escaped (`a\@b.co`), and a `!` before a mention is escaped as before a link. These rules change the output only
-  where it would not parse back. The printer also emits the block map that step 3 of the write path uses.
+- Printer (Wikanvas's own, deterministic): ATX headings; `-` bullets, alternating with `*` for a bullet or task list
+  that directly follows another (so the two stay separate lists); `1.`-style ordered lists starting at `start`,
+  alternating with `1)` after another ordered list; an empty item prints its marker alone; fenced code with a fence
+  longer than any backtick run inside; `---` rules; backslash hard breaks; whitespace at the edge of a marked run
+  printed outside its delimiters; one blank line between blocks, LF line endings, one trailing newline, and CommonMark
+  backslash escapes for punctuation that would otherwise start a construct. Bare URLs in text are escaped (`https\://`,
+  `&#119;ww.`) so they do not autolink. Inline content is written as cells and then passed through `md_out::fix_runs`, a
+  linear pass that mirrors comrak's flanking rules (CommonMark's, with `~` and `=` skipped when looking at a run's
+  neighbours): a letter (or a non-ASCII character Rust cannot classify) next to a delimiter that would otherwise not
+  open or close is written as a decimal character reference (`&#120;*\_y\_*`), and so is whitespace at the inside edge
+  of a mark that the lowering does not move (a no-break space); text `=` or `_` that could open, or close an open,
+  highlight or `_` emphasis is escaped. Bold and italic use `_`/`__` instead of `*`/`**` right after a `*` closer (so
+  closers and openers never merge into one run) and when opened while the other is open from a `***` run; italic inside
+  a lone `**`, and the reverse, keep `*`. An `@` with an e-mail local-part character before it and a domain character
+  after it is escaped (`a\@b.co`), and a `!` before a mention is escaped as before a link. These rules change the output
+  only where it would not parse back. The printer also emits the block map that step 3 of the write path uses.
 - Properties (proptest, `convert::tests::markdown_roundtrip`): for every schema-v1 document,
   `parse(print(d)) == md_normalize(d)` ignoring `blockId`, where `md_normalize` applies exactly the lossy rules of the
   table below; and `print(parse(print(d))) == print(d)`.
 - Scheme allow-list for `link.href` and external `image.src` on every write path, and in TipTap's Link `protocols` /
-  `isAllowedUri`: `http`, `https`, `mailto` (links only), `quire`, same-origin paths `/…` and fragments `#…`. Markdown
-  input with another scheme (`javascript:`, `data:`, …) stays literal text, and Markdown output prints such a stored
-  link as its text; both with the warning `unsafe_link`. Both lists (`quire_core::convert::link_allowed` /
+  `isAllowedUri`: `http`, `https`, `mailto` (links only), `wikanvas`, same-origin paths `/…` and fragments `#…`.
+  Markdown input with another scheme (`javascript:`, `data:`, …) stays literal text, and Markdown output prints such a
+  stored link as its text; both with the warning `unsafe_link`. Both lists (`wikanvas_core::convert::link_allowed` /
   `image_allowed` and `web/src/editor/links.ts`) check the URL after dropping every control character and space
   (U+0000–U+0020, U+007F–U+009F), since a browser drops tab and newline anywhere in a URL: `/\t/host` is the
   protocol-relative `//host` and stays text, like `/\host`. The two tests share their list of rejected URLs.
-- Item links use the scheme `quire://item/<item uuid>`. On input, a same-instance URL (`/doc/<slug>-<url_id>`,
-  `/board/<slug>-<url_id>`, or either under `QUIRE_PUBLIC_URL`) is resolved to the item id as well; attachment URLs
+- Item links use the scheme `wikanvas://item/<item uuid>`. On input, a same-instance URL (`/doc/<slug>-<url_id>`,
+  `/board/<slug>-<url_id>`, or either under `WIKANVAS_PUBLIC_URL`) is resolved to the item id as well; attachment URLs
   `/api/v1/attachments/<id>` likewise. Resolution needs the database, so the parser takes a lookup closure from the
   store.
 
@@ -1083,9 +1085,9 @@ unsent edits, which are CRDT updates as well. Live push arrives with the WebSock
 | `bold`, `italic`, `strike`, `code`, `highlight` | `**`, `*`, `~~`, backticks, `==`; whitespace at a mark's edge moves outside it | Lossless; `__x__` and `_x_` are accepted. `code` excludes every other mark (TipTap's `excludes: '_'`), so other marks on code text are dropped (warning `marks_in_code_dropped`) |
 | `underline` | `<u>…</u>` | The exact `<u>`/`</u>` pair; any other inline HTML is literal text (warning `html_as_text`) |
 | `link{href}` | `[text](href)`; outside the scheme allow-list, the text only (`unsafe_link`) | Lossless within the allow-list; autolinks become links; other schemes stay literal text (`unsafe_link`) |
-| `link{itemId}` | `[text](quire://item/<itemId>)` | `quire://item/…` or a same-instance item URL → `link{itemId}` (a same-instance URL keeps its `href` beside the `itemId`); an unknown item → a plain link (warning `unknown_item`) |
-| `mention{itemId}` | `[@<live title>](quire://item/<itemId>)`; "Deleted item" when the target is unknown | A link whose text starts with `@` and whose target is `quire://item/<uuid>` or an item URL → `mention`, even when the item is unknown (warning `unknown_item`), so a deleted target round-trips; the text is ignored (mentions show the live title) |
-| `boardEmbed{itemId}` | A paragraph holding only `![<board title>](quire://item/<itemId>)`; "Board" when the target is unknown | An image whose URL is an item: a board → `boardEmbed`; a document → `mention` (warning `embed_not_board`); an unknown item → `boardEmbed` (warning `unknown_item`) |
+| `link{itemId}` | `[text](wikanvas://item/<itemId>)` | `wikanvas://item/…` or a same-instance item URL → `link{itemId}` (a same-instance URL keeps its `href` beside the `itemId`); an unknown item → a plain link (warning `unknown_item`) |
+| `mention{itemId}` | `[@<live title>](wikanvas://item/<itemId>)`; "Deleted item" when the target is unknown | A link whose text starts with `@` and whose target is `wikanvas://item/<uuid>` or an item URL → `mention`, even when the item is unknown (warning `unknown_item`), so a deleted target round-trips; the text is ignored (mentions show the live title) |
+| `boardEmbed{itemId}` | A paragraph holding only `![<board title>](wikanvas://item/<itemId>)`; "Board" when the target is unknown | An image whose URL is an item: a board → `boardEmbed`; a document → `mention` (warning `embed_not_board`); an unknown item → `boardEmbed` (warning `unknown_item`) |
 | `image{attachmentId, alt, caption, width}` | `![alt](/api/v1/attachments/<id> "caption")`; width dropped (warning `image_width_dropped`) | A same-instance attachment URL that exists → `attachmentId`; any other allowed URL → an external image (`attachmentId: null`, the §6.1 placeholder); title → caption; width default, or the base's for an unchanged image (step 3). TipTap's image is a block: an image inside a paragraph with other content is hoisted into its own block after that paragraph (warning `image_hoisted`) |
 | External `image{src}` | `![alt](src)` | As above |
 | `table`, `tableRow`, `tableHeader`, `tableCell` | GFM table. The first row is the header (an empty header row is added when the first row has no `tableHeader` cells). A cell holding anything but one paragraph is flattened: its blocks' inline text joined with `<br>` (warning `table_cell_flattened`). `colspan`/`rowspan` are expanded into empty cells (warning `table_span_dropped`); `colwidth` is dropped | A GFM table → `table` with a `tableHeader` first row; `<br>` in a cell → `hardBreak`; column alignment is dropped (warning `table_alignment_dropped`). A table whose Markdown is unchanged keeps its spans, widths and multi-block cells (step 3) |
@@ -1096,8 +1098,8 @@ unsent edits, which are CRDT updates as well. Live push arrives with the WebSock
 
 ProseMirror JSON is lossless in both directions for schema v1: GET returns the normalized shape (`editor.getJSON()`),
 and PUT rejects exactly what the schema rejects, plus links outside the scheme allow-list. Warnings are `ConversionWarning{code, path?, count}`: PUT returns them in its
-body, GET Markdown lists their codes in the `Quire-Conversion-Warnings` response header. Input limits: Markdown 1 MiB,
-JSON 4 MiB, nesting depth 100 (D33).
+body, GET Markdown lists their codes in the `Wikanvas-Conversion-Warnings` response header. Input limits: Markdown 1
+MiB, JSON 4 MiB, nesting depth 100 (D33).
 
 ---
 
@@ -1113,9 +1115,9 @@ JSON 4 MiB, nesting depth 100 (D33).
   - Compatibility within v1: routes, optional request fields, response fields, error codes and enum values may be
     added. Clients must ignore unknown response fields and treat an unknown error `code` by its HTTP status. Removing
     or renaming a field, changing a type or a default, or tightening validation needs `/api/v2`, served next to v1 for
-    at least one release. `quire_api::API_VERSION` stays `"1.0"` until the first release; after that the release
+    at least one release. `wikanvas_api::API_VERSION` stays `"1.0"` until the first release; after that the release
     bumps the minor once when it adds anything. It is the spec's `info.version`, `api_version` in
-    `GET /api/v1/config`, and the `Quire-Api-Version` header on every `/api/v1` response.
+    `GET /api/v1/config`, and the `Wikanvas-Api-Version` header on every `/api/v1` response.
 - **IDs and positions.**
   - Path parameters are named `{id}` (or `{n}`) and are UUIDs; `GET /api/v1/items/{id}` and
     `GET /api/v1/collections/{id}` also accept a `url_id`. One name per path position and no static text after a
@@ -1126,7 +1128,7 @@ JSON 4 MiB, nesting depth 100 (D33).
 - **Authentication and scopes** (§7.3). The Auth column of §7.2 names what each route needs: *public* (nothing);
   `read`, `write` or `admin` (a token with that scope, or the session cookie, which has every scope); *session* (the
   cookie only); *token* (any valid token). While no owner exists, every non-public route answers 409 `setup_required`;
-  an owner made by `quire admin create-owner` while the server runs is seen on the next request (§8).
+  an owner made by `wikanvas admin create-owner` while the server runs is seen on the next request (§8).
 - **Errors.** Every error has the shape `{"error":{"code","message","details"?},"request_id"}` (`ErrorBody`), and every
   response carries `X-Request-Id` with the same id. `code` is stable and machine-readable; `message` is English for
   people and may change; `details` has a per-code schema in the spec. axum's own rejections (unknown route, wrong
@@ -1177,9 +1179,9 @@ JSON 4 MiB, nesting depth 100 (D33).
   | Item metadata (`GET`/`PATCH /items/{id}`) | `"m{meta_version}"`; never 304 (the body also carries stars, breadcrumbs and board meta) | `If-Match` optional; stale → 412; without it the last write wins (the web client sends none) |
   | Tree (`GET …/tree`) | `"t{tree_version}.{viewer_epoch}"` | Read-only |
 - **Request limits** (D33). Bodies are limited to 1 MiB unless §7.2 says otherwise: Yjs update 16 MiB, ProseMirror
-  JSON PUT 4 MiB, Markdown PUT 1 MiB, board PUT `QUIRE_MAX_BOARD_MB`, attachment `QUIRE_MAX_UPLOAD_MB`. Over the limit:
-  413 `payload_too_large` with `details.limit_bytes`. `q` is at most 500 characters; JSON nesting at most 100 levels
-  (a deeper board body is 422 `invalid_board`, a deeper ProseMirror document 422 `invalid_document`).
+  JSON PUT 4 MiB, Markdown PUT 1 MiB, board PUT `WIKANVAS_MAX_BOARD_MB`, attachment `WIKANVAS_MAX_UPLOAD_MB`. Over the
+  limit: 413 `payload_too_large` with `details.limit_bytes`. `q` is at most 500 characters; JSON nesting at most 100
+  levels (a deeper board body is 422 `invalid_board`, a deeper ProseMirror document 422 `invalid_document`).
   Every limit is listed in `GET /api/v1/config` (`limits`).
 - **Media types.** Mutating routes take `application/json`, except the declared types of the attachment upload (raw
   bytes of any type, sniffed) and of the Markdown PUT (`text/markdown`). `application/x-www-form-urlencoded`,
@@ -1193,7 +1195,7 @@ JSON 4 MiB, nesting depth 100 (D33).
   `WorkspacePatch.logo_attachment_id`, `NewToken.expires_in_days`); defaulted boolean flags are omitted when false.
   Unit enums are snake_case strings. `i64`/`u64` fields are `number` in TypeScript (`TS_RS_LARGE_INT`, §3).
   `ErrorCode` is a strict enum in Rust, so a client that must tolerate future codes reads `code` as a string.
-- **Shared shapes** (`quire-api`, re-exported as `quire-core::api`):
+- **Shared shapes** (`wikanvas-api`, re-exported as `wikanvas-core::api`):
   - `User{id,email,name,role,theme}`
   - `Collection{id,url_id,name,description,icon,color,sort_key,child_order,item_count,updated_at}`
   - `ItemSummary{id,url_id,collection_id,parent_id,kind,title,sort_key,child_count,published,archived,updated_at,content_at,created_at}`
@@ -1251,7 +1253,7 @@ Auth: *public*, *session*, *token*, or the scope a token needs (a session has ev
 | POST | `/api/v1/items/{id}/publish` | `write` | `{with_ancestors: bool}`, or no body (`false`) | `ItemSummary`. With `true`, draft ancestors are published too. Not called by the M1 web client (D23). A non-empty body must be `application/json` (415) | W1 |
 | POST | `/api/v1/items/{id}/unpublish` | `write` | none | `ItemSummary`. Always allowed; in M1 the only way an item becomes a draft (D23) | W1 |
 | POST | `/api/v1/items/{id}/archive` · `/unarchive` | `write` | none | `{archived:n}` / `RestoredItem`: the unit's root (`ItemSummary` + `moved_to_top`, §5). Archive skips trashed descendants | W1 |
-| DELETE | `/api/v1/items/{id}` | `write` | `?discard_empty=true` optional | `{trashed:n}`. With `discard_empty`: permanent delete if the item is new (created less than 24 h ago) and has no children (in any state), a title that is blank after trimming and an empty body (`docs::is_empty` / `boards::is_empty`), published or not, and (from M1.1, §18.8) is the target of no `item_links` row of kind `embed`; otherwise 409 `not_empty`. Used by the web client when the owner leaves a new empty item, and by `quire item create --md` after a failed PUT | W1 |
+| DELETE | `/api/v1/items/{id}` | `write` | `?discard_empty=true` optional | `{trashed:n}`. With `discard_empty`: permanent delete if the item is new (created less than 24 h ago) and has no children (in any state), a title that is blank after trimming and an empty body (`docs::is_empty` / `boards::is_empty`), published or not, and (from M1.1, §18.8) is the target of no `item_links` row of kind `embed`; otherwise 409 `not_empty`. Used by the web client when the owner leaves a new empty item, and by `wikanvas item create --md` after a failed PUT | W1 |
 | POST | `/api/v1/items/{id}/restore` | `write` | none | `RestoredItem`: the unit's root (`ItemSummary` + `moved_to_top`, §5). 409 `parent_invalid` while its collection is deleted; 409 `conflict` for a live item | W1 |
 | GET | `/api/v1/trash` | `read` | none | `{collections:[Collection+deleted_at+purge_at], items:[ItemSummary+deleted_at+purge_at+descendant_count+path]}` (roots only) | W1 |
 | DELETE | `/api/v1/trash/items/{id}` · `/api/v1/trash/collections/{id}` · `/api/v1/trash` | `admin` | none | 204 (purge). Any trashed item with its subtree; a live item or collection is 409 `conflict`. `/trash` purges every item root and deleted collection | W1 |
@@ -1262,19 +1264,19 @@ Auth: *public*, *session*, *token*, or the scope a token needs (a session has ev
 | GET | `/api/v1/search/titles` | `read` | `?q&limit=10` | `[{item, path}]` (quick switcher and mentions) | W1 |
 | GET | `/api/v1/items/{id}/doc` | `read` | `?since=<b64 state vector>` | `{update, state_vector, seq, field:"default", schema_version}` (b64 Yjs v1) | W4 |
 | POST | `/api/v1/items/{id}/doc/updates` | `write` | `{update:b64, pm_json?}`, up to 16 MiB (`pm_json`: an object or `null`, stored as sent, §6.1) | `{seq, state_vector, updated_at}`. 409 `missing_deps{state_vector}` | W4 |
-| GET | `/api/v1/items/{id}/doc/markdown` | `read` | `?title=include`, `?download=true` | `text/markdown; charset=utf-8` (§6.4), `ETag: "d{seq}"` (never 304), `Quire-Conversion-Warnings`. `download` adds `Content-Disposition: attachment; filename="<slug>.md"`, the slug being the title in ASCII with every other character as `-` | W4 |
+| GET | `/api/v1/items/{id}/doc/markdown` | `read` | `?title=include`, `?download=true` | `text/markdown; charset=utf-8` (§6.4), `ETag: "d{seq}"` (never 304), `Wikanvas-Conversion-Warnings`. `download` adds `Content-Disposition: attachment; filename="<slug>.md"`, the slug being the title in ASCII with every other character as `-` | W4 |
 | PUT | `/api/v1/items/{id}/doc/markdown` | `write` | `text/markdown` up to 1 MiB, `If-Match` required, `?merge=true`, `?title=from_h1` | `DocWriteResult` + ETag. 409 `schema_too_new` / 412 / 422 / 428 | W4 |
 | GET | `/api/v1/items/{id}/doc/prosemirror` | `read` | `If-None-Match` | `DocJson`, `ETag: "d{seq}"` | W4 |
 | PUT | `/api/v1/items/{id}/doc/prosemirror` | `write` | `{schema_version?: 1, doc}` up to 4 MiB, `If-Match` required, `?merge=true` | `DocWriteResult` + ETag. 422 `invalid_document{path, reason}` / 409 `schema_too_new` / 412 / 428 | W4 |
 | GET | `/api/v1/schema/doc` | `read` | none | `DocSchema{schema_version, top_node, nodes: [NodeSpec{name, group, content, marks, inline, atom, attrs}], marks: [MarkSpec{name, rank, excludes, inclusive, attrs}]}`, with `AttrSpec{name, type, default}`: schema v1 as data (§6.4). `NodeSpec.marks` is the allowed marks (null for the default), `type` is TypeScript notation (`integer`, `string \| null`, `integer[] \| null`, `"info" \| "tip" \| …`); `fixtures/schema/v1.json` is exactly this JSON | W4 |
 | GET | `/api/v1/items/{id}/board` | `read` | none | envelope JSON, `ETag: "r{rev}"` (for `If-Match`), `Cache-Control: no-store`; never 304 (§6.2). 429 `busy` while large bodies hold the body budget (D25) | W6 |
-| PUT | `/api/v1/items/{id}/board` | `write` | envelope JSON, `If-Match` (`"r{rev}"` or `*`), `X-Quire-Engine` (optional for API clients), up to `max_board_mb` | `{rev, etag, updated_at, meta}`. 408 / 412 / 413 / 415 / 422 / 428 / 507, in the order of §6.2 | W6 |
+| PUT | `/api/v1/items/{id}/board` | `write` | envelope JSON, `If-Match` (`"r{rev}"` or `*`), `X-Wikanvas-Engine` (optional for API clients), up to `max_board_mb` | `{rev, etag, updated_at, meta}`. 408 / 412 / 413 / 415 / 422 / 428 / 507, in the order of §6.2 | W6 |
 | GET | `/api/v1/items/{id}/board.inkboard` | `read` | none | The envelope as a download, `Content-Disposition: attachment; filename="<title>.inkboard"`; 429 `busy` as above | W6 |
 | GET | `/api/v1/items/{id}/board/pages/{n}` | `read` | `?rev=N` optional | `image/svg+xml` (no `.svg` suffix: matchit 0.8.4). `n` must be a page of the board, else 404. Without `rev`: the current page, `no-cache`. `rev` current: immutable. Other rev: 307 to the relative `/api/v1/items/{id}/board/pages/{n}?rev={current}`, `no-store`. Every answer has `ETag: "r{rev}"` and answers a matching `If-None-Match` with 304 (the SVG holds no title). Empty page: 204. A page with no stored preview is rendered on demand (§12); a page the preview budget left out is the "Too large to preview" card (§5) | W6 |
 | POST | `/api/v1/attachments` | `write` | raw body (clients send `application/octet-stream`), `?item_id&filename`, up to `max_upload_mb`, streamed to `/data/tmp` under `upload_work` | 201 `{id, url, sha256, mime, size, width?, height?}`. 415 for the three form types (after `Auth<S>`); 413 from `Content-Length` and again while streaming; 422 over 100 MP (`field: "body"`); 404 for an unknown `item_id`; 507 below the free-space floor. The filename is trimmed, and `.` or `..` becomes `file` | W2 |
 | GET | `/api/v1/attachments/{id}` | `read` | none | bytes (§11) | W2 |
 | GET | `/api/v1/export` | `admin` | none | `application/x-tar` stream. Single-flight (429 `busy`); no request deadline (§8). With the cookie it needs `Sec-Fetch-Site` `same-origin` or `none`, or, without fetch metadata, a same-origin `Referer`; otherwise 403 `csrf_rejected` (SameSite=Lax sends the cookie on cross-site navigations) | W2 |
-| POST | `/api/v1/admin/backup` | `admin` | none | `{path, size}`. Single-flight, also against `quire-server admin backup` in another process (429 `busy`, §12); no request deadline; counts against `QUIRE_BACKUP_KEEP` (with 0, only the new file is kept) | W2 |
+| POST | `/api/v1/admin/backup` | `admin` | none | `{path, size}`. Single-flight, also against `wikanvas-server admin backup` in another process (429 `busy`, §12); no request deadline; counts against `WIKANVAS_BACKUP_KEEP` (with 0, only the new file is kept) | W2 |
 
 Reserved and not implemented in M1: `/api/v1/items/{id}/revisions*`, `/api/v1/blobs/{sha256}`,
 `/api/v1/items/{id}/doc/ws`, `/api/v1/items/{id}/board/ws`, `POST /api/v1/items/{id}/board/import` (D52), and
@@ -1283,8 +1285,8 @@ Reserved and not implemented in M1: `/api/v1/items/{id}/revisions*`, `/api/v1/bl
 ### 7.3 Authentication methods and personal access tokens
 
 - **Resolution** (`extract::Auth<S>`, D43, D44), before any other extractor of the handler:
-  1. If `is_quire_bearer(headers)` (scheme `Bearer`, credentials starting `qpat_`; the CSRF layer calls the same
-     function): the token must pass `quire_api::token::check` (51 characters, base62, CRC32), otherwise 401
+  1. If `is_wikanvas_bearer(headers)` (scheme `Bearer`, credentials starting `qpat_`; the CSRF layer calls the same
+     function): the token must pass `wikanvas_api::token::check` (51 characters, base62, CRC32), otherwise 401
      `invalid_token` with no database lookup. Then the row for `sha256(token)` is read on a reader with no liveness
      filter and classified (§5): live → authenticated; expired → 401 `invalid_token` with `details.reason =
      "expired"`; revoked, disabled user or no row → the same 401 with no reason. Nothing is cached. The cookie is
@@ -1300,28 +1302,28 @@ Reserved and not implemented in M1: `/api/v1/items/{id}/revisions*`, `/api/v1/bl
 - **Format.** `qpat_` + 40 base62 characters from `getrandom` (about 238 bits) + 6 base62 characters encoding the CRC32
   of those 40 (D42).
 - **Creation.** `POST /api/v1/tokens` (a session or an admin token), Settings → API tokens (§9.6.6), or
-  `quire admin create-token` (§7.8). `expires_in_days` omitted means 90 days, `null` never. Scopes are stored expanded
-  (`write` stores read and write) and cannot exceed the caller's (a session may grant any). A calling token cannot
-  grant `admin`, and the new token cannot expire later than the caller (`parent_token_id` records the caller). A
+  `wikanvas admin create-token` (§7.8). `expires_in_days` omitted means 90 days, `null` never. Scopes are stored
+  expanded (`write` stores read and write) and cannot exceed the caller's (a session may grant any). A calling token
+  cannot grant `admin`, and the new token cannot expire later than the caller (`parent_token_id` records the caller). A
   session caller re-enters its password for an `admin` or never-expiring token (argon2 under the same semaphore as
   login). The `201 {token, api_token}` response is the only place the secret ever appears; the server keeps
   `sha256(token)` and the 12-character prefix.
 - **Use.** `Authorization: Bearer qpat_…` on any non-public route. `GET /api/v1/auth/me` returns `auth.token`, which is
-  what `quire auth whoami` prints.
+  what `wikanvas auth whoami` prints.
 - **Last use.** An in-memory map remembers when each token's row was last written; a request writes `last_used_at` and
   `last_used_ip` through the writer, in a spawned task off the request path, only when that was more than 60 s ago.
 - **Revocation.** `DELETE /api/v1/tokens/{id}`, `DELETE /api/v1/tokens/current` (a token revoking itself, used by
-  `quire auth logout --revoke`) or `quire admin revoke-token`; revoking a token also revokes the tokens it created. It
-  takes effect on the next request, because lookups are never cached. A password change revokes sessions, not tokens
-  (separate credentials); `quire admin reset-password --revoke-tokens` and `quire admin revoke-token --all --yes` are
-  the switches for a compromise. Deleting or disabling a user (later) ends their tokens (FK cascade, `disabled_at`
-  check).
-- **Rate limits** (D47): keyed governor limiters per token, `QUIRE_TOKEN_RATE` requests per minute (default 600, burst
-  120) and `QUIRE_TOKEN_BYTES_PER_HOUR` of body (default 1 GiB); over either, 429 `rate_limited` with `Retry-After`.
-  Bearer authentication failures count per IP (30 per minute). Over that, a token that fails lookup gets 429
-  (`reason: "auth_failures"`) instead of 401, while valid tokens from that IP are served; malformed tokens never reach
-  the database, but count against the per-IP limit too. Body bytes: a declared `Content-Length` is counted when the
-  request authenticates, so an oversized declared body gets 429 before the handler runs; other bytes are counted as
+  `wikanvas auth logout --revoke`) or `wikanvas admin revoke-token`; revoking a token also revokes the tokens it
+  created. It takes effect on the next request, because lookups are never cached. A password change revokes sessions,
+  not tokens (separate credentials); `wikanvas admin reset-password --revoke-tokens` and
+  `wikanvas admin revoke-token --all --yes` are the switches for a compromise. Deleting or disabling a user (later) ends
+  their tokens (FK cascade, `disabled_at` check).
+- **Rate limits** (D47): keyed governor limiters per token, `WIKANVAS_TOKEN_RATE` requests per minute (default 600,
+  burst 120) and `WIKANVAS_TOKEN_BYTES_PER_HOUR` of body (default 1 GiB); over either, 429 `rate_limited` with
+  `Retry-After`. Bearer authentication failures count per IP (30 per minute). Over that, a token that fails lookup gets
+  429 (`reason: "auth_failures"`) instead of 401, while valid tokens from that IP are served; malformed tokens never
+  reach the database, but count against the per-IP limit too. Body bytes: a declared `Content-Length` is counted when
+  the request authenticates, so an oversized declared body gets 429 before the handler runs; other bytes are counted as
   the body is read, one KiB each time the running total crosses a KiB boundary, so a body costs `ceil(size / 1024)` KiB
   however it is chunked, and a body that goes over the budget is cut off with 429 `bytes`. Heavy work stays bounded by
   the `board_work`, `doc_work` and `upload_work` permits (D25) whatever the rate.
@@ -1331,21 +1333,22 @@ Reserved and not implemented in M1: `/api/v1/items/{id}/revisions*`, `/api/v1/bl
   deletion (Trash purge), workspace and account settings, sessions, tokens, export and backup. Password change and
   logout are session-only.
 
-### 7.4 OpenAPI spec (`quire-server::openapi`, D41)
+### 7.4 OpenAPI spec (`wikanvas-server::openapi`, D41)
 
 - Every route module returns `OpenApiRouter<AppState>` (utoipa-axum) and registers handlers only through
-  `.routes(routes!(…))` on functions annotated with `#[utoipa::path(…)]`. `quire_server::app()` nests them under
+  `.routes(routes!(…))` on functions annotated with `#[utoipa::path(…)]`. `wikanvas_server::app()` nests them under
   `/api/v1` and calls `split_for_parts()`, so the served router and the spec come from the same registrations. Plain
   `Router::route` is never used under `src/routes/`, and no `.route("/api` appears anywhere in the crate (two greps in
   the release gate). `/healthz`, static files and the SPA fallback are mounted outside `/api/v1` and outside the spec.
-- Each operation declares its request and response bodies (the `quire-api` DTOs derive `ToSchema`), every error
+- Each operation declares its request and response bodies (the `wikanvas-api` DTOs derive `ToSchema`), every error
   response as `ErrorBody` with its possible codes, its ETag and If-Match headers, and its security: `[]` for public
   routes (utoipa writes `security(())` as `[{}]`, and `openapi::spec()` rewrites it to `[]`),
   `[{bearer: [<scope>]}, {session: []}]` otherwise, `[{session: []}]` for session-only routes, and `[{bearer: []}]`
   for token-only routes (`Auth<AnyToken>`).
 - `components.securitySchemes`: `bearer` (`type: http`, `scheme: bearer`, `bearerFormat: qpat`) and `session`
-  (`type: apiKey`, `in: cookie`, `name: quire_session`; the description notes `__Host-quire_session` behind https).
-- `info`: title "Quire API", `version` = `quire_api::API_VERSION`, licence MIT. The spec is built once at
+  (`type: apiKey`, `in: cookie`, `name: wikanvas_session`; the description notes `__Host-wikanvas_session` behind
+  https).
+- `info`: title "Wikanvas API", `version` = `wikanvas_api::API_VERSION`, licence MIT. The spec is built once at
   startup and served from memory at `GET /api/v1/openapi.json` with `Cache-Control: no-cache` and an ETag
   (`"o<the first 16 hex digits of its sha256>"`; `If-None-Match` ignores `W/` and accepts `*`). Each handler is
   registered with its own `routes!()`: utoipa-axum's `routes!` with handlers on several paths gives every path all
@@ -1353,7 +1356,7 @@ Reserved and not implemented in M1: `/api/v1/items/{id}/revisions*`, `/api/v1/bl
 - **Committed copy** `docs/api/openapi.json` (pretty-printed, trailing newline). Tests in `tests/api/openapi.rs` and
   `tests/api/security.rs`:
   - `openapi::spec_matches_committed` fails on any difference; with `UPDATE_OPENAPI=1` it rewrites the file instead
-    (`scripts/dev.sh env UPDATE_OPENAPI=1 cargo test -p quire-server --locked --test api -- openapi::`);
+    (`scripts/dev.sh env UPDATE_OPENAPI=1 cargo test -p wikanvas-server --locked --test api -- openapi::`);
   - `openapi::spec_parses_as_3_1` parses the file with oas3 0.22 and checks `openapi == "3.1.0"` and that every path
     starts with `/api/v1/`;
   - `security::every_operation_enforces_its_declared_scope` walks the spec and calls every operation with random UUIDs
@@ -1374,7 +1377,7 @@ Documents have three representations, all `read` to GET and `write` to change:
 |---|---|---|---|
 | Yjs v1 updates (base64 in JSON) | `GET …/doc` (`?since=`), `POST …/doc/updates` | Exact: the stored form | The web editor; tools with a Yjs library |
 | ProseMirror JSON (`DocJson`) | `GET`/`PUT …/doc/prosemirror` | Lossless for schema v1 (§6.4) | Programs that build documents |
-| Markdown (Quire Markdown 1) | `GET`/`PUT …/doc/markdown` | Lossy as listed in §6.4 | Agents, the CLI, "Export Markdown" |
+| Markdown (Wikanvas Markdown 1) | `GET`/`PUT …/doc/markdown` | Lossy as listed in §6.4 | Agents, the CLI, "Export Markdown" |
 
 A whole-document PUT is a diff against its `If-Match` base and is stored as one more Yjs update (§6.4, D50). Clients
 edit with a read-modify-write loop: GET (keep the ETag), change, PUT with `If-Match`. On 412 they either GET again and
@@ -1386,26 +1389,26 @@ validates with `inkboard_core::serial::from_json` (`inkboard-core/src/serial.rs:
 fields survive, splits inline base64 images into blobs, and owns `document.name`. PUT needs `If-Match: "r{rev}"` (or
 `*`). Previews are `GET …/board/pages/{n}` (`image/svg+xml`, `svg::export_approx`, `inkboard-core/src/svg.rs:456`).
 A board can embed documents as cards, `rect` boxes with `kind.embed = {item: <uuid>}` (§18.2, AGENTS.md §8); keep
-that field when rewriting a board. Server-side import from draw.io, Excalidraw, Mermaid or JSON Canvas is not in M1 (D52), and Quire's tooling does not
+that field when rewriting a board. Server-side import from draw.io, Excalidraw, Mermaid or JSON Canvas is not in M1 (D52), and Wikanvas's tooling does not
 build Inkboard's `ink convert` (`crates/inkboard-cli`) or `inkboard-mcp` (tools such as `create_board`, `add_shape`,
-`import_mermaid` and `export`, `crates/inkboard-mcp/src/tools.rs:69-130`) either; neither ships in Quire's image. A
+`import_mermaid` and `export`, `crates/inkboard-mcp/src/tools.rs:69-130`) either; neither ships in Wikanvas's image. A
 client that builds a board from scratch follows Inkboard's model (`vendor/inkboard/docs/ARCHITECTURE.md`, "Model";
 `crates/inkboard-core/src/{model,serial}.rs`) and PUTs the envelope; the server validates it with `from_json`.
 
 Attachments: `POST /api/v1/attachments` (body sent as `application/octet-stream`) returns `{id, url}`; a document
 references the file as `![alt](/api/v1/attachments/<id>)` in Markdown or as `image{attachmentId}` in JSON.
 
-### 7.6 CLI (`crates/quire-cli`, binary `quire`, D54)
+### 7.6 CLI (`crates/wikanvas-cli`, binary `wikanvas`, D54)
 
 - **Transport.** One ureq 3.5 agent (`rustls-no-provider`, with rustls's `ring` provider passed in `TlsConfig`). Roots:
-  `--ca-file` / `QUIRE_CA_FILE` (PEM) when set, else the system bundle (`SSL_CERT_FILE`, else the first of
+  `--ca-file` / `WIKANVAS_CA_FILE` (PEM) when set, else the system bundle (`SSL_CERT_FILE`, else the first of
   `/etc/ssl/certs/ca-certificates.crt`, `/etc/pki/tls/certs/ca-bundle.crt`, `/etc/ssl/ca-bundle.pem`,
   `/etc/ssl/cert.pem`), parsed with `ureq::tls::parse_pem` into `RootCerts::Specific`; an https URL with no bundle
   exits 3. No flag skips verification. For a LAN install on Caddy's local CA (§13.4), add its root to the system
-  bundle (then no flag is needed) or pass `--ca-file quire-local-ca.crt`. Accepts gzip; sends `User-Agent: quire-cli/<version>`. Timeouts: 30 s
+  bundle (then no flag is needed) or pass `--ca-file wikanvas-local-ca.crt`. Accepts gzip; sends `User-Agent: wikanvas-cli/<version>`. Timeouts: 30 s
   (`--timeout`), 300 s for transfers (export, boards, attachments). Redirects are never followed (`max_redirects(0)`,
   so a token never travels to another URL): a 3xx exits 3 and names the `Location` (usually a proxy's http→https
-  redirect: fix the URL). Plain `http://` to a non-loopback host is refused (exit 3) unless `QUIRE_ALLOW_HTTP=1` (or
+  redirect: fix the URL). Plain `http://` to a non-loopback host is refused (exit 3) unless `WIKANVAS_ALLOW_HTTP=1` (or
   `true`) or the profile sets `allow_http = true`. No proxy is ever used (`HTTPS_PROXY` and the like are ignored), so the
   token goes only to the configured origin. A URL is `scheme://host[:port]` with an optional trailing `/`; a path, query
   or user info is exit 3.
@@ -1422,19 +1425,19 @@ references the file as `![alt](/api/v1/attachments/<id>)` in Markdown or as `ima
 - **Configuration.** The URL and the token are resolved as a pair, so a profile's token is never sent to a URL that came
   from somewhere else:
   - with `--profile P`: URL = `--url`, else P's `url`; token = `--token-stdin` or `--token-file`, else P's token only
-    when the URL is P's. `QUIRE_URL`, `QUIRE_TOKEN` and `QUIRE_TOKEN_FILE` are ignored;
-  - otherwise: URL = `--url`, `QUIRE_URL`, the profile named by `QUIRE_PROFILE` or `default_profile`, or (inside the
-    server container, where `QUIRE_LISTEN` is set) `http://127.0.0.1:<its port>`; token = `--token-stdin`,
-    `--token-file`, `QUIRE_TOKEN`, `QUIRE_TOKEN_FILE`, then that profile's token only when the URL came from the same
-    profile.
+    when the URL is P's. `WIKANVAS_URL`, `WIKANVAS_TOKEN` and `WIKANVAS_TOKEN_FILE` are ignored;
+  - otherwise: URL = `--url`, `WIKANVAS_URL`, the profile named by `WIKANVAS_PROFILE` or `default_profile`, or (inside
+    the server container, where `WIKANVAS_LISTEN` is set) `http://127.0.0.1:<its port>`; token = `--token-stdin`,
+    `--token-file`, `WIKANVAS_TOKEN`, `WIKANVAS_TOKEN_FILE`, then that profile's token only when the URL came from the
+    same profile.
 
   A URL with the same origin as the profile's `url` (scheme, host and port, with case and default ports normalized)
-  counts as the profile's URL. With `--profile P`, `QUIRE_CA_FILE` and `QUIRE_ALLOW_HTTP` still apply. A relative
+  counts as the profile's URL. With `--profile P`, `WIKANVAS_CA_FILE` and `WIKANVAS_ALLOW_HTTP` still apply. A relative
   `token_file` in a profile is relative to the profile file. A profile token that would pair with a foreign URL is an
   error (exit 3, `cli_config`: "token not bound to this URL").
-  `--token-stdin` together with `--token-file` is a usage error. The profile file is `$XDG_CONFIG_HOME/quire/config.toml`
-  (etcetera 0.11; `~/.config/quire/config.toml` by default) or `QUIRE_CONFIG`. The CLI creates its directory with mode
-  0700 and writes the file as a 0600 temporary file renamed into place. A profile file that holds a `token` and is
+  `--token-stdin` together with `--token-file` is a usage error. The profile file is `$XDG_CONFIG_HOME/wikanvas/config.toml`
+  (etcetera 0.11; `~/.config/wikanvas/config.toml` by default) or `WIKANVAS_CONFIG`. The CLI creates its directory with
+  mode 0700 and writes the file as a 0600 temporary file renamed into place. A profile file that holds a `token` and is
   readable by group or others is refused (exit 3), as ssh does with keys; a group-readable token file only warns
   (Docker secrets are 0444).
 
@@ -1443,7 +1446,7 @@ references the file as `![alt](/api/v1/attachments/<id>)` in Markdown or as `ima
 
   [profiles.home]
   url = "https://wiki.example.org"
-  token_file = "/run/secrets/quire-token"   # or: token = "qpat_…"
+  token_file = "/run/secrets/wikanvas-token"   # or: token = "qpat_…"
   ca_file = "/etc/ssl/private-ca.pem"       # optional
   allow_http = false                        # optional; true allows a non-loopback http:// URL
   ```
@@ -1459,26 +1462,26 @@ references the file as `![alt](/api/v1/attachments/<id>)` in Markdown or as `ima
   app's 1 GiB (D25).
 - **Logging.** No `RUST_LOG` logger is installed (the container's `RUST_LOG` is the server's). `--debug` prints method,
   URL, status, duration and request id per request to stderr, never a header.
-- **References.** Wherever a command takes an item or a collection (`<i>`, `<c>`), it is a UUID, a `url_id`, or a Quire
-  URL (`…/doc/<slug>-<url_id>`, from which the CLI takes the `url_id`). A `url_id` or URL costs one
+- **References.** Wherever a command takes an item or a collection (`<i>`, `<c>`), it is a UUID, a `url_id`, or a
+  Wikanvas URL (`…/doc/<slug>-<url_id>`, from which the CLI takes the `url_id`). A `url_id` or URL costs one
   `GET /items/{url_id}` (or `/collections/{url_id}`) before every route but those two GETs, since only they take a
   `url_id` (§7.1); positions, `--parent` and `--collection` resolve the same way.
 - **Global flags:** `--json`, `--url`, `--profile`, `--token-file`, `--token-stdin`, `--timeout`, `--retries`,
   `--ca-file`, `--debug`. List commands also take `--limit`, `--cursor` and `--all` (follows `next_cursor`, at most
   10,000 items). "position" below is `--after <ref>` or `--before <ref>`; neither means last.
-- **Commands.** This table is the contract for agents (R3 applies to it); `quire help --json` prints the same tree.
+- **Commands.** This table is the contract for agents (R3 applies to it); `wikanvas help --json` prints the same tree.
   "→" is the `--json` stdout; "ok" is the body-less success object of §7.7; "binary" is raw bytes to stdout or `--out`
   (with `--json`, `--out` is required and stdout gets `{path, bytes, sha256, content_type}`).
 
   | Command | API | → |
   |---|---|---|
   | `auth login --url U (--token-stdin \| --token-file F) [--profile P]` | `GET /auth/me`, then writes profile P (default `default`) with `token` or `token_file` (the absolute path), keeping its other keys and the other profiles; `default_profile` is set only when the file has none | `Me` |
-  | `auth logout [--revoke]` | removes the profile's token; `--revoke` first calls `DELETE /tokens/current` with the profile's own token at the profile's URL, never with a `QUIRE_TOKEN`, token file or stdin token in play (no profile token: exit 3 before any request) | ok, plus `profile` and `removed` |
+  | `auth logout [--revoke]` | removes the profile's token; `--revoke` first calls `DELETE /tokens/current` with the profile's own token at the profile's URL, never with a `WIKANVAS_TOKEN`, token file or stdin token in play (no profile token: exit 3 before any request) | ok, plus `profile` and `removed` |
   | `auth whoami` | `GET /auth/me` | `Me` |
   | `me update [--name N] [--email E] [--theme light\|dark\|system]` | `PATCH /auth/me` (`--email` needs a session: exit 6 with a token) | `{user}` |
   | `session list` · `session revoke (<id> \| --others)` | `/auth/sessions` | the list · ok |
   | `token list` · `token create --name N --scope read\|write\|admin [--expires 30d\|never] [--token-out F]` · `token revoke <id>` | `/tokens` | `[ApiToken]` · `{token, api_token}`, or with `--token-out` (F written 0600) `{token_file, api_token}` · ok |
-  | `config show` · `config path` | local. The sources are named by flag or variable: `url_source` is `--url`, `QUIRE_URL`, `profile` or `QUIRE_LISTEN`; `token_source` is `--token-stdin`, `--token-file`, `QUIRE_TOKEN`, `QUIRE_TOKEN_FILE` or `profile` | `{profile, url, url_source, token_source, token_prefix}` · `{path}` |
+  | `config show` · `config path` | local. The sources are named by flag or variable: `url_source` is `--url`, `WIKANVAS_URL`, `profile` or `WIKANVAS_LISTEN`; `token_source` is `--token-stdin`, `--token-file`, `WIKANVAS_TOKEN`, `WIKANVAS_TOKEN_FILE` or `profile` | `{profile, url, url_source, token_source, token_prefix}` · `{path}` |
   | `workspace get` · `workspace set [--name N] [--logo <attachment> \| --no-logo]` · `sidebar` | `/workspace`, `/sidebar` | the body |
   | `collection list` · `get <c>` · `create --name N [--description D] [--icon I] [--color '#RRGGBB'] [position]` · `update <c> [--name N] [--description D] [--icon I] [--color C] [--sort manual\|title\|updated\|created]` · `move <c> position` · `delete <c>` · `restore <c>` · `updated <c>` | `/collections…` | the body |
   | `item get <i>` | `GET /items/{id}` | `ItemDetail` |
@@ -1491,13 +1494,13 @@ references the file as `![alt](/api/v1/attachments/<id>)` in Markdown or as `ima
   | `search <query> [--collection <c>] [--kind doc\|board] [--updated-after T] [--include-archived] [--no-drafts] [--sort relevance\|updated]` · `search --titles <q> [--limit N]` | `/search`, `/search/titles`; `--titles` refuses `--all`, `--cursor`, a `--limit` above 20 and the full-text filters (exit 2) | `Page<SearchHit>` · the list |
   | `star add <i> [position]` · `star remove <i>` | `PUT`/`DELETE /items/{id}/star` | ok |
   | `doc get <i> [--format md\|json] [--title-h1] [--out F]` | `GET …/doc/markdown\|prosemirror` | `{item_id, format, etag, content}` (`content`: a string for Markdown, an object for JSON); with `--out` `{item_id, format, etag, path, bytes, sha256}` |
-  | `doc put <i> (--md F\|- \| --json F\|-) (--if-match E \| --force) [--merge] [--title-h1] [--attach-images [--base-dir D]]` | `PUT …/doc/markdown\|prosemirror`. The input flag is `--json-input F`: clap cannot hold the global `--json` beside a local `--json FILE`, so inside `doc put` a `--json` that follows the item and is followed by a value (`-` or a word without a leading `-`), and `--json=F`, are rewritten to `--json-input` before parsing; `quire --json doc put …` and a trailing `--json` stay the output mode. A bare `{"type": "doc", …}` is wrapped in `{"schema_version": 1, "doc": …}` | `DocWriteResult` |
+  | `doc put <i> (--md F\|- \| --json F\|-) (--if-match E \| --force) [--merge] [--title-h1] [--attach-images [--base-dir D]]` | `PUT …/doc/markdown\|prosemirror`. The input flag is `--json-input F`: clap cannot hold the global `--json` beside a local `--json FILE`, so inside `doc put` a `--json` that follows the item and is followed by a value (`-` or a word without a leading `-`), and `--json=F`, are rewritten to `--json-input` before parsing; `wikanvas --json doc put …` and a trailing `--json` stay the output mode. A bare `{"type": "doc", …}` is wrapped in `{"schema_version": 1, "doc": …}` | `DocWriteResult` |
   | `doc schema` | `GET /schema/doc` | the body |
   | `board get <i> [--out F]` · `board put <i> F\|- (--if-match E \| --force)` · `board preview <i> [--page N] [--out F]` | `/items/{id}/board…` (preview without `rev`: the current one) | `{item_id, format: "inkboard", etag, content}` · `{rev, etag, updated_at, meta}` · binary |
   | `attachment upload F\|- [--item <i>] [--filename N]` · `attachment get <id> [--out F]` | `/attachments`, sent as `application/octet-stream` | `{id, url, sha256, mime, size, width?, height?}` · binary |
-  | `export [--out F]` · `backup` | `GET /export` · `POST /admin/backup` (a file on the server; `quire admin backup` is the local one) | binary · `{path, size}` |
+  | `export [--out F]` · `backup` | `GET /export` · `POST /admin/backup` (a file on the server; `wikanvas admin backup` is the local one) | binary · `{path, size}` |
   | `api <METHOD> <path> [--input F\|-] [--header K:V]… [--out F]` | any route, with auth, retries and error mapping, as `gh api` | the response body (non-JSON: binary) |
-  | `admin …` | execs `quire-server admin …` (§7.8, D55) | as §7.8 |
+  | `admin …` | execs `wikanvas-server admin …` (§7.8, D55) | as §7.8 |
   | `version` · `exit-codes` · `help [--json]` | local, plus `GET /config` (sent without a token) for `version`, which never fails because of the server: no URL gives `server: null`, an unreachable server also a `server_unavailable` warning | `{cli: {version, api_version}, server: {version, commit, api_version} \| null}` · the §7.7 table · the command tree (commands, arguments, flags, which are required, exit codes) |
 - **Guards.**
   - `api`: `<path>` must start with `/api/` and contain no scheme, no `//`, no `\` and no `.` or `..` segment (also
@@ -1510,8 +1513,8 @@ references the file as `![alt](/api/v1/attachments/<id>)` in Markdown or as `ima
     under the Markdown file's directory or `--base-dir`, whose magic bytes are png, jpeg, gif, webp or avif, and whose
     size is within `max_upload_mb`. It rewrites their URLs before the PUT and reports every skipped reference as an
     `attach_skipped` warning. With stdin input it needs `--base-dir`.
-  - `admin` finds `quire-server` through `QUIRE_SERVER_BIN`, then next to the `quire` binary, then on `PATH`; none
-    gives exit 3.
+  - `admin` finds `wikanvas-server` through `WIKANVAS_SERVER_BIN`, then next to the `wikanvas` binary, then on `PATH`;
+    none gives exit 3.
 - **Coverage.** Every operation of the spec has a command, except this allow-list of web-only operations, which stay
   reachable through `api`: `GET`/`POST /setup`, `POST /auth/login`, `POST /auth/logout`, `POST /auth/password`,
   `POST /items/{id}/view`, `GET …/doc` and `POST …/doc/updates`; and two that need no command of their own,
@@ -1519,7 +1522,7 @@ references the file as `![alt](/api/v1/attachments/<id>)` in Markdown or as `ima
   the same content). A test checks the spec against the clap tree and this list.
 
   `board import` is reserved (D52). The CLI warns once (`api_version_older`, §7.7) when a response's
-  `Quire-Api-Version` has a lower minor than its own; a missing route then exits 7 with the server's 404.
+  `Wikanvas-Api-Version` has a lower minor than its own; a missing route then exits 7 with the server's 404.
 
 ### 7.7 CLI output and exit-code contract
 
@@ -1547,18 +1550,18 @@ references the file as `![alt](/api/v1/attachments/<id>)` in Markdown or as `ima
   is exactly `--json`, clap usage errors use this form too: the message is clap's first paragraph on one line, so it
   names the missing or unexpected arguments (`the following required arguments were not provided: <--if-match
   <ETAG>|--force>`). Conversion warnings of a PUT are in the result
-  (`warnings`), and `doc get --format md --json` adds the codes of `Quire-Conversion-Warnings` as `warnings`. API bodies
-  are printed byte for byte (plus a newline); objects the CLI builds are pretty-printed.
-- **Exit codes** (`quire_api::cli::ExitCode`, shared with `quire-server admin`; `quire exit-codes --json` prints them
-  as `[{"code": 0, "name": "success", "meaning": "…"}, …]`). The table is part of the contract: changing a code is a
-  new major CLI version. `docs/AGENTS.md` repeats it, and a test compares the two.
+  (`warnings`), and `doc get --format md --json` adds the codes of `Wikanvas-Conversion-Warnings` as `warnings`. API
+  bodies are printed byte for byte (plus a newline); objects the CLI builds are pretty-printed.
+- **Exit codes** (`wikanvas_api::cli::ExitCode`, shared with `wikanvas-server admin`; `wikanvas exit-codes --json`
+  prints them as `[{"code": 0, "name": "success", "meaning": "…"}, …]`). The table is part of the contract: changing a
+  code is a new major CLI version. `docs/AGENTS.md` repeats it, and a test compares the two.
 
   | Code | Meaning | Typical causes |
   |---|---|---|
   | 0 | Success | |
   | 1 | Unexpected error | A CLI bug or an unparseable response, nothing else |
   | 2 | Usage | Bad flags; a missing `--yes`, or `--if-match`/`--force`; a refused `api` path or header |
-  | 3 | Configuration | No URL or token; a malformed token (prefix, length or checksum); a token not bound to the URL; an unreadable or group-readable profile; plain HTTP to a non-loopback host; no CA bundle; a 3xx redirect; `quire-server` not found for `admin`; 421 `host_not_allowed` |
+  | 3 | Configuration | No URL or token; a malformed token (prefix, length or checksum); a token not bound to the URL; an unreadable or group-readable profile; plain HTTP to a non-loopback host; no CA bundle; a 3xx redirect; `wikanvas-server` not found for `admin`; 421 `host_not_allowed` |
   | 4 | Network | DNS, connection refused, TLS failure, timeout or reset; `details.sent` says whether a write may have happened |
   | 5 | Not authenticated | 401: `unauthenticated`, `invalid_token`, `invalid_credentials` |
   | 6 | Forbidden | 403: `insufficient_scope`, `session_required`, `forbidden`, `csrf_rejected` |
@@ -1569,13 +1572,13 @@ references the file as `![alt](/api/v1/attachments/<id>)` in Markdown or as `ima
   | 11 | Rate limited | 429 after the retries |
   | 12 | Server error | 408, 500, 503, 507 and any other 5xx, after the retries |
 
-### 7.8 Admin commands (`quire-server admin`, D55)
+### 7.8 Admin commands (`wikanvas-server admin`, D55)
 
-They open the database in `QUIRE_DATA_DIR` the way `serve` does (pending migrations included, with the pre-migration
+They open the database in `WIKANVAS_DATA_DIR` the way `serve` does (pending migrations included, with the pre-migration
 backup) and may run while the server is up: SQLite in WAL mode allows a second process, and its writes wait on
 `busy_timeout` (5 s); the running server sees a new owner on its next request (§8). In the container they run as uid
 65532 (`docker compose exec` uses the image's user). Every command takes `--json` and uses the exit codes of §7.7, and
-prints secrets only to stdout or `--token-out`, never to the log. The CLI's `quire admin …` reaches them (D55).
+prints secrets only to stdout or `--token-out`, never to the log. The CLI's `wikanvas admin …` reaches them (D55).
 
 | Command | Effect |
 |---|---|
@@ -1601,15 +1604,16 @@ With `--json` the result is one JSON document on stdout; an error is one stderr 
 - `check`: `{ok, quick_check, foreign_key_violations, cycles, fts, missing_blobs}`; when something is wrong it exits 1,
   with the report still on stdout.
 
-`serve` and `healthcheck` read the same environment. A bare `quire-server serve` listens on `QUIRE_LISTEN` (default
-`127.0.0.1:8080`) with its data in `QUIRE_DATA_DIR` (default `./data`); the image sets `0.0.0.0:8080` and `/data`.
-`healthcheck [--url URL]` probes `/healthz` (a URL without a path gets it appended; `http://` only) with a 3 s timeout
-and exits 0 only for 200. Its default URL is `QUIRE_LISTEN`'s port on 127.0.0.1 when the listen address is unspecified
-(`0.0.0.0`, `[::]`), and the listen address itself otherwise (`127.0.0.1`, `[::1]`, a LAN address), because a server
-bound to one address does not answer on another. `quire-server --version` prints `quire-server 0.1.0 (<QUIRE_COMMIT or
-unknown>)`; `quire --version` prints `quire 0.1.0`, without a commit (the cli stages pass no `QUIRE_COMMIT`).
+`serve` and `healthcheck` read the same environment. A bare `wikanvas-server serve` listens on `WIKANVAS_LISTEN`
+(default `127.0.0.1:8080`) with its data in `WIKANVAS_DATA_DIR` (default `./data`); the image sets `0.0.0.0:8080` and
+`/data`. `healthcheck [--url URL]` probes `/healthz` (a URL without a path gets it appended; `http://` only) with a 3 s
+timeout and exits 0 only for 200. Its default URL is `WIKANVAS_LISTEN`'s port on 127.0.0.1 when the listen address is
+unspecified (`0.0.0.0`, `[::]`), and the listen address itself otherwise (`127.0.0.1`, `[::1]`, a LAN address), because
+a server bound to one address does not answer on another. `wikanvas-server --version` prints `wikanvas-server 0.1.0
+(<WIKANVAS_COMMIT or unknown>)`; `wikanvas --version` prints `wikanvas
+0.1.0`, without a commit (the cli stages pass no `WIKANVAS_COMMIT`).
 
-From the host: `docker compose exec quire quire admin create-token --name ci --scope write --expires 1d --json`.
+From the host: `docker compose exec wikanvas wikanvas admin create-token --name ci --scope write --expires 1d --json`.
 
 ---
 
@@ -1617,16 +1621,16 @@ From the host: `docker compose exec quire quire admin create-token --name ci --s
 
 - **Setup.**
   - While `users` has no owner, the server generates a 12-character code (`XXXX-XXXX-XXXX`, from 31 symbols without 0,
-    O, 1, I and L: about 59 bits) unless `QUIRE_SETUP_TOKEN` is set, and logs `First-run setup: <public_url>/setup code
-    …` at startup. The code is compared ignoring case and surrounding spaces, in constant time; a wrong one is 401
+    O, 1, I and L: about 59 bits) unless `WIKANVAS_SETUP_TOKEN` is set, and logs `First-run setup: <public_url>/setup
+    code …` at startup. The code is compared ignoring case and surrounding spaces, in constant time; a wrong one is 401
     `invalid_credentials` (§7.2 has the order of the checks).
   - `POST /api/v1/setup` runs one IMMEDIATE transaction guarded by `NOT EXISTS (SELECT 1 FROM users)`. It creates the owner
     and the settings, seeds "Getting started" (`fixtures/ydoc/getting-started.bin`,
-    `fixtures/ydoc/writing-in-quire.bin` and `fixtures/boards/getting-started.inkboard`, all embedded at build time,
+    `fixtures/ydoc/writing-in-wikanvas.bin` and `fixtures/boards/getting-started.inkboard`, all embedded at build time,
     §9.6.7), and signs the owner in. It shares the per-IP
     login limiter.
   - The server caches whether an owner exists. While the cache says no, every request re-checks with one reader query
-    and flips it once, so an owner made by `quire admin create-owner` while the server runs is seen on the next
+    and flips it once, so an owner made by `wikanvas admin create-owner` while the server runs is seen on the next
     request, and the setup code stops working.
 - **Login.**
   - argon2id verify runs under `spawn_blocking` behind `Semaphore(2)`. When the email is unknown, a dummy hash is
@@ -1641,30 +1645,30 @@ From the host: `docker compose exec quire quire admin create-token --name ci --s
   - The limiters run on one injectable clock, so tests need no sleeps. `Retry-After` is in whole seconds, at least 1.
     A request without a peer address (an in-process transport) is keyed as `0.0.0.0`: such requests fail closed and
     share one budget.
-- **Client address and scheme** (`quire-server::config` parses `QUIRE_TRUSTED_PROXIES`: comma-separated IPs or CIDRs).
-  Quire has no TLS of its own (D29); Caddy terminates it (D57).
+- **Client address and scheme** (`wikanvas-server::config` parses `WIKANVAS_TRUSTED_PROXIES`: comma-separated IPs or
+  CIDRs). Wikanvas has no TLS of its own (D29); Caddy terminates it (D57).
   - The client IP is the socket peer, and the request counts as plain HTTP, unless the peer is in
-    `QUIRE_TRUSTED_PROXIES`. From a trusted peer, the rightmost `X-Forwarded-For` address is the client IP and
+    `WIKANVAS_TRUSTED_PROXIES`. From a trusted peer, the rightmost `X-Forwarded-For` address is the client IP and
     `X-Forwarded-Proto: https` marks the request as HTTPS. From any other peer both headers, and `Forwarded`, are
-    ignored, so a client that reaches Quire directly can neither choose its rate-limit key nor claim HTTPS.
-  - In compose the only trusted peer is Caddy's fixed address (`QUIRE_PROXY_IP`, §13.3). Caddy trusts no proxy in front
-    of it, so it discards any `X-Forwarded-*` a client sends and sets exactly one `X-Forwarded-For` address.
+    ignored, so a client that reaches Wikanvas directly can neither choose its rate-limit key nor claim HTTPS.
+  - In compose the only trusted peer is Caddy's fixed address (`WIKANVAS_PROXY_IP`, §13.3). Caddy trusts no proxy in
+    front of it, so it discards any `X-Forwarded-*` a client sends and sets exactly one `X-Forwarded-For` address.
   - The per-IP limits (login, setup, failed bearer auth), the access log, `sessions.ip` and `last_used_ip` use this
-    client IP. A deployment that replaces Caddy with another proxy must set `QUIRE_TRUSTED_PROXIES` to it (README);
+    client IP. A deployment that replaces Caddy with another proxy must set `WIKANVAS_TRUSTED_PROXIES` to it (README);
     without it every per-IP limit sees one address.
-- **Public URL.** `QUIRE_PUBLIC_URL` when set (compose passes unset variables as empty strings; an empty value counts
-  as unset here and for every other `QUIRE_*` variable); otherwise, when `QUIRE_DOMAIN` is set, `https://<QUIRE_DOMAIN>`
-  plus `:<QUIRE_HTTPS_PORT>` unless that is 443; otherwise `http://localhost:<the QUIRE_LISTEN port>`, which is
-  `http://localhost:8080` for a bare `quire-server serve` (§7.8). It names the setup link in the log, the
-  same-instance URLs of §6.4 and the CSRF origin below. The public URL and the CORS origins are `scheme://host[:port]`
-  with no path; `QUIRE_DOMAIN` has no port (it goes in `QUIRE_HTTPS_PORT`); a malformed value of any variable stops
-  `serve` with `VAR: message` and exit 3.
+- **Public URL.** `WIKANVAS_PUBLIC_URL` when set (compose passes unset variables as empty strings; an empty value counts
+  as unset here and for every other `WIKANVAS_*` variable); otherwise, when `WIKANVAS_DOMAIN` is set,
+  `https://<WIKANVAS_DOMAIN>` plus `:<WIKANVAS_HTTPS_PORT>` unless that is 443; otherwise
+  `http://localhost:<the WIKANVAS_LISTEN port>`, which is `http://localhost:8080` for a bare `wikanvas-server serve`
+  (§7.8). It names the setup link in the log, the same-instance URLs of §6.4 and the CSRF origin below. The public URL
+  and the CORS origins are `scheme://host[:port]` with no path; `WIKANVAS_DOMAIN` has no port (it goes in
+  `WIKANVAS_HTTPS_PORT`); a malformed value of any variable stops `serve` with `VAR: message` and exit 3.
 - **Cookie and renewal.**
-  - `quire_session=<b64url token>; HttpOnly; SameSite=Lax; Path=/`. Persistent sessions (`remember`) add
+  - `wikanvas_session=<b64url token>; HttpOnly; SameSite=Lax; Path=/`. Persistent sessions (`remember`) add
     `Max-Age=<seconds until expires_at>`; others are browser-session cookies.
-  - On an HTTPS request (above) the name is `__Host-quire_session` and `Secure` is added; on a plain-HTTP request (the
-    direct e2e and agent paths, a bare `quire-server serve`) it is `quire_session`. The server reads only the name that
-    matches the request's scheme.
+  - On an HTTPS request (above) the name is `__Host-wikanvas_session` and `Secure` is added; on a plain-HTTP request
+    (the direct e2e and agent paths, a bare `wikanvas-server serve`) it is `wikanvas_session`. The server reads only the
+    name that matches the request's scheme.
   - Login rotates the token (it deletes the session the browser still presents). On an authenticated request, when
     less than half of the window remains, the server sets `expires_at = now + window` (persistent: window 30 d, capped
     at `created_at + 180 d`; otherwise 24 h) and, for persistent sessions, re-sends `Set-Cookie` with the new `Max-Age`.
@@ -1672,34 +1676,35 @@ From the host: `docker compose exec quire quire admin create-token --name ci --s
     follows the latest client address. A password change revokes every other session.
   - Logout clears the cookie of the request's scheme with `Max-Age=0`; a renewal due on the same request is dropped
     (the headers layer never adds a renewed cookie to a response that sets the session cookie itself).
-- **Host allowlist** (`quire-server::csrf`, every route except `/healthz`). `Host` must be the host[:port] of
-  `QUIRE_PUBLIC_URL`, `QUIRE_DOMAIN` with any port (Caddy forwards the client's `Host`, which carries the port when the
-  host remaps 443), an entry of `QUIRE_ALLOWED_HOSTS` (comma-separated), or `localhost`, `127.0.0.1` or `[::1]` with
-  any port; otherwise 421 `host_not_allowed`. This blocks DNS rebinding; Caddy also routes only `QUIRE_DOMAIN` to Quire.
-  It applies to bearer requests too: an external client must reach Quire under the public URL's host or an allowed host
-  (for example `QUIRE_ALLOWED_HOSTS=quire` for another container on the project network).
-- **Bearer tokens** (§7.3, D42, D43). A request for which `is_quire_bearer` holds (`Authorization: Bearer qpat_…`) is
+- **Host allowlist** (`wikanvas-server::csrf`, every route except `/healthz`). `Host` must be the host[:port] of
+  `WIKANVAS_PUBLIC_URL`, `WIKANVAS_DOMAIN` with any port (Caddy forwards the client's `Host`, which carries the port
+  when the host remaps 443), an entry of `WIKANVAS_ALLOWED_HOSTS` (comma-separated), or `localhost`, `127.0.0.1` or
+  `[::1]` with any port; otherwise 421 `host_not_allowed`. This blocks DNS rebinding; Caddy also routes only
+  `WIKANVAS_DOMAIN` to Wikanvas. It applies to bearer requests too: an external client must reach Wikanvas under the
+  public URL's host or an allowed host (for example `WIKANVAS_ALLOWED_HOSTS=wikanvas` for another container on the
+  project network).
+- **Bearer tokens** (§7.3, D42, D43). A request for which `is_wikanvas_bearer` holds (`Authorization: Bearer qpat_…`) is
   authenticated by the token alone and skips the CSRF checks below; the cookie on such a request is ignored. Any other
   `Authorization` value is ignored (logged once per process at debug level), so a Basic-auth or oauth2-proxy header
   neither breaks the web client nor skips CSRF. Tokens are looked up by sha256 with no cache, so a revocation applies
   to the next request. Session-only routes refuse tokens (403 `session_required`).
-- **CSRF** (same module). For POST, PUT, PATCH and DELETE that are not Quire bearer requests:
+- **CSRF** (same module). For POST, PUT, PATCH and DELETE that are not Wikanvas bearer requests:
   - allow `Sec-Fetch-Site` of `same-origin` or `none`;
-  - otherwise allow an `Origin` whose host[:port] equals that of `QUIRE_PUBLIC_URL` or the request's `Host` (already
-    allowlisted; default ports normalized). The scheme is not compared: host[:port] already pins the origin to Quire,
-    and a proxy other than Caddy may not send `X-Forwarded-Proto`. Quire reads `Host` itself, never
+  - otherwise allow an `Origin` whose host[:port] equals that of `WIKANVAS_PUBLIC_URL` or the request's `Host` (already
+    allowlisted; default ports normalized). The scheme is not compared: host[:port] already pins the origin to Wikanvas,
+    and a proxy other than Caddy may not send `X-Forwarded-Proto`. Wikanvas reads `Host` itself, never
     `X-Forwarded-Host`, for this rule and for the allowlist, so the trusted-proxy rule above cannot widen either;
   - otherwise answer 403 `csrf_rejected`, including a request with neither header: browsers send `Origin` on every
     non-GET request, and non-browser clients use tokens.
 
   Browsers send `Sec-Fetch-*` only to secure origins: through Caddy they always send it, and on the plain-HTTP paths
-  (direct access on the project network, a bare `quire-server serve`) the `Origin` rule carries the check (tested). The one expensive cookie GET, `/api/v1/export`, has its own rule (§7.2). Mutating routes take only `application/json`, or the route's declared type (`text/markdown`, raw upload
+  (direct access on the project network, a bare `wikanvas-server serve`) the `Origin` rule carries the check (tested). The one expensive cookie GET, `/api/v1/export`, has its own rule (§7.2). Mutating routes take only `application/json`, or the route's declared type (`text/markdown`, raw upload
   bytes), and never a CORS-safelisted form type (415, §7.1).
-- **CORS** (D48). Off by default: no CORS headers are sent. With `QUIRE_CORS_ORIGINS` set (exact
+- **CORS** (D48). Off by default: no CORS headers are sent. With `WIKANVAS_CORS_ORIGINS` set (exact
   `scheme://host[:port]` origins; `*` or a malformed origin stops startup), tower-http `CorsLayer` on `/api/v1/*`
   answers preflights from those origins, allows the methods GET, POST, PUT, PATCH and DELETE and the request headers
-  `Authorization`, `Content-Type`, `If-Match`, `If-None-Match` and `X-Quire-Engine`, exposes `ETag`, `Retry-After`,
-  `X-Request-Id`, `Quire-Api-Version` and `Quire-Conversion-Warnings`, uses `max-age` 600, and never sends
+  `Authorization`, `Content-Type`, `If-Match`, `If-None-Match` and `X-Wikanvas-Engine`, exposes `ETag`, `Retry-After`,
+  `X-Request-Id`, `Wikanvas-Api-Version` and `Wikanvas-Conversion-Warnings`, uses `max-age` 600, and never sends
   `Access-Control-Allow-Credentials`. An allowed origin is not trusted by the CSRF check: cross-origin cookie requests
   stay rejected.
 - **Rate limits.** Login and setup as above; per token (requests and body bytes) and per IP for failed bearer
@@ -1762,7 +1767,7 @@ How the pieces behave:
 - After loading an item, the page calls `history.replace` to the canonical slug.
 - **Updates.** When a lazy route chunk fails to load (W3) or `frame.html` returns 404 (W6), the client refetches
   `/api/v1/config`; if `version`, `commit` or `inkboard.base` differs from the first `/config` the page loaded (dev
-  images keep version 0.1.0 between builds, so `commit` matters), it shows one banner "Quire was updated. Reload"
+  images keep version 0.1.0 between builds, so `commit` matters), it shows one banner "Wikanvas was updated. Reload"
   instead of an error. Both paths call the same `checkForUpdate()` (`app/updateCheck.ts`), so only one banner can
   show. React Router 8.4.0 drops the rejection of a lazy `Component` on a route without a loader, so `lazyPage()`
   resolves a failed import to a component that throws it during render, and the route's `ErrorBoundary` runs the
@@ -1780,7 +1785,7 @@ How the pieces behave:
   - `['tree', cid]` uses an ETag through `client.ts` (304 → keep the cache).
 - **UI state:** Zustand stores in `web/src/state/`:
   - `ui.ts`: sidebar width and collapsed state, theme; persisted to `localStorage`.
-  - `expanded.ts`: `quire.sidebar.expanded`.
+  - `expanded.ts`: `wikanvas.sidebar.expanded`.
   - `saveStatus.ts`: per-item save state.
   - `pending.ts`: per-item `{hasPending(), flush()}` registry, used by `beforeunload`, route changes and Ctrl/Cmd+S.
     The doc session, the board save loop and the title input (500 ms debounce → `PATCH /api/v1/items/{id}`) register here.
@@ -1793,7 +1798,7 @@ How the pieces behave:
   (the server sniffs the type; a browser's `text/plain` for a `.txt` file would get 415). Types come from
   `web/src/api/gen/*`.
 - **Theme:** `web/public/theme-init.js` is a blocking external script in `<head>`. It sets `data-theme` from
-  `localStorage['quire.theme']` before the first paint (CSP allows no inline script). The server copy (`users.theme`)
+  `localStorage['wikanvas.theme']` before the first paint (CSP allows no inline script). The server copy (`users.theme`)
   wins after `/me` loads. Design tokens live in `web/src/styles/tokens.css` (§9.6.1).
 
 ### 9.3 Component tree
@@ -1818,7 +1823,7 @@ How the pieces behave:
           TopBar (W3): Breadcrumbs, SaveStatus, NewDocSplit, ItemMenu   [multiUser slot hidden; no PublishButton, D23]
           DocLayout: ContentsColumn (≥2 headings; ≥1280 docked, else popover) | DocColumn
             ItemHeader (W3): TitleInput, StarToggle, MetaLine
-            QuireEditor (W4): TipTap + BubbleMenu + SlashMenu + MentionMenu + BlockHandle + ImageNodeView + BoardEmbedView + CalloutView
+            WikanvasEditor (W4): TipTap + BubbleMenu + SlashMenu + MentionMenu + BlockHandle + ImageNodeView + BoardEmbedView + CalloutView
             NestedList (W4)
         BoardPage                             (W6)
           TopBar (W3) with editable title crumb + StarToggle + NestedPopover + FocusButton
@@ -1845,7 +1850,7 @@ Interfaces that cross workstreams (all from W0b, typed):
 
 - **Load.** `DocSession.open(itemId)`:
   1. GET doc, then `Y.applyUpdate(ydoc, u, 'server')`.
-  2. Read the IndexedDB outbox `quire.outbox/<itemId>`. If present, apply it locally and queue it.
+  2. Read the IndexedDB outbox `wikanvas.outbox/<itemId>`. If present, apply it locally and queue it.
 - **Queue and send.**
   - Queue: `ydoc.on('update', (u, origin) => origin !== 'server' && queue(u))`. Except: while the document is blank
     (`isBlankDoc`: nothing but the fragment, empty or one empty paragraph with any attributes) and was blank when it
@@ -1877,11 +1882,11 @@ Interfaces that cross workstreams (all from W0b, typed):
   - The iframe sits in a `position: fixed` layer with `z-index: 1`: above the in-flow canvas, below the menus (10), the
     Nested popover (30), dialogs, toasts and the sidebar drawer, all of which must stay above 1 to hang over the
     canvas. Its state is an external zustand store, read with `useBoardFrame()`.
-  - After `load` it calls `iframe.contentWindow.quireBoardFrame.connect(events)` (§10.4). A page without
-    `window.quireBoardFrame` counts as `{kind:'download', missing:true}`: the host then GETs `frame.html` (`no-store`)
-    and, on a 404, runs the shell's update check `checkForUpdate()` (§9.1), so the one "Quire was updated" banner is
-    the shell's; the board host has no banner of its own. A `connect()` rejected with `download` may be retried; other
-    rejections are final (`BoardPreview`).
+  - After `load` it calls `iframe.contentWindow.wikanvasBoardFrame.connect(events)` (§10.4). A page without
+    `window.wikanvasBoardFrame` counts as `{kind:'download', missing:true}`: the host then GETs `frame.html`
+    (`no-store`) and, on a 404, runs the shell's update check `checkForUpdate()` (§9.1), so the one "Wikanvas was
+    updated" banner is the shell's; the board host has no banner of its own. A `connect()` rejected with `download` may
+    be retried; other rejections are final (`BoardPreview`).
   - Off board routes the iframe gets `visibility:hidden`, `inert` and `setActive(false)`; back on a board route,
     `setActive(true)`. It is removed after 10 minutes away from boards.
   - Hovering a board row for 300 ms warms the cache with `fetch(url, {cache: 'force-cache', priority: 'low'})` for
@@ -1898,14 +1903,14 @@ Interfaces that cross workstreams (all from W0b, typed):
      The card appears only after 300 ms when the engine is cached.
 - **Save loop.**
   - `onChange({itemId, revision})` schedules a save: 1.5 s quiet, at most 10 s apart.
-  - Save: `snapshot()` → `{board, revision}` → PUT with `If-Match: "r{rev}"` and `X-Quire-Engine`.
+  - Save: `snapshot()` → `{board, revision}` → PUT with `If-Match: "r{rev}"` and `X-Wikanvas-Engine`.
     - 200: `markSaved(revision)` and store the new `rev`.
     - 412: `ConflictBanner` with "Load latest" (GET + open) and "Keep mine as a copy" (POST a sibling board titled
       `<title> (copy)`, PUT the snapshot to it at `r1`, and navigate to it; the original is not written).
     - 413: an error explaining the limit.
     - Network error: `offline` and back off 1, 2, 5, 10, then 30 s, as the document session does, with a retry at once
       on `online`. A frame that throws (a trapped engine) counts as gone.
-  - Before each PUT, the snapshot is written to IndexedDB `quire.board.unsaved/<itemId>` (idb-keyval's default store)
+  - Before each PUT, the snapshot is written to IndexedDB `wikanvas.board.unsaved/<itemId>` (idb-keyval's default store)
     as `{baseRev, board, at}` and cleared on 200. On open, a newer unsaved snapshot (written after the item's
     `content_at`, else its `updated_at`) offers "Restore unsaved changes from HH:MM?" (a 24-hour clock); Restore opens
     it and PUTs it on its `baseRev`, and a stale base shows the `ConflictBanner`.
@@ -1920,10 +1925,10 @@ Interfaces that cross workstreams (all from W0b, typed):
     tabs, drag to pan, wheel or pinch to zoom, and Fit.
   - After a panic: "The whiteboard engine stopped. Changes up to HH:MM were saved", and a reload that recreates the
     iframe.
-- **Keyboard.** The frame forwards Mod+K and Mod+. to the parent (`onHostKey`); Mod+Shift+P (publish) is not a Quire
+- **Keyboard.** The frame forwards Mod+K and Mod+. to the parent (`onHostKey`); Mod+Shift+P (publish) is not a Wikanvas
   shortcut in M1 (D23). Pressing Esc twice within
   500 ms moves focus back to the parent's main region. F5 and Mod+R keep the browser's reload (§17).
-- **Theme.** A Quire theme change calls `setTheme`. The board background stays board content.
+- **Theme.** A Wikanvas theme change calls `setTheme`. The board background stays board content.
 - **Accessibility.** A visually hidden list next to the canvas holds the board's text, taken from
   `BoardMeta.text_excerpt` (the first 4 KB of the server-derived search text).
 - **Embedded documents (M1.1).** The host's layer also holds the cards' overlay, their editing and the three ways to
@@ -1931,7 +1936,7 @@ Interfaces that cross workstreams (all from W0b, typed):
 
 ### 9.6 UI spec (normative)
 
-Clean light design, generous whitespace, system UI font. Every value here is Quire's own; nothing is taken from
+Clean light design, generous whitespace, system UI font. Every value here is Wikanvas's own; nothing is taken from
 Outline's source or theme.
 
 #### 9.6.1 Design tokens (`web/src/styles/tokens.css`)
@@ -1983,7 +1988,7 @@ Outline's source or theme.
 - **Sibling order.** The client sorts every sibling group itself (`buildTree`): Manual by `sort_key` (code-unit
   order), then `id`; A–Z by the title key; Last updated and Created newest first; ties by `sort_key`, then `id`. The
   server sorts the same way (§5), so an optimistic reorder agrees with the next tree fetch. The **title key** is
-  defined twice, as `quire_core::tree::title_key` and the web's `titleKey` (`buildTree.ts`), and both are checked
+  defined twice, as `wikanvas_core::tree::title_key` and the web's `titleKey` (`buildTree.ts`), and both are checked
   against `fixtures/tree/title-order.json`:
   1. NFKD, then every `General_Category=Mark` character removed, then lowercased, with `ς` as `σ` (case- and
      accent-insensitive: `Café` and `cafe` have one key);
@@ -1996,7 +2001,7 @@ Outline's source or theme.
 #### 9.6.3 Tree drag and drop and keyboard
 
 Drag and drop (pragmatic-dnd):
-- Item rows have zones before 25% / inside 50% / after 25% (Quire's own pure functions in `components/tree/`; the
+- Item rows have zones before 25% / inside 50% / after 25% (Wikanvas's own pure functions in `components/tree/`; the
   `-hitbox` package stays declared but unused). Hovering "inside" a collapsed row for 700 ms expands it. The "after"
   zone of an expanded parent means "before its first child". On the last child of an expanded parent, a pointer left
   of the row's indent outdents the drop one level per 16 px, while each node passed is the last child, so it lands
@@ -2071,11 +2076,11 @@ shortcuts dialog. (Mod+Shift+P, publish or unpublish, comes back with the draft 
   headings, lists, quote).
 - Mentions: `@` opens a title search (`/api/v1/search/titles`); a mention shows the item's live title from the query
   cache, a trashed target shows strikethrough with "In Trash", a missing target shows "Deleted item" and is not
-  clickable. A pasted Quire URL becomes `link{itemId}`.
+  clickable. A pasted Wikanvas URL becomes `link{itemId}`.
 - Links: TipTap Link's `protocols` and `isAllowedUri` use the §6.4 scheme allow-list, so a pasted `javascript:` or
-  `data:` URL stays text. An item link (`link{itemId}`, or an href `quire://item/<uuid>`) renders with the DOM
+  `data:` URL stays text. An item link (`link{itemId}`, or an href `wikanvas://item/<uuid>`) renders with the DOM
   `href="/item/<uuid>"` (§9.1) while the stored mark keeps its href, so "open in new tab" and "copy link address" give a
-  working URL; HTML read back (a paste) maps `data-item-id` to `quire://item/<uuid>` again. Following a link
+  working URL; HTML read back (a paste) maps `data-item-id` to `wikanvas://item/<uuid>` again. Following a link
   (`LinkOpener`, `linkTarget`): a click when the document is read-only, Ctrl/Cmd+click while it is editable (a plain
   click places the caret, so link text stays editable). Item links and same-origin URLs go through the router, a
   fragment scrolls to its anchor, other allowed URLs open in a new tab (`noopener,noreferrer`); read-only, a click with
@@ -2114,19 +2119,19 @@ shortcuts dialog. (Mod+Shift+P, publish or unpublish, comes back with the draft 
   shows a warning). Admin scope or Never adds a password field (§7.3). After creation the dialog shows the secret once
   in a monospace field with Copy and the line "You won't see this token again"; closing it drops the secret. A short
   note under the list shows how to use a token with the CLI without putting it in argv or shell history:
-  `quire auth login --url <public URL> --token-stdin`, then paste the token and press Ctrl-D (§7.6).
+  `wikanvas auth login --url <public URL> --token-stdin`, then paste the token and press Ctrl-D (§7.6).
 
 #### 9.6.7 "Getting started" seed (W4 writes the text, original English)
 
 Collection "Getting started" (colour `#3E63DD`, icon `rocket`), all items published (on create, like every item, D23):
-- "Welcome to Quire": what collections and nesting are, the sidebar, Mod+K, search, stars, Trash and Archive, and
+- "Welcome to Wikanvas": what collections and nesting are, the sidebar, Mod+K, search, stars, Trash and Archive, and
   where backups live (an archived page leaves the sidebar and the search results; Search's "Include archived" finds
-  it). It does not mention drafts or publishing. It embeds the board below and mentions "Writing in Quire".
+  it). It does not mention drafts or publishing. It embeds the board below and mentions "Writing in Wikanvas".
   Its fixture, `fixtures/ydoc/getting-started.bin`, names the placeholder ids `docs::SEED_WRITING_ID` and
   `docs::SEED_BOARD_ID`; `seed::getting_started` stores it with `docs::init_seed`, which maps them to the two seeded
   items' ids, so the mention and the embed open the real items.
-  - "Writing in Quire" (`fixtures/ydoc/writing-in-quire.bin`, stored with `docs::init_with`): the slash menu, Markdown
-    shortcuts, mentions, images, callouts, tables.
+  - "Writing in Wikanvas" (`fixtures/ydoc/writing-in-wikanvas.bin`, stored with `docs::init_with`): the slash menu,
+    Markdown shortcuts, mentions, images, callouts, tables.
   - "Example board" (board, `fixtures/boards/getting-started.inkboard`): a few labelled shapes, a connector, a sticky
     note.
 
@@ -2137,10 +2142,10 @@ Collection "Getting started" (colour `#3E63DD`, icon `rocket`), all items publis
 ### 10.1 Layers
 
 ```
-Quire SPA (parent window)              web/src/board/BoardFrameHost.tsx       (W6)
-  │ same-origin JS calls: iframe.contentWindow.quireBoardFrame                 contract: web/src/board/bridge.ts (W5)
+Wikanvas SPA (parent window)           web/src/board/BoardFrameHost.tsx       (W6)
+  │ same-origin JS calls: iframe.contentWindow.wikanvasBoardFrame              contract: web/src/board/bridge.ts (W5)
   ▼
-/inkboard/{build}/frame.html + frame.js  (Quire-owned, web/inkboard-frame/)    (W5)
+/inkboard/{build}/frame.html + frame.js  (Wikanvas-owned, web/inkboard-frame/) (W5)
   │ globalThis.inkboardEmbed.mount(canvas, opts) → Handle
   ▼
 inkboard.js + inkboard_bg.wasm  (Inkboard + patches, feature `embed`)          (W5)
@@ -2148,18 +2153,18 @@ inkboard.js + inkboard_bg.wasm  (Inkboard + patches, feature `embed`)          (
 
 ### 10.2 Patch series (`patches/inkboard/`, against the base copy of `41e0295`)
 
-Every changed file gets one notice line near the top, in the file's comment syntax: `// Changed for Quire (embed
+Every changed file gets one notice line near the top, in the file's comment syntax: `// Changed for Wikanvas (embed
 feature): see patches/inkboard/README.md` in `.rs`, `# …` in `.toml`, `<!-- … -->` in `.md`. This satisfies Apache-2.0
 §4(b). `scripts/inkboard.sh export --upstream` writes a notice-free copy of the series for upstream PRs. The LICENSE
 files are untouched. The patches add no new `t()` strings: hiding UI is preferred over adding text, because Inkboard's
 tests require a French entry for every string. Nothing under `inkboard-core` or `inkboard-session` changes (amended by
 M1.1: 0005 adds one optional serde field to `inkboard-core`, §18.3; the server keeps compiling it unpatched). The patch
 file names come from their subjects (`theme: sync egui theme`, `embed: js api`, `optional net`, `docs: embedding`), the
-author is `quire <quire@localhost>`, and the series carries 24 notice lines in all (16 in 0001–0004, 8 in 0005 since the
-M1.1 review added `panel.rs`; 0006 adds none, its files carry 0004's; the `--upstream` export none).
+author is `wikanvas <wikanvas@localhost>`, and the series carries 24 notice lines in all (16 in 0001–0004, 8 in 0005
+since the M1.1 review added `panel.rs`; 0006 adds none, its files carry 0004's; the `--upstream` export none).
 `patches/inkboard/README.md` holds the patchset id (`3` since M1.1 added 0005 and 0006, §18.3, and kept after the M1.1
 review's changes to them, D99; `2` was M1's, after the review fixes changed 0003 and 0004), which makes `engine_version`
-`0.2.0-beta.3+embed.quire.3`.
+`0.2.0-beta.3+embed.wikanvas.3`.
 
 | Patch | Files (`crates/inkboard-app/…` unless noted) | Change |
 |---|---|---|
@@ -2248,10 +2253,11 @@ How `embed.rs` works:
   message}), 0)`: a plain JS timer still fires after the wasm instance has trapped, which a `spawn_local` task does not.
 - Closures are `forget`ed (a few bytes per mount).
 
-### 10.4 Quire frame API (`web/src/board/bridge.ts`, implemented by `web/inkboard-frame/frame.js`)
+### 10.4 Wikanvas frame API (`web/src/board/bridge.ts`, implemented by `web/inkboard-frame/frame.js`)
 
 ```ts
-export interface QuireBoardFrame { connect(events: FrameEvents): Promise<BoardFrameApi>; }  // window.quireBoardFrame
+// window.wikanvasBoardFrame
+export interface WikanvasBoardFrame { connect(events: FrameEvents): Promise<BoardFrameApi>; }
 export interface FrameEvents {
   onProgress?(p: { loaded: number; total: number }): void;   // decoded wasm bytes / manifest raw size
   onReady?(itemId: string): void;
@@ -2262,7 +2268,8 @@ export interface FrameEvents {
 }
 export interface OpenArgs { itemId: string; board: string | null; name: string; readOnly: boolean; theme: 'light' | 'dark' }
 export interface BoardFrameApi {
-  readonly engineVersion: string;     // inkboardEmbed.version + ".quire." + patchset, e.g. "0.2.0-beta.3+embed.quire.3"
+  // inkboardEmbed.version + ".wikanvas." + patchset, e.g. "0.2.0-beta.3+embed.wikanvas.3"
+  readonly engineVersion: string;
   readonly formatVersion: number;
   open(a: OpenArgs): Promise<void>;   // first call mounts on the frame's canvas; later calls setBoard + setReadOnly + setName
   current(): string | null;           // itemId shown
@@ -2315,7 +2322,7 @@ the Docker context.
 
 | Subcommand | Effect |
 |---|---|
-| `src [--force]` | Rebuild `.cache/inkboard-src`: check that `vendor/inkboard/Cargo.toml` has `version = "0.2.0-beta.3"`; copy the submodule's files with `tar --exclude=./.git --exclude=./target --exclude=./crates/inkboard-app/web/dist`; `git init -q`; commit everything as `base` (fixed dates, tag `base`; `git -c user.name=quire -c user.email=quire@localhost`); `git am --no-3way patches/inkboard/*.patch`. The self-contained repo lives inside `/work`. It refuses to discard uncommitted changes or unexported commits there unless `--force`. `.git/quire-src-stamp` records the inputs (the submodule's file list with sizes and mtimes, and the patch contents) and the `HEAD` after `git am`; `build`, `check` and `size` rerun `src` only when the inputs changed, and `export` refreshes the stamp. (`scripts/check-pins.sh`, on the host, checks that the submodule is at `41e0295` and clean.) |
+| `src [--force]` | Rebuild `.cache/inkboard-src`: check that `vendor/inkboard/Cargo.toml` has `version = "0.2.0-beta.3"`; copy the submodule's files with `tar --exclude=./.git --exclude=./target --exclude=./crates/inkboard-app/web/dist`; `git init -q`; commit everything as `base` (fixed dates, tag `base`; `git -c user.name=wikanvas -c user.email=wikanvas@localhost`); `git am --no-3way patches/inkboard/*.patch`. The self-contained repo lives inside `/work`. It refuses to discard uncommitted changes or unexported commits there unless `--force`. `.git/wikanvas-src-stamp` records the inputs (the submodule's file list with sizes and mtimes, and the patch contents) and the `HEAD` after `git am`; `build`, `check` and `size` rerun `src` only when the inputs changed, and `export` refreshes the stamp. (`scripts/check-pins.sh`, on the host, checks that the submodule is at `41e0295` and clean.) |
 | `build [--out web/dist-inkboard]` | Runs `src` if stale, then from `.cache/inkboard-src` (so its `.cargo/config.toml` getrandom rustflag applies; never set `RUSTFLAGS`): `CARGO_TARGET_DIR=${INKBOARD_TARGET_DIR:-$root/.cache/inkboard-target} cargo build --locked --release -p inkboard-app --bin inkboard --target wasm32-unknown-unknown --no-default-features --features web-glow,embed`, then `wasm-bindgen --target web --no-typescript --out-name inkboard --out-dir $OUT …/inkboard.wasm`, then `wasm-opt -Os` with the flags trunk 0.22.1 passes: read from trunk's source (`src/pipelines/rust/mod.rs`, `wasm_opt_build`), which for Inkboard's `index.html` (`data-wasm-opt="s"`, no `data-reference-types`, no `data-wasm-opt-params`) is `wasm-opt --output=OUT -Os IN` and nothing else, recorded in the script as `WASM_OPT_FLAGS` (`BINARYEN_CORES` comes from the environment; binaryen 131 validates the output without feature flags). It copies `web/inkboard-frame/*.{html,js,css}` only, `assets/icons.bin`, `assets/ICONS-LICENSES.txt`, Inkboard `LICENSE-*` and `THIRD_PARTY_LICENSES.md`; precompresses `.wasm .js .html .css` with `brotli -q 11 -k` and `gzip -9 -k -n` (never `icons.bin`); writes `manifest.json {build, engine_version, format_version, patchset, files:{name:{raw,br,gz}}}`: `build` is the first 12 hex digits of a sha256 over the sorted `sha256sum` lines of every file but the manifest, and `files` lists every file but the manifest and the `.br`/`.gz` copies, with null for a missing copy. The dist is flat (no wasm-bindgen JS snippets, and no `web/inkboard-frame/inkboard.js`, which would shadow the engine; `build` refuses both), and it is staged in `web/.dist-inkboard.XXXXXX` and renamed into place; a non-empty directory without `manifest.json` is never replaced. `--quick` (frame-test iteration only; the Dockerfile never passes it) builds release code with `lto = false`, 16 codegen units and incremental compilation (through `--config`, files untouched), skips wasm-opt and compresses with brotli 5 and gzip 6. |
 | `stub [--out …]` | A placeholder dist: a `frame.html` saying "engine not built", a `frame.js` (loaded as an external module) whose `connect` sends `onError{kind:'unsupported'}` and rejects, so a board host falls back to the preview, their `.br`/`.gz` copies, and a manifest with `engine_version` and `patchset` `"stub"` and `format_version` parsed from `vendor/inkboard/crates/inkboard-core/src/serial.rs` (`pub const VERSION: u32 = N;`). Used by images built with `INKBOARD_BUILD=stub`; the frame test (§14) needs the real engine and fails on purpose, once, against it. |
 | `export [--upstream]` | `git -C .cache/inkboard-src format-patch --zero-commit --no-signature base -o patches/inkboard`, after removing the old files; it refuses a commit message that contains the notice text. `--upstream` writes the series without notice lines to `.cache/inkboard-upstream/` and checks its own output for notices. |
@@ -2329,7 +2336,7 @@ does not parse, or its `build` is empty or not alphanumeric, it **refuses to sta
 
 ---
 
-## 11. Static serving and headers (`quire-server::static_files`, `headers`)
+## 11. Static serving and headers (`wikanvas-server::static_files`, `headers`)
 
 | Path | Cache-Control | Encoding | Headers |
 |---|---|---|---|
@@ -2344,7 +2351,7 @@ does not parse, or its `build` is empty or not alphanumeric, it **refuses to sta
 | `/api/v1/items/{id}/board/pages/{n}` | `?rev=` current: `private, max-age=31536000, immutable`; no `rev`: `no-cache` + ETag; a redirect to the current rev: `no-store` | gzip (fast level) when over 1 KiB and the client accepts it, by the compression layer, with `Vary: Accept-Encoding`; the route itself sends identity | `image/svg+xml`, `nosniff`, `CSP: default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox` |
 | `/api/v1/items/{id}/doc/markdown` | `no-store` | gzip (fast level) when over 1 KiB | `text/markdown; charset=utf-8`, `nosniff`, `CSP: default-src 'none'; sandbox`; `Content-Disposition: attachment` (filename per §8) with `?download=true` |
 | `/api/v1/openapi.json` | `no-cache` + ETag | gzip (fast level) | `application/json` |
-| `/api/*` JSON | `no-store` (every `/api/` response without its own policy) | gzip (fast level) when over 1 KiB | `X-Request-Id`, `Quire-Api-Version` (every `/api/v1` response); CORS headers only for an origin in `QUIRE_CORS_ORIGINS` (§8) |
+| `/api/*` JSON | `no-store` (every `/api/` response without its own policy) | gzip (fast level) when over 1 KiB | `X-Request-Id`, `Wikanvas-Api-Version` (every `/api/v1` response); CORS headers only for an origin in `WIKANVAS_CORS_ORIGINS` (§8) |
 
 Dynamic responses are gzipped at the fastest level by tower-http when the body is over 1 KiB and carries no
 `Content-Encoding` yet: every `application/json` and `text/markdown` body (the `/api` JSON, `openapi.json`, the Markdown
@@ -2359,7 +2366,8 @@ How a static file is served:
   `*.br` or `*.gz` themselves are 404, and a method other than GET or HEAD is 405 (after the CSRF check).
 - Send `Vary: Accept-Encoding`. Caddy forwards the client's `Accept-Encoding` and passes the chosen variant's bytes and
   `Content-Encoding` through unchanged: the Caddyfile has no `encode`, and `compression off` stops Caddy from adding
-  `Accept-Encoding: gzip` toward Quire and decoding the answer (§13.4). The image smoke checks it byte for byte (§14).
+  `Accept-Encoding: gzip` toward Wikanvas and decoding the answer (§13.4). The image smoke checks it byte for byte
+  (§14).
 - The ETag is the first 16 bytes of the chosen variant's sha256 (rust-embed's), in hex; `If-None-Match` gets 304.
   Content types come from one extension table, so rust-embed's guess and the in-memory test source agree.
 - An unknown `/api/*` path gets a JSON 404. An unknown path with an extension gets 404, and so does any path with a
@@ -2390,18 +2398,18 @@ same-origin`, `Cross-Origin-Opener-Policy: same-origin`, `Cross-Origin-Resource-
 `Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()`. COEP is not needed.
 
 **HSTS** (D57): `Strict-Transport-Security: max-age=31536000` (no `includeSubDomains`, no `preload`) on every response
-to an HTTPS request (§8), errors and static files included, when `QUIRE_TLS=acme`; never with `QUIRE_TLS=internal`
-and never on plain HTTP. `QUIRE_TLS` defaults to `internal`, and any value other than `internal` or `acme` stops startup (Caddy's `import tls_…` would fail
+to an HTTPS request (§8), errors and static files included, when `WIKANVAS_TLS=acme`; never with `WIKANVAS_TLS=internal`
+and never on plain HTTP. `WIKANVAS_TLS` defaults to `internal`, and any value other than `internal` or `acme` stops startup (Caddy's `import tls_…` would fail
 too). Caddy adds no security header of its own (no `header` directive; at most its `Server` header), so every security
-header comes from Quire and is covered by its tests.
+header comes from Wikanvas and is covered by its tests.
 The CSPs above are the same behind Caddy.
 
 Browsers offer brotli only over HTTPS, and Inkboard's copy-as-image needs a secure context: the compose deployment
-serves Quire over HTTPS through Caddy (D57, §13.4), never on a published plain-HTTP port.
+serves Wikanvas over HTTPS through Caddy (D57, §13.4), never on a published plain-HTTP port.
 
 ---
 
-## 12. Background jobs (`quire-server::jobs`)
+## 12. Background jobs (`wikanvas-server::jobs`)
 
 One tokio task per job, each using the writer through `Db`:
 - **Previews:** an unbounded mpsc queue of item ids, deduplicated. An item renders 5 s after its last enqueue and at
@@ -2415,20 +2423,20 @@ One tokio task per job, each using the writer through `Db`:
   first; then attachment GC, then blob GC with the orphan-file sweep (§5, D26). The GC also removes staging files in
   `/data/tmp` older than 24 h.
 - **Revision prune:** daily.
-- **Backup:** every `QUIRE_BACKUP_INTERVAL` (default 24h), keeping `QUIRE_BACKUP_KEEP` (default 7) copies of
-  `/data/backups/quire-*.db`, on-demand backups (`POST /api/v1/admin/backup`, `quire admin backup` without `--out`)
-  included; pre-migration backups are kept separately. `QUIRE_BACKUP_KEEP=0` turns the schedule off, and an
+- **Backup:** every `WIKANVAS_BACKUP_INTERVAL` (default 24h), keeping `WIKANVAS_BACKUP_KEEP` (default 7) copies of
+  `/data/backups/wikanvas-*.db`, on-demand backups (`POST /api/v1/admin/backup`, `wikanvas admin backup` without
+  `--out`) included; pre-migration backups are kept separately. `WIKANVAS_BACKUP_KEEP=0` turns the schedule off, and an
   on-demand backup then keeps only the new file. The first scheduled backup after a start is due one interval after the
-  newest `quire-*.db` (by modification time) and at least 60 s after startup, or 60 s after startup when there is none
-  or it is overdue, so a server that restarts more often than the interval still gets its backups. Scheduled and
+  newest `wikanvas-*.db` (by modification time) and at least 60 s after startup, or 60 s after startup when there is
+  none or it is overdue, so a server that restarts more often than the interval still gets its backups. Scheduled and
   on-demand backups never overlap (single-flight), and each starts with the free-space check (D33).
   1. `VACUUM INTO '/data/backups/.tmp-…'` on the maintenance connection (D2).
   2. `quick_check` on the copy.
-  3. Rename it to `quire-YYYYMMDDTHHMMZ.db` (`-2`, `-3`, … when the minute's name is taken), then prune to the count;
+  3. Rename it to `wikanvas-YYYYMMDDTHHMMZ.db` (`-2`, `-3`, … when the minute's name is taken), then prune to the count;
      a file that is already gone counts as deleted.
 
   `backup::create` holds an exclusive `flock` on `/data/backups/.lock` from the copy to the prune, so
-  `quire-server admin backup` and a running server's backup never overlap across processes either: the second gets
+  `wikanvas-server admin backup` and a running server's backup never overlap across processes either: the second gets
   429 `busy` (exit 11 for the command). The single-flight flag lives in the blocking task that copies, so a request
   that was dropped (the client left) keeps the flag until its copy is done.
 - **Pre-migration backup:** if migrations are pending at startup, `migrate` calls `backup::pre_migration`, which runs
@@ -2445,7 +2453,7 @@ One tokio task per job, each using the writer through `Db`:
   builds its b-trees without clearing unused page space, where older copies of deleted rows (stat4 samples of token
   hashes) survived; the second copy holds only the remaining rows. For a moment `/data/tmp` holds two copies of the
   database, so an export needs about twice its size free on `/data` (the D33 floor does not scale with it). Stream the tar (`manifest.json` with `format`, `format_version` 1, `created_at`, `server_version`,
-  `api_version`, `schema_version` and `without`; `quire.db`; `files/aa/bb/<sha>`), reading the copy and each file in
+  `api_version`, `schema_version` and `without`; `wikanvas.db`; `files/aa/bb/<sha>`), reading the copy and each file in
   256 KiB chunks through a 4-chunk channel (at most 1 MiB in flight, D25); delete the copy. The free-space check and
   the copy run on the blocking pool, which owns the single-flight guard; the guard then moves into the response body,
   so it is released when the stream ends or the client goes away, and a request dropped during the copy keeps the
@@ -2460,112 +2468,114 @@ One tokio task per job, each using the writer through `Db`:
 
 ### 13.1 Build-side resource caps (owner requirement)
 
-- **`scripts/lib/lock.sh`** defines `quire_lock`: `flock` on `<home>/.cache/quire/build.lock`, where `<home>` comes from
-  `getent passwd "$(id -u)"`: the same file whatever `$HOME`, `XDG_RUNTIME_DIR` or a private `/tmp` say, and shared by
-  every worktree. It waits and prints "waiting for another Quire build…". After acquiring it exports
-  `QUIRE_LOCK_HELD=1`. A script started with it set never waits: it tries a non-blocking `flock`, which fails at once
+- **`scripts/lib/lock.sh`** defines `wikanvas_lock`: `flock` on `<home>/.cache/wikanvas/build.lock`, where `<home>`
+  comes from `getent passwd "$(id -u)"`: the same file whatever `$HOME`, `XDG_RUNTIME_DIR` or a private `/tmp` say, and
+  shared by every worktree. It waits and prints "waiting for another Wikanvas build…". After acquiring it exports
+  `WIKANVAS_LOCK_HELD=1`. A script started with it set never waits: it tries a non-blocking `flock`, which fails at once
   when an ancestor holds the lock and takes it when nobody does, so nesting cannot deadlock and a stale or hand-set
   value cannot run a build unlocked (never set it by hand). Every failure returns 1 explicitly (`set -e` does not act
-  inside a function called from `if` or `||`), and callers write `quire_lock || exit 1`. The lock is a dynamically
+  inside a function called from `if` or `||`), and callers write `wikanvas_lock || exit 1`. The lock is a dynamically
   numbered fd inherited by the `exec docker run`, so it is held until the container exits.
 - **Who takes the lock.** `dev.sh`, `image.sh`, `image-smoke.sh`, `e2e.sh`, `agent-test.sh`, `cli-dist.sh` and
   `toolchain.sh` source it.
 - **`scripts/dev.sh`** runs `docker run --rm --init` with:
-  - `--cpus $QUIRE_BUILD_CPUS` (default 6), `--cpuset-cpus $QUIRE_BUILD_CPUSET` (default: the host's last
-    `QUIRE_BUILD_CPUS` cores, e.g. `10-15` on 16 cores; omitted when the host has fewer), `--memory` and
-    `--memory-swap` `$QUIRE_BUILD_MEM` (default 12g), `--pids-limit 4096`, `--shm-size 1g` (Chromium);
-  - `--cgroup-parent "$QUIRE_CGROUP_PARENT"` when `quire_slice` (below) set it; otherwise the container runs with its
-    own caps only, after the slice warning;
+  - `--cpus $WIKANVAS_BUILD_CPUS` (default 6), `--cpuset-cpus $WIKANVAS_BUILD_CPUSET` (default: the host's last
+    `WIKANVAS_BUILD_CPUS` cores, e.g. `10-15` on 16 cores; omitted when the host has fewer), `--memory` and
+    `--memory-swap` `$WIKANVAS_BUILD_MEM` (default 12g), `--pids-limit 4096`, `--shm-size 1g` (Chromium);
+  - `--cgroup-parent "$WIKANVAS_CGROUP_PARENT"` when `wikanvas_slice` (below) set it; otherwise the container runs with
+    its own caps only, after the slice warning;
   - env `CARGO_BUILD_JOBS`, `BINARYEN_CORES`, `RAYON_NUM_THREADS`, `GOMAXPROCS` and `UV_THREADPOOL_SIZE` set to the CPU
     count, plus `CARGO_HOME`, `HOME` as today;
   - `nice -n 10` around the command;
-  - optional variables `QUIRE_DEV_IMAGE` (default `quire-toolchain:latest`), `QUIRE_DEV_NETWORK`, `QUIRE_DEV_PORTS`,
-    and `QUIRE_SHARED_CARGO_HOME` (an absolute path, mounted over `/work/.cache/cargo`, so worktrees share one registry
-    and `CARGO_HOME` stays the same inside). The CPU and memory variables may only be lowered, and the scripts enforce
-    it: `quire_caps` (in `scripts/lib/slice.sh`, shared by `dev.sh` and `toolchain.sh`, so the BuildKit container gets
-    the same set by construction) refuses with exit 2 a `QUIRE_BUILD_CPUS` that is not a whole number from 1 to 6, a
-    `QUIRE_BUILD_MEM` that is not an integer size of at most 12g, and a `QUIRE_BUILD_CPUSET` with more than
-    `QUIRE_BUILD_CPUS` CPUs. The default cpuset is the last N ids of `/sys/devices/system/cpu/online` (not `nproc`,
-    which follows the caller's own affinity), and the thread variables use the smaller of the CPU count and the
-    cpuset's size. The value checked is the value passed to `--memory`. Without a command, `dev.sh` prints usage and
-    exits 2.
-- **The slices** (owner decision 2026-10-28: installed). `docker/quire-build.slice`:
+  - optional variables `WIKANVAS_DEV_IMAGE` (default `wikanvas-toolchain:latest`), `WIKANVAS_DEV_NETWORK`,
+    `WIKANVAS_DEV_PORTS`, and `WIKANVAS_SHARED_CARGO_HOME` (an absolute path, mounted over `/work/.cache/cargo`, so
+    worktrees share one registry and `CARGO_HOME` stays the same inside). The CPU and memory variables may only be
+    lowered, and the scripts enforce it: `wikanvas_caps` (in `scripts/lib/slice.sh`, shared by `dev.sh` and
+    `toolchain.sh`, so the BuildKit container gets the same set by construction) refuses with exit 2 a
+    `WIKANVAS_BUILD_CPUS` that is not a whole number from 1 to 6, a `WIKANVAS_BUILD_MEM` that is not an integer size of
+    at most 12g, and a `WIKANVAS_BUILD_CPUSET` with more than `WIKANVAS_BUILD_CPUS` CPUs. The default cpuset is the last
+    N ids of `/sys/devices/system/cpu/online` (not `nproc`, which follows the caller's own affinity), and the thread
+    variables use the smaller of the CPU count and the cpuset's size. The value checked is the value passed to
+    `--memory`. Without a command, `dev.sh` prints usage and exits 2.
+- **The slices** (owner decision 2026-10-28: installed). `docker/wikanvas-build.slice`:
   `[Slice] CPUQuota=600% MemoryMax=12G MemorySwapMax=0 CPUWeight=20 IOWeight=20 TasksMax=16384`. A dash in a slice name
-  means nesting (systemd.slice(5)), so the unit sits at `/sys/fs/cgroup/quire.slice/quire-build.slice/` under a parent
-  `quire.slice`. The quota and the memory limits are absolute and hold at any depth; weights only rank siblings, and
-  `quire-build.slice` has none, so `docker/quire.slice` (`[Slice] CPUWeight=20 IOWeight=20`) carries the low priority
-  against `user.slice` and `system.slice`. `IOWeight` acts only where the disk's scheduler honours `io.weight` (BFQ or
-  io.cost); `--check` prints the scheduler.
+  means nesting (systemd.slice(5)), so the unit sits at `/sys/fs/cgroup/wikanvas.slice/wikanvas-build.slice/` under a
+  parent `wikanvas.slice`. The quota and the memory limits are absolute and hold at any depth; weights only rank
+  siblings, and `wikanvas-build.slice` has none, so `docker/wikanvas.slice` (`[Slice] CPUWeight=20 IOWeight=20`) carries
+  the low priority against `user.slice` and `system.slice`. `IOWeight` acts only where the disk's scheduler honours
+  `io.weight` (BFQ or io.cost); `--check` prints the scheduler.
 - **Joining the slice.** Docker on this host uses the systemd cgroup driver on cgroup v2 (`docker info`: `systemd`,
   `2`; checked 2026-10-28). Under that driver `--cgroup-parent` (compose: `cgroup_parent`) takes a slice name, and the
-  container's scope is created as `quire.slice/quire-build.slice/docker-<id>.scope`, inside the slice's totals. The
-  name must belong to an installed unit: systemd creates a missing slice on the fly, with no limits. Under the cgroupfs
-  driver the same flag means a raw cgroup path outside systemd, so it is not used.
-- **`scripts/lib/slice.sh`** defines `quire_slice`. It exports `QUIRE_CGROUP_PARENT=quire-build.slice` when
+  container's scope is created as `wikanvas.slice/wikanvas-build.slice/docker-<id>.scope`, inside the slice's totals.
+  The name must belong to an installed unit: systemd creates a missing slice on the fly, with no limits. Under the
+  cgroupfs driver the same flag means a raw cgroup path outside systemd, so it is not used.
+- **`scripts/lib/slice.sh`** defines `wikanvas_slice`. It exports `WIKANVAS_CGROUP_PARENT=wikanvas-build.slice` when
   `docker info --format '{{.CgroupDriver}}'` is `systemd` and `systemctl show -p FragmentPath --value
-  quire-build.slice` is `/etc/systemd/system/quire-build.slice`; otherwise it exports it empty and prints once to stderr
-  "quire-build.slice not installed: per-container caps only (scripts/install-build-slice.sh --check)" (once per process
-  tree; with the unit installed but a cgroupfs Docker it says that instead, since "not installed" would be false).
-  `LoadState` is
+  wikanvas-build.slice` is `/etc/systemd/system/wikanvas-build.slice`; otherwise it exports it empty and prints once to
+  stderr "wikanvas-build.slice not installed: per-container caps only (scripts/install-build-slice.sh --check)" (once
+  per process tree; with the unit installed but a cgroupfs Docker it says that instead, since "not installed" would be
+  false). `LoadState` is
   no test: systemd reports `LoadState=loaded` for any slice name, installed or not (a slice's unit file is optional;
-  checked with `systemctl show quire-missing-test.slice` on systemd 259, 2026-10-28), and would put containers into an
-  on-the-fly slice with no limits. `dev.sh`, `toolchain.sh`, `e2e.sh`,
+  checked with `systemctl show wikanvas-missing-test.slice` on systemd 259, 2026-10-28), and would put containers into
+  an on-the-fly slice with no limits. `dev.sh`, `toolchain.sh`, `e2e.sh`,
   `agent-test.sh` and `image-smoke.sh` call it; the compose overrides read the variable (§13.3), so every build
   container, the BuildKit daemon and the e2e, agent and smoke containers join the slice when it exists and still run,
-  capped per container, when it does not. `QUIRE_BUILD_SLICE` (default `quire-build.slice`) exists only so the
+  capped per container, when it does not. `WIKANVAS_BUILD_SLICE` (default `wikanvas-build.slice`) exists only so the
   acceptance test can name a missing slice and see the warning: it changes which unit is tested, never the parent,
-  which is `quire-build.slice` or empty.
+  which is `wikanvas-build.slice` or empty.
 - **Installing (one privileged step).** `scripts/install-build-slice.sh` must run as root and never calls `sudo`
-  itself; started without root it exits 1 and prints the command below. It installs `docker/quire.slice` and
-  `docker/quire-build.slice` into `/etc/systemd/system/`, runs `systemctl daemon-reload` and
-  `systemctl start quire-build.slice`, then its own `--check`. Re-running it is harmless. Because it runs as root it
+  itself; started without root it exits 1 and prints the command below. It installs `docker/wikanvas.slice` and
+  `docker/wikanvas-build.slice` into `/etc/systemd/system/`, runs `systemctl daemon-reload` and
+  `systemctl start wikanvas-build.slice`, then its own `--check`. Re-running it is harmless. Because it runs as root it
   trusts nothing from the caller: `#!/bin/bash`, a fixed `PATH`, `HOME=/root`, no `DOCKER_*`, `CDPATH`, `BASH_ENV`,
   `ENV` or `TMPDIR`. Each unit file is read once (a regular file, not a symlink, at most 16 KiB) and accepted only if
   its non-comment lines are exactly the approved directives (the values below and a plain-text `Description=`; no line
   continuations or `%` specifiers); both are checked before either is written, a refused file's content is never
-  printed, and the checked bytes are staged in a root-only `mktemp -d /run/quire-install-slice.XXXXXXXX` and installed
-  `-o root -g root -m 0644`. Implementing agents never run
+  printed, and the checked bytes are staged in a root-only `mktemp -d /run/wikanvas-install-slice.XXXXXXXX` and
+  installed `-o root -g root -m 0644`. Implementing agents never run
   it, or any `sudo`: they prepare the files and hand over, and the coordinator runs it once, interactively, through the
   owner's askpass dialog (one dialog for the whole step):
   ```sh
   SUDO_ASKPASS=/home/staffan/.local/bin/claude-askpass sudo -A \
-    -p "install the Quire build cap (systemd slice: 6 CPUs, 12 GB RAM, no swap, low priority) :: $PWD/scripts/install-build-slice.sh" \
+    -p "install the Wikanvas build cap (systemd slice: 6 CPUs, 12 GB RAM, no swap, low priority) :: $PWD/scripts/install-build-slice.sh" \
     "$PWD/scripts/install-build-slice.sh"
   ```
   Then `scripts/install-build-slice.sh --check`, and the BuildKit container is recreated so it joins the slice
   (below).
 - **Checking.** `scripts/install-build-slice.sh --check` (no root) prints and verifies: the cgroup driver is `systemd`;
-  for `quire-build.slice`, `FragmentPath=/etc/systemd/system/quire-build.slice`, `ControlGroup=/quire.slice/quire-build.slice` (while it is active: after
+  for `wikanvas-build.slice`, `FragmentPath=/etc/systemd/system/wikanvas-build.slice`, `ControlGroup=/wikanvas.slice/wikanvas-build.slice` (while it is active: after
   a reboot it starts with its first member), `CPUQuotaPerSecUSec=6s`, `MemoryMax=12884901888`, `MemorySwapMax=0`, `CPUWeight=20`, `IOWeight=20`; for
-  `quire.slice`, `FragmentPath=/etc/systemd/system/quire.slice`, `CPUWeight=20` and `IOWeight=20`; then lists the current members (`systemctl status quire-build.slice
+  `wikanvas.slice`, `FragmentPath=/etc/systemd/system/wikanvas.slice`, `CPUWeight=20` and `IOWeight=20`; then lists the current members (`systemctl status wikanvas-build.slice
   --no-pager`) and the scheduler of the disk holding `/var/lib/docker`. Exit 0 when every value holds, 1 otherwise
   (each failing line named), 3 when the slice is not installed (no `FragmentPath`).
-- **The `quire-limited` builder** (buildx `remote` driver on a BuildKit container Quire manages). buildx's
+- **The `wikanvas-limited` builder** (buildx `remote` driver on a BuildKit container Wikanvas manages). buildx's
   `docker-container` driver sets the builder container's cgroup parent only when Docker uses the cgroupfs driver (its
   `driver/docker-container/driver.go` checks `CgroupDriver == "cgroupfs"`, and the driver docs say the same), so on this
   host a builder created with `--driver-opt cgroup-parent=…` would never join the slice. `scripts/toolchain.sh`
   therefore:
-  1. creates the container `quire-buildkit` from
+  1. creates the container `wikanvas-buildkit` from
      `moby/buildkit:v0.34.0@sha256:b059f8d7226d0b326bc871af489a5dddf65e36af4d20d14251b072974d9ee87c` (v0.34.1 was under
      two weeks old when it was pinned, §16 risk 23) with `docker create --init --privileged --cgroupns private --restart
      unless-stopped --cpus 6 --cpuset-cpus <same set as dev.sh> --memory 12g --memory-swap 12g --pids-limit 4096`,
-     `--cgroup-parent "$QUIRE_CGROUP_PARENT"` when set, and the volume `quire-buildkit-state:/var/lib/buildkit`.
+     `--cgroup-parent "$WIKANVAS_CGROUP_PARENT"` when set, and the volume `wikanvas-buildkit-state:/var/lib/buildkit`.
      `--cgroupns private` keeps the build steps' cgroups inside the container's caps: with Docker's
      `default-cgroupns-mode: host` the privileged daemon would create them at the host's root. `buildkitd` gets
      `--config /etc/buildkit/buildkitd.toml` explicitly, so a missing config fails loudly; `docker/buildkitd.toml`
      (`max-parallelism = 2`, GC `maxUsedSpace = "30GB"`) goes there with `docker cp` of a tar stream owned by root, mode
      0644 (no bind mount from a worktree that may disappear); then it starts it;
-  2. registers it once: `docker buildx create --name quire-limited --driver remote docker-container://quire-buildkit`.
-     `--load` and `--output type=local` work with the remote driver.
+  2. registers it once:
+     `docker buildx create --name wikanvas-limited --driver remote docker-container://wikanvas-buildkit`. `--load` and
+     `--output type=local` work with the remote driver.
 
-  If `quire-limited` exists with another driver (the earlier docker-container builder) or another endpoint, or
-  `quire-buildkit` exists with another image, other caps, CPU set, pids limit, privilege or cgroup namespace mode,
-  another cgroup parent than `quire_slice` now gives (the slice was installed after it was created), or another config
-  file content, the script prints `docker buildx rm quire-limited; docker rm -f quire-buildkit; scripts/toolchain.sh`
-  and exits 1. It never removes either by itself. A stopped `quire-buildkit` with matching settings is simply started,
-  and every run ends with `docker buildx inspect --bootstrap`. The state volume survives a recreate, and with it the
-  build cache. `scripts/toolchain.sh --builder-only` sets up or checks the builder without building the toolchain image;
-  `image.sh` and `cli-dist.sh` run it first, so a drifted builder stops their build too.
+  If `wikanvas-limited` exists with another driver (the earlier docker-container builder) or another endpoint, or
+  `wikanvas-buildkit` exists with another image, other caps, CPU set, pids limit, privilege or cgroup namespace mode,
+  another cgroup parent than `wikanvas_slice` now gives (the slice was installed after it was created), or another
+  config file content, the script prints
+  `docker buildx rm wikanvas-limited; docker rm -f wikanvas-buildkit; scripts/toolchain.sh` and exits 1. It never
+  removes either by itself. A stopped `wikanvas-buildkit` with matching settings is simply started, and every run ends
+  with `docker buildx inspect --bootstrap`. The state volume survives a recreate, and with it the build cache.
+  `scripts/toolchain.sh --builder-only` sets up or checks the builder without building the toolchain image; `image.sh`
+  and `cli-dist.sh` run it first, so a drifted builder stops their build too.
 - **`compose.yaml` has no `build:` key**, so the uncapped default builder can never be used by `docker compose up`.
 
 ### 13.2 `docker/Dockerfile`
@@ -2573,7 +2583,7 @@ One tokio task per job, each using the writer through `Db`:
 ```dockerfile
 # syntax=docker/dockerfile:1.12
 # Built only through scripts/image.sh (target runtime) and scripts/toolchain.sh (target toolchain), which use the capped
-# quire-limited builder. The three base images are pinned by index digest and binaryen by its release checksum (W0b,
+# wikanvas-limited builder. The three base images are pinned by index digest and binaryen by its release checksum (W0b,
 # 2026-10-28; docs/ARCHITECTURE.md §13.2).
 ARG RUST_IMAGE=rust:1.99.1-trixie@sha256:53766005847cbe02c3f59bfa49c1c4bb16695f2c9e5829c3d576a15406f5e733
 ARG NODE_IMAGE=node:24-trixie-slim@sha256:89c5244bc22a9bc3287d89ebc7e49b9cb5bb84cd40e6175ac3421d5a9f68b95a
@@ -2607,7 +2617,7 @@ RUN rustup component add clippy rustfmt && rustup target add wasm32-unknown-unkn
  && rm -rf /usr/local/cargo/registry /usr/local/cargo/git \
  && chmod -R a+rwX /usr/local/cargo /usr/local/rustup
 
-# Dev image quire-toolchain:latest (scripts/toolchain.sh). trunk is only for Inkboard's own public page.
+# Dev image wikanvas-toolchain:latest (scripts/toolchain.sh). trunk is only for Inkboard's own public page.
 FROM toolchain-base AS toolchain
 RUN cargo install --locked trunk@0.22.1 \
  && rm -rf /usr/local/cargo/registry /usr/local/cargo/git && chmod -R a+rwX /usr/local/cargo
@@ -2619,17 +2629,17 @@ COPY vendor/inkboard vendor/inkboard
 COPY patches/inkboard patches/inkboard
 COPY web/inkboard-frame web/inkboard-frame
 COPY scripts/inkboard.sh scripts/inkboard.sh
-RUN --mount=type=cache,id=quire-cargo-registry,target=/usr/local/cargo/registry \
-    --mount=type=cache,id=quire-inkboard-target,target=/cache/inkboard-target \
+RUN --mount=type=cache,id=wikanvas-cargo-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=wikanvas-inkboard-target,target=/cache/inkboard-target \
     if [ "$INKBOARD_BUILD" = stub ]; then scripts/inkboard.sh stub --out /out/inkboard; \
     else INKBOARD_TARGET_DIR=/cache/inkboard-target scripts/inkboard.sh build --out /out/inkboard; fi
 
 FROM toolchain-base AS web
 WORKDIR /src/web
 COPY web/package.json web/pnpm-lock.yaml ./
-RUN --mount=type=cache,id=quire-pnpm,target=/pnpm-store pnpm fetch --frozen-lockfile --store-dir /pnpm-store
+RUN --mount=type=cache,id=wikanvas-pnpm,target=/pnpm-store pnpm fetch --frozen-lockfile --store-dir /pnpm-store
 COPY web/ ./
-RUN --mount=type=cache,id=quire-pnpm,target=/pnpm-store \
+RUN --mount=type=cache,id=wikanvas-pnpm,target=/pnpm-store \
     pnpm install --offline --frozen-lockfile --store-dir /pnpm-store && pnpm build \
  && find dist -type f \( -name '*.js' -o -name '*.css' -o -name '*.html' -o -name '*.svg' -o -name '*.json' \) \
       -exec brotli -q 11 -k {} \; -exec gzip -9 -k -n {} \;
@@ -2644,16 +2654,16 @@ COPY .cargo .cargo
 COPY vendor/inkboard/Cargo.toml vendor/inkboard/LICENSE-MIT vendor/inkboard/LICENSE-APACHE vendor/inkboard/
 COPY vendor/inkboard/crates/inkboard-core vendor/inkboard/crates/inkboard-core
 COPY crates crates
-COPY <<'EOF' /usr/local/lib/quire-licenses.mjs
+COPY <<'EOF' /usr/local/lib/wikanvas-licenses.mjs
 // … (about 140 lines of JavaScript: walk cargo metadata's resolve graph from the workspace members over
 // non-dev edges, read each package's LICENSE*/COPYING*/NOTICE* files, write the lists and each distinct text once)
 EOF
-RUN --mount=type=cache,id=quire-cargo-registry,target=/usr/local/cargo/registry \
-    --mount=type=cache,id=quire-pnpm,target=/pnpm-store \
+RUN --mount=type=cache,id=wikanvas-cargo-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=wikanvas-pnpm,target=/pnpm-store \
     mkdir -p /out \
  && cargo metadata --format-version 1 --locked --filter-platform x86_64-unknown-linux-gnu >/tmp/cargo.json \
  && (cd web && pnpm licenses list --json --prod --config.store-dir=/pnpm-store) >/tmp/npm.json \
- && node /usr/local/lib/quire-licenses.mjs /tmp/cargo.json /tmp/npm.json /out/licenses.txt
+ && node /usr/local/lib/wikanvas-licenses.mjs /tmp/cargo.json /tmp/npm.json /out/licenses.txt
 
 FROM toolchain-base AS server
 WORKDIR /src
@@ -2669,34 +2679,34 @@ COPY fixtures fixtures
 COPY --from=web /src/web/dist web/dist
 COPY --from=licenses /out/licenses.txt web/dist/licenses.txt
 COPY --from=inkboard-web /out/inkboard web/dist-inkboard
-ARG QUIRE_COMMIT=unknown
-# quire-assets embeds web/dist and web/dist-inkboard with rust-embed, and cargo decides by mtime whether to compile it
-# again. The target directory is a cache mount shared by every image build, while the two dists come from other
+ARG WIKANVAS_COMMIT=unknown
+# wikanvas-assets embeds web/dist and web/dist-inkboard with rust-embed, and cargo decides by mtime whether to compile
+# it again. The target directory is a cache mount shared by every image build, while the two dists come from other
 # stages, whose cached outputs keep the mtimes of the build that made them: those can be older than the last compile
-# of quire-assets (a stub image and then a full one at one commit, a reverted web change, an older commit), and cargo
+# of wikanvas-assets (a stub image and then a full one at one commit, a reverted web change, an older commit), and cargo
 # then kept the expansion of another build's files (found by the M1.1 gate: a full image with the stub engine).
-# Touching them makes every run of this step embed them again (about 2 s; quire-server recompiles anyway, as
-# QUIRE_COMMIT changes with every commit). The binary is then checked to embed these two dists: every file name of
+# Touching them makes every run of this step embed them again (about 2 s; wikanvas-server recompiles anyway, as
+# WIKANVAS_COMMIT changes with every commit). The binary is then checked to embed these two dists: every file name of
 # both, and this engine's build id (a hash of its files). A binary that embeds another build's files fails the image
 # build instead of shipping.
-RUN --mount=type=cache,id=quire-cargo-registry,target=/usr/local/cargo/registry \
-    --mount=type=cache,id=quire-server-target,target=/cache/target \
+RUN --mount=type=cache,id=wikanvas-cargo-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=wikanvas-server-target,target=/cache/target \
     find web/dist web/dist-inkboard -type f -exec touch {} + \
- && QUIRE_COMMIT="$QUIRE_COMMIT" CARGO_TARGET_DIR=/cache/target cargo build --release --locked -p quire-server \
- && bin=/cache/target/release/quire-server \
+ && WIKANVAS_COMMIT="$WIKANVAS_COMMIT" CARGO_TARGET_DIR=/cache/target cargo build --release --locked -p wikanvas-server \
+ && bin=/cache/target/release/wikanvas-server \
  && for d in web/dist web/dist-inkboard; do \
       for f in $(cd "$d" && find . -type f -printf '%P\n'); do \
-        if ! LC_ALL=C grep -qaF "$f" "$bin"; then echo "quire-server does not embed $d/$f" >&2; exit 1; fi; \
+        if ! LC_ALL=C grep -qaF "$f" "$bin"; then echo "wikanvas-server does not embed $d/$f" >&2; exit 1; fi; \
       done; \
     done \
  && build="$(sed -n 's/^  "build": "\([^"]*\)",$/\1/p' web/dist-inkboard/manifest.json)" \
  && if ! LC_ALL=C grep -qaF "\"build\": \"$build\"," "$bin"; then \
-      echo "quire-server does not embed the manifest of engine build '$build'" >&2; exit 1; \
+      echo "wikanvas-server does not embed the manifest of engine build '$build'" >&2; exit 1; \
     fi \
- && install -D "$bin" /out/quire-server && mkdir -p /out/data
+ && install -D "$bin" /out/wikanvas-server && mkdir -p /out/data
 
 # The CLI (D54): a static musl binary, in the image and as a standalone download (scripts/cli-dist.sh). Cargo needs
-# every workspace manifest, including inkboard-core's, to resolve the lockfile, but compiles only quire-cli's graph.
+# every workspace manifest, including inkboard-core's, to resolve the lockfile, but compiles only wikanvas-cli's graph.
 FROM toolchain-base AS cli-src
 WORKDIR /src
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
@@ -2707,38 +2717,38 @@ COPY crates crates
 
 # For the runtime image: this COPY orders the CLI's rustc build after the server's, so two rustc builds never overlap.
 FROM cli-src AS cli
-COPY --from=server /out/quire-server /tmp/order-after-server
-RUN --mount=type=cache,id=quire-cargo-registry,target=/usr/local/cargo/registry \
-    --mount=type=cache,id=quire-cli-target,target=/cache/target \
-    CARGO_TARGET_DIR=/cache/target cargo build --release --locked -p quire-cli --target x86_64-unknown-linux-musl \
- && install -D /cache/target/x86_64-unknown-linux-musl/release/quire /out/quire
+COPY --from=server /out/wikanvas-server /tmp/order-after-server
+RUN --mount=type=cache,id=wikanvas-cargo-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=wikanvas-cli-target,target=/cache/target \
+    CARGO_TARGET_DIR=/cache/target cargo build --release --locked -p wikanvas-cli --target x86_64-unknown-linux-musl \
+ && install -D /cache/target/x86_64-unknown-linux-musl/release/wikanvas /out/wikanvas
 
 # For scripts/cli-dist.sh (`--target cli-dist --output type=local`): the same build without the server.
 FROM cli-src AS cli-alone
-RUN --mount=type=cache,id=quire-cargo-registry,target=/usr/local/cargo/registry \
-    --mount=type=cache,id=quire-cli-target,target=/cache/target \
-    CARGO_TARGET_DIR=/cache/target cargo build --release --locked -p quire-cli --target x86_64-unknown-linux-musl \
- && install -D /cache/target/x86_64-unknown-linux-musl/release/quire /out/quire
+RUN --mount=type=cache,id=wikanvas-cargo-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=wikanvas-cli-target,target=/cache/target \
+    CARGO_TARGET_DIR=/cache/target cargo build --release --locked -p wikanvas-cli --target x86_64-unknown-linux-musl \
+ && install -D /cache/target/x86_64-unknown-linux-musl/release/wikanvas /out/wikanvas
 FROM scratch AS cli-dist
-COPY --from=cli-alone /out/quire /quire-x86_64-unknown-linux-musl
+COPY --from=cli-alone /out/wikanvas /wikanvas-x86_64-unknown-linux-musl
 # THIRD_PARTY.md covers every crate in the workspace lock (W7), so also the CLI's.
 COPY LICENSE THIRD_PARTY.md /
 
 FROM ${RUNTIME_IMAGE} AS runtime
-COPY --from=server /out/quire-server /usr/local/bin/quire-server
-COPY --from=cli /out/quire /usr/local/bin/quire
+COPY --from=server /out/wikanvas-server /usr/local/bin/wikanvas-server
+COPY --from=cli /out/wikanvas /usr/local/bin/wikanvas
 COPY --from=server --chown=65532:65532 /out/data /data
-COPY LICENSE THIRD_PARTY.md /usr/share/doc/quire/
-COPY vendor/inkboard/LICENSE-MIT vendor/inkboard/LICENSE-APACHE vendor/inkboard/THIRD_PARTY_LICENSES.md /usr/share/doc/quire/inkboard/
-ENV QUIRE_DATA_DIR=/data QUIRE_LISTEN=0.0.0.0:8080 RUST_LOG=info MALLOC_ARENA_MAX=2
+COPY LICENSE THIRD_PARTY.md /usr/share/doc/wikanvas/
+COPY vendor/inkboard/LICENSE-MIT vendor/inkboard/LICENSE-APACHE vendor/inkboard/THIRD_PARTY_LICENSES.md /usr/share/doc/wikanvas/inkboard/
+ENV WIKANVAS_DATA_DIR=/data WIKANVAS_LISTEN=0.0.0.0:8080 RUST_LOG=info MALLOC_ARENA_MAX=2
 USER 65532:65532
 VOLUME /data
 EXPOSE 8080
-# quire-server healthcheck derives its URL from QUIRE_LISTEN (port; 0.0.0.0 → 127.0.0.1). --start-interval lets
+# wikanvas-server healthcheck derives its URL from WIKANVAS_LISTEN (port; 0.0.0.0 → 127.0.0.1). --start-interval lets
 # `compose up --wait` see "healthy" within about a second. The CLI derives its default URL the same way (§7.6).
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --start-interval=1s --retries=3 \
-  CMD ["/usr/local/bin/quire-server", "healthcheck"]
-ENTRYPOINT ["/usr/local/bin/quire-server"]
+  CMD ["/usr/local/bin/wikanvas-server", "healthcheck"]
+ENTRYPOINT ["/usr/local/bin/wikanvas-server"]
 CMD ["serve"]
 ```
 
@@ -2775,13 +2785,13 @@ docs/handoff
 
 `scripts/image.sh`: `tag=$(git rev-parse --short HEAD 2>/dev/null || echo nocommit)`, plus `-dirty` when
 `git status --porcelain` is not empty (never on `nocommit`); then, under the lock, `scripts/toolchain.sh
---builder-only` and `docker buildx build --builder quire-limited --load -f
-docker/Dockerfile --target runtime --build-arg QUIRE_COMMIT=$tag --label org.opencontainers.image.revision=$tag
--t quire:$tag -t quire:latest "$@" .`. The label lets `agent-test.sh` refuse a stale image (§14.1).
+--builder-only` and `docker buildx build --builder wikanvas-limited --load -f
+docker/Dockerfile --target runtime --build-arg WIKANVAS_COMMIT=$tag --label org.opencontainers.image.revision=$tag
+-t wikanvas:$tag -t wikanvas:latest "$@" .`. The label lets `agent-test.sh` refuse a stale image (§14.1).
 
 `scripts/cli-dist.sh`: under the lock, `scripts/toolchain.sh --builder-only`, then `docker buildx build --builder
-quire-limited -f docker/Dockerfile --target cli-dist --output type=local,dest=dist/.cli.XXXXXX .`; it checks that the
-binary and the three text files are there, writes `quire-x86_64-unknown-linux-musl.sha256`, and renames the directory
+wikanvas-limited -f docker/Dockerfile --target cli-dist --output type=local,dest=dist/.cli.XXXXXX .`; it checks that the
+binary and the three text files are there, writes `wikanvas-x86_64-unknown-linux-musl.sha256`, and renames the directory
 to `dist/cli`.
 `dist/cli/` then holds the binary, its sha256, `LICENSE` and `THIRD_PARTY.md`. The binary is
 static and runs on any x86_64 Linux; other targets (aarch64, macOS) are later work (§15).
@@ -2789,38 +2799,40 @@ static and runs on any x86_64 Linux; other targets (aarch64, macOS) are later wo
 ### 13.3 `compose.yaml` (runtime limits, HTTPS front)
 
 ```yaml
-name: quire
+name: wikanvas
 services:
-  quire:
-    image: ${QUIRE_IMAGE:-quire:latest}          # built by scripts/image.sh (quire-limited builder only)
+  wikanvas:
+    image: ${WIKANVAS_IMAGE:-wikanvas:latest}    # built by scripts/image.sh (wikanvas-limited builder only)
     pull_policy: never
     init: true
     restart: unless-stopped
     stop_grace_period: 20s
     expose: ["8080"]                             # the project network only: no published port; Caddy is the way in (D57)
     environment:
-      QUIRE_DOMAIN: ${QUIRE_DOMAIN:-localhost}   # allowed Host (any port) and the default public URL (§8)
-      QUIRE_TLS: ${QUIRE_TLS:-internal}          # internal | acme; HSTS only with acme (§11)
-      QUIRE_HTTPS_PORT: ${QUIRE_HTTPS_PORT:-443} # appended to the derived public URL unless 443
-      QUIRE_PUBLIC_URL: ${QUIRE_PUBLIC_URL:-}    # empty: https://$QUIRE_DOMAIN[:$QUIRE_HTTPS_PORT] (§8)
-      QUIRE_ALLOWED_HOSTS: ${QUIRE_ALLOWED_HOSTS:-}
-      QUIRE_TRUSTED_PROXIES: ${QUIRE_PROXY_IP:-172.31.240.2}   # Caddy only: X-Forwarded-* from anyone else is ignored
-      QUIRE_BACKUP_INTERVAL: ${QUIRE_BACKUP_INTERVAL:-24h}
-      QUIRE_BACKUP_KEEP: ${QUIRE_BACKUP_KEEP:-7}
-      QUIRE_MAX_UPLOAD_MB: ${QUIRE_MAX_UPLOAD_MB:-25}
-      QUIRE_MAX_BOARD_MB: ${QUIRE_MAX_BOARD_MB:-50}
-      QUIRE_TOKEN_RATE: ${QUIRE_TOKEN_RATE:-600}             # requests per minute per API token (D47)
-      QUIRE_TOKEN_BYTES_PER_HOUR: ${QUIRE_TOKEN_BYTES_PER_HOUR:-1073741824}   # request body bytes per API token (D47)
-      QUIRE_MIN_FREE_MB: ${QUIRE_MIN_FREE_MB:-1024}         # free-space floor, capped at 10% of /data (D33)
-      QUIRE_CORS_ORIGINS: ${QUIRE_CORS_ORIGINS:-}           # empty = no CORS (D48)
-      QUIRE_WORKER_THREADS: "2"                  # one per CPU of the cap below (D25)
-      QUIRE_MAX_BLOCKING_THREADS: "16"
+      WIKANVAS_DOMAIN: ${WIKANVAS_DOMAIN:-localhost}   # allowed Host (any port) and the default public URL (§8)
+      WIKANVAS_TLS: ${WIKANVAS_TLS:-internal}          # internal | acme; HSTS only with acme (§11)
+      WIKANVAS_HTTPS_PORT: ${WIKANVAS_HTTPS_PORT:-443} # appended to the derived public URL unless 443
+      WIKANVAS_PUBLIC_URL: ${WIKANVAS_PUBLIC_URL:-}    # empty: https://$WIKANVAS_DOMAIN[:$WIKANVAS_HTTPS_PORT] (§8)
+      WIKANVAS_ALLOWED_HOSTS: ${WIKANVAS_ALLOWED_HOSTS:-}
+      # Caddy only: X-Forwarded-* from anyone else is ignored
+      WIKANVAS_TRUSTED_PROXIES: ${WIKANVAS_PROXY_IP:-172.31.240.2}
+      WIKANVAS_BACKUP_INTERVAL: ${WIKANVAS_BACKUP_INTERVAL:-24h}
+      WIKANVAS_BACKUP_KEEP: ${WIKANVAS_BACKUP_KEEP:-7}
+      WIKANVAS_MAX_UPLOAD_MB: ${WIKANVAS_MAX_UPLOAD_MB:-25}
+      WIKANVAS_MAX_BOARD_MB: ${WIKANVAS_MAX_BOARD_MB:-50}
+      WIKANVAS_TOKEN_RATE: ${WIKANVAS_TOKEN_RATE:-600}       # requests per minute per API token (D47)
+      # request body bytes per API token (D47)
+      WIKANVAS_TOKEN_BYTES_PER_HOUR: ${WIKANVAS_TOKEN_BYTES_PER_HOUR:-1073741824}
+      WIKANVAS_MIN_FREE_MB: ${WIKANVAS_MIN_FREE_MB:-1024}   # free-space floor, capped at 10% of /data (D33)
+      WIKANVAS_CORS_ORIGINS: ${WIKANVAS_CORS_ORIGINS:-}     # empty = no CORS (D48)
+      WIKANVAS_WORKER_THREADS: "2"               # one per CPU of the cap below (D25)
+      WIKANVAS_MAX_BLOCKING_THREADS: "16"
       RUST_LOG: ${RUST_LOG:-info}
-    volumes: ["quire-data:/data"]
+    volumes: ["wikanvas-data:/data"]
     # Runtime caps (owner requirement, D25). Raise only on purpose.
-    cpus: "${QUIRE_CPUS:-2}"
-    mem_limit: ${QUIRE_MEM:-1g}
-    memswap_limit: ${QUIRE_MEM:-1g}              # = mem_limit → no swap
+    cpus: "${WIKANVAS_CPUS:-2}"
+    mem_limit: ${WIKANVAS_MEM:-1g}
+    memswap_limit: ${WIKANVAS_MEM:-1g}           # = mem_limit → no swap
     pids_limit: 256
     ulimits: { nofile: { soft: 4096, hard: 8192 } }
     read_only: true
@@ -2832,24 +2844,24 @@ services:
     image: caddy:2.11.7@sha256:5e5286cb37d44086d651a5363f05f43a692ce4d649d88fb1bd844579f45fa9e8   # official image, pinned by digest (D57)
     pull_policy: missing
     restart: unless-stopped
-    depends_on: { quire: { condition: service_healthy } }
+    depends_on: { wikanvas: { condition: service_healthy } }
     ports:                                       # TCP only: HTTP/3 is off in the Caddyfile
-      - "${QUIRE_BIND:-127.0.0.1}:${QUIRE_HTTP_PORT:-80}:80"     # http → https redirect, ACME HTTP-01
-      - "${QUIRE_BIND:-127.0.0.1}:${QUIRE_HTTPS_PORT:-443}:443"
+      - "${WIKANVAS_BIND:-127.0.0.1}:${WIKANVAS_HTTP_PORT:-80}:80"     # http → https redirect, ACME HTTP-01
+      - "${WIKANVAS_BIND:-127.0.0.1}:${WIKANVAS_HTTPS_PORT:-443}:443"
     environment:
-      QUIRE_DOMAIN: ${QUIRE_DOMAIN:-localhost}
-      QUIRE_TLS: ${QUIRE_TLS:-internal}
+      WIKANVAS_DOMAIN: ${WIKANVAS_DOMAIN:-localhost}
+      WIKANVAS_TLS: ${WIKANVAS_TLS:-internal}
       GOMEMLIMIT: 100MiB                         # Go's GC stays under mem_limit
     volumes:
       - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data                         # certificates, ACME account, the local CA's root and keys (§13.4)
       - caddy-config:/config
     networks:
-      default: { ipv4_address: "${QUIRE_PROXY_IP:-172.31.240.2}" }   # fixed: Quire trusts this address only
+      default: { ipv4_address: "${WIKANVAS_PROXY_IP:-172.31.240.2}" }   # fixed: Wikanvas trusts this address only
     # Caddy's own caps (D57).
-    cpus: "${QUIRE_CADDY_CPUS:-0.5}"
-    mem_limit: ${QUIRE_CADDY_MEM:-128m}
-    memswap_limit: ${QUIRE_CADDY_MEM:-128m}      # no swap
+    cpus: "${WIKANVAS_CADDY_CPUS:-0.5}"
+    mem_limit: ${WIKANVAS_CADDY_MEM:-128m}
+    memswap_limit: ${WIKANVAS_CADDY_MEM:-128m}   # no swap
     pids_limit: 128
     read_only: true
     tmpfs: ["/tmp:size=8m"]
@@ -2861,97 +2873,101 @@ networks:
   default:
     ipam:
       config:
-        # Dynamic addresses come only from ip_range (.8–.14), so `quire`, which starts first, can never take Caddy's
-        # fixed address (.2, inside the subnet, outside the range). Without ip_range Docker hands out .2 to `quire`.
-        - { subnet: "${QUIRE_NET_SUBNET:-172.31.240.0/28}", ip_range: "${QUIRE_NET_RANGE:-172.31.240.8/29}" }
+        # Dynamic addresses come only from ip_range (.8–.14), so `wikanvas`, which starts first, can never take Caddy's
+        # fixed address (.2, inside the subnet, outside the range). Without ip_range Docker hands out .2 to `wikanvas`.
+        - { subnet: "${WIKANVAS_NET_SUBNET:-172.31.240.0/28}", ip_range: "${WIKANVAS_NET_RANGE:-172.31.240.8/29}" }
 volumes:
-  quire-data:
+  wikanvas-data:
   caddy-data:
   caddy-config:
 ```
 
-The variables an owner sets (in `.env` next to `compose.yaml`; the README lists them): `QUIRE_DOMAIN`, `QUIRE_TLS`,
-`QUIRE_BIND` (`127.0.0.1`: this machine only; `0.0.0.0`: the LAN, and required for `acme`), `QUIRE_HTTP_PORT` and
-`QUIRE_HTTPS_PORT` (only when 80 or 443 are taken), `QUIRE_CPUS`, `QUIRE_MEM`, `QUIRE_CADDY_CPUS`, `QUIRE_CADDY_MEM`,
-and `QUIRE_NET_SUBNET` with `QUIRE_NET_RANGE` and `QUIRE_PROXY_IP` (change all three together, only if
-`172.31.240.0/28` collides with an existing network; the proxy address must lie inside the subnet and outside the
-range, as Docker documents for static addresses).
+The variables an owner sets (in `.env` next to `compose.yaml`; the README lists them): `WIKANVAS_DOMAIN`,
+`WIKANVAS_TLS`, `WIKANVAS_BIND` (`127.0.0.1`: this machine only; `0.0.0.0`: the LAN, and required for `acme`),
+`WIKANVAS_HTTP_PORT` and `WIKANVAS_HTTPS_PORT` (only when 80 or 443 are taken), `WIKANVAS_CPUS`, `WIKANVAS_MEM`,
+`WIKANVAS_CADDY_CPUS`, `WIKANVAS_CADDY_MEM`, and `WIKANVAS_NET_SUBNET` with `WIKANVAS_NET_RANGE` and `WIKANVAS_PROXY_IP`
+(change all three together, only if `172.31.240.0/28` collides with an existing network; the proxy address must lie
+inside the subnet and outside the range, as Docker documents for static addresses).
 
 **Project subnets.** A fixed subnet can exist once per host, so each project the scripts start gets its own /28 next to
-the production one, exported as `QUIRE_NET_SUBNET`, `QUIRE_NET_RANGE` and `QUIRE_PROXY_IP` before `docker compose`:
-`quire` (production) `172.31.240.0/28`, range `.8/29`, Caddy `.2`; `quire-e2e` `172.31.240.16/28`, `.24/29`, `.18`;
-`quire-agent` `172.31.240.32/28`, `.40/29`, `.34`; `quire-smoke` `172.31.240.48/28`, `.56/29`, `.50`. They never
-collide with a running production project. The scripts also pass `--env-file /dev/null` and unset the owner-facing
-variables listed above before exporting their own, so neither the owner's `.env` nor the shell (a public domain,
-`acme`, raised caps) leaks into a test project: their caps are always the defaults of this file.
+the production one, exported as `WIKANVAS_NET_SUBNET`, `WIKANVAS_NET_RANGE` and `WIKANVAS_PROXY_IP` before
+`docker compose`: `wikanvas` (production) `172.31.240.0/28`, range `.8/29`, Caddy `.2`; `wikanvas-e2e`
+`172.31.240.16/28`, `.24/29`, `.18`; `wikanvas-agent` `172.31.240.32/28`, `.40/29`, `.34`; `wikanvas-smoke`
+`172.31.240.48/28`, `.56/29`, `.50`. They never collide with a running production project. The scripts also pass
+`--env-file /dev/null` and unset the owner-facing variables listed above before exporting their own, so neither the
+owner's `.env` nor the shell (a public domain, `acme`, raised caps) leaks into a test project: their caps are always the
+defaults of this file.
 
 `compose.e2e.yaml` (Compose ≥ 2.24 merge tags; a plain `tmpfs:` entry would collide with the `/data` volume). The e2e
-and agent projects start only the `quire` service (`up -d --wait quire`): Playwright and the CLI talk to Quire
+and agent projects start only the `wikanvas` service (`up -d --wait wikanvas`): Playwright and the CLI talk to Wikanvas
 directly over plain HTTP on the project network, and Caddy is not started (§14):
 ```yaml
 services:
-  quire:
+  wikanvas:
     volumes: !override
       # mode 1777 lets uid 65532 write: without it the tmpfs takes the image's /data mode (0755) with owner root.
       - { type: tmpfs, target: /data, tmpfs: { size: 268435456, mode: 0o1777 } }   # charged to mem_limit
     environment:
-      QUIRE_SETUP_TOKEN: e2e-setup-code
-      QUIRE_PUBLIC_URL: http://quire:8080      # direct, plain HTTP: the session cookie is quire_session (§8)
-    cgroup_parent: ${QUIRE_CGROUP_PARENT:-}    # quire-build.slice when installed (scripts/lib/slice.sh); else own caps
+      WIKANVAS_SETUP_TOKEN: e2e-setup-code
+      WIKANVAS_PUBLIC_URL: http://wikanvas:8080      # direct, plain HTTP: the session cookie is wikanvas_session (§8)
+    # wikanvas-build.slice when installed (scripts/lib/slice.sh); else own caps
+    cgroup_parent: ${WIKANVAS_CGROUP_PARENT:-}
 ```
 The `/data` tmpfs needs its mode: runc gives a new tmpfs the mode of the image's directory (`/data` is 0755, owner
 65532) but owner root, so without `mode` uid 65532 cannot create `/data/files`. Compose reads `mode: 1777` as decimal;
-the YAML octal `0o1777` is 1023, the intended value. The Playwright container joins the `quire-e2e_default` network.
+the YAML octal `0o1777` is 1023, the intended value. The Playwright container joins the `wikanvas-e2e_default` network.
 The agent harness (§14.1) uses the same override,
-under its own project name `quire-agent`, and adds `compose.agent.yaml` only when it must publish a loopback port:
+under its own project name `wikanvas-agent`, and adds `compose.agent.yaml` only when it must publish a loopback port:
 ```yaml
 services:
-  quire:
-    ports: ["127.0.0.1:${QUIRE_AGENT_PORT:-18080}:8080"]   # loopback only, straight to Quire; the Host allowlist accepts 127.0.0.1
+  wikanvas:
+    ports: ["127.0.0.1:${WIKANVAS_AGENT_PORT:-18080}:8080"]   # loopback only, straight to Wikanvas; the Host allowlist accepts 127.0.0.1
 ```
 
-`compose.smoke.yaml` (for `scripts/image-smoke.sh`, project `quire-smoke`): the full project, Caddy included, in
+`compose.smoke.yaml` (for `scripts/image-smoke.sh`, project `wikanvas-smoke`): the full project, Caddy included, in
 `internal` mode for `localhost`, reachable only on a loopback port, with throwaway volumes. `image-smoke.sh` exports
-`QUIRE_DOMAIN=localhost`, `QUIRE_TLS=internal`, `QUIRE_HTTPS_PORT=18443` (so the derived public URL is
+`WIKANVAS_DOMAIN=localhost`, `WIKANVAS_TLS=internal`, `WIKANVAS_HTTPS_PORT=18443` (so the derived public URL is
 `https://localhost:18443`) and the smoke subnet:
 ```yaml
 services:
-  quire:
+  wikanvas:
     volumes: !override
       # mode 1777 lets uid 65532 write: without it the tmpfs takes the image's /data mode (0755) with owner root.
       - { type: tmpfs, target: /data, tmpfs: { size: 268435456, mode: 0o1777 } }
     environment:
-      QUIRE_SETUP_TOKEN: smoke-setup-code
-    cgroup_parent: ${QUIRE_CGROUP_PARENT:-}
+      WIKANVAS_SETUP_TOKEN: smoke-setup-code
+    cgroup_parent: ${WIKANVAS_CGROUP_PARENT:-}
   caddy:
-    # The same variable as the derived public URL, so the two cannot diverge. No port 80, never 443: a running Quire
+    # The same variable as the derived public URL, so the two cannot diverge. No port 80, never 443: a running Wikanvas
     # is untouched.
-    ports: !override ["127.0.0.1:${QUIRE_HTTPS_PORT:-18443}:443"]
+    ports: !override ["127.0.0.1:${WIKANVAS_HTTPS_PORT:-18443}:443"]
     volumes: !override
       - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
       - { type: tmpfs, target: /data, tmpfs: { size: 16777216 } }      # a fresh local CA per run
       - { type: tmpfs, target: /config, tmpfs: { size: 1048576 } }
-    cgroup_parent: ${QUIRE_CGROUP_PARENT:-}
+    cgroup_parent: ${WIKANVAS_CGROUP_PARENT:-}
 ```
 `docker cp` (and `docker compose cp`) cannot read a tmpfs mount, so the smoke reads the root with
-`docker compose -p quire-smoke exec -T caddy cat /data/caddy/pki/authorities/local/root.crt` (the official Caddy image
-has a shell and `cat`).
+`docker compose -p wikanvas-smoke exec -T caddy cat /data/caddy/pki/authorities/local/root.crt` (the official Caddy
+image has a shell and `cat`).
 
-The image holds both binaries: `quire-server` (entrypoint) and the CLI `quire` (D54). Inside the container the CLI
-needs no URL (it derives `http://127.0.0.1:8080` from `QUIRE_LISTEN`, §7.6), so
-`docker compose exec -e QUIRE_TOKEN quire quire …` drives the API, and `docker compose exec quire quire admin …` runs
-the admin commands of §7.8 without any token. The container's own healthcheck (§13.2) also stays inside it.
+The image holds both binaries: `wikanvas-server` (entrypoint) and the CLI `wikanvas` (D54). Inside the container the CLI
+needs no URL (it derives `http://127.0.0.1:8080` from `WIKANVAS_LISTEN`, §7.6), so
+`docker compose exec -e WIKANVAS_TOKEN wikanvas wikanvas …` drives the API, and
+`docker compose exec wikanvas wikanvas admin …` runs the admin commands of §7.8 without any token. The container's own
+healthcheck (§13.2) also stays inside it.
 
-Backups: `docker compose exec quire quire admin backup [--out PATH]`. To restore: stop the container, replace
-`/data/quire.db`, delete the `-wal` and `-shm` files, start it again. An export (D34) restores the same way but has no
-password and no API tokens: run `quire admin reset-password` (and `create-token`) afterwards. The README explains that an off-host copy of the volume is
-needed, and that a bind-mounted `/data` must be owned by `65532:65532` (named volumes copy the image's ownership).
-The `caddy-data` volume holds the local CA's private key and the ACME account: back it up like a secret.
+Backups: `docker compose exec wikanvas wikanvas admin backup [--out PATH]`. To restore: stop the container, replace
+`/data/wikanvas.db`, delete the `-wal` and `-shm` files, start it again. An export (D34) restores the same way but has
+no password and no API tokens: run `wikanvas admin reset-password` (and `create-token`) afterwards. The README explains
+that an off-host copy of the volume is needed, and that a bind-mounted `/data` must be owned by `65532:65532` (named
+volumes copy the image's ownership). The `caddy-data` volume holds the local CA's private key and the ACME account: back
+it up like a secret.
 
 ### 13.4 HTTPS front (`docker/Caddyfile`, D57)
 
 ```caddyfile
-# Quire's HTTPS front (docs/ARCHITECTURE.md §13.4). compose.yaml sets QUIRE_DOMAIN and QUIRE_TLS.
+# Wikanvas's HTTPS front (docs/ARCHITECTURE.md §13.4). compose.yaml sets WIKANVAS_DOMAIN and WIKANVAS_TLS.
 {
 	admin off                 # no admin API; a Caddyfile change needs `docker compose restart caddy`
 	skip_install_trust        # never touch a trust store; the owner trusts the local root by hand (below)
@@ -2969,12 +2985,12 @@ The `caddy-data` volume holds the local CA's private key and the ACME account: b
 	}
 }
 
-{$QUIRE_DOMAIN} {
-	import tls_{$QUIRE_TLS}
-	# No `encode` and no `header`: Quire sends its own precompressed br/gzip and every security header.
-	reverse_proxy quire:8080 {
+{$WIKANVAS_DOMAIN} {
+	import tls_{$WIKANVAS_TLS}
+	# No `encode` and no `header`: Wikanvas sends its own precompressed br/gzip and every security header.
+	reverse_proxy wikanvas:8080 {
 		transport http {
-			compression off   # do not add Accept-Encoding toward Quire or decode its answer
+			compression off   # do not add Accept-Encoding toward Wikanvas or decode its answer
 		}
 	}
 }
@@ -2985,35 +3001,35 @@ harmless, and `caddy fmt` would only move the comments.
 
 | Mode | Settings | Certificates | Reached by |
 |---|---|---|---|
-| LAN or local (default) | `QUIRE_TLS=internal`; `QUIRE_DOMAIN=localhost`, or a LAN name such as `quire.lan` that the LAN's DNS or each client's `/etc/hosts` resolves to the host; `QUIRE_BIND=127.0.0.1` (this machine) or `0.0.0.0` (the LAN) | Caddy's local CA in `caddy-data` (the root is valid for 10 years; leaf certificates renew automatically) | Devices that trust the root (below) |
-| Public | `QUIRE_TLS=acme`; `QUIRE_DOMAIN=wiki.example.com`; `QUIRE_BIND=0.0.0.0`; a DNS A record to the host; ports 80 and 443 reachable from the Internet | Let's Encrypt through Caddy's automatic HTTPS, kept in `caddy-data` (keep the volume: ACME rate limits) | Anyone; Quire adds HSTS (§11) |
+| LAN or local (default) | `WIKANVAS_TLS=internal`; `WIKANVAS_DOMAIN=localhost`, or a LAN name such as `wikanvas.lan` that the LAN's DNS or each client's `/etc/hosts` resolves to the host; `WIKANVAS_BIND=127.0.0.1` (this machine) or `0.0.0.0` (the LAN) | Caddy's local CA in `caddy-data` (the root is valid for 10 years; leaf certificates renew automatically) | Devices that trust the root (below) |
+| Public | `WIKANVAS_TLS=acme`; `WIKANVAS_DOMAIN=wiki.example.com`; `WIKANVAS_BIND=0.0.0.0`; a DNS A record to the host; ports 80 and 443 reachable from the Internet | Let's Encrypt through Caddy's automatic HTTPS, kept in `caddy-data` (keep the volume: ACME rate limits) | Anyone; Wikanvas adds HSTS (§11) |
 
 How Caddy handles a request:
 - It keeps the client's `Host`, discards any `X-Forwarded-*` the client sent (it trusts no proxy in front of it), and
-  sets `X-Forwarded-For` (one address), `X-Forwarded-Proto` and `X-Forwarded-Host` (Quire ignores `-Host`). Quire
+  sets `X-Forwarded-For` (one address), `X-Forwarded-Proto` and `X-Forwarded-Host` (Wikanvas ignores `-Host`). Wikanvas
   trusts the first two only from Caddy's fixed address (§8).
-- It passes request and response bodies through as streams (uploads, the export tar) and Quire's `Content-Encoding`
+- It passes request and response bodies through as streams (uploads, the export tar) and Wikanvas's `Content-Encoding`
   and `ETag` unchanged; it neither compresses nor decompresses (§11).
-- Port 80 answers ACME challenges and redirects to HTTPS. With remapped host ports (`QUIRE_HTTP_PORT`,
-  `QUIRE_HTTPS_PORT`) the redirect still names 443, so use the HTTPS URL with its port; Quire's derived public URL
-  includes `QUIRE_HTTPS_PORT` (§8).
-- Only `QUIRE_DOMAIN` is served; another name gets no certificate and never reaches Quire.
+- Port 80 answers ACME challenges and redirects to HTTPS. With remapped host ports (`WIKANVAS_HTTP_PORT`,
+  `WIKANVAS_HTTPS_PORT`) the redirect still names 443, so use the HTTPS URL with its port; Wikanvas's derived public URL
+  includes `WIKANVAS_HTTPS_PORT` (§8).
+- Only `WIKANVAS_DOMAIN` is served; another name gets no certificate and never reaches Wikanvas.
 
 **Trusting the local CA** on the owner's machine (Ubuntu), once per CA (a new `caddy-data` volume means a new root):
 ```sh
-docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt ./quire-local-ca.crt
-# The system bundle (curl, the quire CLI, most tools): one privileged step. The owner runs it, or, in an agent
+docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt ./wikanvas-local-ca.crt
+# The system bundle (curl, the wikanvas CLI, most tools): one privileged step. The owner runs it, or, in an agent
 # session, the coordinator runs it through the askpass dialog; implementing agents never do.
 SUDO_ASKPASS=/home/staffan/.local/bin/claude-askpass sudo -A \
-  -p "trust Quire's local HTTPS certificate authority :: install quire-local-ca.crt into /usr/local/share/ca-certificates and run update-ca-certificates" \
-  sh -c 'install -m 0644 "$1" /usr/local/share/ca-certificates/quire-local-ca.crt && update-ca-certificates' sh "$PWD/quire-local-ca.crt"
+  -p "trust Wikanvas's local HTTPS certificate authority :: install wikanvas-local-ca.crt into /usr/local/share/ca-certificates and run update-ca-certificates" \
+  sh -c 'install -m 0644 "$1" /usr/local/share/ca-certificates/wikanvas-local-ca.crt && update-ca-certificates' sh "$PWD/wikanvas-local-ca.crt"
 # Chrome and Chromium read their own NSS store (per user, no root; certutil is in libnss3-tools):
-certutil -d "sql:$HOME/.pki/nssdb" -A -t "C,," -n "Quire local CA" -i quire-local-ca.crt
+certutil -d "sql:$HOME/.pki/nssdb" -A -t "C,," -n "Wikanvas local CA" -i wikanvas-local-ca.crt
 # Firefox: Settings → Privacy & Security → Certificates → View Certificates → Authorities → Import, and tick
 # "Trust this CA to identify websites".
 ```
 Other LAN devices import the same `root.crt` (phones as a CA profile). The CLI either uses the system bundle once the
-root is in it, or `--ca-file quire-local-ca.crt` (D54). Only `root.crt` ever leaves the volume: whoever holds
+root is in it, or `--ca-file wikanvas-local-ca.crt` (D54). Only `root.crt` ever leaves the volume: whoever holds
 `root.key` can impersonate any site to every device that trusts the root.
 
 ---
@@ -3022,36 +3038,36 @@ root is in it, or `--ca-file quire-local-ca.crt` (D54). Only `root.crt` ever lea
 
 | Layer | What | Command |
 |---|---|---|
-| quire-core | `rank` proptests (always strictly between; cross-checked with npm `fractional-indexing` vectors); a tree model test (random create, move, trash and restore never cycles and matches an in-memory model); `ytext` against `fixtures/ydoc`; `board` split → splice round-trip equal to the input, `inspect` text, too-new rejection | `scripts/dev.sh cargo test -p quire-core --locked` |
-| quire-store | One test binary (`tests/store/main.rs` + one module per workstream) on a temp-file DB with WAL: CTEs, triggers, trash/restore, collection delete/restore, a leaves-first purge at depth 2,000, FTS sync with `integrity-check`, Y compaction equal before and after, delete-only saves, `missing_deps`, board assets dedupe, attachment and blob GC, backup through the real `Db` (maintenance connection) + `quick_check`, migrations validate | `scripts/dev.sh cargo test -p quire-store --locked` |
-| quire-server API | One test binary (`tests/api/main.rs` + modules) using axum-test on `quire_server::app()`, with cheap argon2 parameters (`QUIRE_TEST_ARGON2=1`): setup, login, cookie attributes and renewal, 429, Host allowlist (421), CSRF (403 for `Sec-Fetch-Site: cross-site`, for a cross-site `Origin` with no `Sec-Fetch-Site`, and for neither header), 415, 413, 412/428, 409 cycle, error shape (including 408), CSP/cache/encoding headers, SPA fallback against API 404, bearer tokens (format check, classification, revocation with children, scope and expiry caps, `session_required`), the `is_quire_bearer` predicate (cookie ignored for a Quire token; Basic and foreign Bearer values take the cookie path with CSRF), CORS off by default and per allow-list, per-token 429 (requests and bytes) with `Retry-After`, 507 below the free-space floor, cursor binding, ETag/If-Match on items, documents and boards; behind the proxy (peer address injected through `ConnectInfo`): `X-Forwarded-For`/`-Proto` honoured only from `QUIRE_TRUSTED_PROXIES`, the cookie name and `Secure` per request scheme, HSTS only for HTTPS in `acme` mode, `QUIRE_DOMAIN` with any port in the Host allowlist, the derived public URL; items published on create | `scripts/dev.sh cargo test -p quire-server --locked` |
-| Integration | `tests/api/integration.rs` (W7): flows that span workstreams, e.g. board blobs freed after purge + GC, search finds a board label over HTTP | `scripts/dev.sh cargo test -p quire-server --locked --test api -- integration::` |
-| Contract | ts-rs export tests write `web/src/api/gen`; `git diff --exit-code web/src/api/gen` must be clean | `scripts/dev.sh cargo test -p quire-api --locked export_bindings && git diff --exit-code web/src/api/gen` |
-| OpenAPI | `openapi::spec_matches_committed` (`docs/api/openapi.json`, regenerate with `UPDATE_OPENAPI=1`), `openapi::spec_parses_as_3_1` (oas3), `security::every_operation_enforces_its_declared_scope`, `security::public_operations_are_exactly` (§7.4); no plain `.route(` under `src/routes/`, no `.route("/api` in the crate | `scripts/dev.sh cargo test -p quire-server --locked --test api -- openapi:: security:: && git diff --exit-code docs/api/openapi.json`, `! grep -rn '\.route(' crates/quire-server/src/routes`, `! grep -rn '\.route("/api' crates/quire-server/src` |
-| Conversion | `quire-core::convert` and `schema`: Rust schema equals `fixtures/schema/v1.json`; Y → raw and normalized JSON equal the web's `fixtures/ydoc/*.y.json` and `*.pm.json`; Markdown goldens `fixtures/markdown/*.md` → `*.expected.md` and `*.warnings.json`; the round-trip and idempotence proptests (§6.4); the diff keeps `blockId`s and Y identity of unchanged blocks, also after an insertion at the top; a Markdown PUT leaves blocks it does not change untouched; a repeated PUT is a byte-identical no-op; a stale base with `merge` converges with a concurrent web update; UTF-16 offsets with non-BMP text; web side: `editor/serverWritten.test.ts` opens `fixtures/ydoc/server/*.bin` | `scripts/dev.sh cargo test -p quire-core --locked -- convert:: schema::`, `scripts/dev.sh pnpm --dir web test src/editor/serverWritten` |
-| CLI | One test binary (`crates/quire-cli/tests/cli/main.rs` + modules) running the real `quire` binary with assert_cmd 2.2 against `quire_server::testing::TestServer` (an in-process server on `127.0.0.1:0`, temp data dir, an owner and one token per scope) and, for transport cases, a scripted mock HTTP listener: URL and token resolved as a pair, profile permissions and atomic writes, offline token check, `--json` on every command, JSON Lines on stderr, every exit code, retries only of unprocessed requests, no redirects, the `api` path guard, admin passthrough, spec coverage, AGENTS.md examples parse, and end-to-end command flows | `scripts/dev.sh cargo test -p quire-cli --locked` |
-| Dependency graph | The server links no TLS stack and the CLI no OpenSSL, bundled webpki-roots, store or document engine (D29, D40, D54) | `! scripts/dev.sh cargo tree --locked -p quire-server -e normal --prefix none \| grep -qE '^(rustls\|ureq\|reqwest\|native-tls\|openssl) '`, `! scripts/dev.sh cargo tree --locked -p quire-cli -e normal --prefix none \| grep -qE '^(openssl\|openssl-sys\|native-tls\|rusqlite\|yrs\|inkboard-core\|comrak\|webpki-roots) '` |
+| wikanvas-core | `rank` proptests (always strictly between; cross-checked with npm `fractional-indexing` vectors); a tree model test (random create, move, trash and restore never cycles and matches an in-memory model); `ytext` against `fixtures/ydoc`; `board` split → splice round-trip equal to the input, `inspect` text, too-new rejection | `scripts/dev.sh cargo test -p wikanvas-core --locked` |
+| wikanvas-store | One test binary (`tests/store/main.rs` + one module per workstream) on a temp-file DB with WAL: CTEs, triggers, trash/restore, collection delete/restore, a leaves-first purge at depth 2,000, FTS sync with `integrity-check`, Y compaction equal before and after, delete-only saves, `missing_deps`, board assets dedupe, attachment and blob GC, backup through the real `Db` (maintenance connection) + `quick_check`, migrations validate | `scripts/dev.sh cargo test -p wikanvas-store --locked` |
+| wikanvas-server API | One test binary (`tests/api/main.rs` + modules) using axum-test on `wikanvas_server::app()`, with cheap argon2 parameters (`WIKANVAS_TEST_ARGON2=1`): setup, login, cookie attributes and renewal, 429, Host allowlist (421), CSRF (403 for `Sec-Fetch-Site: cross-site`, for a cross-site `Origin` with no `Sec-Fetch-Site`, and for neither header), 415, 413, 412/428, 409 cycle, error shape (including 408), CSP/cache/encoding headers, SPA fallback against API 404, bearer tokens (format check, classification, revocation with children, scope and expiry caps, `session_required`), the `is_wikanvas_bearer` predicate (cookie ignored for a Wikanvas token; Basic and foreign Bearer values take the cookie path with CSRF), CORS off by default and per allow-list, per-token 429 (requests and bytes) with `Retry-After`, 507 below the free-space floor, cursor binding, ETag/If-Match on items, documents and boards; behind the proxy (peer address injected through `ConnectInfo`): `X-Forwarded-For`/`-Proto` honoured only from `WIKANVAS_TRUSTED_PROXIES`, the cookie name and `Secure` per request scheme, HSTS only for HTTPS in `acme` mode, `WIKANVAS_DOMAIN` with any port in the Host allowlist, the derived public URL; items published on create | `scripts/dev.sh cargo test -p wikanvas-server --locked` |
+| Integration | `tests/api/integration.rs` (W7): flows that span workstreams, e.g. board blobs freed after purge + GC, search finds a board label over HTTP | `scripts/dev.sh cargo test -p wikanvas-server --locked --test api -- integration::` |
+| Contract | ts-rs export tests write `web/src/api/gen`; `git diff --exit-code web/src/api/gen` must be clean | `scripts/dev.sh cargo test -p wikanvas-api --locked export_bindings && git diff --exit-code web/src/api/gen` |
+| OpenAPI | `openapi::spec_matches_committed` (`docs/api/openapi.json`, regenerate with `UPDATE_OPENAPI=1`), `openapi::spec_parses_as_3_1` (oas3), `security::every_operation_enforces_its_declared_scope`, `security::public_operations_are_exactly` (§7.4); no plain `.route(` under `src/routes/`, no `.route("/api` in the crate | `scripts/dev.sh cargo test -p wikanvas-server --locked --test api -- openapi:: security:: && git diff --exit-code docs/api/openapi.json`, `! grep -rn '\.route(' crates/wikanvas-server/src/routes`, `! grep -rn '\.route("/api' crates/wikanvas-server/src` |
+| Conversion | `wikanvas-core::convert` and `schema`: Rust schema equals `fixtures/schema/v1.json`; Y → raw and normalized JSON equal the web's `fixtures/ydoc/*.y.json` and `*.pm.json`; Markdown goldens `fixtures/markdown/*.md` → `*.expected.md` and `*.warnings.json`; the round-trip and idempotence proptests (§6.4); the diff keeps `blockId`s and Y identity of unchanged blocks, also after an insertion at the top; a Markdown PUT leaves blocks it does not change untouched; a repeated PUT is a byte-identical no-op; a stale base with `merge` converges with a concurrent web update; UTF-16 offsets with non-BMP text; web side: `editor/serverWritten.test.ts` opens `fixtures/ydoc/server/*.bin` | `scripts/dev.sh cargo test -p wikanvas-core --locked -- convert:: schema::`, `scripts/dev.sh pnpm --dir web test src/editor/serverWritten` |
+| CLI | One test binary (`crates/wikanvas-cli/tests/cli/main.rs` + modules) running the real `wikanvas` binary with assert_cmd 2.2 against `wikanvas_server::testing::TestServer` (an in-process server on `127.0.0.1:0`, temp data dir, an owner and one token per scope) and, for transport cases, a scripted mock HTTP listener: URL and token resolved as a pair, profile permissions and atomic writes, offline token check, `--json` on every command, JSON Lines on stderr, every exit code, retries only of unprocessed requests, no redirects, the `api` path guard, admin passthrough, spec coverage, AGENTS.md examples parse, and end-to-end command flows | `scripts/dev.sh cargo test -p wikanvas-cli --locked` |
+| Dependency graph | The server links no TLS stack and the CLI no OpenSSL, bundled webpki-roots, store or document engine (D29, D40, D54) | `! scripts/dev.sh cargo tree --locked -p wikanvas-server -e normal --prefix none \| grep -qE '^(rustls\|ureq\|reqwest\|native-tls\|openssl) '`, `! scripts/dev.sh cargo tree --locked -p wikanvas-cli -e normal --prefix none \| grep -qE '^(openssl\|openssl-sys\|native-tls\|rusqlite\|yrs\|inkboard-core\|comrak\|webpki-roots) '` |
 | Agent harness | CLI scenarios against the production image (§14.1) | `scripts/image.sh && scripts/agent-test.sh` |
 | Lint | clippy, rustfmt (never `--all`, §4.1), pins | `scripts/dev.sh cargo clippy --workspace --all-targets --locked -- -D warnings`, `scripts/fmt.sh --check`, `scripts/check-pins.sh`, `scripts/dev.sh cargo tree --locked -e normal -i libsqlite3-sys` (fails if two versions exist) |
 | Web unit | vitest + happy-dom + Testing Library (`maxWorkers: 4`): tree builder and visible rows, DnD hit zones → positions, keyboard tree navigation, autosave queue (merge, retry, outbox, flush on hide), board save loop against a fake frame, search snippet rendering, Contents column; the headless TipTap+Yjs fixture writer (`pnpm --dir web fixtures`) | `scripts/dev.sh pnpm --dir web test`, `scripts/dev.sh pnpm --dir web typecheck`, `scripts/dev.sh pnpm --dir web build` |
 | Inkboard patch | Build checks plus a frame test (Playwright, frame.html served statically by `e2e/serve-static.mjs`, which sends the §11 frame CSP and `X-Frame-Options` and negotiates the `.br`/`.gz` copies, so the engine runs under production headers): open `fixtures/boards/frame-test.inkboard`; snapshot round-trip (parsed JSON equal, compared without each page's `view`, which the engine refits to the canvas on open); focus the canvas, press `R` (rectangle tool, `keymap.rs:377`) and drag, so `onChange` reports a higher revision and the snapshot has one more object; `markSaved` → `isDirty()==false`; Ctrl+S → `onSave`; read-only blocks the drag; setting `location.hash` changes nothing; `setBoard` swaps the board and resets undo; `setBoard` while a text label is being edited leaves `isDirty()==false` after `markSaved`; a second `mount` rejects; after F5 in the canvas, R + drag still adds an object (Present is inert when hosted); `setActive(false)` stops painting: WebGL draw calls, counted after checking that they do grow while active, stay flat for 2 s without input (eframe 0.33's web runner requests an animation frame on every display frame and paints only when a repaint is due, so a `requestAnimationFrame` counter shows nothing: 121 calls and 0 paints in 2 s while inactive); **background page**: with a dirty board, bring another page to the front for 60 s, then `snapshot()` works and no `onError{panic}` fired, and a board opened while hidden mounts only once visible. Headless Chromium keeps reporting `visibilityState === 'visible'` for a background page, so that test records a skip, a second test emulates the visibility (an init script overrides `document.visibilityState`) to check the frame's own wait, and §16 records the manual browser check. Also: the panic backup listeners (one `onError{panic}` per trap, none for a plain `Error`), an unreadable board on a later `open()` (rejects `load`, keeps the previous board), `connect()` retried after a `manifest.json` 500, a `format_version` mismatch (`start`, final), Mod+K and double-Esc forwarding, no CSP violation under the frame CSP, the wasm served as br, and `setBoard` resetting undo with a positive control (Ctrl+Z first undoes a rectangle). A `beforeAll` fails once against the stub dist ("run scripts/dev.sh scripts/inkboard.sh build first"), so the frame test needs a real engine build | `scripts/dev.sh scripts/inkboard.sh check`, `scripts/dev.sh scripts/inkboard.sh build`, `scripts/e2e.sh frame` |
 | E2E smoke | Playwright against the production image (compose + e2e override); PLAN W7 | `scripts/image.sh && scripts/e2e.sh smoke` |
-| Image smoke | `compose.yaml` + `compose.smoke.yaml` (project `quire-smoke`, its own subnet, Caddy in `internal` mode for `localhost` on `127.0.0.1:18443` only, throwaway volumes; §13.3), so the caps checked are the compose ones. `QUIRE_SMOKE_LEVEL` is `full` by default; `basic` also passes with an `INKBOARD_BUILD=stub` image, and `full` fails on one with a hint. Exit codes: 0 pass, 1 a check failed, 2 usage, 3 a missing prerequisite (docker, curl, jq or the image), 4 the project not healthy (at most 180 s; log tails are printed). `basic`: both binaries start (`quire-server --version`, `quire --version` inside the container); the `quire` container has no published port; Caddy's root is read from its tmpfs with `docker compose exec -T caddy cat …/root.crt` (bounded poll; `docker cp` cannot read a tmpfs, §13.3) and `curl --cacert <root> --resolve localhost:18443:127.0.0.1 https://localhost:18443/healthz` answers 200 over HTTPS (and fails without `--cacert`); `docker inspect` shows NanoCpus=2000000000 and Memory = MemorySwap = 1073741824 for `quire`, NanoCpus=500000000 and Memory = MemorySwap = 134217728 for `caddy`. `full` adds, all through Caddy: CSP on `/`; `.wasm` with `Accept-Encoding: br` → `Content-Encoding: br`, `application/wasm`, exactly the manifest's `br` byte count, and bytes whose sha256 starts with Quire's ETag (the hash of the embedded `.br`, §11), so Caddy passed them through byte for byte and re-encoded nothing; `frame.html` with the frame CSP and `X-Frame-Options: SAMEORIGIN`; `manifest.json` next to `frame.html` → 200, identity, `application/json`, the build in the path (`frame.js` cannot connect without it); setup with `smoke-setup-code` (sent with `Origin: https://localhost:18443`, since curl sends no fetch metadata and the CSRF rule of §8 covers every non-bearer POST) sets `__Host-quire_session` with `Secure`; no `Strict-Transport-Security` (`internal` mode); `docker stats` stays under both limits during the smoke | `scripts/image-smoke.sh` (host prerequisites: Docker, curl, jq) |
+| Image smoke | `compose.yaml` + `compose.smoke.yaml` (project `wikanvas-smoke`, its own subnet, Caddy in `internal` mode for `localhost` on `127.0.0.1:18443` only, throwaway volumes; §13.3), so the caps checked are the compose ones. `WIKANVAS_SMOKE_LEVEL` is `full` by default; `basic` also passes with an `INKBOARD_BUILD=stub` image, and `full` fails on one with a hint. Exit codes: 0 pass, 1 a check failed, 2 usage, 3 a missing prerequisite (docker, curl, jq or the image), 4 the project not healthy (at most 180 s; log tails are printed). `basic`: both binaries start (`wikanvas-server --version`, `wikanvas --version` inside the container); the `wikanvas` container has no published port; Caddy's root is read from its tmpfs with `docker compose exec -T caddy cat …/root.crt` (bounded poll; `docker cp` cannot read a tmpfs, §13.3) and `curl --cacert <root> --resolve localhost:18443:127.0.0.1 https://localhost:18443/healthz` answers 200 over HTTPS (and fails without `--cacert`); `docker inspect` shows NanoCpus=2000000000 and Memory = MemorySwap = 1073741824 for `wikanvas`, NanoCpus=500000000 and Memory = MemorySwap = 134217728 for `caddy`. `full` adds, all through Caddy: CSP on `/`; `.wasm` with `Accept-Encoding: br` → `Content-Encoding: br`, `application/wasm`, exactly the manifest's `br` byte count, and bytes whose sha256 starts with Wikanvas's ETag (the hash of the embedded `.br`, §11), so Caddy passed them through byte for byte and re-encoded nothing; `frame.html` with the frame CSP and `X-Frame-Options: SAMEORIGIN`; `manifest.json` next to `frame.html` → 200, identity, `application/json`, the build in the path (`frame.js` cannot connect without it); setup with `smoke-setup-code` (sent with `Origin: https://localhost:18443`, since curl sends no fetch metadata and the CSRF rule of §8 covers every non-bearer POST) sets `__Host-wikanvas_session` with `Secure`; no `Strict-Transport-Security` (`internal` mode); `docker stats` stays under both limits during the smoke | `scripts/image-smoke.sh` (host prerequisites: Docker, curl, jq) |
 
 `scripts/e2e.sh <frame|smoke>`:
-1. Takes the build lock (exporting `QUIRE_LOCK_HELD=1`, so the nested `dev.sh` calls below do not lock again) and
-   calls `quire_slice` (§13.1).
+1. Takes the build lock (exporting `WIKANVAS_LOCK_HELD=1`, so the nested `dev.sh` calls below do not lock again) and
+   calls `wikanvas_slice` (§13.1).
 2. `scripts/dev.sh pnpm --dir e2e install --frozen-lockfile`.
-3. `smoke` only: `QUIRE_NET_SUBNET=172.31.240.16/28 QUIRE_NET_RANGE=172.31.240.24/29 QUIRE_PROXY_IP=172.31.240.18
-   docker compose --env-file /dev/null -p quire-e2e -f compose.yaml -f compose.e2e.yaml up -d --wait quire`, with a
-   trap that runs `down -v` on exit. Only `quire` starts:
-   Playwright talks to `http://quire:8080` directly on the project network, not through Caddy (the HTTPS path is the
+3. `smoke` only: `WIKANVAS_NET_SUBNET=172.31.240.16/28 WIKANVAS_NET_RANGE=172.31.240.24/29
+   WIKANVAS_PROXY_IP=172.31.240.18 docker compose --env-file /dev/null -p wikanvas-e2e -f compose.yaml -f
+   compose.e2e.yaml up -d --wait wikanvas`, with a trap that runs `down -v` on exit. Only `wikanvas` starts:
+   Playwright talks to `http://wikanvas:8080` directly on the project network, not through Caddy (the HTTPS path is the
    image smoke's job).
-4. `QUIRE_DEV_IMAGE=mcr.microsoft.com/playwright:v1.64.1-noble@sha256:47b510dd…b8ea QUIRE_BUILD_CPUS=4 QUIRE_BUILD_MEM=6g
+4. `WIKANVAS_DEV_IMAGE=mcr.microsoft.com/playwright:v1.64.1-noble@sha256:47b510dd…b8ea WIKANVAS_BUILD_CPUS=4 WIKANVAS_BUILD_MEM=6g
    scripts/dev.sh node e2e/node_modules/@playwright/test/cli.js test -c e2e/playwright.config.ts --project <p>`
-   (lower when `QUIRE_BUILD_CPUS` or `QUIRE_BUILD_MEM` are lower; an explicit `QUIRE_BUILD_CPUSET` is cut to its last N
-   CPUs; extra arguments go to Playwright),
-   adding `QUIRE_DEV_NETWORK=quire-e2e_default` for `smoke` only (the network exists only then). The app (2 CPUs,
+   (lower when `WIKANVAS_BUILD_CPUS` or `WIKANVAS_BUILD_MEM` are lower; an explicit `WIKANVAS_BUILD_CPUSET` is cut to
+   its last N CPUs; extra arguments go to Playwright),
+   adding `WIKANVAS_DEV_NETWORK=wikanvas-e2e_default` for `smoke` only (the network exists only then). The app (2 CPUs,
    1 GiB) plus Playwright (4 CPUs, 6 GiB) is exactly the 6-CPU total and 7 of the 12 GiB, and with the slice installed
    both count against it. Caddy (0.5 CPU) would not fit, which is one more reason it stays out of e2e runs.
 
@@ -3061,34 +3077,36 @@ Inkboard's `web-test` feature is never shipped.
 ### 14.1 Agent test harness (`scripts/agent-test.sh`, D56)
 
 A repeatable end-to-end run of the shipped CLI against the shipped image, for AI agents and CI. Host prerequisites:
-Docker with Compose ≥ 2.24, bash and jq. It never builds: it uses `${QUIRE_IMAGE:-quire:latest}` and refuses an image
-that is missing ("run scripts/image.sh first") or whose `org.opencontainers.image.revision` label, without `-dirty`,
-differs from `git rev-parse --short HEAD` (`--allow-stale` overrides; a `-dirty` image or worktree only warns). Exit
-codes: 0 every step passed, 1 a scenario failed, 2 usage, 3 a prerequisite is missing or the image is stale, 4 the app
-did not become healthy.
+Docker with Compose ≥ 2.24, bash and jq. It never builds: it uses `${WIKANVAS_IMAGE:-wikanvas:latest}` and refuses an
+image that is missing ("run scripts/image.sh first") or whose `org.opencontainers.image.revision` label, without
+`-dirty`, differs from `git rev-parse --short HEAD` (`--allow-stale` overrides; a `-dirty` image or worktree only
+warns). Exit codes: 0 every step passed, 1 a scenario failed, 2 usage, 3 a prerequisite is missing or the image is
+stale, 4 the app did not become healthy.
 
 `scripts/agent-test.sh [run] [--scenario GLOB] [--keep] [--allow-stale]`, `up [--ttl MIN]`, `status`, `down`:
-1. Before locking, `run` and `up` exit 3 when the `quire-agent` project is already up. Then the script takes the build
-   lock (§13.1), like `e2e.sh`, and calls `quire_slice`: the app container counts against the build total.
-2. `QUIRE_NET_SUBNET=172.31.240.32/28 QUIRE_NET_RANGE=172.31.240.40/29 QUIRE_PROXY_IP=172.31.240.34 docker compose
-   --env-file /dev/null -p quire-agent -f compose.yaml -f compose.e2e.yaml up -d --wait quire` (plus `-f compose.agent.yaml` with `--keep`, `up`, or `QUIRE_AGENT_CLI`), with
-   a trap that runs `down -v` unless the app is kept. Only `quire` starts: the CLI talks to Quire directly over plain
-   HTTP (inside the container, or on the loopback port), never through Caddy. The app keeps the compose runtime caps
-   (2 CPUs, 1 GiB, no swap) and joins `quire-build.slice` through `compose.e2e.yaml` when the slice is installed;
-   `/data` is a tmpfs, so nothing persists.
-3. Provisioning, inside the container: `quire admin create-owner --email agent@quire.invalid --name Agent --workspace
-   "Agent test" --generate-password --json`, then `quire admin create-token` three times (scopes `read`, `write`,
-   `admin`, `--expires 2d --json`: the server caps a created token at its creator's `expires_at` to the millisecond, so
-   a scenario's `token create … --expires 1d` from a 1d parent made a moment earlier would be refused). The tokens
-   stay in shell variables, are passed with `docker exec -e QUIRE_TOKEN` (the value comes from the environment, never
-   from argv), and are never printed. The server sees the new owner on
-   its next request (§8).
+1. Before locking, `run` and `up` exit 3 when the `wikanvas-agent` project is already up. Then the script takes the
+   build lock (§13.1), like `e2e.sh`, and calls `wikanvas_slice`: the app container counts against the build total.
+2. `WIKANVAS_NET_SUBNET=172.31.240.32/28 WIKANVAS_NET_RANGE=172.31.240.40/29 WIKANVAS_PROXY_IP=172.31.240.34 docker
+   compose --env-file /dev/null -p wikanvas-agent -f compose.yaml -f compose.e2e.yaml up -d --wait wikanvas` (plus `-f
+   compose.agent.yaml` with `--keep`, `up`, or `WIKANVAS_AGENT_CLI`), with a trap that runs `down
+   -v` unless the app is kept. Only `wikanvas` starts: the CLI talks to Wikanvas directly over plain HTTP (inside the
+   container, or on the loopback port), never through Caddy. The app keeps the compose runtime caps (2 CPUs, 1 GiB, no
+   swap) and joins `wikanvas-build.slice` through `compose.e2e.yaml` when the slice is installed; `/data` is a tmpfs, so
+   nothing persists.
+3. Provisioning, inside the container: `wikanvas admin create-owner --email agent@wikanvas.invalid --name Agent
+   --workspace "Agent test" --generate-password --json`, then `wikanvas admin
+   create-token` three times (scopes `read`, `write`, `admin`, `--expires 2d
+   --json`: the server caps a created token at its creator's `expires_at` to the millisecond, so a scenario's `token
+   create … --expires
+   1d` from a 1d parent made a moment earlier would be refused). The tokens stay in shell variables, are passed with
+   `docker exec -e WIKANVAS_TOKEN` (the value comes from the environment, never from argv), and are never printed. The
+   server sees the new owner on its next request (§8).
 4. Runs `e2e/agent/scenarios/NN-*.sh` in order (filtered by `--scenario`). Each scenario is a bash file that sources
    `e2e/agent/lib.sh` and uses its helpers:
-   - `q [--as read|write|admin] <args…>`: runs `quire --json <args…>` (by default `docker exec -i` into the container,
-     where the CLI talks to `127.0.0.1:8080`; with `QUIRE_AGENT_CLI=/path/to/quire`, that host binary against the
-     published loopback port). stdout goes to `$OUT_FILE`, and to `$OUT` too when it is text (bash variables cannot hold
-     NUL bytes); `$ERR` (JSON Lines, §7.7) and `$RC` are set; stdin is forwarded;
+   - `q [--as read|write|admin] <args…>`: runs `wikanvas --json <args…>` (by default `docker exec -i` into the
+     container, where the CLI talks to `127.0.0.1:8080`; with `WIKANVAS_AGENT_CLI=/path/to/wikanvas`, that host binary
+     against the published loopback port). stdout goes to `$OUT_FILE`, and to `$OUT` too when it is text (bash variables
+     cannot hold NUL bytes); `$ERR` (JSON Lines, §7.7) and `$RC` are set; stdin is forwarded;
    - `q_raw NAME [--as …] <args…>`: the same without `--json`, stdout written byte for byte to `results/NAME` on the
      host (exports, previews, attachments);
    - `expect_rc N`, `expect '<jq filter>'` (`jq -e` on `$OUT_FILE`), `expect_err '<jq filter>'` (on the last line of
@@ -3098,13 +3116,13 @@ did not become healthy.
      image has no shell. `--out` points into the container's 32 MB `/tmp` and serves only the JSON metadata checks;
    - `scratch_collection`: a fresh collection named after the scenario, so scenarios never depend on each other's data
      and purge only their own items;
-   - also `q`/`q_raw --token T` (any token, still through the environment), `q_admin ARGS…` (`quire --json admin …`
+   - also `q`/`q_raw --token T` (any token, still through the environment), `q_admin ARGS…` (`wikanvas --json admin …`
      inside the container), `unknown_token` (a well-formed token nobody has), `val 'JQ'` and `ok NAME [DETAIL]` (a
      detail for a passing step, masked). TAP lines go to fd 3, so a check inside `$(…)` still prints; a failed check
-     ends its scenario and the runner goes on with the next. A host CLI (`QUIRE_AGENT_CLI`) runs with every `QUIRE_*`
-     variable of the caller unset and `QUIRE_CONFIG` pointing at a file that never exists, so neither the caller's
-     profile nor an exported `QUIRE_PROFILE`, `QUIRE_TOKEN_FILE`, `QUIRE_CA_FILE` or `QUIRE_ALLOW_HTTP` reaches a
-     scenario; only `QUIRE_URL` and `QUIRE_TOKEN` are set.
+     ends its scenario and the runner goes on with the next. A host CLI (`WIKANVAS_AGENT_CLI`) runs with every
+     `WIKANVAS_*` variable of the caller unset and `WIKANVAS_CONFIG` pointing at a file that never exists, so neither
+     the caller's profile nor an exported `WIKANVAS_PROFILE`, `WIKANVAS_TOKEN_FILE`, `WIKANVAS_CA_FILE` or
+     `WIKANVAS_ALLOW_HTTP` reaches a scenario; only `WIKANVAS_URL` and `WIKANVAS_TOKEN` are set.
 5. Prints TAP (`ok N - 03-docs: markdown round trip`) and writes `e2e/agent/results/report.json` (git-ignored:
    `{image, revision, head, started, finished, passed, failed, failed_scenarios, steps: [{n, scenario, step, status,
    duration_ms}, plus command, rc, detail, out and err for a failure, and the detail of a passing step that gives
@@ -3112,11 +3130,11 @@ did not become healthy.
    `qpat_***`; scenario 10 records `token create`'s output as a step detail and checks that the report holds
    `qpat_***` and not the secret, so the masking is exercised on every passing run.
 
-`up` (or `run --keep`) leaves the app on `127.0.0.1:${QUIRE_AGENT_PORT:-18080}` for `--ttl` minutes (default 15, as PLAN
-R1 asks of any running app; an owner-accepted default, §17.3): a background holder keeps the build lock for that time
-and then runs `down`; `status`
-prints the time left. It writes, under `umask 077`, `.cache/agent-test/env` (absolute paths: `QUIRE_URL`, and
-`QUIRE_TOKEN_FILE` pointing at `write.token`) next to `read.token`, `write.token` and `admin.token`. Build a host CLI
+`up` (or `run --keep`) leaves the app on `127.0.0.1:${WIKANVAS_AGENT_PORT:-18080}` for `--ttl` minutes (default 15, as
+PLAN R1 asks of any running app; an owner-accepted default, §17.3): a background holder keeps the build lock for that
+time and then runs `down`; `status`
+prints the time left. It writes, under `umask 077`, `.cache/agent-test/env` (absolute paths: `WIKANVAS_URL`, and
+`WIKANVAS_TOKEN_FILE` pointing at `write.token`) next to `read.token`, `write.token` and `admin.token`. Build a host CLI
 with `scripts/cli-dist.sh` before `up`, since the lock stays held. `down` stops the holder and removes the project and
 the files.
 
@@ -3143,7 +3161,7 @@ asynchronous (board previews).
 | Board images as attachments | `/api/v1/blobs/{sha}` is reserved; `board_assets` is already hash-based. Later: manifest-mode saves, without inline base64. |
 | New item kinds, formats, link kinds | One `INSERT` into the lookup tables (D37). |
 | PNG thumbnails | Behind an `inkboard-formats` upstream patch that adds `raster`, `pdf` and `latex` features. |
-| Board import over the API | The same upstream feature split: with `inkboard-formats` at `default-features = false`, `import_any(name, content, &ApproxMeasurer)` costs 13 crates (D52). The route `POST /api/v1/items/{id}/board/import` (raw file body, `?filename=` for format detection, returns the new board's `ItemSummary` and the importer's `Report`) and `quire board import` are reserved. |
+| Board import over the API | The same upstream feature split: with `inkboard-formats` at `default-features = false`, `import_any(name, content, &ApproxMeasurer)` costs 13 crates (D52). The route `POST /api/v1/items/{id}/board/import` (raw file body, `?filename=` for format detection, returns the new board's `ItemSummary` and the importer's `Report`) and `wikanvas board import` are reserved. |
 | API v2 | Every route is under `/api/v1` and every client goes through the spec; a v2 is served next to v1, and the CLI picks the highest version both sides support from `GET /api/v1/config`. |
 | Finer token scopes, multi-user tokens | Scopes are rows in `api_token_scopes` over the `token_scopes` lookup table (one INSERT adds e.g. `boards:write`); tokens belong to a user and pass through the same `Actor`/`authz::require` seam, so multi-user tokens need no schema change. |
 | OAuth device flow or OIDC tokens for the CLI | `Auth<S>` resolves an `Actor` from a header; another bearer format is one more branch. The CLI's profile already separates URL and credentials. |
@@ -3153,7 +3171,7 @@ asynchronous (board previews).
 | Whole-workspace Markdown export | `GET …/doc/markdown` exists (D49); the zip is a loop over the tree plus board `.inkboard` files. |
 | More CLI targets | `scripts/cli-dist.sh` builds `x86_64-unknown-linux-musl`; aarch64 Linux is one more target and C toolchain in `toolchain-base`, macOS needs a cross SDK (later). |
 | Idempotent creates | `Idempotency-Key` on POST creates (stored per actor for 24 h, replaying the first response) is an additive v1 change. Until then the CLI reports `details.sent` and AGENTS.md says to list before retrying a create (§7.7). |
-| Board conversion in Quire's tooling | A `scripts/inkboard.sh cli` building `ink` from `.cache/inkboard-src` under the caps, or import over the API after the upstream feature split (D52). |
+| Board conversion in Wikanvas's tooling | A `scripts/inkboard.sh cli` building `ink` from `.cache/inkboard-src` under the caps, or import over the API after the upstream feature split (D52). |
 
 ---
 
@@ -3194,7 +3212,7 @@ asynchronous (board previews).
     2026-10-28 and run by the coordinator through the askpass dialog, §13.1). Until it is installed, and on any other
     machine, the per-container caps and the lock hold and every script warns, but two capped containers started
     outside the scripts could together exceed 6 CPUs. `IOWeight` has no effect where the disk scheduler ignores
-    `io.weight` (`--check` prints it). If Docker is ever switched to the cgroupfs driver, `quire_slice` stops passing
+    `io.weight` (`--check` prints it). If Docker is ever switched to the cgroupfs driver, `wikanvas_slice` stops passing
     the slice and warns.
 14. **utoipa 6.0.0 is five weeks old** (released 2026-09-22). If it or utoipa-axum 0.3.0 fails to build or misbehaves
     with axum 0.8.9, W0b falls back to utoipa 5.5.0 + utoipa-axum 0.2.0 (both OpenAPI 3.1) and records it here (D41).
@@ -3219,19 +3237,19 @@ asynchronous (board previews).
     document); the re-hash against the base's state vector removes the known cases.
 22. **Caddy in the compose project** (D57). The fixed subnets (`172.31.240.0/28` and the script /28s after it) can
     collide with an existing Docker or LAN network (172.31.0.0/16 is also the last of Docker's default bridge pools);
-    then `QUIRE_NET_SUBNET`, `QUIRE_NET_RANGE` and `QUIRE_PROXY_IP` change together (the scripts' subnets are
+    then `WIKANVAS_NET_SUBNET`, `WIKANVAS_NET_RANGE` and `WIKANVAS_PROXY_IP` change together (the scripts' subnets are
     constants in their files). `no-new-privileges` together with the file capability on the
     image's `/usr/bin/caddy` is unverified: W0a checks that Caddy starts with `cap_drop: ALL` plus `NET_BIND_SERVICE`
-    and records any change here. The `(tls_acme)` snippet and the `import tls_{$QUIRE_TLS}` substitution are checked by
-    `caddy validate` in both modes (W0a). ACME needs public DNS and ports 80 and 443 reachable; remapped host ports break
-    only Caddy's http→https redirect.
-23. **The BuildKit daemon is Quire's own container** (`quire-buildkit`, remote driver, D38): buildx no longer manages
-    its lifecycle or image, so the image is updated by hand, and a recreate is needed after the slice is installed or
-    the caps change (`toolchain.sh` detects both, and also a changed image or `docker/buildkitd.toml`). **W0a pinned
-    `moby/buildkit:v0.34.0@sha256:b059f8d7226d0b326bc871af489a5dddf65e36af4d20d14251b072974d9ee87c`**, not v0.34.1:
-    v0.34.1 was released on 2026-10-20 and so was under two weeks old on 2026-10-28; v0.34.0 (2026-10-07) is the newest
-    older patch. §13.1 and PLAN W0a name v0.34.0 now. To move up (v0.34.1 is two weeks old from 2026-11-03), change
-    `BUILDKIT_IMAGE` in `scripts/toolchain.sh` and recreate the builder.
+    and records any change here. The `(tls_acme)` snippet and the `import tls_{$WIKANVAS_TLS}` substitution are checked
+    by `caddy validate` in both modes (W0a). ACME needs public DNS and ports 80 and 443 reachable; remapped host ports
+    break only Caddy's http→https redirect.
+23. **The BuildKit daemon is Wikanvas's own container** (`wikanvas-buildkit`, remote driver, D38): buildx no longer
+    manages its lifecycle or image, so the image is updated by hand, and a recreate is needed after the slice is
+    installed or the caps change (`toolchain.sh` detects both, and also a changed image or `docker/buildkitd.toml`).
+    **W0a pinned `moby/buildkit:v0.34.0@sha256:b059f8d7226d0b326bc871af489a5dddf65e36af4d20d14251b072974d9ee87c`**, not
+    v0.34.1: v0.34.1 was released on 2026-10-20 and so was under two weeks old on 2026-10-28; v0.34.0 (2026-10-07) is
+    the newest older patch. §13.1 and PLAN W0a name v0.34.0 now. To move up (v0.34.1 is two weeks old from 2026-11-03),
+    change `BUILDKIT_IMAGE` in `scripts/toolchain.sh` and recreate the builder.
 24. **W0b pin checks (2026-10-28)**: what W0b could not confirm as written, and the fallback chosen.
     - Base images (§13.2), each pinned by the index digest its tag resolved to on 2026-10-28:
       `rust:1.99.1-trixie@sha256:53766005847cbe02c3f59bfa49c1c4bb16695f2c9e5829c3d576a15406f5e733` (a Docker rebuild
@@ -3248,7 +3266,7 @@ asynchronous (board previews).
       the releases, not to Docker's rebuilds of a tag.
       binaryen `version_131` (2026-07-15) is pinned by its release checksum.
     - rust-embed 8.13.0 is used without `interpolate-folder-path`: that feature pulls option-ext (MPL-2.0, not on the
-      licence allow-list). quire-assets uses relative `#[folder = "../../web/dist"]` paths, which rust-embed resolves
+      licence allow-list). wikanvas-assets uses relative `#[folder = "../../web/dist"]` paths, which rust-embed resolves
       against `CARGO_MANIFEST_DIR`.
     - Risk 12: deadpool-sqlite 0.14.0 and rusqlite_migration 2.6.0 both take rusqlite ^0.40, so the graph has one
       libsqlite3-sys (0.38.2) and the D2 fallback is not needed. The tower-http 0.7.1 layers build and run in the API
@@ -3275,7 +3293,7 @@ asynchronous (board previews).
     - ~~lightningcss~~: allowed as a build-only tool (item 24, PLAN R6);
     - ~~the age of the image digests~~: kept as pinned (item 24), Caddy's as well (v2.11.7 dates from 2026-10-03; its
       index digest is Docker's rebuild of 2026-10-21);
-    - ~~host port 443~~: the owner's own Caddy keeps host port 443. On the owner's machine Quire runs its own compose
+    - ~~host port 443~~: the owner's own Caddy keeps host port 443. On the owner's machine Wikanvas runs its own compose
       project with its bundled Caddy on `127.0.0.1:8443` (HTTPS) and `127.0.0.1:8088` (HTTP), set in a local `.env`
       (ignored by git; README "When port 80 or 443 is taken"). Serving it through the owner's Caddy, for access from
       other devices or a public name, is a later step.
@@ -3287,11 +3305,11 @@ asynchronous (board previews).
     Still open, and the current state stays until the owner decides:
     - the fonts the Inkboard wasm embeds (egui's default fonts under the Ubuntu Font Licence 1.0 and SIL OFL 1.1; Noto
       Sans, Gelasio, Patrick Hand and STIX Two Math under SIL OFL 1.1): permissive, but not on the licence allow-list;
-      Quire ships them as Inkboard ships them (`THIRD_PARTY.md`);
+      Wikanvas ships them as Inkboard ships them (`THIRD_PARTY.md`);
     - the operating-system layer of the runtime base image (libc6 LGPL-2.1+, the GCC runtime libraries GPL-3+ with the
       runtime exception, the Mozilla CA data of ca-certificates MPL-2.0, among others): the allow-list is a rule for
-      Quire's own dependencies, and this layer is listed in `THIRD_PARTY.md` for the owner to see;
-    - the copyright line of `LICENSE-MIT` ("The Quire contributors"; the owner may want their own name, W0b D39).
+      Wikanvas's own dependencies, and this layer is listed in `THIRD_PARTY.md` for the owner to see;
+    - the copyright line of `LICENSE-MIT` ("The Wikanvas contributors"; the owner may want their own name, W0b D39).
 26. **Checks that need a real browser** (happy-dom does no layout and fires no native drag events). The W7 gate's
     Playwright smoke (`e2e/tests/smoke.spec.ts`, real engine, SwiftShader WebGL 2) now covers: the board host with the
     real dist (the frame page, `manifest.json` and the engine from `/inkboard/{build}/`, the iframe shown over the
@@ -3305,12 +3323,12 @@ asynchronous (board previews).
     eleven cross-owner gaps that the per-workstream tests could not see: the engine's `manifest.json` answered 404, the
     board warm-up and the update banner were not wired across W3 and W6, Full width and the new-item discard were
     inert, the seed did not use W4's seed helpers, `ItemDetail.board` came from W1's own meta, page SVGs were gzipped
-    twice, `quire item move` without `--parent` sent `parent_id: null`, agent scenario 04 resent an unchanged board as
-    its stale write, and the client's title order differed from the server's. All eleven are fixed on main by W7's
+    twice, `wikanvas item move` without `--parent` sent `parent_id: null`, agent scenario 04 resent an unchanged board
+    as its stale write, and the client's title order differed from the server's. All eleven are fixed on main by W7's
     code commits (`ws/W7-fixes`, each with a test; `docs/handoff/merge.md` "W7 merge"), and this document states the
     contract each is fixed to (§5, §6.2, §7.2, §7.6, §9.5, §9.6.2, §9.6.4, §9.6.7, §11, §17.4). W4's request to build
     `oas3` without `preserve-order` is done too (§4.1). Confirmed in the real image by the W7 gate
-    (`docs/handoff/W7.md`): the manifest by `QUIRE_SMOKE_LEVEL=full scripts/image-smoke.sh` and by the Playwright
+    (`docs/handoff/W7.md`): the manifest by `WIKANVAS_SMOKE_LEVEL=full scripts/image-smoke.sh` and by the Playwright
     smoke, and agent scenario 04 by `scripts/agent-test.sh`. The gate found three more, fixed with tests: a finished
     setup sent the new owner to the sign-in page (§9.1), TipTap's inline base CSS was refused by the SPA CSP (§11),
     and agent scenario 03 compared the Markdown goldens with a server that had none of their items (PLAN W8, scenario
@@ -3371,9 +3389,9 @@ Every other finding of the feasibility (F) and product (P) reviews of 2026-10-27
 | F2 / P11: patch 0002 edits files excluded from the Docker context | Fixed by keeping `vendor/inkboard/docs` in the context (2.7 MB) and moving the docs hunks into `0004-docs-embedding.patch`, not by skipping hunks with `git apply --exclude`. |
 | F3 / P4: toolchain pin | Pinned to `1.99.1` with components and target, rather than dropping `rust-toolchain.toml`: the file keeps native and Docker builds on the same compiler; `RUSTUP_AUTO_INSTALL=0` turns a mismatch into an error instead of a download. |
 | F5 / P10: git in worktrees | Fixed by making `inkboard.sh src` a self-contained copy + `git init` + `git am` inside `/work`, rather than mounting the git common dir into the container. |
-| F8: F5 / Mod+R reload the whole tab | Rejected: reload is the browser's normal action on every Quire page, and `beforeunload` plus autosave protect the board. The Present menu item is hidden, `run_action` ignores Present when hosted, and the `keymap.rs` change is dropped. |
-| F16: optional icon URL in `MountOptions` | Rejected for M1: Quire serves `icons.bin` next to `frame.html`; the limitation is documented in patch 0004 for upstream. Single-mount guard and the panic backup are done. |
-| P5: hard total cap | Done as a systemd slice. It needs one root step on the owner's machine; the owner said yes on 2026-10-28 (§17.3), and the coordinator runs it. The fixed lock path, `QUIRE_LOCK_HELD`, `--cpuset-cpus` and the 4-CPU Playwright cap apply regardless. |
+| F8: F5 / Mod+R reload the whole tab | Rejected: reload is the browser's normal action on every Wikanvas page, and `beforeunload` plus autosave protect the board. The Present menu item is hidden, `run_action` ignores Present when hosted, and the `keymap.rs` change is dropped. |
+| F16: optional icon URL in `MountOptions` | Rejected for M1: Wikanvas serves `icons.bin` next to `frame.html`; the limitation is documented in patch 0004 for upstream. Single-mount guard and the panic backup are done. |
+| P5: hard total cap | Done as a systemd slice. It needs one root step on the owner's machine; the owner said yes on 2026-10-28 (§17.3), and the coordinator runs it. The fixed lock path, `WIKANVAS_LOCK_HELD`, `--cpuset-cpus` and the 4-CPU Playwright cap apply regardless. |
 | P6: drafts and "published ⇒ ancestors published" | Replaced the enforced invariant with derived effective visibility (D23), so move, restore and unarchive need no rule and unpublish never fails. Draft-first creation was superseded on 2026-10-28: items are published on create and the draft state stays in the model and API only (§17.3); its multi-user meaning is written down in D23. |
 | P8: CHECK lists | Lookup tables for `revisions.format`, `revisions.reason` and `item_links.kind`. `collections.child_order` and `users.theme` keep CHECKs: small tables, cheap to rebuild if ever needed. |
 | P9: background-tab panic | Mitigated with the visibility wait and a frame test rather than backporting egui #8313 through `[patch.crates-io]`, which would fork eframe 0.33. |
@@ -3394,29 +3412,29 @@ Each decision below is binding and has a row in §2.1; this table records what i
 | Req. | Decision | Rejected alternatives and why |
 |---|---|---|
 | A | D39: the existing `/api` routes became the public API `/api/v1`; the web client uses it with the cookie, external clients with tokens; additive-only within v1 | A second API for external clients (would lag the UI and double the tests); unversioned routes (a breaking change would be a flag day) |
-| A | D40: DTOs moved to `quire-api`, re-exported as `quire-core::api` | Keeping them in quire-core (the CLI would compile yrs, inkboard-core and comrak); generating client types from the OpenAPI spec (two type systems for one contract) |
+| A | D40: DTOs moved to `wikanvas-api`, re-exported as `wikanvas-core::api` | Keeping them in wikanvas-core (the CLI would compile yrs, inkboard-core and comrak); generating client types from the OpenAPI spec (two type systems for one contract) |
 | A | D41: utoipa 6.0.0 + utoipa-axum 0.3.0, spec committed with a drift test, no docs UI | aide 0.15.1 (schemars 0.9, extractor impls; 0.16 alpha); a hand-written spec (drifts); Swagger UI / Scalar (build-time download or CDN) |
 | A | D42: `qpat_` tokens, sha256 storage, 12-character prefix, CRC32 checksum, expanded scopes, 90-day default expiry, last-use throttled to 1/min, 100 per user | JWT (not revocable without state); argon2 (slow for every request, pointless for 238-bit secrets); one scope column (finer scopes later need a migration); no expiry by default |
-| A | D43: a Quire bearer token (`is_quire_bearer`) wins over the cookie; other `Authorization` values are ignored; CSRF checks for every non-token mutation; session-only routes | CSRF for every request (blocks non-browser clients that send `Origin`); falling back to the cookie when a token is bad (confusing, and masks a revoked token) |
+| A | D43: a Wikanvas bearer token (`is_wikanvas_bearer`) wins over the cookie; other `Authorization` values are ignored; CSRF checks for every non-token mutation; session-only routes | CSRF for every request (blocks non-browser clients that send `Origin`); falling back to the cookie when a token is bad (confusing, and masks a revoked token) |
 | A | D44: `Auth<S>` as the first extractor + one generic test over the spec | A middleware table of path → scope (a second place that can drift); per-route tests |
 | A | D45: ETag/If-Match/412 for boards, documents and item metadata; `*` allowed; `meta_version` body field replaced | 409 for document conflicts (inconsistent with boards); allowing content writes without a precondition |
 | A | D46: opaque keyset cursors bound to the query; one `Page<T>` shape; search renamed `results` → `items` | Offset pagination everywhere (unstable under inserts); signed cursors (nothing secret in them) |
 | A | D47: per-token governor limit (600/min, burst 120) and a per-IP limit on failed bearer auth; `Retry-After` only | Draft `RateLimit-*` headers (the IETF draft changed shape); limiting cookie sessions (the UI's own bursts) |
-| A | D48: CORS off; `QUIRE_CORS_ORIGINS` exact list, never credentials | `*` (any page could use a token pasted into it); allowing cookies cross-origin |
+| A | D48: CORS off; `WIKANVAS_CORS_ORIGINS` exact list, never credentials | `*` (any page could use a token pasted into it); allowing cookies cross-origin |
 | A | D33 updated: Markdown PUT 1 MiB, JSON PUT 4 MiB, depth 100, other bodies 1 MiB | One 16 MiB limit for every content format (comrak's arena and a JSON value tree are many times the input under the container's memory cap) |
-| A | D49: Markdown and ProseMirror JSON converted in Rust; comrak 0.59 parser, Quire's printer; web Markdown export via the API | pulldown-cmark (no `==highlight==`); comrak's formatter (output churn across upgrades); client-side prosemirror-markdown (a second dialect) |
+| A | D49: Markdown and ProseMirror JSON converted in Rust; comrak 0.59 parser, Wikanvas's printer; web Markdown export via the API | pulldown-cmark (no `==highlight==`); comrak's formatter (output churn across upgrades); client-side prosemirror-markdown (a second dialect) |
 | A | D50: external writes as diffs against the If-Match base, saved as ordinary Yjs updates; opt-in CRDT merge for stale bases | Replacing the fragment (destroys Y identity and block ids, duplicates concurrent edits); always merging (surprising interleavings without the client asking) |
-| A | D51: boards over the API through the web pipeline; `X-Quire-Engine` optional | A separate API board format or a typed re-serialization (would drop unknown fields, D9) |
-| A | D52: server-side board import deferred (inkboard-formats adds 104 crates; the importers alone need 13) | Linking inkboard-formats now (two resvg stacks, svg2pdf, image codecs under the build and runtime caps); patching it locally (Quire compiles Inkboard unpatched, §4.1); import in the CLI (the same weight in every CLI binary) |
+| A | D51: boards over the API through the web pipeline; `X-Wikanvas-Engine` optional | A separate API board format or a typed re-serialization (would drop unknown fields, D9) |
+| A | D52: server-side board import deferred (inkboard-formats adds 104 crates; the importers alone need 13) | Linking inkboard-formats now (two resvg stacks, svg2pdf, image codecs under the build and runtime caps); patching it locally (Wikanvas compiles Inkboard unpatched, §4.1); import in the CLI (the same weight in every CLI binary) |
 | A | D53: `pre-api` revision before a token's content write unless the same token wrote last or the newest revision holds the current state | No extra revision (an agent's mistake would be unrecoverable once history ships); a revision on every write (log growth); "newest revision older than 10 min" (up to 9 minutes of the owner's work in no revision) |
 | A | D34 updated: exports delete API tokens | Keeping token hashes in exports (an export is meant to carry no credentials) |
-| B | D54: crate `quire-cli`, clap 4.6, ureq 3.5 + rustls/ring, etcetera, toml; `--json` everywhere; exit codes as a contract; static musl binary in the image and standalone | reqwest 0.13 (tokio, hyper, aws-lc-rs by default, tower-http 0.6 duplicate); native-tls/OpenSSL (excluded by the requirement); a glibc-only binary (tied to the build distro) |
+| B | D54: crate `wikanvas-cli`, clap 4.6, ureq 3.5 + rustls/ring, etcetera, toml; `--json` everywhere; exit codes as a contract; static musl binary in the image and standalone | reqwest 0.13 (tokio, hyper, aws-lc-rs by default, tower-http 0.6 duplicate); native-tls/OpenSSL (excluded by the requirement); a glibc-only binary (tied to the build distro) |
 | B | §7.7: `--json` stdout is the API body unchanged; errors as the JSON envelope on stderr; 13 exit codes | Errors on stdout (breaks `cmd \| jq` pipelines); a single non-zero code (agents could not tell "retry after re-read" from "fix your input") |
 | B | §7.6: content writes need `--if-match` or `--force`; destructive commands need `--yes`; profile file refused when group-readable | A silent GET-then-PUT (hides lost updates); prompts (agents hang) |
-| B | D55, D1 updated: binaries `quire-server` and `quire`; admin commands in the server binary; `quire admin` passthrough | Admin over HTTP (needs a token to create the first token); a third binary; one binary with both (the server would link TLS, the CLI rusqlite) |
+| B | D55, D1 updated: binaries `wikanvas-server` and `wikanvas`; admin commands in the server binary; `wikanvas admin` passthrough | Admin over HTTP (needs a token to create the first token); a third binary; one binary with both (the server would link TLS, the CLI rusqlite) |
 | B | §7.8: `create-owner` and `create-token` added to the admin commands | Provisioning through the setup code over HTTP in scripts (works, but needs a password and a cookie dance) |
 | C | D56, §14.1: `scripts/agent-test.sh` on the production image with `compose.e2e.yaml`, the build lock and the slice (when installed); scenarios in bash + jq; CLI run inside the container by default | A Rust scenario runner (agents edit bash scenarios more easily); running the CLI from the toolchain container (tests a dev build, not the shipped one); publishing a port by default (collisions; loopback only with `--keep`) |
-| C | D56: Rust CLI tests with assert_cmd against `quire_server::testing::TestServer` (feature `testing`), plus a mock listener for transport cases | Testing against the HTTP API only (misses argv, exit codes and output); a mock-only suite (misses real server behaviour) |
+| C | D56: Rust CLI tests with assert_cmd against `wikanvas_server::testing::TestServer` (feature `testing`), plus a mock listener for transport cases | Testing against the HTTP API only (misses argv, exit codes and output); a mock-only suite (misses real server behaviour) |
 | C | `docs/AGENTS.md` (W8) as the agent-facing guide, with no secrets | Putting agent instructions in CLAUDE.md (that file is about building the project, not using it) |
 
 ### 17.2 Review of the amendments (2026-10-27): consistency (C) and security / agent UX (S)
@@ -3427,7 +3445,7 @@ place (§2.1, §5, §6, §7, §8, §12–§16, PLAN W0b–W8), except where this
 | Finding | Resolution |
 |---|---|
 | C4: derive the client id from the request, or never retry a PUT after sending it; treat a 404 on a retried DELETE as success | Both of the first two: the server derives the client id and new `blockId`s from the request (§6.4), and the CLI retries only requests the server provably did not process (§7.6). The 404 rule is dropped: a retried DELETE was never processed, so its 404 is real. |
-| C7 / S6: `Bearer` without `qpat_` gets 401 (C7), or is ignored (S6) | S6: every `Authorization` value except a Quire token is ignored and the request takes the cookie path with the CSRF checks, because oauth2-proxy and similar proxies forward `Bearer <JWT>`. |
+| C7 / S6: `Bearer` without `qpat_` gets 401 (C7), or is ignored (S6) | S6: every `Authorization` value except a Wikanvas token is ignored and the request takes the cookie path with the CSRF checks, because oauth2-proxy and similar proxies forward `Bearer <JWT>`. |
 | C9: move the CLI tests to W7's gate, or have W0b ship minimal routes | Minimal routes: W0b ships `GET /auth/me`, the four `/tokens` routes and `POST /collections`, so W8's parallel-phase gate is real. The 415 test moves to W4. Scenario 01 revokes over HTTP, so `admin revoke-token` stays with W2. |
 | C11: allow CDLA-Permissive-2.0 for webpki-roots, or use system roots | System CA bundle (D54): no change to the licence policy is needed. |
 | C14: no 304, or a composite ETag | No 304 on `GET /items/{id}` and the Markdown GET: the tag is also the `If-Match` value for writes, which a composite tag would break. |
@@ -3448,9 +3466,9 @@ everywhere in this document and in PLAN; the binding rows are in §2.1.
 | Decision | What it changed | Rejected alternatives and why |
 |---|---|---|
 | 1. Drafts: published on create (D23) | `POST /items` sets `published_at = created_at`, for the web client and the CLI (`item create`) alike. The draft state stays in the schema and the API (`published_at IS NULL`, publish with `with_ancestors`, unpublish, `GET /drafts`, `drafts_count`, `include_drafts`, the CLI's `item publish`/`unpublish` and `list drafts`), so a Drafts workflow can be switched on with multi-user. The web client has no draft UI at all: no Publish button or step, no Draft pill or " · Published", no Drafts entry, badge or page, no Mod+Shift+P, no "include drafts" filter. An item unpublished through the API or CLI looks like any other item in the UI. `?discard_empty=true` no longer needs a draft: it deletes a new (< 24 h), childless, untitled, empty item. The seed and the guide text no longer mention publishing; tests, the smoke spec and agent scenario 06 assert published-on-create | A Drafts entry shown only while `drafts_count > 0`: a page the owner could not act on without the CLI, and one more UI state to build and test. Removing the draft columns: multi-user would need a migration and a new API. A create flag `draft: true`: nothing in M1 needs it, and adding it later is additive |
-| 2. App limits: 2 CPUs / 1 GiB / no swap (D25) | `QUIRE_CPUS=2`, `QUIRE_MEM=1g` (overridable). The D25 budget was re-derived: `doc_work` 3 permits (a PUT takes 2, so a PUT and a read run together), the board limit stays 50 MB, export and backup buffers bounded at 16 MiB, the `/tmp` tmpfs counted; about 250 MiB of headroom. Tokio keeps 2 workers (now one per CPU). The image smoke checks NanoCpus=2000000000 and 1073741824 bytes. In e2e runs the app (2) and Playwright (4, unchanged) make exactly the 6-CPU total; Caddy is not started there | Raising the board limit to 64 MB (it would eat the headroom the third doc permit needs, and boards are the rarer large writes). Four doc permits (≥ 640 MiB of doc work). Lowering Playwright to 3 CPUs (2 + 4 already fits, and SwiftShader WebGL is CPU-bound) |
-| 3. Build slice: installed (D38) | `quire-build.slice` (`CPUQuota=600%`, `MemoryMax=12G`, `MemorySwapMax=0`, `CPUWeight=20`, `IOWeight=20`) and its parent `quire.slice` (the weights, which only work there), installed by `scripts/install-build-slice.sh`, one root step that the coordinator runs through the owner's askpass dialog; implementing agents never run `sudo`. `--check` verifies it. `scripts/lib/slice.sh` detects it by its unit file (`FragmentPath`: systemd reports any slice name as `loaded`) and passes the slice as cgroup parent (systemd driver) to `dev.sh`, the BuildKit container and the e2e, agent and smoke containers, and warns and continues when it is absent. The builder became a `remote`-driver registration of a BuildKit container that `toolchain.sh` starts itself | buildx's `cgroup-parent` driver option (ignored under the systemd cgroup driver: buildx `driver/docker-container/driver.go` and its docs, checked 2026-10-28). A daemon-wide `cgroup-parent` in `daemon.json` (would also capture the hosted app and Caddy). Switching Docker to cgroupfs (outside systemd's accounting). Weights on `quire-build.slice` alone (no siblings, so no effect) |
-| 4. HTTPS through Caddy (D57) | `caddy:2.11.7` (pinned by digest) in `compose.yaml` with `docker/Caddyfile`, its own caps (0.5 CPU, 128 MiB, no swap) and `/data` and `/config` volumes; Quire has no published port. `QUIRE_TLS=acme` with a public `QUIRE_DOMAIN`, or `internal` (default, `localhost` or a LAN name) with the local CA trusted by hand (§13.4). A fixed Caddy address is the only `QUIRE_TRUSTED_PROXIES`, so `X-Forwarded-For` and `-Proto` count only from Caddy (rate limits, Secure cookie). The session cookie follows the request's scheme. `QUIRE_DOMAIN` joins the Host allowlist; the public URL is derived from it. HSTS from Quire, HTTPS requests in `acme` mode only. No `encode`, `compression off`: precompressed `.wasm`/`.js` pass through byte for byte (checked by the image smoke). CSP unchanged. The e2e and agent harnesses talk to Quire directly on the project network (HTTP); the image smoke covers the HTTPS path (a curl through Caddy with the local root answers 200) | TLS in Quire (a TLS stack and ACME in the server, against D29). Traefik (label-driven configuration, more to pin and review). README advice only (the owner asked for it in the deployment). Trusting forwarded headers from the whole subnet (any container on it could spoof a client IP or HTTPS), a shared secret (one more secret to provision), a DNS lookup of `caddy` (an outbound call, and stale after a restart). HSTS from Caddy (security headers in two places) or in `internal` mode (pins `localhost` and LAN names for a year). e2e through Caddy (0.5 CPU over the 6-CPU total with Playwright, and CA plumbing in Playwright and the CLI) |
+| 2. App limits: 2 CPUs / 1 GiB / no swap (D25) | `WIKANVAS_CPUS=2`, `WIKANVAS_MEM=1g` (overridable). The D25 budget was re-derived: `doc_work` 3 permits (a PUT takes 2, so a PUT and a read run together), the board limit stays 50 MB, export and backup buffers bounded at 16 MiB, the `/tmp` tmpfs counted; about 250 MiB of headroom. Tokio keeps 2 workers (now one per CPU). The image smoke checks NanoCpus=2000000000 and 1073741824 bytes. In e2e runs the app (2) and Playwright (4, unchanged) make exactly the 6-CPU total; Caddy is not started there | Raising the board limit to 64 MB (it would eat the headroom the third doc permit needs, and boards are the rarer large writes). Four doc permits (≥ 640 MiB of doc work). Lowering Playwright to 3 CPUs (2 + 4 already fits, and SwiftShader WebGL is CPU-bound) |
+| 3. Build slice: installed (D38) | `wikanvas-build.slice` (`CPUQuota=600%`, `MemoryMax=12G`, `MemorySwapMax=0`, `CPUWeight=20`, `IOWeight=20`) and its parent `wikanvas.slice` (the weights, which only work there), installed by `scripts/install-build-slice.sh`, one root step that the coordinator runs through the owner's askpass dialog; implementing agents never run `sudo`. `--check` verifies it. `scripts/lib/slice.sh` detects it by its unit file (`FragmentPath`: systemd reports any slice name as `loaded`) and passes the slice as cgroup parent (systemd driver) to `dev.sh`, the BuildKit container and the e2e, agent and smoke containers, and warns and continues when it is absent. The builder became a `remote`-driver registration of a BuildKit container that `toolchain.sh` starts itself | buildx's `cgroup-parent` driver option (ignored under the systemd cgroup driver: buildx `driver/docker-container/driver.go` and its docs, checked 2026-10-28). A daemon-wide `cgroup-parent` in `daemon.json` (would also capture the hosted app and Caddy). Switching Docker to cgroupfs (outside systemd's accounting). Weights on `wikanvas-build.slice` alone (no siblings, so no effect) |
+| 4. HTTPS through Caddy (D57) | `caddy:2.11.7` (pinned by digest) in `compose.yaml` with `docker/Caddyfile`, its own caps (0.5 CPU, 128 MiB, no swap) and `/data` and `/config` volumes; Wikanvas has no published port. `WIKANVAS_TLS=acme` with a public `WIKANVAS_DOMAIN`, or `internal` (default, `localhost` or a LAN name) with the local CA trusted by hand (§13.4). A fixed Caddy address is the only `WIKANVAS_TRUSTED_PROXIES`, so `X-Forwarded-For` and `-Proto` count only from Caddy (rate limits, Secure cookie). The session cookie follows the request's scheme. `WIKANVAS_DOMAIN` joins the Host allowlist; the public URL is derived from it. HSTS from Wikanvas, HTTPS requests in `acme` mode only. No `encode`, `compression off`: precompressed `.wasm`/`.js` pass through byte for byte (checked by the image smoke). CSP unchanged. The e2e and agent harnesses talk to Wikanvas directly on the project network (HTTP); the image smoke covers the HTTPS path (a curl through Caddy with the local root answers 200) | TLS in Wikanvas (a TLS stack and ACME in the server, against D29). Traefik (label-driven configuration, more to pin and review). README advice only (the owner asked for it in the deployment). Trusting forwarded headers from the whole subnet (any container on it could spoof a client IP or HTTPS), a shared secret (one more secret to provision), a DNS lookup of `caddy` (an outbound call, and stale after a restart). HSTS from Caddy (security headers in two places) or in `internal` mode (pins `localhost` and LAN names for a year). e2e through Caddy (0.5 CPU over the 6-CPU total with Playwright, and CA plumbing in Playwright and the CLI) |
 | Accepted default: CLI trust roots (D54) | The CLI verifies TLS against the system CA bundle, or `--ca-file` for a private CA such as Caddy's local root; it never bundles webpki-roots and has no flag that skips verification | Bundled webpki-roots (CDLA-Permissive-2.0, not on the licence allow-list, and blind to a locally trusted root) |
 | Accepted default: agent harness lock TTL (D56, §14.1) | `scripts/agent-test.sh up` and `run --keep` keep the app while a background holder holds the build lock for `--ttl` minutes, 15 by default (PLAN R1), then run `down` | An unbounded hold (blocks every build); refusing `--keep` without the slice (the TTL works with and without it) |
 
@@ -3466,7 +3484,7 @@ asked, and the owner's open decisions (§16 items 24 and 25) were left open.
 | Headers of `/inkboard/{build}/manifest.json` (merge item 1; W5 requests W2-1, W7-2) | Revised at the W7 merge to match the code: served for the embedded build only, `no-cache` with its ETag, identity only, `application/json`, `nosniff`; no CSP or `X-Frame-Options`, as it is data that `frame.js` fetches (§11). `frame.js` cannot connect without it | Immutable, the first wording of this row (`{build}` hashes the dist's other files but not the manifest's `patchset`, so one build id can come with another manifest and a cached copy would go stale); keeping it private (every board in the real image failed to connect) |
 | Board-page SVG gzipped by both the route and the compression layer (merge item 8; W2 D10, W6-D29) | Revised at the W7 merge to match the code: the compression layer alone, at the fastest level and only over 1 KiB, the rule every other dynamic body follows; the route sends identity and `Vary: Accept-Encoding` (§11). W2 withdrew its request for the route to gzip, so the layer is the one that stays | The route's own gzip on a blocking thread, the first wording of this row (a second compression rule, which also gzipped pages under 1 KiB). Its argument, that the layer compresses up to 16 MiB of SVG on an async worker, is kept as a follow-up (§16 item 28) |
 | `ItemDetail.board` from W1's or W6's meta (merge item 7; W1 D17, W6 D12) | W6's `boards::board_meta`: `preview_rev` is the newest stored rev, `svg_len` that rev's (§5 "Previews") | W1's oldest rev (it points clients at a render older than the one the page route serves) |
-| Title order of the tree (merge item 11; W3-D1, W1 D10) | Revised at the W7 merge to match the code: one title key defined twice, `quire_core::tree::title_key` and the web's `titleKey` (accent- and case-insensitive, numbers by value), both checked against `fixtures/tree/title-order.json`; ties go to `sort_key`, then the id, for the title, updated and created orders (§5, §9.6.2) | Keeping two orders, the first wording of this row (an optimistic reorder in the browser could disagree with the server until the next fetch); `Intl.Collator` on the client (its order depends on the browser's ICU data, which the server cannot reproduce) |
+| Title order of the tree (merge item 11; W3-D1, W1 D10) | Revised at the W7 merge to match the code: one title key defined twice, `wikanvas_core::tree::title_key` and the web's `titleKey` (accent- and case-insensitive, numbers by value), both checked against `fixtures/tree/title-order.json`; ties go to `sort_key`, then the id, for the title, updated and created orders (§5, §9.6.2) | Keeping two orders, the first wording of this row (an optimistic reorder in the browser could disagree with the server until the next fetch); `Intl.Collator` on the client (its order depends on the browser's ICU data, which the server cannot reproduce) |
 | Full width across reloads (merge item 4; W3 request W1-2) | `ItemDetail.full_width`, an additive field (R3, §7.1). Revised at the W7 merge to match the code: the document page reads `ItemDetail.full_width` directly and sets `data-full-width`; the PATCH updates the cached detail at once and rolls it back on failure (§9.6.4) | Session-only state (the column exists and the PATCH writes it, but nothing could show it after a reload); a per-session store next to the server value (`useFullWidthOf`, the first wording of this row: two sources for one setting) |
 | Sort directions, drop details and toasts the UI spec left open (W3-D1, D2, D4, D5; W3 request W7-1) | Adopted as implemented (§9.6.2, §9.6.3) | Leaving them unwritten (the next owner of the sidebar would have to read the code to keep them) |
 | What the update check compares (W3-D6) | `version`, `commit` and `inkboard.base`, against the first `/config` the page loaded (§9.1) | `version` alone (dev images keep 0.1.0 between builds) |
@@ -3478,19 +3496,19 @@ asked, and the owner's open decisions (§16 items 24 and 25) were left open.
 | Markdown nesting check (W4 D11b) | A per-line upper bound before comrak (200), then the exact 100 on comrak's tree (§6.4 step 1) | The single line pre-scan of the first wording (it let about 1000 levels through to the recursive conversion) |
 | When a document PUT takes its permits (W4 D14a) | Before the body is read (D25, §6.4) | After the read (each waiting request could buffer 16 MiB, so the permits no longer bound memory) |
 | Deadlines of export and backup (W2 D9) | None; both are single-flight and hold their flag while the copy runs (§8, §12) | The 30 s deadline (exports of a large database would be impossible over HTTP, and retries stacked copies) |
-| The public URL of a bare serve; the healthcheck address (W0b D25, D26) | `http://localhost:<QUIRE_LISTEN port>`; the listen address itself unless it is unspecified (§8, §7.8) | A fixed `http://localhost:8080` and a probe on 127.0.0.1 always (wrong when the port changes, or when the server binds one specific address) |
+| The public URL of a bare serve; the healthcheck address (W0b D25, D26) | `http://localhost:<WIKANVAS_LISTEN port>`; the listen address itself unless it is unspecified (§8, §7.8) | A fixed `http://localhost:8080` and a probe on 127.0.0.1 always (wrong when the port changes, or when the server binds one specific address) |
 | The `/data` tmpfs of the e2e and smoke overlays (W0b D1) | `mode: 0o1777` in both (§13.3) | The §13.3 text without a mode (uid 65532 could not write), `mode: 1777` (compose reads it as decimal) |
 | BuildKit pin (W0a, §16 item 23) | v0.34.0 in §13.1 and PLAN W0a, as pinned | v0.34.1 (under two weeks old on 2026-10-28) |
 | The licence list of Settings → About (PLAN W7) | A `licenses` stage in `docker/Dockerfile` writes `/licenses.txt` from `cargo metadata` and `pnpm licenses list`, with every package's licence files, each distinct text once; About shows it on demand and links the engine's own lists (§13.2, §9.6.6). `THIRD_PARTY.md` is the hand-kept record, with the commands that regenerate its tables | Generating `THIRD_PARTY.md` in the build (a build cannot update the source tree, and the record should be reviewed); names and licences without the texts (MIT and BSD ask for their notices to travel with the binaries); a script under `scripts/` (the stage stays self-contained as a heredoc) |
-| Quire behind the owner's own proxy, which holds port 443 (owner's machine; W0a "Environment findings") | README: a `compose.override.yaml` that publishes Quire on a loopback port, keeps the bundled Caddy off through a compose profile, and trusts the project network's `ip_range`, checked against the logged `client_ip`; or `QUIRE_HTTPS_PORT`/`QUIRE_HTTP_PORT` with the bundled Caddy | Trusting `127.0.0.1` or the network gateway (checked on this host with Docker 29: connections through a loopback-published port reach Quire from an address inside the project's `ip_range`); reusing `QUIRE_PROXY_IP` (it also moves the bundled Caddy's address) |
+| Wikanvas behind the owner's own proxy, which holds port 443 (owner's machine; W0a "Environment findings") | README: a `compose.override.yaml` that publishes Wikanvas on a loopback port, keeps the bundled Caddy off through a compose profile, and trusts the project network's `ip_range`, checked against the logged `client_ip`; or `WIKANVAS_HTTPS_PORT`/`WIKANVAS_HTTP_PORT` with the bundled Caddy | Trusting `127.0.0.1` or the network gateway (checked on this host with Docker 29: connections through a loopback-published port reach Wikanvas from an address inside the project's `ip_range`); reusing `WIKANVAS_PROXY_IP` (it also moves the bundled Caddy's address) |
 | W5 D18, one host-side `node --check` | Acknowledged (§16 item 30) | — |
 | The smoke's step 4, "select all body text and delete it", while step 15 expects the heading "Plan" from step 3 (PLAN W7 smoke spec) | Decided at the W7 gate: the body is the paragraph under the heading, so step 4 deletes the paragraph's text and keeps the heading; step 15 then finds "Plan" | Deleting the heading too (Ctrl+A): step 15 could not pass, since step 4 types only "quokka" again |
 | How the smoke shows that the reloaded board still holds its object (PLAN W7 smoke step 11) | The server's board has one object after the reload, and the next save from the reloaded engine (a second rectangle) holds two: the engine had the first | Reading the engine's state from the iframe (the frame API belongs to the host and has no global); comparing canvas pixels (fragile under SwiftShader) |
 | The smoke's `GET /api/v1/export` with the session (PLAN W7 smoke step 13) | Fetched by the page itself, with the browser's fetch metadata; the bare GET without it is checked to be `403 csrf_rejected` (§8: a cookie export needs `Sec-Fetch-Site` or a same-origin `Referer`) | Adding `Sec-Fetch-Site` by hand to Playwright's request context: it would check a header the test wrote, not the browser |
 | Agent scenario 03 and the Markdown goldens' fixed ids (`fixtures/markdown/*`, made against `GoldenLookup`) | The scenario creates "Doc A", "Doc B", "Board C" and an attachment, and maps every golden id, url_id and the origin to the live ones in the input and the expected Markdown before comparing exactly (PLAN W8, scenario table) | Comparing only lookup-free goldens (it would skip links, mentions, embeds and images); regenerating the goldens per server (they are W4's fixed contract) |
-| `quire item move` without `--parent` or `--top` (merge item 9; W1 D23) | Decided at the W7 merge (W7 fixes): the item keeps its parent, so a position alone reorders; the CLI reads the item and sends its current `parent_id`, and `--collection` needs `--parent` or `--top` (§7.6) | Sending `parent_id: null` (a reorder moved the item to the top level, or got 422 when the position named a sibling); making one of the flags required (no way to reorder without restating the parent) |
+| `wikanvas item move` without `--parent` or `--top` (merge item 9; W1 D23) | Decided at the W7 merge (W7 fixes): the item keeps its parent, so a position alone reorders; the CLI reads the item and sends its current `parent_id`, and `--collection` needs `--parent` or `--top` (§7.6) | Sending `parent_id: null` (a reorder moved the item to the top level, or got 422 when the position named a sibling); making one of the flags required (no way to reorder without restating the parent) |
 | Token hashes left in an export's free page space (found by `integration::export_after_api_writes_has_no_tokens_or_sessions`) | Decided at the W7 merge (W7 integration tests): a second `VACUUM INTO` from the scrubbed copy writes the exported file, so every byte comes from the remaining rows; `/data/tmp` briefly holds two copies (D34, §12) | Deleting the stat rows only (older copies of them stayed in the unused space of the first copy's pages) |
-| How a document's links are followed (W7 product review: links could not be followed, item links had the DOM `href` `quire://item/…`) | Decided at the W7 review: item links render `href="/item/<uuid>"`, a new redirect route (§9.1), while the stored mark keeps its href; a click follows a link when the document is read-only, Ctrl/Cmd+click while it is editable; item and same-origin links go through the router, others open in a new tab (§9.6.5) | A plain click that follows while editing (link text could no longer be clicked into and edited); a mark view that resolves each item's `/doc/<slug>-<url_id>` (a query per link and a React mark view inside ProseMirror, for a path that changes on every rename); `/doc/<uuid>` (the doc page would remount once the canonical replace changes the query key) |
+| How a document's links are followed (W7 product review: links could not be followed, item links had the DOM `href` `wikanvas://item/…`) | Decided at the W7 review: item links render `href="/item/<uuid>"`, a new redirect route (§9.1), while the stored mark keeps its href; a click follows a link when the document is read-only, Ctrl/Cmd+click while it is editable; item and same-origin links go through the router, others open in a new tab (§9.6.5) | A plain click that follows while editing (link text could no longer be clicked into and edited); a mark view that resolves each item's `/doc/<slug>-<url_id>` (a query per link and a React mark view inside ProseMirror, for a path that changes on every rename); `/doc/<uuid>` (the doc page would remount once the canonical replace changes the query key) |
 | Opening an empty document wrote to it (W7 product review: `content_at` set, "You updated", a "Leave site?" prompt) | Decided at the W7 review: the doc session holds the editor's own updates while the document is blank and was blank when it loaded, and queues them ahead of the first update that gives it content (§9.4) | Seeding an empty paragraph when the server creates a document (every API-created document and the Markdown and PM JSON writers would gain a paragraph to account for; the server's `docs::is_empty` and the discard rule would change) |
 | Board embed card of a board without a stored preview (W7 product review: the Welcome document's example board showed an empty card) | Decided at the W7 review: the card requests page 0 whenever the board has a page, and the page route renders a missing preview on demand (§9.6.5, §12) | Enqueueing previews for seeded and duplicated boards (still leaves the card empty until the job runs, and adds a write path to the seed) |
 | Discarding a new empty board (W7 product review: only documents were discarded) | The board page follows §9.6.4 like the document page: a board this page session created and left untitled and empty is deleted with `?discard_empty=true` after the save loop and the title flush; the server decides. The title input's pending entry now stays registered until its last PATCH ends, so the discard never overtakes it | A client-side emptiness check of the canvas (the engine is in the frame; the server's `boards::is_empty` is the rule) |
@@ -3515,7 +3533,7 @@ This section is normative for M1.1 (PLAN "M1.1: board document embeds", workstre
 document stays as it is.
 
 ```
-Quire SPA (parent window)                                                       E3
+Wikanvas SPA (parent window)                                                    E3
   BoardFrameHost layer (z-index 1):  <iframe frame.html>  +  .board-embeds overlay (cards: static or editing)
   │ bridge.ts (§18.4): insertEmbed / setEmbedEditing / setEmbedTitles / requestEmbedLayout
   │                    onEmbedLayout / onEmbedOpen / onEmbedEditEnd / onDropItem
@@ -3570,11 +3588,11 @@ here; the engine writes it compact, in this field order):
 
 Rules:
 - **What is a card.** An object whose `kind.type` is `"box"`, whose `kind.geom` is `"rect"`, and whose `kind.embed` is a
-  JSON object with a string `item`. Every reader in Quire (engine, host, server) uses this one test. `embed` on any
+  JSON object with a string `item`. Every reader in Wikanvas (engine, host, server) uses this one test. `embed` on any
   other geometry, or an `embed` that is not such an object, is not a card: the server keeps it byte for byte, the
   M1.1 engine reads it as a plain box and drops the malformed `embed` (or keeps the non-rect one, which parses) on its
   next save, and nothing is linked.
-- **`item`** names the target. Quire's own writers put the target's UUID in canonical form (36 characters, lowercase
+- **`item`** names the target. Wikanvas's own writers put the target's UUID in canonical form (36 characters, lowercase
   hexadecimal with hyphens, as `items.id`). The server links only canonical UUIDs (§18.8) and the host fetches only
   canonical UUIDs; any other string is shown as "Page not found". The engine treats `item` as an opaque string.
   Fields inside `embed` other than `item` are not kept by the engine (like any field Inkboard does not know, §6.3).
@@ -3582,8 +3600,8 @@ Rules:
   `BoxObj` (§18.3), so the engine's canonical JSON is the order above.
 - **Label: the title snapshot.** The label holds the target's title at the last save, `"Untitled"` for a blank title
   (§18.7), as one bold span coloured `#1d2430` (sans, 24, centred). It is what previews, the board's search text, the
-  no-engine fallback and upstream Inkboard show. Quire never shows it at a zoom where the host draws the card (§18.5),
-  and refreshes it from the live title (§18.7).
+  no-engine fallback and upstream Inkboard show. Wikanvas never shows it at a zoom where the host draws the card
+  (§18.5), and refreshes it from the live title (§18.7).
 - **New cards** (`insertEmbed`, §18.3): 480 × 360 world units centred on the given point, `angle` 0, the label above,
   `style` exactly as above (`stroke` `#c4cad4`, `fill` `#ffffff`, `width` 1, solid, opacity 1, `roundness` 0.04, shadow),
   on the current page's first layer that is visible and unlocked (its first layer when none is), no group, unlocked. (A
@@ -3602,7 +3620,7 @@ What each reader sees (checked against the code, §18.15):
   preview shows a titled card. The server never re-serializes a board (D9, §6.2: `split` and `splice` edit raw spans),
   so `embed` survives every PUT and GET byte for byte.
 - **The M1 engine (patchset 2) and upstream Inkboard** show the same titled box, and **drop `embed` when they save**
-  (their model has no such field). Quire ships the SPA and the engine together in one image, under one content-hashed
+  (their model has no such field). Wikanvas ships the SPA and the engine together in one image, under one content-hashed
   `/inkboard/{build}/`, so the web client always runs the M1.1 engine; an API client that rebuilds a board through its
   own model must keep the field (AGENTS.md §8).
 - **The M1.1 engine** keeps `embed`, reports cards to the host (§18.3), and never edits a card's label as text.
@@ -3612,9 +3630,9 @@ What each reader sees (checked against the code, §18.15):
 
 ### 18.3 Engine patch (`0005-embed-documents.patch`, `0006-docs-embedded-documents.patch`; E1)
 
-The series grows by two patches; the patchset id becomes `3`, so `engine_version` is `0.2.0-beta.3+embed.quire.3`.
+The series grows by two patches; the patchset id becomes `3`, so `engine_version` is `0.2.0-beta.3+embed.wikanvas.3`.
 0005 is code, 0006 the documentation (the 0004 split). Every changed file gets the §10.2 notice line, the patches add
-no `t()` string (nothing visible is new: the card's content is Quire's), and `export --upstream` stays notice-free.
+no `t()` string (nothing visible is new: the card's content is Wikanvas's), and `export --upstream` stays notice-free.
 **This amends §10.2** "Nothing under `inkboard-core` or `inkboard-session` changes": 0005 adds one optional serde field
 to `inkboard-core` (and its constructor sites); `inkboard-session` stays untouched, and the server keeps compiling
 `inkboard-core` unpatched (D59).
@@ -3657,7 +3675,7 @@ interface EngineInsertEmbed { item: string; title: string; at: 'center' | { x: n
 ```
 
 How it works:
-- **Units.** Engine coordinates are canvas px: egui points times `ctx.zoom_factor()` (1 in Quire: Inkboard turns
+- **Units.** Engine coordinates are canvas px: egui points times `ctx.zoom_factor()` (1 in Wikanvas: Inkboard turns
   keyboard zoom off, `app.rs:236-237`, and nothing else sets it). devicePixelRatio is egui's native pixels per point
   and never enters these numbers. As built (E1-D7): `zoom`, `originX/Y`, `canvas` and `occluders` are egui's `f32`
   camera and rects (what is drawn) times the zoom factor, as JS numbers (so `1.0740000009536743`, not `1.074`); card
@@ -3783,7 +3801,7 @@ export interface BoardFrameApi {                            // … plus §10.4's
   setEmbedTitles?(titles: Readonly<Record<string, string>>): void;
   requestEmbedLayout?(): void;
 }
-export type DragItemType = 'application/x-quire-item';
+export type DragItemType = 'application/x-wikanvas-item';
 export interface DraggedItem { v: 1; id: string; kind: 'doc'; title: string }
 export interface FramePoint { x: number; y: number }
 export interface FrameRect { x: number; y: number; width: number; height: number }
@@ -3817,11 +3835,11 @@ export interface InsertEmbedArgs { item: string; title: string; at: 'center' | F
   handle lacks the member.
 - **Read-only.** It remembers the last `readOnly` of `open()` and `setReadOnly()`.
 - **Drag and drop** (D70). Capture-phase `dragenter` and `dragover` listeners on `window`: when a board is open, the
-  board is not read-only and `dataTransfer.types` includes `application/x-quire-item`, they call `preventDefault()`
+  board is not read-only and `dataTransfer.types` includes `application/x-wikanvas-item`, they call `preventDefault()`
   (the drop is accepted; the drop effect is the browser's default for the source's `effectAllowed`) and
   `stopPropagation()`. A capture-phase `drop` listener does the same checks, `preventDefault()` and
   `stopPropagation()` (so eframe's own file-drop handler on the canvas never sees it), parses
-  `getData('application/x-quire-item')` as a `DraggedItem` (a value that does not parse, whose `v` is not 1, whose
+  `getData('application/x-wikanvas-item')` as a `DraggedItem` (a value that does not parse, whose `v` is not 1, whose
   `kind` is not `'doc'` or whose `id` or `title` is not a string is ignored), and sends
   `onDropItem({itemId: current, item, point: {x: clientX, y: clientY}})`. Drags without the type are left alone (an
   image file still reaches the engine's own drop handling, `app.rs` `dropped_files`). As built (E1-D11): for a drag with
@@ -3847,7 +3865,7 @@ export interface InsertEmbedArgs { item: string; title: string; at: 'center' | F
   overlay `div.board-embeds` (`data-testid="board-embeds"`). The overlay is positioned by the same rAF routine as the
   iframe, to the same rect, so frame px are overlay-local px; it has `overflow: clip` and `pointer-events: none`, is
   hidden and `inert` whenever the iframe is (off board routes, before `shown`, after a failure), and is emptied when
-  the frame is reset or removed. Quire's menus (10), popovers (30), dialogs and toasts stay above it; the editor's
+  the frame is reset or removed. Wikanvas's menus (10), popovers (30), dialogs and toasts stay above it; the editor's
   popups are portaled above it (below).
 - **`overflow: clip`, never `hidden`**, on the overlay and on every card box: an `overflow: hidden` box is still a
   scroll container that script can scroll, and ProseMirror's `scrollRectIntoView` sets `scrollTop`/`scrollLeft` on
@@ -3920,7 +3938,7 @@ it, above).
   `items` (E3-D13). It is shown by a **read-only TipTap viewer**: an
   `Editor` with the live editor's schema extensions and node views (`schemaExtensions` and the views of
   `views.tsx`), `editable: false`, `injectCSS: false` (TipTap's default inserts a `<style>` element, which the SPA
-  CSP's `style-src 'self'` blocks and reports, §11; the live editor passes the same, `QuireEditor.tsx:65-66`),
+  CSP's `style-src 'self'` blocks and reports, §11; the live editor passes the same, `WikanvasEditor.tsx:65-66`),
   `content` = the first 200 top-level blocks of `doc` (`MAX_STATIC_BLOCKS`), no Collaboration, no menus. It is not an
   editor of the document: it has no Y.Doc and no session and cannot write (D64; §6.1's "never pass `content:`" is
   about the live editor). Its DOM and CSS are the live editor's, so entering editing does not move the text.
@@ -3947,7 +3965,7 @@ it, above).
    cached dead one. Any other `onEmbedOpen` (a trashed, archived, missing or non-document target, a read-only
    board) changes nothing; one for the card already editing changes nothing either. An `onEmbedOpen` while another
    card is editing ends that one first.
-2. When the session is open, the card's body becomes `QuireEditor` with `variant="embed"` and `popupRoot` (additive
+2. When the session is open, the card's body becomes `WikanvasEditor` with `variant="embed"` and `popupRoot` (additive
    props; the default `"page"` is today's editor): `popupRoot` is one `div.board-embed-popups` (`position: fixed;
    inset: 0; pointer-events: none`, its children `pointer-events: auto`) that the overlay appends to `document.body`
    (z-index 30, above the frame layer and the top bar, 5) and **moves into `.board-frame-layer` while that layer is
@@ -3958,7 +3976,7 @@ it, above).
    table menus use TipTap's `appendTo: () => popupRoot` with `options: {strategy: 'fixed'}`
    (`@tiptap/extension-bubble-menu` appends to the editor's parent by default). It has no block handle (no drag
    reorder in a card) and no heading anchors (two cards of one document would repeat the ids). Its slash menu has no
-   "Embed board…" and no "New board": `QuireEditor`'s `pickBoard` and `newBoard` become optional, and the slash menu
+   "Embed board…" and no "New board": `WikanvasEditor`'s `pickBoard` and `newBoard` become optional, and the slash menu
    leaves out an item whose callback is missing (`slash.ts`); the board picker is the document page's own dialog
    (`DocPage.tsx` `BoardPicker`), and a dialog outside the card would end the editing at its first click.
    Backspace at the start of an empty body moves to the card's own title input (a `titleInput` prop) instead of
@@ -3971,7 +3989,7 @@ it, above).
    top: p.y})` (prosemirror-view supports scaled editors) when it hits the body; a point in the header focuses the
    title input; otherwise (Enter, the menu, a rotated card, a point outside the text) the caret goes to the end of the
    document.
-4. While editing, keys go to the parent: Quire's shortcuts work (Mod+K, Mod+., Mod+S flushes the document), Ctrl+Z
+4. While editing, keys go to the parent: Wikanvas's shortcuts work (Mod+K, Mod+., Mod+S flushes the document), Ctrl+Z
    undoes the document's text (Y.UndoManager), never the board, and the engine gets no keys. The header's title input
    uses `useTitleAutosave` (500 ms PATCH), Enter moves to the body; "Open page" navigates to the document. The title
    input has the classes `board-embed-card-title board-embed-title-input` and the accessible name "Page title" (the
@@ -3982,7 +4000,7 @@ it, above).
    - **Esc** pressed in the card when nothing consumed it: the host calls `frame.setEmbedEditing(null)` and then
      `frame.focus()`, so the card stays selected in the engine (Delete removes it, arrows move it) and a further double
      Esc in the frame leaves the canvas as before (§9.5). As built after the review (D93): in the body, the editor's own
-     keymap does it (`QuireEditor`'s `onEscape`, an extension of priority 1, so its `Escape` binding runs after every
+     keymap does it (`WikanvasEditor`'s `onEscape`, an extension of priority 1, so its `Escape` binding runs after every
      other plugin's keys: the slash and mention menus close on the first Esc, which they take, and the next one leaves).
      A listener around the editor cannot see an unconsumed Esc there: prosemirror-view prevents the default of every Esc
      keydown (`captureKeyDown`, `dist/index.js:2808`). Elsewhere in the card (the title input, the header's buttons, the
@@ -4037,17 +4055,17 @@ engine, phones) shows only the previews' titled boxes.
 **Focus (full screen).** Focus now calls `requestFullscreen()` on `.board-frame-layer` instead of the iframe, so the
 overlay is shown with it; while `document.fullscreenElement` is the layer, the iframe and the overlay fill it (the rAF
 routine places them at the layer's rect instead of the surface's, and `fullscreenchange` schedules it like a resize)
-and `popupRoot` lives inside the layer (Editing step 2). The iframe is never moved in the DOM. Quire's toasts and
+and `popupRoot` lives inside the layer (Editing step 2). The iframe is never moved in the DOM. Wikanvas's toasts and
 dialogs stay outside the layer, so in Focus they show only after leaving it, as for M1's iframe fullscreen.
 
-**Theme.** Cards are paper (D67): the card box, header and body use Quire's light palette (the `tokens.css` light
+**Theme.** Cards are paper (D67): the card box, header and body use Wikanvas's light palette (the `tokens.css` light
 values, re-declared on `.board-embed-card`, with `color-scheme: light` so that native parts such as task-list
-checkboxes, the body's scrollbar and the caret follow) whatever the Quire theme and the board background; the
-engine-drawn box is white with a `#c4cad4` border. The editor's portaled popups follow the Quire theme.
+checkboxes, the body's scrollbar and the caret follow) whatever the Wikanvas theme and the board background; the
+engine-drawn box is white with a `#c4cad4` border. The editor's portaled popups follow the Wikanvas theme.
 
 **Code splitting** (E3-D10). `BoardFrameHost` is in the shell, so a static import of the cards would put TipTap
-(about 900 kB) into `index.html`'s preloads: the cards (`EmbedCard`, `StaticViewer`, `QuireEditor`) are a chunk loaded
-once a board is shown, and the controller imports `DocSession` dynamically.
+(about 900 kB) into `index.html`'s preloads: the cards (`EmbedCard`, `StaticViewer`, `WikanvasEditor`) are a chunk
+loaded once a board is shown, and the controller imports `DocSession` dynamically.
 
 **Test contract for the smoke** (E3 provides, the merge stage uses): the top-bar buttons `role=button`, names
 "Text doc" and "Embed page…"; the picker `role=dialog`, name "Embed a page", an input with the placeholder "Find a
@@ -4107,7 +4125,7 @@ its button.
 
 **(c) Sidebar drag** (D70):
 - **Drag source** (`TreeRow`): a document row's pragmatic-dnd `draggable` adds `getInitialDataForExternal: () =>
-  ({'application/x-quire-item': JSON.stringify({v: 1, id, kind: 'doc', title})})`. Board and collection rows add
+  ({'application/x-wikanvas-item': JSON.stringify({v: 1, id, kind: 'doc', title})})`. Board and collection rows add
   nothing (boards are not embedded in M1.1). The tree's own drag and drop (§9.6.3) is unchanged: the native data is
   only for drops in other documents, which the iframe is.
 - **Drop on the canvas**: the frame's listeners (§18.4) accept the drag and send `onDropItem`; the host checks that the
@@ -4147,7 +4165,7 @@ its button.
 
 ### 18.8 Server (E2)
 
-- **`quire-core::board`.** `Inspect` gains `embeds: Vec<String>`: the targets of the board's cards (§18.2 test) whose
+- **`wikanvas-core::board`.** `Inspect` gains `embeds: Vec<String>`: the targets of the board's cards (§18.2 test) whose
   `item` is a canonical UUID, distinct, in first-appearance order over pages and objects, at most
   `EMBED_LINKS_MAX = 1000` (the rest are not linked). `inspect` finds them with a second, borrowed, typed pass over the
   body (`serde_json::from_str` into small `Deserialize` structs that read `document.pages[].objects[].kind.{type, geom,
@@ -4177,9 +4195,9 @@ its button.
     gets 999 rows.
   - The 422's message: "page N: the object ID: duplicate field `embed` (a card holds one embed)". `inspect` drops the
     typed document before the scan, so the two are never held in memory together (D25).
-  - Additive public API (R3, E2-D8): `quire_core::board::{embeds, is_canonical_uuid, EMBED_LINKS_MAX}`,
-    `Inspect::embeds`, `quire_store::boards::Prepared::embeds()`.
-- **`quire-store::boards`.** In the PUT's writer transaction (§6.2 step 5, after the body text), `set_embed_links`:
+  - Additive public API (R3, E2-D8): `wikanvas_core::board::{embeds, is_canonical_uuid, EMBED_LINKS_MAX}`,
+    `Inspect::embeds`, `wikanvas_store::boards::Prepared::embeds()`.
+- **`wikanvas-store::boards`.** In the PUT's writer transaction (§6.2 step 5, after the body text), `set_embed_links`:
   `DELETE FROM item_links WHERE source_id = ?1 AND kind = 'embed'`, then `INSERT OR IGNORE` one `(board, target,
   'embed')` row per target, skipping the board's own id. The no-op save (§6.2 step 4) leaves the links as they are (the
   body did not change). `init_with` (seed and fixtures) sets them too; `init_empty` has none. `copy` (duplicate)
@@ -4194,11 +4212,11 @@ its button.
   otherwise, §7.1), and nothing checks that a target exists or is a document (links are recorded for targets that may
   be created, trashed or purged later, as for documents). The repeated key is no tightening of what works: such a
   board could be stored but never opened by the web client.
-- **`quire-store::items::discard_empty`** (`DELETE /items/{id}?discard_empty=true`) also refuses, with the same 409
+- **`wikanvas-store::items::discard_empty`** (`DELETE /items/{id}?discard_empty=true`) also refuses, with the same 409
   `not_empty`, an item that is the `target_id` of any `item_links` row of kind `embed` (an indexed lookup,
   `item_links_target`): an empty "Text doc" shown on another board, or this board's own card whose removal was never
   saved, is not deleted for good (§18.6 (a)); an empty board that a document embeds is kept the same way. The query
-  parameter's description in `quire-api` (and so `docs/api/openapi.json`) does not change; the error message names
+  parameter's description in `wikanvas-api` (and so `docs/api/openapi.json`) does not change; the error message names
   the new reason. As built (E2-D7): the existing checks (age, children, title, body) run first with their messages
   unchanged, and the `embed` check last, so only an item that would otherwise be discarded gets the new message, "a
   board or a page embeds this item, so it is not discarded; remove it from there, or move it to the trash instead".
@@ -4222,7 +4240,7 @@ its button.
   (§18.13 item 11).
 - **A target elsewhere** is unaffected by anything done to the board. If the target is trashed, archived, restored or
   purged, every card of it shows that state (§18.5) the next time its `ItemDetail` is fetched (focus, board open).
-- **Deleting a card** (Delete, Cut, undo of its insert) never touches the target. The only document Quire deletes is
+- **Deleting a card** (Delete, Cut, undo of its insert) never touches the target. The only document Wikanvas deletes is
   an empty "Text doc" document left unreferenced when the page leaves the board: on no card of this board's layout,
   and the target of no `embed` link on the server (§18.6 (a), §18.8).
 - **Purging a child that another board embeds** (by purging its board) leaves that other board's card "Page not found".
@@ -4234,7 +4252,7 @@ its button.
   `GET …/doc/prosemirror`, `GET /items/{id}`, `GET /search/titles`.
 - `docs/AGENTS.md` §8 gains "Embedded pages": the card JSON of §18.2 and its rules (rect, canonical UUID, the label is a
   title snapshot, `embed` must be kept when rewriting a board, any object id unique on its page), and a `jq` recipe that
-  creates a child document with `quire item create --parent <board>` and appends a card to page 0 with `board get` /
+  creates a child document with `wikanvas item create --parent <board>` and appends a card to page 0 with `board get` /
   `board put --if-match`. As built: the recipe trims the title snapshot like the web client (`title.trim() ||
   'Untitled'`, jq 1.6's `sub`; E2 review R-3) and places the card to the right of the page's frames (`max(x + w) + 40`,
   at `y` −180), or centred on the origin of an empty page, on the first visible unlocked layer, with a `card-<µs>` id
@@ -4324,18 +4342,18 @@ its button.
 | D58 | A card is a `rect` box with an optional `kind.embed {item}` field (§18.2) | A new `Kind` variant or `BoxGeom` (the unpatched server's `from_json` would refuse every such board); a side table keyed by object id (copy, paste, duplicate and API writers would lose the link; a board would not be self-describing for agents); encoding the target in the object id or in the label text (fragile, user-editable, ids must be unique); an object-level generic `link` (says "points to", not "render inside") |
 | D59 | 0005 adds that one optional field to `inkboard-core`, deserialized leniently; the server keeps compiling `inkboard-core` unpatched | Compiling the server against the patched copy (a generated, git-ignored path dependency, Docker ordering and `check-pins` would all change); strict deserialization (a board with an API-written `"embed": 5`, which the server accepts, could no longer be opened by the engine) |
 | D60 | The server refuses no value of `embed`; it links canonical-UUID targets of rect cards, at most 1000, never the board itself, whether or not they exist. Its one refusal is a box kind holding the key `embed` twice (422 `invalid_board`), which the M1.1 engine's model could not load (amended by the 2026-10-28 review) | 422 for a malformed `embed` (a v1 tightening, §7.1); checking existence or kind (targets are created, trashed and purged independently; `item_links` has no target key by design); accepting the repeated key (a stored board the web client can never open) |
-| D61 | Quire, not the engine, draws the content, in an overlay of the parent document (same origin, §10.1) | Rasterizing HTML into an engine texture (SVG `foreignObject` taints canvases and fights the CSP; no editing); rich text drawn by egui (no schema, no editor); an iframe per card (a second app per card, no shared query cache) |
+| D61 | Wikanvas, not the engine, draws the content, in an overlay of the parent document (same origin, §10.1) | Rasterizing HTML into an engine texture (SVG `foreignObject` taints canvases and fights the CSP; no editing); rich text drawn by egui (no schema, no editor); an iframe per card (a second app per card, no shared query cache) |
 | D62 | The engine reports world frames and the camera once per changed frame (`onEmbedLayout`); the host applies them to the DOM synchronously, through one CSS transform, on `overflow: clip` boxes without `will-change` | The host polling the frame (lag, wasted frames); screen rects only (the host could not scale the content consistently); routing positions through React state (a render per frame during a drag); `overflow: hidden` (a scroll container that ProseMirror and caret scrolling move, shifting every card off its box); `will-change: transform` (Chromium keeps the layer's raster scale, so text blurs after a zoom) |
 | D63 | The overlay is clipped to the drawing area minus the engine's own interface (`occluders`) | Covering the engine's menus and panels where a card lies under them; hiding all cards while any engine UI is open |
 | D64 | Static cards are read-only TipTap viewers of `DocJson` (≤ 24 cards, ≤ 200 blocks); no session, no writes | A live `DocSession` per card (N outboxes and focus syncs, and a risk of writes from merely looking); a custom JSON → React renderer (a second copy of every node's rendering); server-rendered HTML (no endpoint, and markup injection to police) |
-| D65 | One editing card at a time: `QuireEditor` `variant="embed"` on a `DocSession`, inside the scaled card, popups portaled to a root in `document.body` that moves into the frame layer while it is fullscreen, no block handle, no board items in the slash menu | Editing at 1:1 in an untransformed layer after zooming the view (moves the user's view); several editors at once (several sessions, focus ambiguity); a popup root always inside the frame layer (under the top bar, z-index 5, outside Focus); always in `document.body` (invisible in Focus); the document page's board picker in a card (a dialog outside the card ends the editing at its first click) |
+| D65 | One editing card at a time: `WikanvasEditor` `variant="embed"` on a `DocSession`, inside the scaled card, popups portaled to a root in `document.body` that moves into the frame layer while it is fullscreen, no block handle, no board items in the slash menu | Editing at 1:1 in an untransformed layer after zooming the view (moves the user's view); several editors at once (several sessions, focus ambiguity); a popup root always inside the frame layer (under the top bar, z-index 5, outside Focus); always in `document.body` (invisible in Focus); the document page's board picker in a card (a dialog outside the card ends the editing at its first click) |
 | D66 | The engine holds the editing state (`setEmbedEditing`) and ends it itself on a press or focus, swallowing the press; while it is set the engine runs no shortcut, and the host moves focus to the card at once | Detecting a canvas click in the parent through `blur` (the parent hears it after the engine has queued the press, so the press could not be swallowed and would also select or deselect); leaving focus in the canvas until the document has loaded (keys typed meanwhile would pick tools or delete the card) |
-| D67 | Cards are paper: the light palette whatever the theme or the board background | Following the Quire theme (the same board would look different per viewer, and unlike its previews); following the board background (dark document styles for every node) |
+| D67 | Cards are paper: the light palette whatever the theme or the board background | Following the Wikanvas theme (the same board would look different per viewer, and unlike its previews); following the board background (dark document styles for every node) |
 | D68 | The live title is shown by the host; the stored label is a snapshot refreshed in place and saved with the next save | Writing title changes as board edits (opening a board would write, two tabs would conflict with 412); the server splicing labels on GET like `document.name` (deep raw-JSON edits, and immutable `?rev=` previews would go stale) |
 | D69 | "Text doc" creates a child and opens it; the picker and the drop only place a card; only documents are embeddable | Opening every new card (a drop of five documents would chain five editors); embedding boards (a board inside a board needs a second engine) |
-| D70 | The sidebar drag carries `application/x-quire-item` through pragmatic-dnd's native external data; the frame accepts it in the capture phase and reports `onDropItem`; the host inserts | Sharing the drag through a global or `postMessage` (pragmatic-dnd's monitors cannot see into the iframe, while native drag and drop crosses same-origin frames); the frame inserting by itself (a second insertion path without the host's checks) |
+| D70 | The sidebar drag carries `application/x-wikanvas-item` through pragmatic-dnd's native external data; the frame accepts it in the capture phase and reports `onDropItem`; the host inserts | Sharing the drag through a global or `postMessage` (pragmatic-dnd's monitors cannot see into the iframe, while native drag and drop crosses same-origin frames); the frame inserting by itself (a second insertion path without the host's checks) |
 | D71 | Duplicate shares the documents; trash, archive, purge and move follow the tree; deleting a card never deletes a document, except an empty "Text doc" left unreferenced, which the server checks too (no `embed` link to it, §18.8) | Deep-copying children on duplicate and rewriting the copy's cards (changes §7.2's "children are not copied"); deleting a child with its card (an undo would bring back a card of a deleted page); trusting the client's layout alone (it knows one board, while the engine's clipboard and the sidebar carry cards to others) |
-| D72 | No new route, DTO, error code or CLI command; AGENTS.md documents the JSON with a `jq` recipe | `quire board embed` (a second writer of Inkboard's model in a CLI that must stay free of `inkboard-core`, §14); `BoardMeta.embeds` (no client needs it; `item_links` serves backlinks later) |
+| D72 | No new route, DTO, error code or CLI command; AGENTS.md documents the JSON with a `jq` recipe | `wikanvas board embed` (a second writer of Inkboard's model in a CLI that must stay free of `inkboard-core`, §14); `BoardMeta.embeds` (no client needs it; `item_links` serves backlinks later) |
 | D73 | Focus fullscreens the frame layer (iframe and overlay) | Fullscreening the iframe (the cards would vanish in Focus) |
 | D74 | 0005 code and 0006 docs, patchset 3 | One patch (the 0004 precedent keeps code reviewable on its own upstream) |
 | D75 | A read-only board, and a trashed, archived or missing target, never open a card for editing | Editing a live target from a read-only board (a read-only context that writes) |
@@ -4374,7 +4392,7 @@ written into the section it amends:
 | D96 | A save refused as `read_only` or 404 ends the editing and refetches the target's detail; an end whose flush left updates unsent shows the server's content and "Not saved", whose Retry opens a new session that sends the outbox (§18.5) | Keeping the editing (every save is refused while the card looks editable); showing the editor's unsent JSON (a static card that disagrees with the server and the other cards); the destroyed session's own retry (it never reloads the server state or the card's content) |
 | D97 | Hosted, the style panel is hidden while a card is edited and has no text settings for a selection of cards alone (§18.3) | Keeping them (they format the hidden title snapshot, cover the edited card, and a click on them ends the editing); hiding the whole panel for selected cards (outline, fill, corners, shadow, opacity and order still apply to the box) |
 | D98 | A drop places only a live document, titled from its own `ItemDetail` (fetched when not cached), never from the drag data; every title snapshot is at most 200 characters (§18.6 (c), §18.12) | The drag data's title when the cache is cold (any page can start such a drag and choose the stored label); refusing uncached targets (a drop from a sidebar whose rows were never opened would fail) |
-| D99 | The review's changes to 0005 and 0006 keep patchset `3` (`0.2.0-beta.3+embed.quire.3`) | Patchset 4, as M1's review fixes bumped 1 to 2 (patchset 3 never shipped: the owner's wiki runs the M1 engine, patchset 2, and only M1.1's test images carried 3; PLAN M1.1 names `3` as the series M1.1 ships and its gate checks it, and every build is still told apart by its content-hashed build id) |
+| D99 | The review's changes to 0005 and 0006 keep patchset `3` (`0.2.0-beta.3+embed.wikanvas.3`) | Patchset 4, as M1's review fixes bumped 1 to 2 (patchset 3 never shipped: the owner's wiki runs the M1 engine, patchset 2, and only M1.1's test images carried 3; PLAN M1.1 names `3` as the series M1.1 ships and its gate checks it, and every build is still told apart by its content-hashed build id) |
 
 ### 18.15 Design inputs checked against the code (2026-10-28, main `02f79a9`)
 
@@ -4386,18 +4404,18 @@ files are those of the applied series (`.cache/inkboard-src`, patches 0001–000
 |---|---|
 | Kinds are Box (rect, ellipse, diamond, triangle, sticky, text), Pen, Connector, Image, Table; no embed kind | Holds: `inkboard-core/src/model.rs:121-132` (`BoxGeom`), `:395-403` (`Kind`, `#[serde(tag = "type")]`) |
 | No `deny_unknown_fields`, so an unpatched reader accepts the field | Holds: no occurrence in any `vendor/inkboard/crates/**` file; `BoxObj` (`model.rs:169-178`) already has an optional `lang` with the same serde shape |
-| The server validates with `from_json` and splices raw JSON | Holds: D9 (§2.1), `quire-core/src/board.rs:268-354` (`split`/`splice` on `RawValue` spans), `:354-373` (`inspect` calls `serial::from_json`); the server compiles `vendor/inkboard`'s core (`Cargo.toml:35`) |
+| The server validates with `from_json` and splices raw JSON | Holds: D9 (§2.1), `wikanvas-core/src/board.rs:268-354` (`split`/`splice` on `RawValue` spans), `:354-373` (`inspect` calls `serial::from_json`); the server compiles `vendor/inkboard`'s core (`Cargo.toml:35`) |
 | Previews draw a titled rectangle | Holds, refined: `svg.rs:127-182` draws the box and its label; the label is drawn in the stroke colour unless a span has its own, so the snapshot's span carries `#1d2430` (§18.2) |
 | Upstream Inkboard degrades to a titled box | Holds for display; refined: it also **drops** `embed` when it saves (serde ignores and does not keep unknown fields), §18.2, §18.13 item 10 |
 | A new `BoxGeom` or `Kind` would break the unpatched server | Holds: neither enum has an `#[serde(other)]` arm (`model.rs:121-132, 395-403`) |
 | The field needs no engine-side model change | Refuted: the engine serializes through the same model, so without 0005 it would drop the field on its first save; 0005 adds it to `BoxObj` (§18.3) |
-| `item_links` has the kind `embed` | Holds: `migrations/0001-init/up.sql:24-25`; boards record no links today (`quire-store/src/boards.rs` has no `item_links`, `docs.rs:268-283` does for documents) and `boards::copy` copies none (`boards.rs:211-243`) |
+| `item_links` has the kind `embed` | Holds: `migrations/0001-init/up.sql:24-25`; boards record no links today (`wikanvas-store/src/boards.rs` has no `item_links`, `docs.rs:268-283` does for documents) and `boards::copy` copies none (`boards.rs:211-243`) |
 | The host can follow the camera from an engine event | Holds, with a new event: the camera is the page's `view` (`model.rs:546`), drawn with `Cam` (`tools.rs:845`, `render.rs:25-41`) and changed by `set_view` without a revision (`app.rs:755`), so `onChange` (`app.rs:449-464`) never carries it |
 | The overlay is above canvas shapes (a limitation) | Holds, and extends: Inkboard's interface is floating egui areas over a full-window central panel (`chrome.rs:37-46`, `app.rs:1299`), so the overlay also covers the engine's own menus and panels unless clipped (§18.5 "Clipping", D63) |
 | Double-click edits a box label | Holds: `tools.rs:930-952` `handle_double_click` → `rich_edit.rs:118` `start_editing`, also reached from Enter (`app.rs:977-981`, keymap `Enter`) and the menu (`chrome.rs:585-592`) |
-| `QuireEditor` and `docSession` can be reused on the board | Holds with an additive variant: the popups are `position: fixed` (`editor.css:392`) and TipTap's bubble menu appends to the editor's parent by default (`@tiptap/extension-bubble-menu` 3.32.0, `dist/index.js:233-234`), both wrong inside a scaled card (§18.5 Editing step 2) |
+| `WikanvasEditor` and `docSession` can be reused on the board | Holds with an additive variant: the popups are `position: fixed` (`editor.css:392`) and TipTap's bubble menu appends to the editor's parent by default (`@tiptap/extension-bubble-menu` 3.32.0, `dist/index.js:233-234`), both wrong inside a scaled card (§18.5 Editing step 2) |
 | The sidebar tree can feed a drop into the iframe | Holds: rows are pragmatic-dnd `draggable`s (`TreeRow.tsx:91-96`) and pragmatic-dnd 4.0.0 writes `getInitialDataForExternal` into the native `dataTransfer` (`element-adapter.js:167-175`) |
-| Trash, restore and purge of children follow the subtree; duplicate copies no children | Holds: §5 "Trash", "Purge"; §7.2 duplicate; `quire-store/src/items.rs:257-293` |
+| Trash, restore and purge of children follow the subtree; duplicate copies no children | Holds: §5 "Trash", "Purge"; §7.2 duplicate; `wikanvas-store/src/items.rs:257-293` |
 
 Added by the independent review of the same day (main `ae0ed61`; each fixed in place above):
 
@@ -4411,7 +4429,7 @@ Added by the independent review of the same day (main `ae0ed61`; each fixed in p
 | A layout report always follows an animation frame | Refined: eframe 0.33.3 also runs `logic()` in its `pointerdown` and `pointerup` handlers (`web/events.rs:535, 589`) and paints that output at the next animation frame (`paint_if_needed`) (§18.3) |
 | The lenient field makes every server-accepted board loadable | Refined: serde's derived struct visitor refuses a repeated known field (`duplicate_field`) before a field deserializer runs, while the unpatched server ignores unknown keys; the server refuses a repeated `embed` key (§18.3, §18.8, D60) |
 | `insertEmbed` returns null when read-only by itself | Refined: `Editor::apply` drops the operation while read-only but `Editor::insert` still returns the id (`inkboard-core/src/editor.rs:115-118, 170-175`), so the method checks first (§18.3) |
-| A card's documents can only be referenced by its board | Refuted: `host_load_doc` keeps the engine's clipboard (`app.rs:1220-1238`) and the new child is a sidebar row, so cards reach other boards; `discard_empty` (`quire-store/src/items.rs:488-513`) deleted any new empty item; it now also checks `item_links` (indexed by `item_links_target`, `up.sql:264-270`) (§18.8, D71) |
-| `QuireEditor` can be mounted in a card as it is | Refined: `pickBoard` and `newBoard` are required props (`QuireEditor.tsx:17-28`) behind the slash items "Embed board…" and "New board" (`slash.ts:56-57`), whose picker is the document page's own (`DocPage.tsx:148-177`); they become optional and are left out in a card (§18.5) |
-| A static TipTap viewer is CSP-clean by default | Refuted: TipTap injects a `<style>` element unless `injectCSS: false` (`QuireEditor.tsx:65-66`), and the SPA CSP has `style-src 'self'` (§11) (§18.5 Static cards) |
+| A card's documents can only be referenced by its board | Refuted: `host_load_doc` keeps the engine's clipboard (`app.rs:1220-1238`) and the new child is a sidebar row, so cards reach other boards; `discard_empty` (`wikanvas-store/src/items.rs:488-513`) deleted any new empty item; it now also checks `item_links` (indexed by `item_links_target`, `up.sql:264-270`) (§18.8, D71) |
+| `WikanvasEditor` can be mounted in a card as it is | Refined: `pickBoard` and `newBoard` are required props (`WikanvasEditor.tsx:17-28`) behind the slash items "Embed board…" and "New board" (`slash.ts:56-57`), whose picker is the document page's own (`DocPage.tsx:148-177`); they become optional and are left out in a card (§18.5) |
+| A static TipTap viewer is CSP-clean by default | Refuted: TipTap injects a `<style>` element unless `injectCSS: false` (`WikanvasEditor.tsx:65-66`), and the SPA CSP has `style-src 'self'` (§11) (§18.5 Static cards) |
 | The frame test can probe a card's white fill at its centre | Refuted: the engine draws the title snapshot there, and the fixture's background is white too (`fixtures/boards/embed.inkboard`); the test probes the title's dark pixels instead (PLAN M1.1 E1) |

@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 use std::time::Duration;
 
 use clap::CommandFactory;
-use quire_cli::args::Cli;
+use wikanvas_cli::args::Cli;
 use serde_json::{Value, json};
 
 use crate::common::{ID, Mock, Recorded, Reply, Sandbox, fake_token, last_error, run_json};
@@ -111,7 +111,7 @@ fn every_command_accepts_json() {
     );
     let png = s.file("p.png", b"\x89PNG\r\n\x1a\nxx", 0o600);
     let stub = s.file(
-        "quire-server",
+        "wikanvas-server",
         b"#!/bin/sh\necho '{\"stub\": true}'\n",
         0o755,
     );
@@ -221,8 +221,8 @@ fn every_command_accepts_json() {
         "every leaf command has a row here, and no other"
     );
     for (path, extra) in &args {
-        let mut cmd = s.quire_at(&mock.url, &token);
-        cmd.env("QUIRE_SERVER_BIN", &stub)
+        let mut cmd = s.wikanvas_at(&mock.url, &token);
+        cmd.env("WIKANVAS_SERVER_BIN", &stub)
             .arg("--json")
             .args(path.split(' '))
             .args(extra);
@@ -230,8 +230,8 @@ fn every_command_accepts_json() {
             cmd.write_stdin(token.clone());
         }
         let (code, value, err) = run_json(&mut cmd);
-        assert_eq!(code, 0, "quire {path} --json: {err}");
-        assert!(!value.is_null(), "quire {path} --json printed nothing");
+        assert_eq!(code, 0, "wikanvas {path} --json: {err}");
+        assert!(!value.is_null(), "wikanvas {path} --json printed nothing");
         for line in err.lines() {
             let v: Value = serde_json::from_str(line)
                 .unwrap_or_else(|e| panic!("{path}: stderr line not JSON ({e}): {line}"));
@@ -249,7 +249,7 @@ fn json_stdout_is_the_body_unchanged() {
     let mock = Mock::always(Reply::raw(200, "application/json", body));
     let s = Sandbox::new();
     let out = s
-        .quire_at(&mock.url, &fake_token(1))
+        .wikanvas_at(&mock.url, &fake_token(1))
         .args(["--json", "auth", "whoami"])
         .assert()
         .success()
@@ -267,7 +267,7 @@ fn json_stdout_is_the_body_unchanged() {
         Reply::raw(200, "application/json", envelope.as_bytes()).with("ETag", "\"r3\""),
     );
     let out = s
-        .quire_at(&boards.url, &fake_token(1))
+        .wikanvas_at(&boards.url, &fake_token(1))
         .args(["--json", "board", "get", ID])
         .assert()
         .success();
@@ -280,7 +280,7 @@ fn json_stdout_is_the_body_unchanged() {
     let page = r#"{"items":[{"z":1,"a":2.50}],"next_cursor":null}"#;
     let pages = Mock::always(Reply::raw(200, "application/json", page.as_bytes()));
     let out = s
-        .quire_at(&pages.url, &fake_token(1))
+        .wikanvas_at(&pages.url, &fake_token(1))
         .args(["--json", "list", "recent", "--all"])
         .assert()
         .success();
@@ -288,7 +288,7 @@ fn json_stdout_is_the_body_unchanged() {
     assert!(text.contains(r#"{"z":1,"a":2.50}"#), "{text}");
     // The same through `api`.
     let out = s
-        .quire_at(&mock.url, &fake_token(1))
+        .wikanvas_at(&mock.url, &fake_token(1))
         .args(["--json", "api", "GET", "/api/v1/auth/me"])
         .assert()
         .success();
@@ -300,7 +300,7 @@ fn no_content_prints_ok_object() {
     let mock = Mock::always(Reply::empty(204).with("X-Request-Id", "req-204"));
     let s = Sandbox::new();
     let (code, v, err) = run_json(
-        s.quire_at(&mock.url, &fake_token(1))
+        s.wikanvas_at(&mock.url, &fake_token(1))
             .args(["--json", "token", "revoke", ID]),
     );
     assert_eq!(code, 0, "{err}");
@@ -308,7 +308,7 @@ fn no_content_prints_ok_object() {
         v,
         json!({"ok": true, "status": 204, "request_id": "req-204", "id": ID})
     );
-    let (_, v, _) = run_json(s.quire_at(&mock.url, &fake_token(1)).args([
+    let (_, v, _) = run_json(s.wikanvas_at(&mock.url, &fake_token(1)).args([
         "--json",
         "api",
         "DELETE",
@@ -327,7 +327,7 @@ fn json_error_on_stderr_and_empty_stdout() {
     let mock = Mock::always(Reply::error(404, "not_found").with("X-Request-Id", "mock-err"));
     let s = Sandbox::new();
     let out = s
-        .quire_at(&mock.url, &fake_token(1))
+        .wikanvas_at(&mock.url, &fake_token(1))
         .args(["--json", "item", "get", ID])
         .assert()
         .code(7)
@@ -348,7 +348,7 @@ fn json_stderr_is_json_lines() {
     let mock = Mock::always(Reply::error(409, "cycle"));
     let readable = s.file("r.token", fake_token(2).as_bytes(), 0o644);
     let out = s
-        .quire()
+        .wikanvas()
         .args([
             "--json",
             "--debug",
@@ -384,7 +384,7 @@ fn usage_error_is_json_when_flag_present() {
         &["--json"][..],
         &["--json", "trash", "purge", ID][..],
     ] {
-        let out = sandbox.quire().args(args).assert().code(2).stdout("");
+        let out = sandbox.wikanvas().args(args).assert().code(2).stdout("");
         let stderr = String::from_utf8(out.get_output().stderr.clone()).expect("UTF-8");
         let lines: Vec<&str> = stderr.lines().collect();
         assert_eq!(lines.len(), 1, "one JSON line: {stderr}");
@@ -397,7 +397,7 @@ fn usage_error_is_json_when_flag_present() {
     }
     // Without --json the usage error is human text.
     let out = sandbox
-        .quire()
+        .wikanvas()
         .args(["exit-codes", "--bogus"])
         .assert()
         .code(2)
@@ -407,10 +407,10 @@ fn usage_error_is_json_when_flag_present() {
 }
 
 #[test]
-fn bare_quire_prints_help_and_exits_2() {
-    let out = Sandbox::new().quire().assert().code(2).stdout("");
+fn bare_wikanvas_prints_help_and_exits_2() {
+    let out = Sandbox::new().wikanvas().assert().code(2).stdout("");
     let stderr = String::from_utf8(out.get_output().stderr.clone()).expect("UTF-8");
-    assert!(stderr.contains("Usage: quire"), "{stderr}");
+    assert!(stderr.contains("Usage: wikanvas"), "{stderr}");
     assert!(!stderr.contains('\u{1b}'), "no colour: {stderr}");
 }
 
@@ -427,7 +427,7 @@ fn content_write_without_if_match_or_force_exit_2() {
         &["doc", "put", ID, "--md", f, "--if-match", "d1", "--force"][..],
     ] {
         let (code, out, err) = run_json(
-            s.quire_at(&mock.url, &fake_token(1))
+            s.wikanvas_at(&mock.url, &fake_token(1))
                 .arg("--json")
                 .args(args),
         );
@@ -454,7 +454,7 @@ fn if_match_accepts_bare_quoted_and_weak() {
         (&["--force"][..], "*"),
     ] {
         let (code, _, err) = run_json(
-            s.quire_at(&mock.url, &fake_token(1))
+            s.wikanvas_at(&mock.url, &fake_token(1))
                 .args(["--json", "doc", "put", ID, "--md", f])
                 .args(flag),
         );
@@ -468,7 +468,7 @@ fn if_match_accepts_bare_quoted_and_weak() {
         assert_eq!(r.body, b"# x\n");
     }
     // The board PUT and item update take the same forms.
-    s.quire_at(&mock.url, &fake_token(1))
+    s.wikanvas_at(&mock.url, &fake_token(1))
         .args(["--json", "board", "put", ID, f, "--if-match", "W/\"r7\""])
         .assert()
         .success();
@@ -476,7 +476,7 @@ fn if_match_accepts_bare_quoted_and_weak() {
         mock.requests().pop().unwrap().header("if-match"),
         Some("\"r7\"")
     );
-    s.quire_at(&mock.url, &fake_token(1))
+    s.wikanvas_at(&mock.url, &fake_token(1))
         .args([
             "--json",
             "item",
@@ -507,7 +507,7 @@ fn never_prompts_with_closed_stdin() {
         cmd.timeout(Duration::from_secs(20));
         run_json(cmd)
     };
-    let (code, _, err) = quick(s.quire().args([
+    let (code, _, err) = quick(s.wikanvas().args([
         "--json",
         "auth",
         "login",
@@ -516,7 +516,7 @@ fn never_prompts_with_closed_stdin() {
         "--token-stdin",
     ]));
     assert_eq!(code, 3, "{err}");
-    let (code, _, err) = quick(s.quire().args([
+    let (code, _, err) = quick(s.wikanvas().args([
         "--json",
         "--url",
         &mock.url,
@@ -526,7 +526,7 @@ fn never_prompts_with_closed_stdin() {
     ]));
     assert_eq!(code, 3, "{err}");
     let (code, _, err) = quick(
-        s.quire_at(&mock.url, &fake_token(1))
+        s.wikanvas_at(&mock.url, &fake_token(1))
             .args(["--json", "doc", "put", ID, "--md", "-", "--force"]),
     );
     assert_eq!(code, 0, "{err}");
@@ -536,12 +536,12 @@ fn never_prompts_with_closed_stdin() {
         "an empty stdin is an empty document"
     );
     let (code, _, _) = quick(
-        s.quire_at(&mock.url, &fake_token(1))
+        s.wikanvas_at(&mock.url, &fake_token(1))
             .args(["--json", "trash", "purge", ID]),
     );
     assert_eq!(code, 2, "no --yes: no question asked either");
     let (code, _, _) = quick(
-        s.quire_at(&mock.url, &fake_token(1))
+        s.wikanvas_at(&mock.url, &fake_token(1))
             .args(["--json", "board", "put", ID, "-"]),
     );
     assert_eq!(code, 2);
@@ -553,7 +553,7 @@ fn debug_never_prints_authorization() {
     let mock = Mock::always(Reply::json(200, &json!({"user": {}, "auth": {}})));
     let token = fake_token(3);
     for json_flag in [true, false] {
-        let mut cmd = s.quire_at(&mock.url, &token);
+        let mut cmd = s.wikanvas_at(&mock.url, &token);
         cmd.args(["--debug", "auth", "whoami"]);
         if json_flag {
             cmd.arg("--json");
@@ -583,7 +583,7 @@ fn debug_never_prints_authorization() {
 
 #[test]
 fn help_json_lists_every_command() {
-    let (code, v, err) = run_json(Sandbox::new().quire().args(["help", "--json"]));
+    let (code, v, err) = run_json(Sandbox::new().wikanvas().args(["help", "--json"]));
     assert_eq!(code, 0, "{err}");
     fn walk(v: &Value, out: &mut BTreeSet<String>) {
         match v["commands"].as_array() {
@@ -621,20 +621,20 @@ fn help_json_lists_every_command() {
     // One command's subtree, and the human form.
     let (code, v, _) = run_json(
         Sandbox::new()
-            .quire()
+            .wikanvas()
             .args(["help", "doc", "put", "--json"]),
     );
     assert_eq!(code, 0);
     assert_eq!(v["path"], "doc put");
     assert!(v["one_of"].to_string().contains("--force"), "{v}");
     let out = Sandbox::new()
-        .quire()
+        .wikanvas()
         .args(["help", "doc", "put"])
         .assert()
         .success();
     assert!(String::from_utf8_lossy(&out.get_output().stdout).contains("--if-match"));
     Sandbox::new()
-        .quire()
+        .wikanvas()
         .args(["help", "nope"])
         .assert()
         .code(2);
@@ -659,7 +659,7 @@ fn all_truncation_keeps_next_cursor() {
     });
     let s = Sandbox::new();
     let (code, v, err) = run_json(
-        s.quire_at(&mock.url, &fake_token(1))
+        s.wikanvas_at(&mock.url, &fake_token(1))
             .args(["--json", "list", "recent", "--all"]),
     );
     assert_eq!(code, 0, "{err}");
@@ -692,7 +692,7 @@ fn all_truncation_keeps_next_cursor() {
         Reply::json(200, &json!({"items": items, "next_cursor": next}))
     });
     let (code, v, err) = run_json(
-        s.quire_at(&ending.url, &fake_token(1))
+        s.wikanvas_at(&ending.url, &fake_token(1))
             .args(["--json", "search", "x", "--all", "--limit", "50"]),
     );
     assert_eq!((code, err.as_str()), (0, ""));
@@ -707,7 +707,7 @@ fn all_truncation_keeps_next_cursor() {
             Reply::error(500, "internal")
         }
     });
-    let (code, v, err) = run_json(s.quire_at(&failing.url, &fake_token(1)).args([
+    let (code, v, err) = run_json(s.wikanvas_at(&failing.url, &fake_token(1)).args([
         "--json",
         "list",
         "drafts",
@@ -733,11 +733,11 @@ fn api_version_older_warns_once() {
     let mock = Mock::start(|_, i| {
         let next = if i == 0 { json!("c1") } else { Value::Null };
         Reply::json(200, &json!({"items": [summary()], "next_cursor": next}))
-            .with("Quire-Api-Version", "0.9")
+            .with("Wikanvas-Api-Version", "0.9")
     });
     let s = Sandbox::new();
     let (code, v, err) = run_json(
-        s.quire_at(&mock.url, &fake_token(1))
+        s.wikanvas_at(&mock.url, &fake_token(1))
             .args(["--json", "list", "recent", "--all"]),
     );
     assert_eq!(code, 0, "{err}");
@@ -746,13 +746,13 @@ fn api_version_older_warns_once() {
     let w = warnings(&err, "api_version_older");
     assert_eq!(w.len(), 1, "once per command: {err}");
     assert_eq!(w[0]["warning"]["details"]["server"], "0.9");
-    assert_eq!(w[0]["warning"]["details"]["cli"], quire_api::API_VERSION);
+    assert_eq!(w[0]["warning"]["details"]["cli"], wikanvas_api::API_VERSION);
     // The same version, or a newer one: no warning.
-    for version in [quire_api::API_VERSION, "1.9"] {
-        let mock = Mock::always(Reply::json(200, &json!([])).with("Quire-Api-Version", version));
+    for version in [wikanvas_api::API_VERSION, "1.9"] {
+        let mock = Mock::always(Reply::json(200, &json!([])).with("Wikanvas-Api-Version", version));
         let (code, _, err) =
             run_json(
-                s.quire_at(&mock.url, &fake_token(1))
+                s.wikanvas_at(&mock.url, &fake_token(1))
                     .args(["--json", "collection", "list"]),
             );
         assert_eq!((code, err.as_str()), (0, ""), "{version}");
@@ -780,7 +780,7 @@ fn human_output_escapes_control_characters() {
             .count()
     };
     let out = s
-        .quire_at(&mock.url, &fake_token(1))
+        .wikanvas_at(&mock.url, &fake_token(1))
         .args(["collection", "list"])
         .output()
         .unwrap();
@@ -789,7 +789,7 @@ fn human_output_escapes_control_characters() {
     assert_eq!(controls(&stdout), 0, "{stdout:?}");
     assert!(stdout.contains("\\u{1b}[31mred"), "{stdout:?}");
     let out = s
-        .quire_at(&mock.url, &fake_token(1))
+        .wikanvas_at(&mock.url, &fake_token(1))
         .args(["item", "get", ID])
         .output()
         .unwrap();
@@ -799,7 +799,7 @@ fn human_output_escapes_control_characters() {
     assert!(stderr.contains("\\u{9b}2J"), "{stderr:?}");
     // --json keeps the body unchanged.
     let out = s
-        .quire_at(&mock.url, &fake_token(1))
+        .wikanvas_at(&mock.url, &fake_token(1))
         .args(["--json", "collection", "list"])
         .output()
         .unwrap();

@@ -2,7 +2,7 @@
 // [icon/caret][name][hover: sort ⇅, +, ⋯] or an item row [indent][caret][kind icon][title][hover: +, ⋯]. Rows are
 // ARIA treeitems with a roving tabindex; the label is a link, so middle-click and Mod+click open a new tab. Each row is a
 // pragmatic-dnd draggable and drop target; CollectionsTree's monitor decides what a drop means. A document row also
-// carries native drag data (`application/x-quire-item`, docs/ARCHITECTURE.md §18.6 (c)), which only another document
+// carries native drag data (`application/x-wikanvas-item`, docs/ARCHITECTURE.md §18.6 (c)), which only another document
 // reads: the board frame, where dropping it places a card. The tree's own drag and drop is unchanged.
 import { combine } from '@atlaskit/pragmatic-drag-and-drop/combine';
 import { draggable, dropTargetForElements } from '@atlaskit/pragmatic-drag-and-drop/adapter/element-adapter';
@@ -92,8 +92,8 @@ export function TreeRow(props: TreeRowProps) {
     const element = el.current;
     if (!element || renaming) return;
     const data = row.kind === 'item'
-      ? { quireDrag: DRAG_ITEM, itemId: row.key, collectionId }
-      : { quireDrag: DRAG_COLLECTION, collectionId };
+      ? { wikanvasDrag: DRAG_ITEM, itemId: row.key, collectionId }
+      : { wikanvasDrag: DRAG_COLLECTION, collectionId };
     const id = row.key;
     return combine(
       draggable({
@@ -105,8 +105,8 @@ export function TreeRow(props: TreeRowProps) {
       }),
       dropTargetForElements({
         element,
-        getData: () => ({ quireRow: row.key }),
-        canDrop: ({ source }) => source.data.quireDrag === DRAG_ITEM || source.data.quireDrag === DRAG_COLLECTION,
+        getData: () => ({ wikanvasRow: row.key }),
+        canDrop: ({ source }) => source.data.wikanvasDrag === DRAG_ITEM || source.data.wikanvasDrag === DRAG_COLLECTION,
       }),
     );
   }, [row.key, row.kind, isDoc, collectionId, renaming]);

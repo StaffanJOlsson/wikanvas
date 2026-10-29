@@ -1,13 +1,13 @@
 //! Shared test setup: a temp-file database with migrations applied, opened through Db (owner: W1).
 //!
-//! `TestDb::new()` makes a temp data directory, opens `quire.db` in it through [`Db`] (WAL, the §5 PRAGMAs, the real
+//! `TestDb::new()` makes a temp data directory, opens `wikanvas.db` in it through [`Db`] (WAL, the §5 PRAGMAs, the real
 //! writer and reader pools), runs [`migrate::run`], and roots a [`BlobStore`] at the same directory. Tests are
 //! `#[tokio::test]` because `Db::write` and `Db::read` are async. The directory is removed when the `TestDb` drops.
 
 use std::path::Path;
 
-use quire_core::api::{Collection, ItemKind, ItemSummary, NewCollection, NewItem, Role};
-use quire_store::{BlobStore, Db, DbOptions, ItemRow, Viewer, migrate};
+use wikanvas_core::api::{Collection, ItemKind, ItemSummary, NewCollection, NewItem, Role};
+use wikanvas_store::{BlobStore, Db, DbOptions, ItemRow, Viewer, migrate};
 use uuid::Uuid;
 
 /// A fixed "now": 2026-10-28T09:30:00Z.
@@ -25,7 +25,7 @@ impl TestDb {
     /// A new, migrated database in a temp directory.
     pub fn new() -> TestDb {
         let dir = tempfile::tempdir().expect("temp dir");
-        let db = Db::open(dir.path().join("quire.db"), DbOptions::default()).expect("open db");
+        let db = Db::open(dir.path().join("wikanvas.db"), DbOptions::default()).expect("open db");
         let migrated = migrate::run(&db, dir.path(), NOW).expect("migrate");
         assert_eq!((migrated.from, migrated.backup.as_ref()), (0, None));
         assert_eq!(migrated.to, migrate::latest());
@@ -33,14 +33,14 @@ impl TestDb {
         TestDb { db, blobs, dir }
     }
 
-    /// The data directory (holds `quire.db`, `files/`, `tmp/`, `backups/`).
+    /// The data directory (holds `wikanvas.db`, `files/`, `tmp/`, `backups/`).
     pub fn data_dir(&self) -> &Path {
         self.dir.path()
     }
 
     /// Inserts the owner (raw SQL, as the server's harness does) and returns its id.
     pub async fn owner(&self) -> String {
-        self.user("owner", "owner@quire.invalid").await
+        self.user("owner", "owner@wikanvas.invalid").await
     }
 
     /// Inserts a user with `role` and returns its id.
@@ -69,7 +69,7 @@ impl TestDb {
             ..Default::default()
         };
         self.db
-            .write(move |tx| quire_store::collections::create(tx, &actor, &new, NOW))
+            .write(move |tx| wikanvas_store::collections::create(tx, &actor, &new, NOW))
             .await
             .expect("create collection")
     }
@@ -92,7 +92,7 @@ impl TestDb {
             position: None,
         };
         self.db
-            .write(move |tx| quire_store::items::create(tx, &actor, &new, false, NOW))
+            .write(move |tx| wikanvas_store::items::create(tx, &actor, &new, false, NOW))
             .await
             .expect("create item")
     }
@@ -110,23 +110,23 @@ impl TestDb {
     /// Runs `f` in a writer transaction.
     pub async fn w<T: Send + 'static>(
         &self,
-        f: impl FnOnce(&rusqlite::Transaction<'_>) -> quire_store::Result<T> + Send + 'static,
-    ) -> quire_store::Result<T> {
+        f: impl FnOnce(&rusqlite::Transaction<'_>) -> wikanvas_store::Result<T> + Send + 'static,
+    ) -> wikanvas_store::Result<T> {
         self.db.write(f).await
     }
 
     /// Runs `f` on a reader.
     pub async fn r<T: Send + 'static>(
         &self,
-        f: impl FnOnce(&rusqlite::Connection) -> quire_store::Result<T> + Send + 'static,
-    ) -> quire_store::Result<T> {
+        f: impl FnOnce(&rusqlite::Connection) -> wikanvas_store::Result<T> + Send + 'static,
+    ) -> wikanvas_store::Result<T> {
         self.db.read(f).await
     }
 
     /// The `items` row of `id`.
     pub async fn row(&self, id: Uuid) -> ItemRow {
         let id = id.to_string();
-        self.r(move |c| quire_store::shared::item_row(c, &id))
+        self.r(move |c| wikanvas_store::shared::item_row(c, &id))
             .await
             .expect("item row")
     }
@@ -134,7 +134,7 @@ impl TestDb {
     /// The titles of a collection's tree, in tree order.
     pub async fn tree_titles(&self, owner: &str, collection: Uuid) -> Vec<String> {
         let (v, c) = (viewer(owner), collection.to_string());
-        self.r(move |conn| quire_store::tree::collection_tree(conn, &v, &c))
+        self.r(move |conn| wikanvas_store::tree::collection_tree(conn, &v, &c))
             .await
             .expect("tree")
             .items
@@ -171,12 +171,12 @@ pub async fn count(t: &TestDb, sql: &'static str, param: String) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use quire_core::api::ErrorCode;
+    use wikanvas_core::api::ErrorCode;
 
     #[tokio::test]
     async fn harness_db_is_migrated_with_the_pragmas() {
         let t = TestDb::new();
-        assert!(t.data_dir().join("quire.db").exists());
+        assert!(t.data_dir().join("wikanvas.db").exists());
         let (mode, fk, version, query_only) = t
             .db
             .write(|tx| {
@@ -222,7 +222,7 @@ mod tests {
         let e =
             t.db.write(|tx| {
                 tx.execute("INSERT INTO settings (key, value) VALUES ('x', '1')", [])?;
-                Err::<(), _>(quire_store::Error::validation("x", "fail after the insert"))
+                Err::<(), _>(wikanvas_store::Error::validation("x", "fail after the insert"))
             })
             .await
             .unwrap_err();

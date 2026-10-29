@@ -1,11 +1,12 @@
 //! Board SVG previews, per page and revision (owner: W6)
 //!
-//! `board_previews` holds one row per rendered page of a board: the deflated SVG of `quire_core::board::Previewer`
+//! `board_previews` holds one row per rendered page of a board: the deflated SVG of `wikanvas_core::board::Previewer`
 //! (NULL for an empty page), its uncompressed length, and the board revision it was made from; a row whose `rev` is
 //! not `board_state.rev` is stale (§5, D10). A render always stores page 0, then the pages in order until the board's
 //! preview budget is spent: a page after that has no row at that revision and counts as [`Preview::Omitted`]. The
-//! preview worker and the on-demand render of `GET …/board/pages/{n}` (quire-server `board_previews`) deflate the pages
-//! outside the writer ([`PageSvg::new`]) and store them with [`store`]; the route reads them with [`state`] and [`get`].
+//! preview worker and the on-demand render of `GET …/board/pages/{n}` (wikanvas-server `board_previews`) deflate the
+//! pages outside the writer ([`PageSvg::new`]) and store them with [`store`]; the route reads them with [`state`] and
+//! [`get`].
 
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 

@@ -1,6 +1,6 @@
 [package]
-name = "quire-server"
-description = "Quire's HTTP server (axum) and its admin commands; binary quire-server. Links no TLS stack (D29)."
+name = "wikanvas-server"
+description = "Wikanvas's HTTP server (axum) and its admin commands; binary wikanvas-server. Links no TLS stack (D29)."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,18 +8,18 @@ license.workspace = true
 publish = false
 
 [[bin]]
-name = "quire-server"
+name = "wikanvas-server"
 path = "src/main.rs"
 
 [features]
-# quire_server::testing::TestServer, for the CLI's tests (crates/quire-cli/tests/cli).
+# wikanvas_server::testing::TestServer, for the CLI's tests (crates/wikanvas-cli/tests/cli).
 testing = ["dep:tempfile"]
 
 [dependencies]
-quire-api.workspace = true
-quire-core.workspace = true
-quire-store.workspace = true
-quire-assets.workspace = true
+wikanvas-api.workspace = true
+wikanvas-core.workspace = true
+wikanvas-store.workspace = true
+wikanvas-assets.workspace = true
 inkboard-core.workspace = true
 rusqlite.workspace = true
 axum.workspace = true

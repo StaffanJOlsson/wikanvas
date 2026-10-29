@@ -1,4 +1,4 @@
-//! The `quire tree` command (owner: W8)
+//! The `wikanvas tree` command (owner: W8)
 
 use super::{Ctx, Res, print_json_text};
 use crate::args::TreeArgs;

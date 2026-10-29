@@ -1,4 +1,4 @@
-//! The `quire admin …` passthrough to `quire-server admin …` (owner: W8)
+//! The `wikanvas admin …` passthrough to `wikanvas-server admin …` (owner: W8)
 
 use std::os::unix::fs::PermissionsExt;
 
@@ -22,13 +22,13 @@ fn stub(s: &Sandbox, name: &str, exit: u8) -> std::path::PathBuf {
 }
 
 #[test]
-fn passthrough_execs_quire_server_with_args_and_exit_code() {
+fn passthrough_execs_wikanvas_server_with_args_and_exit_code() {
     let s = Sandbox::new();
-    let bin = stub(&s, "fake-quire-server", 7);
+    let bin = stub(&s, "fake-wikanvas-server", 7);
     let log = s.path().join("args.log");
     let out = s
-        .quire()
-        .env("QUIRE_SERVER_BIN", &bin)
+        .wikanvas()
+        .env("WIKANVAS_SERVER_BIN", &bin)
         .args([
             "admin",
             "create-token",
@@ -58,8 +58,8 @@ fn passthrough_execs_quire_server_with_args_and_exit_code() {
         &["--json", "admin", "list-tokens"][..],
         &["admin", "list-tokens", "--json"][..],
     ] {
-        s.quire()
-            .env("QUIRE_SERVER_BIN", &bin)
+        s.wikanvas()
+            .env("WIKANVAS_SERVER_BIN", &bin)
             .args(args)
             .assert()
             .code(7);
@@ -69,25 +69,25 @@ fn passthrough_execs_quire_server_with_args_and_exit_code() {
     }
     // Success passes through as success.
     let ok = stub(&s, "ok-server", 0);
-    s.quire()
-        .env("QUIRE_SERVER_BIN", &ok)
+    s.wikanvas()
+        .env("WIKANVAS_SERVER_BIN", &ok)
         .args(["admin", "check"])
         .assert()
         .success();
-    // Next to the quire binary.
+    // Next to the wikanvas binary.
     let dir = s.path().join("bin");
     std::fs::create_dir_all(&dir).unwrap();
-    let quire = dir.join("quire");
-    std::fs::copy(env!("CARGO_BIN_EXE_quire"), &quire).unwrap();
-    std::fs::copy(&ok, dir.join("quire-server")).unwrap();
+    let wikanvas = dir.join("wikanvas");
+    std::fs::copy(env!("CARGO_BIN_EXE_wikanvas"), &wikanvas).unwrap();
+    std::fs::copy(&ok, dir.join("wikanvas-server")).unwrap();
     std::fs::set_permissions(
-        dir.join("quire-server"),
+        dir.join("wikanvas-server"),
         std::fs::Permissions::from_mode(0o755),
     )
     .unwrap();
     // A fresh copy: run through `spawn_output`, which retries a spawn that finds it busy (ETXTBSY).
     spawn_output(
-        s.quire_bin(&quire)
+        s.wikanvas_bin(&wikanvas)
             .env("PATH", "")
             .args(["admin", "backup"]),
     )
@@ -97,16 +97,16 @@ fn passthrough_execs_quire_server_with_args_and_exit_code() {
 }
 
 #[test]
-fn missing_quire_server_exit_3() {
+fn missing_wikanvas_server_exit_3() {
     let s = Sandbox::new();
-    // A copy of quire with no quire-server beside it, QUIRE_SERVER_BIN unset and an empty PATH.
+    // A copy of wikanvas with no wikanvas-server beside it, WIKANVAS_SERVER_BIN unset and an empty PATH.
     let dir = s.path().join("alone");
     std::fs::create_dir_all(&dir).unwrap();
-    let quire = dir.join("quire");
-    std::fs::copy(env!("CARGO_BIN_EXE_quire"), &quire).unwrap();
+    let wikanvas = dir.join("wikanvas");
+    std::fs::copy(env!("CARGO_BIN_EXE_wikanvas"), &wikanvas).unwrap();
     let (code, out, err) =
         run_json(
-            s.quire_bin(&quire)
+            s.wikanvas_bin(&wikanvas)
                 .env("PATH", "")
                 .args(["--json", "admin", "list-tokens"]),
         );
@@ -118,7 +118,7 @@ fn missing_quire_server_exit_3() {
         e["error"]["message"]
             .as_str()
             .unwrap()
-            .contains("quire-server not found"),
+            .contains("wikanvas-server not found"),
         "{e}"
     );
 }

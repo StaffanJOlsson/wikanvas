@@ -61,10 +61,10 @@ export default function Setup() {
   const fieldError = (f: string) => (error?.field === f ? <span className="field-error" role="alert">{error.message}</span> : null);
 
   return (
-    <AuthLayout title="Set up Quire">
+    <AuthLayout title="Set up Wikanvas">
       <form className="form" onSubmit={(e) => void submit(e)}>
         <p className="form-note">
-          The setup code is in the server log (“First-run setup: … code …”), or in <code>QUIRE_SETUP_TOKEN</code>.
+          The setup code is in the server log (“First-run setup: … code …”), or in <code>WIKANVAS_SETUP_TOKEN</code>.
         </p>
         <label className="field">
           <span>Setup code</span>

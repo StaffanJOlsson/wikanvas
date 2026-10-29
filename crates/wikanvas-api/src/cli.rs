@@ -1,9 +1,9 @@
-//! The exit-code contract of the `quire` CLI and of `quire-server admin` (ARCHITECTURE §7.7). Changing a code is a
-//! new major CLI version; `docs/AGENTS.md` repeats the table (owner: W8).
+//! The exit-code contract of the `wikanvas` CLI and of `wikanvas-server admin` (ARCHITECTURE §7.7). Changing a code is
+//! a new major CLI version; `docs/AGENTS.md` repeats the table (owner: W8).
 
 use serde::{Deserialize, Serialize};
 
-/// A process exit code of `quire` and `quire-server admin`.
+/// A process exit code of `wikanvas` and `wikanvas-server admin`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(u8)]
 pub enum ExitCode {
@@ -22,7 +22,7 @@ pub enum ExitCode {
     ServerError = 12,
 }
 
-/// One row of `quire exit-codes --json`: `{"code": 0, "name": "success", "meaning": "Success"}`.
+/// One row of `wikanvas exit-codes --json`: `{"code": 0, "name": "success", "meaning": "Success"}`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExitCodeInfo {
     pub code: u8,
@@ -107,7 +107,7 @@ impl ExitCode {
             ExitCode::Configuration => {
                 "No URL or token; a malformed token (prefix, length or checksum); a token not bound to the URL; an \
                  unreadable or group-readable profile; plain HTTP to a non-loopback host; no CA bundle; a 3xx \
-                 redirect; quire-server not found for admin; 421 host_not_allowed"
+                 redirect; wikanvas-server not found for admin; 421 host_not_allowed"
             }
             ExitCode::Network => {
                 "DNS, connection refused, TLS failure, timeout or reset; details.sent says whether a write may have \
@@ -161,7 +161,7 @@ impl ExitCode {
         }
     }
 
-    /// The row of `quire exit-codes --json`.
+    /// The row of `wikanvas exit-codes --json`.
     pub fn info(self) -> ExitCodeInfo {
         ExitCodeInfo {
             code: self.code(),

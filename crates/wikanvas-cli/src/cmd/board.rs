@@ -1,4 +1,4 @@
-//! The `quire board` commands: the native Inkboard envelope, and page previews (owner: W8)
+//! The `wikanvas board` commands: the native Inkboard envelope, and page previews (owner: W8)
 //!
 //! Boards are read and written as the envelope the server stores (§6.2, §7.5): the CLI never parses it, so unknown
 //! fields survive both ways.

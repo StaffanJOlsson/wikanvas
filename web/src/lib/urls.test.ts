@@ -49,7 +49,7 @@ describe('urls', () => {
   it('inkboardBase reads config.inkboard.base, and null without an engine', () => {
     const inkboard = {
       base: '/inkboard/0123456789ab/',
-      engine_version: '0.2.0-beta.3+embed.quire.1',
+      engine_version: '0.2.0-beta.3+embed.wikanvas.1',
       format_version: 2,
       wasm_bytes: { raw: 1, br: 1, gz: 1 },
     };

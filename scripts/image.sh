@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Builds the production image quire:<commit> and quire:latest (the runtime target of docker/Dockerfile) with the capped
-# quire-limited builder, under the build lock (docs/ARCHITECTURE.md §13.1, §13.2).
+# Builds the production image wikanvas:<commit> and wikanvas:latest (the runtime target of docker/Dockerfile) with the
+# capped wikanvas-limited builder, under the build lock (docs/ARCHITECTURE.md §13.1, §13.2).
 #   scripts/image.sh                                   # full build: web app, Inkboard engine, server, CLI
 #   scripts/image.sh --build-arg INKBOARD_BUILD=stub   # with the placeholder engine dist (scripts/inkboard.sh stub)
 # Extra arguments go to `docker buildx build` unchanged. The tag is `git rev-parse --short HEAD` (nocommit outside
 # git), plus -dirty when `git status --porcelain` is not empty; it is also the image's
-# org.opencontainers.image.revision label and QUIRE_COMMIT, so scripts/agent-test.sh can refuse a stale image.
+# org.opencontainers.image.revision label and WIKANVAS_COMMIT, so scripts/agent-test.sh can refuse a stale image.
 # The builder is set up or checked first (scripts/toolchain.sh --builder-only): a builder whose caps or cgroup parent
 # drifted stops the build with the recreate instruction.
 set -euo pipefail
@@ -25,12 +25,12 @@ if [ "$tag" != nocommit ] && [ -n "$(git -C "$root" status --porcelain 2>/dev/nu
   tag="$tag-dirty"
 fi
 
-quire_lock || exit 1
-# Nested under the lock (QUIRE_LOCK_HELD): it never waits for it again.
+wikanvas_lock || exit 1
+# Nested under the lock (WIKANVAS_LOCK_HELD): it never waits for it again.
 "$root/scripts/toolchain.sh" --builder-only
 
 cd "$root"
-docker buildx build --builder quire-limited --load -f docker/Dockerfile --target runtime \
-  --build-arg QUIRE_COMMIT="$tag" --label org.opencontainers.image.revision="$tag" \
-  -t "quire:$tag" -t quire:latest "$@" .
-echo "built quire:$tag and quire:latest" >&2
+docker buildx build --builder wikanvas-limited --load -f docker/Dockerfile --target runtime \
+  --build-arg WIKANVAS_COMMIT="$tag" --label org.opencontainers.image.revision="$tag" \
+  -t "wikanvas:$tag" -t wikanvas:latest "$@" .
+echo "built wikanvas:$tag and wikanvas:latest" >&2

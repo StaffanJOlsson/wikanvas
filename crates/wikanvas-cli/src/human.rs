@@ -104,7 +104,7 @@ pub fn render(v: &Value) -> String {
     out
 }
 
-/// `quire tree`: the items indented under their parents, in the response's order.
+/// `wikanvas tree`: the items indented under their parents, in the response's order.
 pub fn tree(v: &Value) -> String {
     let items = v["items"].as_array().cloned().unwrap_or_default();
     let mut out = String::new();

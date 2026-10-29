@@ -1,23 +1,23 @@
-# Quire for agents: the `quire` CLI
+# Wikanvas for agents: the `wikanvas` CLI
 
-How an AI agent (or a script) reads and writes a Quire wiki. The contract behind it is docs/ARCHITECTURE.md §7.6
-(commands) and §7.7 (output and exit codes); `quire help --json` prints the same command tree.
+How an AI agent (or a script) reads and writes a Wikanvas wiki. The contract behind it is docs/ARCHITECTURE.md §7.6
+(commands) and §7.7 (output and exit codes); `wikanvas help --json` prints the same command tree.
 
 ## 1. What the CLI is and where it runs
 
-`quire` is the command-line client of Quire's HTTP API (`/api/v1`). Every API operation has a command, except a few
-web-only ones, which `quire api` still reaches. It never prompts, opens a browser or a pager, or prints colour: content
-comes from a file argument or from stdin (`-`).
+`wikanvas` is the command-line client of Wikanvas's HTTP API (`/api/v1`). Every API operation has a command, except a
+few web-only ones, which `wikanvas api` still reaches. It never prompts, opens a browser or a pager, or prints colour:
+content comes from a file argument or from stdin (`-`).
 
 - **In the image.** The container holds both binaries. There the CLI needs no URL (it derives `http://127.0.0.1:8080`
-  from `QUIRE_LISTEN`), so `docker compose exec -e QUIRE_TOKEN quire quire …` drives the API, and
-  `docker compose exec quire quire admin …` runs the server's admin commands without a token.
-- **Standalone.** `scripts/cli-dist.sh` builds a static binary, `dist/cli/quire-x86_64-unknown-linux-musl`, for any
+  from `WIKANVAS_LISTEN`), so `docker compose exec -e WIKANVAS_TOKEN wikanvas wikanvas …` drives the API, and
+  `docker compose exec wikanvas wikanvas admin …` runs the server's admin commands without a token.
+- **Standalone.** `scripts/cli-dist.sh` builds a static binary, `dist/cli/wikanvas-x86_64-unknown-linux-musl`, for any
   x86_64 Linux (with its `.sha256`, the licences and `THIRD_PARTY.md`).
 
 ## 2. Cheat sheet
 
-`ITEM` and `COLL` are a UUID, a `url_id` (10 letters and digits) or a Quire URL (`…/doc/<slug>-<url_id>`). A position
+`ITEM` and `COLL` are a UUID, a `url_id` (10 letters and digits) or a Wikanvas URL (`…/doc/<slug>-<url_id>`). A position
 is `--after REF` or `--before REF` (neither: last). Lists take `--limit N`, `--cursor C` and `--all` (follows
 `next_cursor` up to 10,000 items, then prints the real `next_cursor` with a `truncated` warning). Items are published on
 create; `item unpublish` makes a draft (D23).
@@ -40,23 +40,23 @@ create; `item unpublish` makes a draft (D23).
 | attachment | `attachment upload F\|- [--item ITEM] [--filename N]`, `attachment get ID --out F` | `{id, url, sha256, mime, size, width, height}`; `{path, bytes, sha256, content_type}` |
 | export, backup | `export --out F` (a tar), `backup` (a file on the server) | `{path, bytes, sha256, content_type}`; `{path, size}` |
 | api | `api METHOD PATH [--input F\|-] [--header K:V]… [--out F]` (PATH under `/api/`, no `..`, no other host) | the body unchanged |
-| admin | `admin …`: runs `quire-server admin …` (`create-owner`, `create-token`, `list-tokens`, `revoke-token`, `reset-password`, `backup`, `check`) | `create-owner`: `{user, workspace, generated_password}`; `create-token`: `{token, api_token}` or `{token_file, api_token}`; `list-tokens`: `[ApiToken]`; `revoke-token`: `{revoked}`; `reset-password`: `{user, password, sessions_revoked, tokens_revoked}`; `backup`: `{path, size}`; `check`: `{ok, quick_check, foreign_key_violations, cycles, fts, missing_blobs}` (exit 1 when not ok) |
+| admin | `admin …`: runs `wikanvas-server admin …` (`create-owner`, `create-token`, `list-tokens`, `revoke-token`, `reset-password`, `backup`, `check`) | `create-owner`: `{user, workspace, generated_password}`; `create-token`: `{token, api_token}` or `{token_file, api_token}`; `list-tokens`: `[ApiToken]`; `revoke-token`: `{revoked}`; `reset-password`: `{user, password, sessions_revoked, tokens_revoked}`; `backup`: `{path, size}`; `check`: `{ok, quick_check, foreign_key_violations, cycles, fts, missing_blobs}` (exit 1 when not ok) |
 | version, help | `version`, `exit-codes`, `help [COMMAND…]` | `{cli, server}`; the table below; the command tree |
 
 ```sh
-quire --json config show
-quire --json collection get "$C"
-quire --json tree "$C"
-quire --json item move "$ID" --top
-quire --json item move "$ID" --before "$SIBLING"
-quire --json list drafts --all
-quire --json trash list
-quire --json attachment upload diagram.png --item "$ID"
-quire --json export --out export.tar
-quire --json api GET /api/v1/sidebar
-quire --json version
-quire exit-codes --json
-quire help --json doc put
+wikanvas --json config show
+wikanvas --json collection get "$C"
+wikanvas --json tree "$C"
+wikanvas --json item move "$ID" --top
+wikanvas --json item move "$ID" --before "$SIBLING"
+wikanvas --json list drafts --all
+wikanvas --json trash list
+wikanvas --json attachment upload diagram.png --item "$ID"
+wikanvas --json export --out export.tar
+wikanvas --json api GET /api/v1/sidebar
+wikanvas --json version
+wikanvas exit-codes --json
+wikanvas help --json doc put
 ```
 
 Content writes need `--if-match ETAG` (`d42`, `"d42"` and `W/"d42"` all work) or `--force`, and `trash purge` needs
@@ -72,33 +72,33 @@ A token is `qpat_` plus 46 characters, shown once. Get one in one of these ways:
 
 ```sh
 umask 077
-docker compose exec -T quire quire admin create-token --name agent --scope write --expires 1d > agent.token
+docker compose exec -T wikanvas wikanvas admin create-token --name agent --scope write --expires 1d > agent.token
 ```
 
   (`--token-out /tmp/agent.token` writes it to a 0600 file instead, inside the container);
 - with an admin token you already have:
 
 ```sh
-umask 077; quire --json token create --name agent --scope write --expires 1d | jq -r .token > agent.token
+umask 077; wikanvas --json token create --name agent --scope write --expires 1d | jq -r .token > agent.token
 ```
 
 Then pass it through the environment or a profile, never as an argument (there is no `--token` flag) or in shell
 history:
 
 ```sh
-export QUIRE_URL=https://wiki.example.org QUIRE_TOKEN_FILE="$PWD/agent.token"
-quire --json auth whoami
-quire --json auth login --url https://wiki.example.org --token-stdin < agent.token
+export WIKANVAS_URL=https://wiki.example.org WIKANVAS_TOKEN_FILE="$PWD/agent.token"
+wikanvas --json auth whoami
+wikanvas --json auth login --url https://wiki.example.org --token-stdin < agent.token
 ```
 
-`auth login` saves a profile (`~/.config/quire/config.toml`, 0600; `QUIRE_CONFIG` moves it). The URL and the token are
-resolved as a pair: a profile's token is never sent to a URL from somewhere else (that is exit 3), and `--profile P`
-ignores `QUIRE_URL`, `QUIRE_TOKEN` and `QUIRE_TOKEN_FILE`. Scopes: `read` (every GET except tokens, sessions and
-export), `write` (content and structure), `admin` (tokens, sessions, `me update`, workspace settings, purge, export,
+`auth login` saves a profile (`~/.config/wikanvas/config.toml`, 0600; `WIKANVAS_CONFIG` moves it). The URL and the token
+are resolved as a pair: a profile's token is never sent to a URL from somewhere else (that is exit 3), and `--profile P`
+ignores `WIKANVAS_URL`, `WIKANVAS_TOKEN` and `WIKANVAS_TOKEN_FILE`. Scopes: `read` (every GET except tokens, sessions
+and export), `write` (content and structure), `admin` (tokens, sessions, `me update`, workspace settings, purge, export,
 backup). A token never creates an `admin` token, and never one that outlives it: pass a shorter `--expires`.
-`auth logout --revoke` revokes the profile's own token at the profile's URL, never a `QUIRE_TOKEN` you exported. For a
-LAN install on Caddy's local CA, add `--ca-file quire-local-ca.crt`; plain `http://` works only for this machine (or
-with `QUIRE_ALLOW_HTTP=1`).
+`auth logout --revoke` revokes the profile's own token at the profile's URL, never a `WIKANVAS_TOKEN` you exported. For
+a LAN install on Caddy's local CA, add `--ca-file wikanvas-local-ca.crt`; plain `http://` works only for this machine
+(or with `WIKANVAS_ALLOW_HTTP=1`).
 
 ## 4. Always use `--json`
 
@@ -113,7 +113,7 @@ with `QUIRE_ALLOW_HTTP=1`).
   `cli_io`.
 
 ```sh
-quire --json item get "$ID" 2> err.jsonl || tail -n 1 err.jsonl | jq -r .error.code
+wikanvas --json item get "$ID" 2> err.jsonl || tail -n 1 err.jsonl | jq -r .error.code
 ```
 
 ## 5. Exit codes
@@ -123,7 +123,7 @@ quire --json item get "$ID" 2> err.jsonl || tail -n 1 err.jsonl | jq -r .error.c
 | 0 | Success | Read stdout. |
 | 1 | Unexpected error | A CLI bug or an unparseable response: report it, do not retry blindly. |
 | 2 | Usage | Fix the command: flags, a missing `--yes`, `--if-match`/`--force`, or a refused `api` path or header. |
-| 3 | Configuration | Fix the URL or token: none set, malformed, not bound to the URL, an unsafe profile file, plain HTTP, no CA bundle, a redirect (use the URL the error names), `quire-server` missing, or 421. |
+| 3 | Configuration | Fix the URL or token: none set, malformed, not bound to the URL, an unsafe profile file, plain HTTP, no CA bundle, a redirect (use the URL the error names), `wikanvas-server` missing, or 421. |
 | 4 | Network | If `error.details.sent` is false, retry. If true after a create, list first (the item may exist), then retry. |
 | 5 | Not authenticated | The token is unknown, expired or revoked: get a new one. |
 | 6 | Forbidden | The token lacks the scope (`details.required`), or the action needs a session: use another token. |
@@ -134,26 +134,26 @@ quire --json item get "$ID" 2> err.jsonl || tail -n 1 err.jsonl | jq -r .error.c
 | 11 | Rate limited | Wait (the CLI already honoured `Retry-After`), then retry more slowly. |
 | 12 | Server error | Retry later; report it if it persists (keep `request_id`). |
 
-`quire exit-codes --json` prints the same table.
+`wikanvas exit-codes --json` prints the same table.
 
 ## 6. A complete session
 
 ```sh
-export QUIRE_URL=https://wiki.example.org QUIRE_TOKEN_FILE="$PWD/agent.token"
-C=$(quire --json collection create --name "Agent scratch" | jq -r .id)
+export WIKANVAS_URL=https://wiki.example.org WIKANVAS_TOKEN_FILE="$PWD/agent.token"
+C=$(wikanvas --json collection create --name "Agent scratch" | jq -r .id)
 printf '# Plan\n\nFirst step.\n' > plan.md
-ID=$(quire --json item create --collection "$C" --kind doc --md plan.md --title-h1 | jq -r .item.id)
-ETAG=$(quire --json doc get "$ID" | jq -r .etag)
-quire --json doc get "$ID" | jq -j .content > plan.md
+ID=$(wikanvas --json item create --collection "$C" --kind doc --md plan.md --title-h1 | jq -r .item.id)
+ETAG=$(wikanvas --json doc get "$ID" | jq -r .etag)
+wikanvas --json doc get "$ID" | jq -j .content > plan.md
 printf '\nSecond step.\n' >> plan.md
-quire --json doc put "$ID" --md plan.md --if-match "$ETAG"
+wikanvas --json doc put "$ID" --md plan.md --if-match "$ETAG"
 printf '\nA third step, from another edit.\n' >> plan.md
-quire --json doc put "$ID" --md plan.md --if-match "$ETAG"
-quire --json doc put "$ID" --md plan.md --if-match "$ETAG" --merge
-quire --json search "third step" | jq -r '.items[0].item.title'
-quire --json star add "$ID"
-quire --json item trash "$ID"
-quire --json item restore "$ID"
+wikanvas --json doc put "$ID" --md plan.md --if-match "$ETAG"
+wikanvas --json doc put "$ID" --md plan.md --if-match "$ETAG" --merge
+wikanvas --json search "third step" | jq -r '.items[0].item.title'
+wikanvas --json star add "$ID"
+wikanvas --json item trash "$ID"
+wikanvas --json item restore "$ID"
 ```
 
 `item create` prints `{"item": {…, "title": "Plan"}, "doc": {"etag": "\"d1\"", …}}`. The first `doc put` prints
@@ -163,25 +163,26 @@ The third merges (`"merged": true`). `star add` prints the ok object; `item tras
 restore` brings it back. When done, trash what you created:
 
 ```sh
-quire --json collection delete "$C"
+wikanvas --json collection delete "$C"
 ```
 
 ## 7. Markdown, and JSON for exact structure
 
-- Quire Markdown 1 is CommonMark with GFM tables, task lists, strikethrough, autolinks, `==highlight==` and GitHub
+- Wikanvas Markdown 1 is CommonMark with GFM tables, task lists, strikethrough, autolinks, `==highlight==` and GitHub
   alerts (`> [!NOTE]`); raw HTML stays literal text except `<u>…</u>`.
 - The title is not in the body: `--title-h1` takes it from a leading `# Heading` (PUT) or prints it (GET).
 - Images are `![alt](/api/v1/attachments/ID)`; `doc put --attach-images` uploads the local images under the file's
-  directory (or `--base-dir`) and rewrites their URLs. Item links are `quire://item/<uuid>` or the item's Quire URL.
+  directory (or `--base-dir`) and rewrites their URLs. Item links are `wikanvas://item/<uuid>` or the item's Wikanvas
+  URL.
 - Some constructs are lossy (image widths, table spans, empty paragraphs, …): a PUT reports them in `warnings`, a GET
   in the `warnings` list. ARCHITECTURE §6.4 has the table.
-- For exact structure, write ProseMirror JSON: `quire doc schema` lists the nodes and marks, `doc get --format json`
+- For exact structure, write ProseMirror JSON: `wikanvas doc schema` lists the nodes and marks, `doc get --format json`
   reads it, and `doc put ITEM --json F --if-match E` writes `{"schema_version": 1, "doc": …}` or a bare
   `{"type": "doc", …}`.
 
 ```sh
-quire --json doc get "$ID" --format json | jq .content > doc.json
-quire --json doc put "$ID" --json doc.json --if-match "$ETAG"
+wikanvas --json doc get "$ID" --format json | jq .content > doc.json
+wikanvas --json doc put "$ID" --json doc.json --if-match "$ETAG"
 ```
 
 ## 8. Boards
@@ -193,9 +194,9 @@ and `crates/inkboard-core/src/{model,serial}.rs`. There is no import from draw.i
 in M1 (D52): build the envelope yourself and PUT it.
 
 ```sh
-quire --json board get "$B" | jq .content > board.json
-quire --json board put "$B" board.json --if-match r3
-quire --json board preview "$B" --page 0 --out page0.svg
+wikanvas --json board get "$B" | jq .content > board.json
+wikanvas --json board put "$B" board.json --if-match r3
+wikanvas --json board preview "$B" --page 0 --out page0.svg
 ```
 
 ### Embedded pages
@@ -237,9 +238,9 @@ this field order):
 - **The label is a title snapshot**: one bold span coloured `#1d2430` (sans, size 24, centred) holding the document's
   title without leading and trailing spaces, `"Untitled"` when nothing else is left (as the web client writes it; it
   also cuts a title longer than 200 characters to its first 200). Previews (`board preview`), the board's search text
-  (`item text`, `search`) and engines without Quire's patch show it; the web client shows the live title and refreshes
-  the snapshot when it next saves the board. Searching for a document's title also finds the boards it is on; a board's
-  text never holds the documents' bodies (each document is its own search hit).
+  (`item text`, `search`) and engines without Wikanvas's patch show it; the web client shows the live title and
+  refreshes the snapshot when it next saves the board. Searching for a document's title also finds the boards it is on;
+  a board's text never holds the documents' bodies (each document is its own search hit).
 - **Keep `embed`** when you rewrite a board through your own model of Inkboard's JSON: a model without the field drops
   it, and the card becomes a plain box. Edit the JSON (as with `jq` below) rather than rebuild it.
 - **Object ids** must be unique on their page: the engine keeps the first object with a given id and drops the rest.
@@ -256,7 +257,7 @@ this field order):
 A card for a new child document of the board `$B` (in collection `$C`), with Markdown from `notes.md`:
 
 ```sh
-DOC=$(quire --json item create --collection "$C" --kind doc --parent "$B" --title "Meeting notes" --md notes.md | jq -r .item.id)
+DOC=$(wikanvas --json item create --collection "$C" --kind doc --parent "$B" --title "Meeting notes" --md notes.md | jq -r .item.id)
 ```
 
 Then append a card for the document `$DOC` to page 0 of `$B`, to the right of the boxes already there (the same
@@ -264,8 +265,8 @@ commands work for any existing document):
 
 <!-- e2e/agent/scenarios/12-board-embeds.sh runs the next block as it is written: keep it a complete recipe. -->
 ```sh
-quire --json board get "$B" > got.json
-TITLE=$(quire --json item get "$DOC" | jq -r .item.title)
+wikanvas --json board get "$B" > got.json
+TITLE=$(wikanvas --json item get "$DOC" | jq -r .item.title)
 jq --arg doc "$DOC" --arg title "$TITLE" '
   .content
   | .document.pages[0] as $page
@@ -286,7 +287,7 @@ jq --arg doc "$DOC" --arg title "$TITLE" '
       style: {stroke: "#c4cad4", fill: "#ffffff", width: 1, dash: "solid", opacity: 1, roundness: 0.04, shadow: true},
       layer: ([$page.layers[] | select(.visible != false and .locked != true) | .id] | first // $page.layers[0].id // "main")
     }]' got.json > board.json
-quire --json board put "$B" - --if-match "$(jq -r .etag got.json)" < board.json
+wikanvas --json board put "$B" - --if-match "$(jq -r .etag got.json)" < board.json
 ```
 
 Exit 9 (`rev_mismatch`) means the board changed since the `board get`: run the recipe again. To remove a card, delete
@@ -296,22 +297,22 @@ the document stays.
 ## 9. The agent test harness
 
 `scripts/agent-test.sh` runs CLI scenarios (`e2e/agent/scenarios/NN-*.sh`) against the production image in a
-throwaway project (`quire-agent`, only the app, its data in memory). It never builds: run `scripts/image.sh` first.
+throwaway project (`wikanvas-agent`, only the app, its data in memory). It never builds: run `scripts/image.sh` first.
 
 - `scripts/agent-test.sh [run] [--scenario '03-*'] [--keep] [--allow-stale]`: prints TAP and writes
   `e2e/agent/results/report.json` (every token masked as `qpat_***`).
-- `scripts/agent-test.sh up --ttl 10`: leaves the app on `127.0.0.1:18080` (`QUIRE_AGENT_PORT`) for at most 15 minutes
-  and writes `.cache/agent-test/env` (`QUIRE_URL`, `QUIRE_TOKEN_FILE`) beside `read.token`, `write.token` and
-  `admin.token`; `status` shows the time left; `down` stops it. It holds the build lock meanwhile, so build a host CLI
-  with `scripts/cli-dist.sh` before `up`; `QUIRE_AGENT_CLI=dist/cli/quire-x86_64-unknown-linux-musl` makes `run` use it
-  (with none of your `QUIRE_*` variables and no profile file).
+- `scripts/agent-test.sh up --ttl 10`: leaves the app on `127.0.0.1:18080` (`WIKANVAS_AGENT_PORT`) for at most 15
+  minutes and writes `.cache/agent-test/env` (`WIKANVAS_URL`, `WIKANVAS_TOKEN_FILE`) beside `read.token`, `write.token`
+  and `admin.token`; `status` shows the time left; `down` stops it. It holds the build lock meanwhile, so build a host
+  CLI with `scripts/cli-dist.sh` before `up`; `WIKANVAS_AGENT_CLI=dist/cli/wikanvas-x86_64-unknown-linux-musl` makes
+  `run` use it (with none of your `WIKANVAS_*` variables and no profile file).
 - Exit codes: 0 every step passed, 1 a scenario failed, 2 usage, 3 a prerequisite is missing or the image is stale
   (rebuild, or `--allow-stale`), 4 the app did not become healthy.
 
 ```sh
 scripts/image.sh && scripts/agent-test.sh --scenario '0[1-3]-*'
 scripts/agent-test.sh up --ttl 10 && set -a && . .cache/agent-test/env && set +a
-quire --json sidebar
+wikanvas --json sidebar
 scripts/agent-test.sh down
 ```
 

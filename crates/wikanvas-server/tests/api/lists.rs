@@ -1,7 +1,7 @@
 //! List routes: page shape, cursor binding, the trash (owner: W1).
 
 use axum::http::StatusCode;
-use quire_api::{ErrorCode, TrashList};
+use wikanvas_api::{ErrorCode, TrashList};
 use serde_json::{Value, json};
 
 use crate::common::{TestApp, assert_error};

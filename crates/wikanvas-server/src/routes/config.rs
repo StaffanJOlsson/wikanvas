@@ -5,7 +5,7 @@
 
 use axum::Json;
 use axum::extract::State;
-use quire_api::Config;
+use wikanvas_api::Config;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
@@ -30,7 +30,7 @@ async fn get_config(State(state): State<AppState>) -> Result<Json<Config>, ApiEr
     Ok(Json(Config {
         version: env!("CARGO_PKG_VERSION").to_owned(),
         commit: crate::cli::commit().to_owned(),
-        api_version: quire_api::API_VERSION.to_owned(),
+        api_version: wikanvas_api::API_VERSION.to_owned(),
         openapi_url: "/api/v1/openapi.json".to_owned(),
         setup_required: !state.owner_exists().await?,
         multi_user: false,

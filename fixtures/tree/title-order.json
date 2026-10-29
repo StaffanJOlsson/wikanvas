@@ -1,5 +1,5 @@
 {
-  "about": "Sibling titles under child_order 'title' (A-Z), checked by quire_core::tree::title_key and the web client's titleKey (web/src/components/tree/buildTree.ts): 'sorted' is in strictly increasing order, each pair in 'equal' has the same key (ties go to sort_key, then id).",
+  "about": "Sibling titles under child_order 'title' (A-Z), checked by wikanvas_core::tree::title_key and the web client's titleKey (web/src/components/tree/buildTree.ts): 'sorted' is in strictly increasing order, each pair in 'equal' has the same key (ties go to sort_key, then id).",
   "sorted": [
     "!Important",
     "(draft)",

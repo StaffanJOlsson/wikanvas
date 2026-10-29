@@ -3,13 +3,13 @@
 # which scripts/agent-test.sh runs one by one with stdin from /dev/null. Never run it directly.
 #
 # The runner exports: AGENT_SCENARIO (the scenario's name), AGENT_ROOT (the repo), AGENT_RESULTS (results dir),
-# AGENT_STEPS (the JSON Lines step log), AGENT_COUNTER (the TAP counter file), AGENT_CID (the quire container) and,
-# with a host CLI, QUIRE_AGENT_CLI and AGENT_URL; and the three tokens AGENT_TOKEN_READ, AGENT_TOKEN_WRITE and
-# AGENT_TOKEN_ADMIN, which reach the CLI only through its environment (QUIRE_TOKEN), never through argv.
+# AGENT_STEPS (the JSON Lines step log), AGENT_COUNTER (the TAP counter file), AGENT_CID (the wikanvas container) and,
+# with a host CLI, WIKANVAS_AGENT_CLI and AGENT_URL; and the three tokens AGENT_TOKEN_READ, AGENT_TOKEN_WRITE and
+# AGENT_TOKEN_ADMIN, which reach the CLI only through its environment (WIKANVAS_TOKEN), never through argv.
 #
-#   q [--as read|write|admin] [--token T] ARGS…   quire --json ARGS…; sets $OUT_FILE, $OUT (text only), $ERR, $RC
-#   q_raw NAME [--as …] [--token T] ARGS…        quire ARGS… (no --json), stdout byte for byte to results/NAME
-#   q_admin ARGS…                                 quire --json admin ARGS… inside the container (no token)
+#   q [--as read|write|admin] [--token T] ARGS…   wikanvas --json ARGS…; sets $OUT_FILE, $OUT (text only), $ERR, $RC
+#   q_raw NAME [--as …] [--token T] ARGS…        wikanvas ARGS… (no --json), stdout byte for byte to results/NAME
+#   q_admin ARGS…                                 wikanvas --json admin ARGS… inside the container (no token)
 #   expect_rc N · expect 'JQ' · expect_err 'JQ'   checks on $RC, on $OUT_FILE (jq -e), on the last line of $ERR
 #   ok "name" [DETAIL]                            records the step as passed (TAP: ok N - scenario: name); a DETAIL
 #                                                 goes into the report too, masked like everything else
@@ -18,8 +18,9 @@
 # A failed check prints `not ok`, records the step with the failing command and excerpts, and ends the scenario
 # (exit 1). Every string written to the TAP output or the report has its tokens masked (qpat_***).
 #
-# A host CLI (QUIRE_AGENT_CLI) runs with no QUIRE_* variable of the caller's shell and with QUIRE_CONFIG pointing at a
-# file that never exists, so neither an exported QUIRE_PROFILE nor the caller's own profile file reaches a scenario.
+# A host CLI (WIKANVAS_AGENT_CLI) runs with no WIKANVAS_* variable of the caller's shell and with WIKANVAS_CONFIG
+# pointing at a file that never exists, so neither an exported WIKANVAS_PROFILE nor the caller's own profile file
+# reaches a scenario.
 
 set -u
 
@@ -92,7 +93,7 @@ _token_for() {
   esac
 }
 
-# _run JSON(0|1) STDOUT_FILE ARGS…: runs quire with the token of --as/--token, stdin forwarded.
+# _run JSON(0|1) STDOUT_FILE ARGS…: runs wikanvas with the token of --as/--token, stdin forwarded.
 _run() {
   local json="$1" outf="$2" as=write token="" errf="$AGENT_RESULTS/.err"
   shift 2
@@ -112,18 +113,18 @@ _run() {
   [ -n "$token" ] || token="$(_token_for "$as")"
   local -a flags=()
   [ "$json" = 1 ] && flags=(--json)
-  LAST_CMD="quire ${flags[*]} $* (as ${as})"
-  if [ -n "${QUIRE_AGENT_CLI:-}" ]; then
-    # Only the harness's URL and token: the caller's QUIRE_* variables and profile file stay out.
+  LAST_CMD="wikanvas ${flags[*]} $* (as ${as})"
+  if [ -n "${WIKANVAS_AGENT_CLI:-}" ]; then
+    # Only the harness's URL and token: the caller's WIKANVAS_* variables and profile file stay out.
     local -a unset=()
     local v
     for v in $(compgen -e); do
-      case "$v" in QUIRE_*) unset+=(-u "$v") ;; esac
+      case "$v" in WIKANVAS_*) unset+=(-u "$v") ;; esac
     done
-    env "${unset[@]}" QUIRE_CONFIG="$AGENT_RESULTS/.no-config.toml" QUIRE_URL="$AGENT_URL" QUIRE_TOKEN="$token" \
-      "$QUIRE_AGENT_CLI" "${flags[@]}" "$@" >"$outf" 2>"$errf"
+    env "${unset[@]}" WIKANVAS_CONFIG="$AGENT_RESULTS/.no-config.toml" WIKANVAS_URL="$AGENT_URL" WIKANVAS_TOKEN="$token" \
+      "$WIKANVAS_AGENT_CLI" "${flags[@]}" "$@" >"$outf" 2>"$errf"
   else
-    QUIRE_TOKEN="$token" docker exec -i -e QUIRE_TOKEN "$AGENT_CID" quire "${flags[@]}" "$@" >"$outf" 2>"$errf"
+    WIKANVAS_TOKEN="$token" docker exec -i -e WIKANVAS_TOKEN "$AGENT_CID" wikanvas "${flags[@]}" "$@" >"$outf" 2>"$errf"
   fi
   RC=$?
   ERR="$(cat "$errf")"
@@ -153,11 +154,11 @@ q_raw() {
   _run 0 "$AGENT_RESULTS/$name" "$@"
 }
 
-# The admin commands run inside the container (quire-server is there), with no token.
+# The admin commands run inside the container (wikanvas-server is there), with no token.
 q_admin() {
   local errf="$AGENT_RESULTS/.err"
-  LAST_CMD="quire --json admin $*"
-  docker exec -i "$AGENT_CID" quire --json admin "$@" >"$AGENT_RESULTS/.out" 2>"$errf"
+  LAST_CMD="wikanvas --json admin $*"
+  docker exec -i "$AGENT_CID" wikanvas --json admin "$@" >"$AGENT_RESULTS/.out" 2>"$errf"
   RC=$?
   ERR="$(cat "$errf")"
   OUT_FILE="$AGENT_RESULTS/.out"

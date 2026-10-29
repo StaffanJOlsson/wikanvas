@@ -7,7 +7,7 @@
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use quire_api::{
+use wikanvas_api::{
     Collection, CollectionDeleted, CollectionPatch, ErrorBody, MoveCollection, NewCollection,
 };
 use utoipa_axum::router::OpenApiRouter;
@@ -50,7 +50,7 @@ async fn list_collections(
     let viewer = auth.viewer();
     let list = state
         .db
-        .read(move |conn| quire_store::collections::list(conn, &viewer))
+        .read(move |conn| wikanvas_store::collections::list(conn, &viewer))
         .await?;
     Ok(Json(list))
 }
@@ -83,7 +83,7 @@ async fn create_collection(
     let now = now_ms();
     let collection = state
         .db
-        .write(move |tx| quire_store::collections::create(tx, &actor_id, &new, now))
+        .write(move |tx| wikanvas_store::collections::create(tx, &actor_id, &new, now))
         .await?;
     Ok((StatusCode::CREATED, Json(collection)))
 }
@@ -109,14 +109,14 @@ async fn get_collection(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<Collection>, ApiError> {
-    if uuid::Uuid::parse_str(&id).is_err() && !quire_core::ids::is_url_id(&id) {
+    if uuid::Uuid::parse_str(&id).is_err() && !wikanvas_core::ids::is_url_id(&id) {
         return Err(ApiError::not_found("no such collection"));
     }
     let collection = state
         .db
         .read(move |conn| {
-            let id = quire_store::collections::resolve(conn, &id)?;
-            quire_store::collections::get_live(conn, &id)
+            let id = wikanvas_store::collections::resolve(conn, &id)?;
+            wikanvas_store::collections::get_live(conn, &id)
         })
         .await?;
     Ok(Json(collection))
@@ -152,7 +152,7 @@ async fn patch_collection(
     let now = now_ms();
     let collection = state
         .db
-        .write(move |tx| quire_store::collections::update(tx, &id.to_string(), &patch, &actor, now))
+        .write(move |tx| wikanvas_store::collections::update(tx, &id.to_string(), &patch, &actor, now))
         .await?;
     Ok(Json(collection))
 }
@@ -187,7 +187,7 @@ async fn move_collection(
     let collection = state
         .db
         .write(move |tx| {
-            quire_store::collections::move_to(tx, &id.to_string(), &mv.position, &actor, now)
+            wikanvas_store::collections::move_to(tx, &id.to_string(), &mv.position, &actor, now)
         })
         .await?;
     Ok(Json(collection))
@@ -219,7 +219,7 @@ async fn delete_collection(
     let now = now_ms();
     let trashed_items = state
         .db
-        .write(move |tx| quire_store::collections::delete(tx, &id.to_string(), &actor, now))
+        .write(move |tx| wikanvas_store::collections::delete(tx, &id.to_string(), &actor, now))
         .await?;
     Ok(Json(CollectionDeleted { trashed_items }))
 }
@@ -249,7 +249,7 @@ async fn restore_collection(
     let now = now_ms();
     let collection = state
         .db
-        .write(move |tx| quire_store::collections::restore(tx, &id.to_string(), &actor, now))
+        .write(move |tx| wikanvas_store::collections::restore(tx, &id.to_string(), &actor, now))
         .await?;
     Ok(Json(collection))
 }

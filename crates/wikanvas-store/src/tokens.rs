@@ -1,21 +1,21 @@
 //! Personal access tokens: create, lookup, list and revoke (owner: W2).
 //!
 //! D42, §5 "Tokens", §7.3. A token is `qpat_` + 40 base62 characters from `getrandom` + a 6-character CRC32
-//! (`quire_api::token::encode`); only `sha256(token)` (32 bytes) and the 12-character display prefix are stored, and
+//! (`wikanvas_api::token::encode`); only `sha256(token)` (32 bytes) and the 12-character display prefix are stored, and
 //! scopes are stored expanded (`write` → read, write). A token is live when `revoked_at IS NULL AND (expires_at IS NULL
 //! OR expires_at > now)` and its user has no `disabled_at`. Create (with the parent caps and the 100-live-tokens
 //! limit), lookup with classification, list, revoke with children, the `last_used` write and the 30-day purge.
 //! Password checks for a session's `admin` or never-expiring token are the route's.
 
-use quire_core::api::token;
-use quire_core::api::{
+use wikanvas_core::api::token;
+use wikanvas_core::api::{
     ApiToken, CreatedToken, ErrorCode, MAX_EXPIRY_DAYS, MAX_LIVE_TOKENS, NewToken, Role, Scope,
     Timestamp,
 };
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use sha2::{Digest, Sha256};
 
-pub use quire_core::api::CreatedVia;
+pub use wikanvas_core::api::CreatedVia;
 
 use crate::error::{Error, Result};
 use crate::shared::{new_id, parse_uuid};
@@ -178,7 +178,7 @@ pub fn create(
 }
 
 /// Looks a presented token up by its sha256, with no liveness filter and no cache, and classifies it (§7.3). A
-/// string that fails `quire_api::token::check` is [`TokenLookup::Rejected`] without a query. Revoked, unknown and
+/// string that fails `wikanvas_api::token::check` is [`TokenLookup::Rejected`] without a query. Revoked, unknown and
 /// disabled-user tokens are all `Rejected`; an expired one is `Expired`.
 pub fn lookup(conn: &Connection, token: &str, now: i64) -> Result<TokenLookup> {
     if token::check(token).is_err() {

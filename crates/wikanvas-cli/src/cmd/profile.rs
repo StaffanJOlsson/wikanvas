@@ -1,4 +1,4 @@
-//! The `quire config show` and `quire config path` commands: local, no request (owner: W8)
+//! The `wikanvas config show` and `wikanvas config path` commands: local, no request (owner: W8)
 
 use serde_json::json;
 
@@ -22,7 +22,7 @@ pub fn run(ctx: &Ctx, cmd: ConfigCmd) -> Res {
             let prefix = r
                 .token
                 .as_deref()
-                .map(|t| quire_api::token::display_prefix(t).to_owned());
+                .map(|t| wikanvas_api::token::display_prefix(t).to_owned());
             if output::json() {
                 output::print_json(&json!({
                     "profile": r.profile,

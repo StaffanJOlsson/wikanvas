@@ -5,7 +5,7 @@
 
 use std::path::Path;
 
-use quire_core::api::{ErrorCode, ItemKind, ItemSummary, Role, Timestamp};
+use wikanvas_core::api::{ErrorCode, ItemKind, ItemSummary, Role, Timestamp};
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use uuid::Uuid;
 
@@ -259,17 +259,17 @@ pub(crate) fn parse_uuid(s: &str) -> Result<Uuid> {
 
 /// A new UUIDv7 primary key (D4), as stored.
 pub(crate) fn new_id() -> String {
-    quire_core::ids::new_uuid().to_string()
+    wikanvas_core::ids::new_uuid().to_string()
 }
 
-/// `n` random base62 characters ([`quire_core::ids::random_base62`]).
+/// `n` random base62 characters ([`wikanvas_core::ids::random_base62`]).
 pub(crate) fn random_base62(n: usize) -> Result<String> {
-    quire_core::ids::random_base62(n).map_err(|e| Error::internal("getrandom", e))
+    wikanvas_core::ids::random_base62(n).map_err(|e| Error::internal("getrandom", e))
 }
 
 /// A new `url_id`: 10 random base62 characters (D4).
 pub(crate) fn new_url_id() -> Result<String> {
-    quire_core::ids::new_url_id().map_err(|e| Error::internal("getrandom", e))
+    wikanvas_core::ids::new_url_id().map_err(|e| Error::internal("getrandom", e))
 }
 
 /// A JSON array of ids, for `… IN (SELECT value FROM json_each(?))`.
@@ -279,10 +279,10 @@ pub(crate) fn json_ids(ids: &[String]) -> Result<String> {
 
 /// The sort key for a new row among `siblings` (`(id, sort_key)` in key order), at `position` (both ids omitted:
 /// last). An id that is not a sibling gives 422 `validation` (`field: "position"`). The caller rebalances the group
-/// when the key is too long ([`quire_core::rank::needs_rebalance`]).
+/// when the key is too long ([`wikanvas_core::rank::needs_rebalance`]).
 pub(crate) fn place(
     siblings: &[(String, String)],
-    position: Option<&quire_core::api::Position>,
+    position: Option<&wikanvas_core::api::Position>,
 ) -> Result<String> {
     let find = |id: &Uuid| -> Result<usize> {
         let id = id.to_string();
@@ -319,26 +319,26 @@ pub(crate) fn place(
             (Some(siblings[i].1.as_str()), Some(siblings[j].1.as_str()))
         }
     };
-    Ok(quire_core::rank::key_between(lo, hi)?)
+    Ok(wikanvas_core::rank::key_between(lo, hi)?)
 }
 
-/// [`place`], and when the new key is longer than [`quire_core::rank::MAX_KEY_LEN`], a rebalance of the whole group
+/// [`place`], and when the new key is longer than [`wikanvas_core::rank::MAX_KEY_LEN`], a rebalance of the whole group
 /// first (§5 "Sort keys"): `load` reads the group (`(id, sort_key)` in key order, without the row being placed) and
 /// `rewrite` stores fresh keys for it. Returns the key for the new row.
 pub(crate) fn place_rebalancing(
     load: impl Fn() -> Result<Vec<(String, String)>>,
     rewrite: impl FnOnce(&[(String, String)]) -> Result<()>,
-    position: Option<&quire_core::api::Position>,
+    position: Option<&wikanvas_core::api::Position>,
 ) -> Result<String> {
     let siblings = load()?;
     let key = place(&siblings, position)?;
-    if !quire_core::rank::needs_rebalance(&key) {
+    if !wikanvas_core::rank::needs_rebalance(&key) {
         return Ok(key);
     }
     let fresh: Vec<(String, String)> = siblings
         .iter()
         .map(|(id, _)| id.clone())
-        .zip(quire_core::rank::rebalance(siblings.len()))
+        .zip(wikanvas_core::rank::rebalance(siblings.len()))
         .collect();
     rewrite(&fresh)?;
     place(&load()?, position)
@@ -365,13 +365,13 @@ mod tests {
         ];
         assert_eq!(place(&sib, None).unwrap(), "a2");
         assert_eq!(place(&[], None).unwrap(), "a0");
-        let after = |a: u128| quire_core::api::Position {
+        let after = |a: u128| wikanvas_core::api::Position {
             after_id: Some(id(a)),
             before_id: None,
         };
         assert_eq!(place(&sib, Some(&after(1))).unwrap(), "a0V");
         assert_eq!(place(&sib, Some(&after(2))).unwrap(), "a2");
-        let before = quire_core::api::Position {
+        let before = wikanvas_core::api::Position {
             after_id: None,
             before_id: Some(id(1)),
         };

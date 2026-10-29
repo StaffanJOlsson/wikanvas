@@ -1,7 +1,7 @@
-//! The quire-server command line: serve, healthcheck and admin (owner: W2)
+//! The wikanvas-server command line: serve, healthcheck and admin (owner: W2)
 //!
-//! D1, §7.8: `serve` (configuration from `QUIRE_*`), `healthcheck [--url URL]` (exit 0 when `/healthz` answers 200,
-//! 1 otherwise; the default URL is `QUIRE_LISTEN`'s port on 127.0.0.1) and `admin …`. Usage errors exit 2 (§7.7).
+//! D1, §7.8: `serve` (configuration from `WIKANVAS_*`), `healthcheck [--url URL]` (exit 0 when `/healthz` answers 200,
+//! 1 otherwise; the default URL is `WIKANVAS_LISTEN`'s port on 127.0.0.1) and `admin …`. Usage errors exit 2 (§7.7).
 
 use std::io::{Read as _, Write as _};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
@@ -13,19 +13,19 @@ use clap::{ArgGroup, Args, Parser, Subcommand};
 
 use crate::config::{self, Config};
 
-/// `quire-server --version`: the crate version and the commit the binary was built from (`QUIRE_COMMIT`).
+/// `wikanvas-server --version`: the crate version and the commit the binary was built from (`WIKANVAS_COMMIT`).
 pub fn version() -> &'static str {
     static VERSION: OnceLock<String> = OnceLock::new();
     VERSION.get_or_init(|| format!("{} ({})", env!("CARGO_PKG_VERSION"), commit()))
 }
 
-/// The git commit of the build (`QUIRE_COMMIT` at compile time; `unknown` without it).
+/// The git commit of the build (`WIKANVAS_COMMIT` at compile time; `unknown` without it).
 pub fn commit() -> &'static str {
-    option_env!("QUIRE_COMMIT").unwrap_or("unknown")
+    option_env!("WIKANVAS_COMMIT").unwrap_or("unknown")
 }
 
 #[derive(Debug, Parser)]
-#[command(name = "quire-server", version = version(), about = "Quire's server and its admin commands")]
+#[command(name = "wikanvas-server", version = version(), about = "Wikanvas's server and its admin commands")]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Command,
@@ -33,15 +33,15 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
-    /// Serve the wiki (configuration from the QUIRE_* environment variables).
+    /// Serve the wiki (configuration from the WIKANVAS_* environment variables).
     Serve,
     /// Probe /healthz: exit 0 when it answers 200, 1 otherwise.
     Healthcheck {
-        /// The URL to probe (default: QUIRE_LISTEN's port on 127.0.0.1). A URL without a path gets /healthz.
+        /// The URL to probe (default: WIKANVAS_LISTEN's port on 127.0.0.1). A URL without a path gets /healthz.
         #[arg(long)]
         url: Option<String>,
     },
-    /// Administration of the database in QUIRE_DATA_DIR (may run while the server is up).
+    /// Administration of the database in WIKANVAS_DATA_DIR (may run while the server is up).
     Admin(AdminArgs),
 }
 
@@ -85,7 +85,7 @@ pub enum AdminCommand {
     },
     /// Back up the database (VACUUM INTO, then quick_check).
     Backup {
-        /// Where to write the copy (default: /data/backups/quire-<time>.db, counted against QUIRE_BACKUP_KEEP).
+        /// Where to write the copy (default: /data/backups/wikanvas-<time>.db, counted against WIKANVAS_BACKUP_KEEP).
         #[arg(long)]
         out: Option<PathBuf>,
     },
@@ -207,7 +207,7 @@ fn healthcheck(url: Option<String>) -> u8 {
         None => match Config::from_env() {
             Ok(c) => config::healthcheck_url(c.listen),
             Err(e) => {
-                eprintln!("quire-server healthcheck: {e}");
+                eprintln!("wikanvas-server healthcheck: {e}");
                 return 1;
             }
         },
@@ -215,11 +215,11 @@ fn healthcheck(url: Option<String>) -> u8 {
     match probe(&url, Duration::from_secs(3)) {
         Ok(200) => 0,
         Ok(status) => {
-            eprintln!("quire-server healthcheck: {url} answered {status}");
+            eprintln!("wikanvas-server healthcheck: {url} answered {status}");
             1
         }
         Err(e) => {
-            eprintln!("quire-server healthcheck: {url}: {e}");
+            eprintln!("wikanvas-server healthcheck: {url}: {e}");
             1
         }
     }
@@ -253,7 +253,8 @@ pub fn probe(url: &str, timeout: Duration) -> Result<u16, String> {
         .set_write_timeout(Some(timeout))
         .map_err(|e| e.to_string())?;
     let request = format!(
-        "GET {path} HTTP/1.1\r\nHost: {authority}\r\nUser-Agent: quire-server-healthcheck\r\nConnection: close\r\n\r\n"
+        "GET {path} HTTP/1.1\r\nHost: {authority}\r\nUser-Agent: wikanvas-server-healthcheck\r\n\
+         Connection: close\r\n\r\n"
     );
     stream
         .write_all(request.as_bytes())
@@ -290,11 +291,11 @@ mod tests {
     #[test]
     fn admin_flags_parse() {
         let cli = Cli::try_parse_from([
-            "quire-server",
+            "wikanvas-server",
             "admin",
             "create-owner",
             "--email",
-            "a@quire.invalid",
+            "a@wikanvas.invalid",
             "--name",
             "A",
             "--workspace",
@@ -312,7 +313,7 @@ mod tests {
         };
         assert!(args.generate_password && !args.password_stdin && !args.no_seed);
         let both = Cli::try_parse_from([
-            "quire-server",
+            "wikanvas-server",
             "admin",
             "create-owner",
             "--email",
@@ -326,7 +327,7 @@ mod tests {
         ]);
         assert_eq!(both.unwrap_err().exit_code(), 2);
         let neither = Cli::try_parse_from([
-            "quire-server",
+            "wikanvas-server",
             "admin",
             "create-owner",
             "--email",
@@ -338,7 +339,7 @@ mod tests {
         ]);
         assert_eq!(neither.unwrap_err().exit_code(), 2);
         let token = Cli::try_parse_from([
-            "quire-server",
+            "wikanvas-server",
             "admin",
             "--json",
             "create-token",
@@ -358,7 +359,7 @@ mod tests {
         assert_eq!((t.scope.as_str(), t.expires.as_str()), ("write", "90d"));
         assert!(
             Cli::try_parse_from([
-                "quire-server",
+                "wikanvas-server",
                 "admin",
                 "create-token",
                 "--name",
@@ -368,12 +369,12 @@ mod tests {
             ])
             .is_err()
         );
-        assert!(Cli::try_parse_from(["quire-server", "admin", "revoke-token", "--all"]).is_err());
+        assert!(Cli::try_parse_from(["wikanvas-server", "admin", "revoke-token", "--all"]).is_err());
         assert!(
-            Cli::try_parse_from(["quire-server", "admin", "revoke-token", "--all", "--yes"])
+            Cli::try_parse_from(["wikanvas-server", "admin", "revoke-token", "--all", "--yes"])
                 .is_ok()
         );
-        assert!(Cli::try_parse_from(["quire-server", "admin", "revoke-token"]).is_err());
+        assert!(Cli::try_parse_from(["wikanvas-server", "admin", "revoke-token"]).is_err());
     }
 
     #[test]

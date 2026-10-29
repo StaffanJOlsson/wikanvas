@@ -13,20 +13,20 @@ Nothing was skipped, ignored or loosened: no `#[ignore]`, no skipped test, no `-
 (the unit tests' Esc became stricter: it now carries `keyCode` 27, as a browser's does). The one skip in the frame
 suite is W5's designed "background page for 60 s" case (headless Chromium reports a background page as visible;
 ARCHITECTURE §16 item 26), as in every M1 run. Nothing ran as root, nothing was pushed, `git stash` was not used, and
-`vendor/inkboard` is clean. The owner's live project `quire` (containers `quire-quire-1`, `quire-caddy-1`, volumes
-`quire_*`) was never touched; every server, browser and compose project of this stage ran in the scripts' own projects
-and was removed by them.
+`vendor/inkboard` is clean. The owner's live project `wikanvas` (containers `wikanvas-wikanvas-1`, `wikanvas-caddy-1`,
+volumes `wikanvas_*`) was never touched; every server, browser and compose project of this stage ran in the scripts' own
+projects and was removed by them.
 
-This note is committed after the gate, so `quire:9c6e60a` is one commit behind HEAD and the next `scripts/agent-test.sh`
-calls it stale until the next `scripts/image.sh` (only `docs/handoff/` changed, which `.dockerignore` keeps out of the
-image).
+This note is committed after the gate, so `wikanvas:9c6e60a` is one commit behind HEAD and the next
+`scripts/agent-test.sh` calls it stale until the next `scripts/image.sh` (only `docs/handoff/` changed, which
+`.dockerignore` keeps out of the image).
 
 ## What was merged
 
 | Commit | What |
 |---|---|
 | `40b3faf` | Merge `ws/E2-server`: cards become `item_links` of kind `embed` (board → document), a box kind with `embed` twice is 422, `discard_empty` keeps embedded items, AGENTS.md §8 "Embedded pages", agent scenario 12 |
-| `0be0d3f` | Merge `ws/E1-engine`: Inkboard patches 0005 (code) and 0006 (docs), patchset 3 (`0.2.0-beta.3+embed.quire.3`), `frame.js` embeds and the sidebar drop, 11 new frame tests |
+| `0be0d3f` | Merge `ws/E1-engine`: Inkboard patches 0005 (code) and 0006 (docs), patchset 3 (`0.2.0-beta.3+embed.wikanvas.3`), `frame.js` embeds and the sidebar drop, 11 new frame tests |
 | `871975a` | Merge `ws/E3-web`: the overlay with static and editing cards, "Text doc", "Embed page…", the sidebar drag source and the drop paths, the fake frame's embed members, 12 new or updated test files |
 | `98f29b5` | E3 request 3: `layers.test.ts` knows `.board-embed-popups` |
 | `3b6ebda` | Integration fix: "Text doc" expands the board's sidebar row, so the new page shows in the tree (D92; test in `textDoc.test.tsx`, fails without the fix) |
@@ -61,14 +61,14 @@ engine's side; the unit suites check the host against the fake frame.
 
 ## Review findings and outcomes
 
-The independent review (2026-10-29, runs A–F against `quire:b808bc9`, evidence in `.cache/review-embeds/`) reported
+The independent review (2026-10-29, runs A–F against `wikanvas:b808bc9`, evidence in `.cache/review-embeds/`) reported
 six findings. Each was checked in the code before it was fixed; each fix has a test that was seen to fail without it
 (a mutation of the fix, or the test run against the pre-fix image).
 
 | # | Severity | Finding | Verdict (checked in the code) | Fix | Tests | Commit |
 |---|---|---|---|---|---|---|
-| 1 | high | Esc in a card's body never leaves editing | **Holds.** prosemirror-view 1.42.6 `captureKeyDown` (`dist/index.js:2808`) returns true for keyCode 27, and its keydown handler then calls `preventDefault()`; `EmbedCard`'s bubble listener only acted when `!e.defaultPrevented`. The unit tests sent `keyCode` 0, so ProseMirror's branch never ran | `QuireEditor` and `editorExtensions` take `onEscape`: a keymap extension of priority 1, whose `Escape` runs after every other plugin's keys (the slash and mention suggestions take their own Esc first); `EmbedCard` passes `controller.escape`. The card's listener stays for the header (title input, buttons) and the card itself while the session opens (D93) | `editing.test.tsx`: every Esc now has `keyCode` 27; the Esc test also checks the event was `defaultPrevented`; a new title-input Esc test; the slash-menu test (first Esc closes the menu, the second leaves). Without the keymap, 2 tests fail. Smoke step 17 item 7: Esc pressed in C's body makes the card static, the frame focused, the card selected; against `quire:b808bc9` (with the pan block left out of a scratch copy of the spec) it fails with the card still `editing` | `c19d77b`, `707ed8a` |
-| 2 | medium | While a card is edited the board cannot be panned (Shift+wheel nothing, Alt+wheel zooms, a middle drag ends the editing) | **Holds.** `tools.rs` read egui's global `i.modifiers`, which eframe 0.33.3 sets only from key events on its canvas (and mouse moves inside the frame); while a card is edited the keys go to the parent. egui itself already applies a wheel event's own Shift/Alt to the scroll delta, so Inkboard's branch disagreed with it. The middle press (and eframe's explicit `canvas.focus()` on every `pointerup` over the canvas, `web/events.rs`) focused the frame, and `embed_frame_start` ended the editing on any focus gain | Patch 0005: the canvas takes the modifiers of the frame's last `MouseWheel` event (falling back to `i.modifiers`); a focus gain while the middle or an extra button is down, pressed or released does not end the editing, a secondary press ends it as `press` (it opens the board's menu). `frame.js`: while the host edits a card, a middle `mousedown` has its default prevented (the browser keeps the focus in the parent), and after a middle release that left the canvas focused (eframe's handler) it sends the new optional `onEmbedFocusBack`; the host puts the focus back where it last was in the card (D94) | Native: `the_wheel_follows_its_own_modifiers`, `the_middle_button_pans_without_ending_the_editing` (killed by mutating each rule). Frame suite: `embeds: while the host edits, Shift and Alt with the wheel pan and the middle button pans, keeping the focus` (real Chromium: the camera, the focus during the drag, `onEmbedFocusBack`, no end, a right-click ending it). Unit: focus back to the editor (with its selection) or the title input. Smoke step 17 item 7: Shift/Alt + wheel and a middle drag pan while C is edited, C stays editing with the caret back, " wallaby" is saved; against `quire:b808bc9` it fails at "Shift + wheel pans sideways" | `f3418d1`, `c19d77b`, `707ed8a` |
+| 1 | high | Esc in a card's body never leaves editing | **Holds.** prosemirror-view 1.42.6 `captureKeyDown` (`dist/index.js:2808`) returns true for keyCode 27, and its keydown handler then calls `preventDefault()`; `EmbedCard`'s bubble listener only acted when `!e.defaultPrevented`. The unit tests sent `keyCode` 0, so ProseMirror's branch never ran | `WikanvasEditor` and `editorExtensions` take `onEscape`: a keymap extension of priority 1, whose `Escape` runs after every other plugin's keys (the slash and mention suggestions take their own Esc first); `EmbedCard` passes `controller.escape`. The card's listener stays for the header (title input, buttons) and the card itself while the session opens (D93) | `editing.test.tsx`: every Esc now has `keyCode` 27; the Esc test also checks the event was `defaultPrevented`; a new title-input Esc test; the slash-menu test (first Esc closes the menu, the second leaves). Without the keymap, 2 tests fail. Smoke step 17 item 7: Esc pressed in C's body makes the card static, the frame focused, the card selected; against `wikanvas:b808bc9` (with the pan block left out of a scratch copy of the spec) it fails with the card still `editing` | `c19d77b`, `707ed8a` |
+| 2 | medium | While a card is edited the board cannot be panned (Shift+wheel nothing, Alt+wheel zooms, a middle drag ends the editing) | **Holds.** `tools.rs` read egui's global `i.modifiers`, which eframe 0.33.3 sets only from key events on its canvas (and mouse moves inside the frame); while a card is edited the keys go to the parent. egui itself already applies a wheel event's own Shift/Alt to the scroll delta, so Inkboard's branch disagreed with it. The middle press (and eframe's explicit `canvas.focus()` on every `pointerup` over the canvas, `web/events.rs`) focused the frame, and `embed_frame_start` ended the editing on any focus gain | Patch 0005: the canvas takes the modifiers of the frame's last `MouseWheel` event (falling back to `i.modifiers`); a focus gain while the middle or an extra button is down, pressed or released does not end the editing, a secondary press ends it as `press` (it opens the board's menu). `frame.js`: while the host edits a card, a middle `mousedown` has its default prevented (the browser keeps the focus in the parent), and after a middle release that left the canvas focused (eframe's handler) it sends the new optional `onEmbedFocusBack`; the host puts the focus back where it last was in the card (D94) | Native: `the_wheel_follows_its_own_modifiers`, `the_middle_button_pans_without_ending_the_editing` (killed by mutating each rule). Frame suite: `embeds: while the host edits, Shift and Alt with the wheel pan and the middle button pans, keeping the focus` (real Chromium: the camera, the focus during the drag, `onEmbedFocusBack`, no end, a right-click ending it). Unit: focus back to the editor (with its selection) or the title input. Smoke step 17 item 7: Shift/Alt + wheel and a middle drag pan while C is edited, C stays editing with the caret back, " wallaby" is saved; against `wikanvas:b808bc9` it fails at "Shift + wheel pans sideways" | `f3418d1`, `c19d77b`, `707ed8a` |
 | 3 | low | A new empty "Text doc" card cut (or copied and deleted) and pasted on another board is a dead card | **Holds.** `discardTextDocs` discarded every created document absent from the board's `items`; a card on the engine's clipboard (`App::clipboard`, kept across `setBoard`) has no `embed` link yet, so the server's check could not keep it; `discardTextDoc` left `['item', id]` and `['docJson', id]` cached | Patch 0005: the layout reports `clipboard`, the targets of the cards on the engine's clipboard. `textDocs.ts`: a created document on the clipboard is not discarded but kept (one list per tab) for a later leave, which discards it once no clipboard holds it and the board left does not show it (the server still decides). A successful discard resets the document's cached `ItemDetail` and `DocJson`, so a card that still names it shows "Page not found" (D95) | Native: `embed_layout_holds_the_cards_on_the_clipboard` (cut, kept across `host_load`, replaced by a copy). Frame suite: `embeds: the layout of the fixture` (`clipboard` `[]`) and `embeds: the editing state` (`[ITEM1]` after Ctrl+C). Unit (`textDoc.test.tsx`): kept at two leaves while on the clipboard, discarded at the third, its cache reset and a later card "missing"; a pasted one stays. Both mutants (no clipboard check; no cache reset) fail | `f3418d1`, `c19d77b` |
 | 4 | low | A target trashed or archived elsewhere during editing: editing does not end, every save is 409, the static card later shows unsent text and a stale trash message | **Holds.** `DocSession.failed` only set an `error` status; nothing told the controller; `end()` wrote the editor's JSON into `['docJson', id]` with the previous ETag, so the refetch got a 304 and kept the unsent text; the static badge showed the session's message and the destroyed session's retry | `DocSession` gains an optional `gone` dependency, called on 409 `read_only` or 404. The card's session passes it: the editing ends and the target's detail is refetched (the card then shows "In Trash" or "Archived"). When the last flush left updates unsent, the cached `DocJson` loses its ETag before the refetch (the server's content comes back), and the static badge shows the state's label ("Not saved") with a Retry, shown while the target is writable, that opens a new session of the target to send the outbox (`retrySave`) (D96) | `editing.test.tsx`: a save refused as `read_only` ends the editing, the card becomes `trashed`, shows the server's text and "Not saved" without a Retry; restored, the Retry GETs the document and POSTs the outbox and the badge goes. `docSession.test.ts`: `gone` on 409 `read_only` and 404, not on a 500, the updates still queued. Three mutants (no `gone`, the ETag kept, the old retry) each fail | `c19d77b` |
 | 5 | low | Selecting or editing a card shows Inkboard's style panel, whose text settings format the hidden title snapshot and which covers the edited card | **Holds.** `panel::visible` was true for any selection, `props` showed the text and rich-text sections for every box. That the text settings act on the label follows from `text_section`/`rich_section`, which change `b.label` of the selection (the review had not run it in the browser) | Patch 0005, `panel.rs` (now with its notice line): no panel while `embed_editing` is set; when hosted, no text sections for a selection of cards alone (Outline, Fill, Corners, Shadow, Opacity, Order stay). A mixed selection keeps them (§18.13 item 15) (D97) | Native: `the_style_panel_has_no_text_for_cards_and_hides_while_a_card_is_edited` (a plain box keeps its settings, cards have none, no panel while editing, not hosted a card has them); both mutants fail | `f3418d1` |
@@ -81,11 +81,12 @@ before the commits).
 
 ## The gate (pass 3, HEAD `9c6e60a`)
 
-Every command ran from `/home/staffan/Projects/Quire` with `QUIRE_SHARED_CARGO_HOME=/home/staffan/.cache/quire-cargo`
-in its environment, verbatim from `docs/PLAN.md` ("Acceptance (the M1.1 gate)" and, as its step 4, "Acceptance (the
-M1 release gate)"), each in its own `bash -c`, by one runner that records every exit code and does not stop on a
-failure (the same runner as passes 1 and 2). Images: `quire:9c6e60a` (stub at line 22, then full at 31 and again at
-54, all at this HEAD); the engine dist was rebuilt from the patched copy at lines 7, 30 and 53.
+Every command ran from `/home/staffan/Projects/Quire` with
+`WIKANVAS_SHARED_CARGO_HOME=/home/staffan/.cache/wikanvas-cargo` in its environment, verbatim from `docs/PLAN.md`
+("Acceptance (the M1.1 gate)" and, as its step 4, "Acceptance (the M1 release gate)"), each in its own `bash -c`, by one
+runner that records every exit code and does not stop on a failure (the same runner as passes 1 and 2). Images:
+`wikanvas:9c6e60a` (stub at line 22, then full at 31 and again at 54, all at this HEAD); the engine dist was rebuilt
+from the patched copy at lines 7, 30 and 53.
 
 | # | Gate step | Command (abridged where long) | Result | Note |
 |---|---|---|---|---|
@@ -96,22 +97,22 @@ failure (the same runner as passes 1 and 2). Images: `quire:9c6e60a` (stub at li
 | 5 | M1.1-1 E1 | `… cargo test --locked -p inkboard-app i18n` | pass | 7 |
 | 6 | M1.1-1 E1 | `… cargo test --locked -p inkboard-formats mermaid` | pass |  |
 | 7 | M1.1-1 E1 | `scripts/dev.sh scripts/inkboard.sh build && jq -e '.patchset == "3" and .engine_version == "0.2.0-beta.3+em…` | pass | release build, patchset 3 kept (D99) |
-| 8 | M1.1-1 E1 | `scripts/dev.sh scripts/inkboard.sh export --upstream && ! grep -rq 'Changed for Quire' .cache/inkboard-upst…` | pass | 6 notice-free patches |
-| 9 | M1.1-1 E1 | `test "$(grep -c 'Changed for Quire' patches/inkboard/0005-embed-documents.patch)" -ge 1` | pass | 8 notice lines (7 before; `panel.rs` is new in 0005) |
+| 8 | M1.1-1 E1 | `scripts/dev.sh scripts/inkboard.sh export --upstream && ! grep -rq 'Changed for Wikanvas' .cache/inkboard-upst…` | pass | 6 notice-free patches |
+| 9 | M1.1-1 E1 | `test "$(grep -c 'Changed for Wikanvas' patches/inkboard/0005-embed-documents.patch)" -ge 1` | pass | 8 notice lines (7 before; `panel.rs` is new in 0005) |
 | 10 | M1.1-1 E1 | `scripts/dev.sh pnpm --dir web typecheck` | pass |  |
 | 11 | M1.1-1 E1 | `scripts/dev.sh pnpm --dir web test src/board` | pass | 110 tests |
 | 12 | M1.1-1 E1 | `scripts/e2e.sh frame` | pass | 25 passed (13 M1 tests, 12 `embeds:` tests), 1 skipped (W5's designed background-page case) |
-| 13 | M1.1-1 E1 | `scripts/dev.sh cargo test -p quire-core --locked -- board::` | pass | the unpatched core reads the boards |
+| 13 | M1.1-1 E1 | `scripts/dev.sh cargo test -p wikanvas-core --locked -- board::` | pass | the unpatched core reads the boards |
 | 14 | M1.1-1 E1 | `git -C vendor/inkboard status --porcelain \| wc -l \| grep -qx 0` | pass |  |
-| 15 | M1.1-1 E2 | `scripts/dev.sh cargo test -p quire-core   --locked -- board::` | pass | 24 |
-| 16 | M1.1-1 E2 | `scripts/dev.sh cargo test -p quire-store  --locked --test store -- boards::` | pass | 18 |
-| 17 | M1.1-1 E2 | `scripts/dev.sh cargo test -p quire-server --locked --test api   -- boards::` | pass | 24 |
-| 18 | M1.1-1 E2 | `scripts/dev.sh cargo test -p quire-server --locked --test api   -- openapi:: && git diff --exit-code docs/a…` | pass | unchanged |
-| 19 | M1.1-1 E2 | `scripts/dev.sh cargo test -p quire-api --locked export_bindings && git diff --exit-code web/src/api/gen` | pass | unchanged |
+| 15 | M1.1-1 E2 | `scripts/dev.sh cargo test -p wikanvas-core   --locked -- board::` | pass | 24 |
+| 16 | M1.1-1 E2 | `scripts/dev.sh cargo test -p wikanvas-store  --locked --test store -- boards::` | pass | 18 |
+| 17 | M1.1-1 E2 | `scripts/dev.sh cargo test -p wikanvas-server --locked --test api   -- boards::` | pass | 24 |
+| 18 | M1.1-1 E2 | `scripts/dev.sh cargo test -p wikanvas-server --locked --test api   -- openapi:: && git diff --exit-code docs/a…` | pass | unchanged |
+| 19 | M1.1-1 E2 | `scripts/dev.sh cargo test -p wikanvas-api --locked export_bindings && git diff --exit-code web/src/api/gen` | pass | unchanged |
 | 20 | M1.1-1 E2 | `scripts/dev.sh cargo clippy --workspace --all-targets --locked -- -D warnings` | pass |  |
 | 21 | M1.1-1 E2 | `scripts/fmt.sh --check` | pass |  |
-| 22 | M1.1-1 E2 | `scripts/image.sh --build-arg INKBOARD_BUILD=stub` | pass | `quire:9c6e60a` (stub) |
-| 23 | M1.1-1 E2 | `scripts/agent-test.sh --scenario '12-*` | pass | 13 steps, 0 failed, against `quire:9c6e60a` |
+| 22 | M1.1-1 E2 | `scripts/image.sh --build-arg INKBOARD_BUILD=stub` | pass | `wikanvas:9c6e60a` (stub) |
+| 23 | M1.1-1 E2 | `scripts/agent-test.sh --scenario '12-*` | pass | 13 steps, 0 failed, against `wikanvas:9c6e60a` |
 | 24 | M1.1-1 E2 | `scripts/agent-test.sh` | pass | 71 steps (01–12), 0 failed scenarios |
 | 25 | M1.1-1 E3 | `scripts/dev.sh pnpm --dir web typecheck` | pass |  |
 | 26 | M1.1-1 E3 | `scripts/dev.sh pnpm --dir web test src/board src/editor src/components/sidebar src/pages` | pass | 233 tests |
@@ -119,50 +120,50 @@ failure (the same runner as passes 1 and 2). Images: `quire:9c6e60a` (stub at li
 | 28 | M1.1-1 E3 | `scripts/dev.sh pnpm --dir web build` | pass |  |
 | 29 | M1.1-1 E3 | `! grep -rnE 'TODO\(E' web/src` | pass |  |
 | 30 | M1.1-2 | `scripts/dev.sh scripts/inkboard.sh build && scripts/e2e.sh frame` | pass | 25 passed, 1 skipped (as line 12) |
-| 31 | M1.1-3 | `scripts/image.sh` | pass | `quire:9c6e60a`, full engine, after the stub image of line 22 |
+| 31 | M1.1-3 | `scripts/image.sh` | pass | `wikanvas:9c6e60a`, full engine, after the stub image of line 22 |
 | 32 | M1.1-3 | `scripts/e2e.sh smoke` | pass | 1 test, 1.2 min: steps 1–16, step 17 on the engine with the review's checks (Esc in the body, Shift/Alt + wheel, the middle-button pan, " wallaby" saved), no CSP violation; WebGL 2 under SwiftShader |
-| 33 | M1.1-3 | `scripts/agent-test.sh` | pass | 71 steps, 0 failed, `quire:9c6e60a` (= HEAD, no `--allow-stale`) |
+| 33 | M1.1-3 | `scripts/agent-test.sh` | pass | 71 steps, 0 failed, `wikanvas:9c6e60a` (= HEAD, no `--allow-stale`) |
 | 34 | M1.1-4 M1 | `scripts/install-build-slice.sh --check` | pass | the slice is installed and holds its values |
 | 35 | M1.1-4 M1 | `scripts/check-pins.sh` | pass |  |
-| 36 | M1.1-4 M1 | `docker compose -f compose.yaml config --format json \| jq -e '(.services.quire.ports // []) == []` | pass | reads the config only |
+| 36 | M1.1-4 M1 | `docker compose -f compose.yaml config --format json \| jq -e '(.services.wikanvas.ports // []) == []` | pass | reads the config only |
 | 37 | M1.1-4 M1 | `! grep -qE '^\s*(encode\|header)\b' docker/Caddyfile` | pass |  |
 | 38 | M1.1-4 M1 | `scripts/fmt.sh --check` | pass |  |
 | 39 | M1.1-4 M1 | `scripts/dev.sh cargo clippy --workspace --all-targets --locked -- -D warnings` | pass |  |
 | 40 | M1.1-4 M1 | `scripts/dev.sh cargo tree --locked -e normal -i libsqlite3-sys` | pass |  |
 | 41 | M1.1-4 M1 | `scripts/dev.sh cargo test --workspace --locked` | pass | api 123 · cli 44 + `tests/cli` 69 · core 77 · server 58 + `tests/api` 196 · store 21 + `tests/store` 118; 0 failed, 0 ignored |
-| 42 | M1.1-4 M1 | `scripts/dev.sh cargo test -p quire-api --locked export_bindings && git diff --exit-code web/src/api/gen` | pass |  |
-| 43 | M1.1-4 M1 | `scripts/dev.sh cargo test -p quire-server --locked --test api -- openapi:: && git diff --exit-code docs/api…` | pass |  |
-| 44 | M1.1-4 M1 | `scripts/dev.sh cargo test -p quire-cli --locked` | pass | 44 unit + 69 `tests/cli` |
-| 45 | M1.1-4 M1 | `! scripts/dev.sh cargo tree --locked -p quire-server -e normal --prefix none \| grep -qE '^(rustls\|ureq\|r…` | pass | the tree itself has 465 lines (checked apart, since the `!` would also pass on an empty tree) |
-| 46 | M1.1-4 M1 | `! scripts/dev.sh cargo tree --locked -p quire-cli -e normal --prefix none \| grep -qE '^(openssl\|openssl-s…` | pass | 132 lines, checked the same way |
-| 47 | M1.1-4 M1 | `! grep -rn '\.route(' crates/quire-server/src/routes` | pass |  |
-| 48 | M1.1-4 M1 | `! grep -rn '\.route("/api' crates/quire-server/src` | pass |  |
+| 42 | M1.1-4 M1 | `scripts/dev.sh cargo test -p wikanvas-api --locked export_bindings && git diff --exit-code web/src/api/gen` | pass |  |
+| 43 | M1.1-4 M1 | `scripts/dev.sh cargo test -p wikanvas-server --locked --test api -- openapi:: && git diff --exit-code docs/api…` | pass |  |
+| 44 | M1.1-4 M1 | `scripts/dev.sh cargo test -p wikanvas-cli --locked` | pass | 44 unit + 69 `tests/cli` |
+| 45 | M1.1-4 M1 | `! scripts/dev.sh cargo tree --locked -p wikanvas-server -e normal --prefix none \| grep -qE '^(rustls\|ureq\|r…` | pass | the tree itself has 465 lines (checked apart, since the `!` would also pass on an empty tree) |
+| 46 | M1.1-4 M1 | `! scripts/dev.sh cargo tree --locked -p wikanvas-cli -e normal --prefix none \| grep -qE '^(openssl\|openssl-s…` | pass | 132 lines, checked the same way |
+| 47 | M1.1-4 M1 | `! grep -rn '\.route(' crates/wikanvas-server/src/routes` | pass |  |
+| 48 | M1.1-4 M1 | `! grep -rn '\.route("/api' crates/wikanvas-server/src` | pass |  |
 | 49 | M1.1-4 M1 | `scripts/dev.sh pnpm --dir web install --frozen-lockfile` | pass |  |
 | 50 | M1.1-4 M1 | `scripts/dev.sh pnpm --dir web fixtures && git diff --exit-code fixtures` | pass |  |
-| 51 | M1.1-4 M1 | `scripts/dev.sh env WRITE_FIXTURES=1 cargo test -p quire-core --locked -- convert::tests::write_server_fixtu…` | pass |  |
+| 51 | M1.1-4 M1 | `scripts/dev.sh env WRITE_FIXTURES=1 cargo test -p wikanvas-core --locked -- convert::tests::write_server_fixtu…` | pass |  |
 | 52 | M1.1-4 M1 | `scripts/dev.sh pnpm --dir web typecheck && scripts/dev.sh pnpm --dir web test && scripts/dev.sh pnpm --dir …` | pass | 79 files, 403 tests |
 | 53 | M1.1-4 M1 | `scripts/dev.sh scripts/inkboard.sh check && scripts/dev.sh scripts/inkboard.sh build && scripts/e2e.sh frame` | pass | 25 passed, 1 skipped (as line 12) |
-| 54 | M1.1-4 M1 | `scripts/image.sh` | pass | `quire:9c6e60a` = `quire:latest` |
-| 55 | M1.1-4 M1 | `QUIRE_SMOKE_LEVEL=full scripts/image-smoke.sh` | pass | 20 checks: caps, no published app port, HTTPS through Caddy with the local CA, the engine's br `.wasm` byte for byte, `__Host-` Secure cookie, no HSTS, CSPs, peak memory under the limits |
+| 54 | M1.1-4 M1 | `scripts/image.sh` | pass | `wikanvas:9c6e60a` = `wikanvas:latest` |
+| 55 | M1.1-4 M1 | `WIKANVAS_SMOKE_LEVEL=full scripts/image-smoke.sh` | pass | 20 checks: caps, no published app port, HTTPS through Caddy with the local CA, the engine's br `.wasm` byte for byte, `__Host-` Secure cookie, no HSTS, CSPs, peak memory under the limits |
 | 56 | M1.1-4 M1 | `scripts/e2e.sh smoke` | pass | as line 32 (1.1 min) |
-| 57 | M1.1-4 M1 | `scripts/agent-test.sh` | pass | 71 steps, 0 failed, `quire:9c6e60a` |
-| 58 | M1.1-4 M1 | `scripts/cli-dist.sh && scripts/dev.sh dist/cli/quire-x86_64-unknown-linux-musl --version` | pass | `quire 0.1.0` |
+| 57 | M1.1-4 M1 | `scripts/agent-test.sh` | pass | 71 steps, 0 failed, `wikanvas:9c6e60a` |
+| 58 | M1.1-4 M1 | `scripts/cli-dist.sh && scripts/dev.sh dist/cli/wikanvas-x86_64-unknown-linux-musl --version` | pass | `wikanvas 0.1.0` |
 | 59 | M1.1-4 M1 | `! grep -rnE 'todo!\(\|unimplemented!\(\|TODO\(W\|not implemented \(W' crates web/src web/inkboard-frame scr…` | pass |  |
 | 60 | M1.1-4 M1 | `git -C vendor/inkboard status --porcelain \| wc -l \| grep -qx 0` | pass |  |
 | 61 | M1.1-5 | `! grep -rnE 'todo!\(\|unimplemented!\(\|TODO\(W\|TODO\(E\|not implemented \(W' crates web/src web/inkboard-…` | pass |  |
 
 ### Gate pass 2 (HEAD `b808bc9`, before the review)
 
-All 61 lines passed (2026-10-29 00:16–00:30). The review then ran against `quire:b808bc9` and found the six defects
+All 61 lines passed (2026-10-29 00:16–00:30). The review then ran against `wikanvas:b808bc9` and found the six defects
 above; none of them was covered by a gate line, since the unit tests sent Esc without its `keyCode` and smoke step 17
 pressed Esc only in the title input and never panned while a card was edited.
 
 ### Gate pass 1 (HEAD `22fb45c`)
 
-58 lines passed; lines 32 (`scripts/e2e.sh smoke`), 55 (`QUIRE_SMOKE_LEVEL=full scripts/image-smoke.sh`) and 56
+58 lines passed; lines 32 (`scripts/e2e.sh smoke`), 55 (`WIKANVAS_SMOKE_LEVEL=full scripts/image-smoke.sh`) and 56
 (`scripts/e2e.sh smoke`) failed, all for one cause: the full image built right after the stub image of line 22, at
 the same commit, served the stub engine ("Whiteboard engine not installed"). The server stage compiles into a cache
-mount shared by every image build, and cargo judges by mtime whether `quire-assets` (the rust-embed of `web/dist` and
+mount shared by every image build, and cargo judges by mtime whether `wikanvas-assets` (the rust-embed of `web/dist` and
 `web/dist-inkboard`) is stale; the dists come from other stages whose cached outputs keep the older mtimes of the
 build that made them, so cargo kept the stub's expansion. A reverted web change or an older commit would do the same
 to a production image. Fixed in `e1f6928`: the step touches both dists before `cargo build`, then checks that the
@@ -192,8 +193,8 @@ All recorded where they apply; nothing was decided outside the owner decisions a
   `patches/inkboard/README.md` plus PLAN M1.1's E1 "Produces" text and its `jq -e` acceptance line (gate line 7).
 - **Additive contract changes** (all optional, so the M1 frame and the fake frame still satisfy the bridge):
   `EngineEmbedLayout.clipboard` (`inkboard.d.ts`), `EmbedLayout.clipboard?`, `FrameEvents.onEmbedFocusBack?` and
-  `EmbedFocusBackEvent` (`bridge.ts`), `EmbedSink.focusBack?`, `DocSessionDeps.gone?`, `QuireEditorProps.onEscape?`. No
-  route, DTO, OpenAPI or CLI change; no dependency, so `THIRD_PARTY.md` is unchanged.
+  `EmbedFocusBackEvent` (`bridge.ts`), `EmbedSink.focusBack?`, `DocSessionDeps.gone?`, `WikanvasEditorProps.onEscape?`.
+  No route, DTO, OpenAPI or CLI change; no dependency, so `THIRD_PARTY.md` is unchanged.
 
 ## What remains
 
@@ -225,11 +226,11 @@ All recorded where they apply; nothing was decided outside the owner decisions a
   the keyboard focus elsewhere; and patches 0001–0004 as before. For egui/eframe: its web runner focuses the canvas on
   every `pointerup` over it, whatever the button (`web/events.rs`, "forcing the focus on any click"), which is why the
   frame has to hand the focus back after a middle-button pan.
-- **Worktrees** `/home/staffan/Projects/Quire-E1-engine`, `/home/staffan/Projects/Quire-E2-server` and
-  `/home/staffan/Projects/Quire-E3-web` are merged and clean, and are left in place (their branches too) for the
+- **Worktrees** `/home/staffan/Projects/Wikanvas-E1-engine`, `/home/staffan/Projects/Wikanvas-E2-server` and
+  `/home/staffan/Projects/Wikanvas-E3-web` are merged and clean, and are left in place (their branches too) for the
   coordinator to remove.
 - **The owner's open questions** are untouched: the engine's fonts' licences, the base image's OS-layer licences, the
   `LICENSE-MIT` copyright line.
-- **The owner's live wiki** still runs the M1 image (`quire:1e52425`); `quire:latest` is now `9c6e60a` with the feature
-  and the review's fixes. Moving the live project to it is the owner's step (`docker compose up -d` from the checkout),
-  not done here.
+- **The owner's live wiki** still runs the M1 image (`wikanvas:1e52425`); `wikanvas:latest` is now `9c6e60a` with the
+  feature and the review's fixes. Moving the live project to it is the owner's step (`docker compose up -d` from the
+  checkout), not done here.

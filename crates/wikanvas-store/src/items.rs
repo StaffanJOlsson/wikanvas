@@ -1,17 +1,17 @@
 //! Items: create, rename, move, duplicate, publish, archive, trash, restore and purge (owner: W1).
 //!
-//! The tree rules are those of `quire_core::tree` (cycle, parent, read-only, placement on restore), applied in SQL
+//! The tree rules are those of `wikanvas_core::tree` (cycle, parent, read-only, placement on restore), applied in SQL
 //! inside the writer transaction; the `0001-init` triggers repeat the parent rules as a guard. Every create sets
 //! `published_at = created_at` (D23); a draft exists only after [`unpublish`]. Every operation that changes the tree
 //! bumps `tree_version` on each affected collection (the `/tree` ETag); every change to an item row other than a
 //! content save bumps its `meta_version` (the `"m{n}"` ETag of `GET /items/{id}`).
 
-use quire_core::api::{
+use wikanvas_core::api::{
     BoardMeta, ErrorCode, ItemDetail, ItemKind, ItemPatch, ItemSummary, ItemText, MoveItem,
     NewItem, Position, RestoredItem, RevMismatchDetails, Timestamp,
 };
-use quire_core::time::{DISCARD_WINDOW_MS, purge_at};
-use quire_core::tree::{ParentState, check_move, check_new_parent, keeps_parent};
+use wikanvas_core::time::{DISCARD_WINDOW_MS, purge_at};
+use wikanvas_core::tree::{ParentState, check_move, check_new_parent, keeps_parent};
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use uuid::Uuid;
 
@@ -31,7 +31,7 @@ pub fn find(conn: &Connection, id_or_url_id: &str) -> Result<ItemRow> {
     if Uuid::parse_str(id_or_url_id).is_ok() {
         return item_row(conn, id_or_url_id);
     }
-    if !quire_core::ids::is_url_id(id_or_url_id) {
+    if !wikanvas_core::ids::is_url_id(id_or_url_id) {
         return Err(Error::not_found("no such item"));
     }
     conn.query_row(
@@ -452,13 +452,13 @@ pub fn restore(tx: &Transaction<'_>, item_id: &str) -> Result<RestoredItem> {
     })
 }
 
-/// The placement rule after a restore or unarchive (`quire_core::tree::keeps_parent`): moves `root` to the end of its
-/// collection's top level when its parent is gone. Returns whether it moved.
+/// The placement rule after a restore or unarchive (`wikanvas_core::tree::keeps_parent`): moves `root` to the end of
+/// its collection's top level when its parent is gone. Returns whether it moved.
 ///
 /// A restored root that stays archived as part of an ancestor's archive unit (D5: trashing an archived item keeps
 /// its archive state) leaves that ancestor's subtree when it moves, so the rows of its subtree in that unit become a
 /// unit of their own, with the root as their archive root: it then shows in `/archive` and unarchives by itself, and
-/// a purge of the old root cannot leave it pointing at a missing row (`quire_core::tree::Model::place`).
+/// a purge of the old root cannot leave it pointing at a missing row (`wikanvas_core::tree::Model::place`).
 fn place_root(tx: &Transaction<'_>, root: &str) -> Result<bool> {
     let row = item_row(tx, root)?;
     let Some(parent) = &row.parent_id else {

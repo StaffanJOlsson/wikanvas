@@ -65,7 +65,7 @@ async function errorOf(res: Response, requestId: string | null): Promise<ApiErro
 }
 
 /**
- * `PUT /api/v1/items/{id}/board` with `If-Match: "r{base}"` (or `*`) and, when known, `X-Quire-Engine` (§6.2). A 412
+ * `PUT /api/v1/items/{id}/board` with `If-Match: "r{base}"` (or `*`) and, when known, `X-Wikanvas-Engine` (§6.2). A 412
  * throws an `ApiError` whose `details` are `{rev, etag}` of the current revision.
  */
 export function putBoard(itemId: string, board: string, base: number | '*', engine?: string): Promise<BoardPutResult> {
@@ -73,7 +73,7 @@ export function putBoard(itemId: string, board: string, base: number | '*', engi
     'Content-Type': 'application/json',
     'If-Match': base === '*' ? '*' : boardEtag(base),
   };
-  if (engine) headers['X-Quire-Engine'] = engine;
+  if (engine) headers['X-Wikanvas-Engine'] = engine;
   return api<BoardPutResult>('PUT', `${itemPath(itemId)}/board`, { body: board, headers });
 }
 

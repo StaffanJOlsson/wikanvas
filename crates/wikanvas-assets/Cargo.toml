@@ -1,6 +1,6 @@
 [package]
-name = "quire-assets"
-description = "Quire's embedded static files: web/dist and web/dist-inkboard (rust-embed; debug builds read from disk)."
+name = "wikanvas-assets"
+description = "Wikanvas's embedded static files: web/dist and web/dist-inkboard (rust-embed; debug builds read from disk)."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

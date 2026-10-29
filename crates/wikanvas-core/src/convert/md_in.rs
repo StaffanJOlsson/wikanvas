@@ -1,4 +1,4 @@
-//! Quire Markdown 1 input: comrak to normalized ProseMirror JSON (owner: W4)
+//! Wikanvas Markdown 1 input: comrak to normalized ProseMirror JSON (owner: W4)
 //!
 //! [`parse`] runs [`prescan`] (a per-line upper bound on container nesting, refused above [`PRESCAN_LIMIT`] before
 //! comrak sees the input), then comrak 0.59 with `table`, `strikethrough`, `tasklist`, `autolink`, `alerts` and
@@ -26,7 +26,7 @@ use crate::schema::{self, Invalid, MAX_DEPTH, type_of};
 /// The input limit of a Markdown PUT (D33).
 pub const MAX_MARKDOWN_BYTES: usize = 1024 * 1024;
 
-/// comrak's options for Quire Markdown 1.
+/// comrak's options for Wikanvas Markdown 1.
 pub fn options() -> Options<'static> {
     let mut o = Options::default();
     o.extension.table = true;
@@ -144,7 +144,7 @@ pub fn check_depth<'a>(root: &'a AstNode<'a>) -> Result<(), Invalid> {
     Ok(())
 }
 
-/// Parses Quire Markdown 1 into a normalized document.
+/// Parses Wikanvas Markdown 1 into a normalized document.
 pub fn parse(md: &str, lookup: &dyn Lookup) -> Result<(Value, Warnings), Invalid> {
     prescan(md)?;
     let arena = Arena::new();

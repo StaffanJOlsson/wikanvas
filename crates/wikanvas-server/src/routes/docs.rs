@@ -16,13 +16,13 @@ use axum::http::header::{self, HeaderMap, HeaderValue};
 use axum::http::{HeaderName, StatusCode};
 use axum::response::{IntoResponse, Response};
 use base64::Engine as _;
-use quire_api::{
+use wikanvas_api::{
     DocJson, DocJsonPut, DocQuery, DocSchema, DocState, DocUpdate, DocUpdateResult, DocWriteResult,
     ErrorBody, ErrorCode, InvalidDocumentDetails, LimitDetails, MarkdownGetQuery, MarkdownPutQuery,
     MarkdownPutTitle, MarkdownTitle, ProseMirrorPutQuery, SCHEMA_VERSION, Timestamp,
 };
-use quire_store::docs::{self, Author, ContentInput, ContentWrite, IfMatch, PmJson};
-use quire_store::shared::WriteBy;
+use wikanvas_store::docs::{self, Author, ContentInput, ContentWrite, IfMatch, PmJson};
+use wikanvas_store::shared::WriteBy;
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use sha2::{Digest, Sha256};
@@ -36,8 +36,8 @@ use crate::error::ApiError;
 use crate::extract::{Actor, Auth, AuthMethod, IdPath, Read, Write};
 use crate::state::{AppState, now_ms};
 
-/// The `Quire-Conversion-Warnings` response header of the Markdown GET (§6.4).
-pub const WARNINGS_HEADER: &str = "quire-conversion-warnings";
+/// The `Wikanvas-Conversion-Warnings` response header of the Markdown GET (§6.4).
+pub const WARNINGS_HEADER: &str = "wikanvas-conversion-warnings";
 
 /// This module's routes, relative to `/api/v1`.
 pub fn router() -> OpenApiRouter<AppState> {
@@ -198,7 +198,7 @@ fn author(actor: &Actor) -> Author {
     }
 }
 
-/// The stored-document cap (`QUIRE_MAX_DOC_MB`).
+/// The stored-document cap (`WIKANVAS_MAX_DOC_MB`).
 fn max_doc_bytes(state: &AppState) -> usize {
     (state.config.max_doc_mb as usize).saturating_mul(1024 * 1024)
 }
@@ -310,8 +310,8 @@ async fn post_updates(
     }))
 }
 
-/// The document as Quire Markdown 1 (§6.4). Never 304: it prints live titles. The lossy steps are listed in
-/// `Quire-Conversion-Warnings`.
+/// The document as Wikanvas Markdown 1 (§6.4). Never 304: it prints live titles. The lossy steps are listed in
+/// `Wikanvas-Conversion-Warnings`.
 #[utoipa::path(
     get,
     path = "/items/{id}/doc/markdown",
@@ -320,7 +320,7 @@ async fn post_updates(
     security(("bearer" = ["read"]), ("session" = [])),
     params(("id" = uuid::Uuid, Path, description = "The document's id"), MarkdownGetQuery),
     responses(
-        (status = 200, description = "Markdown, with `ETag: \"d{seq}\"` and `Quire-Conversion-Warnings`",
+        (status = 200, description = "Markdown, with `ETag: \"d{seq}\"` and `Wikanvas-Conversion-Warnings`",
             body = String, content_type = "text/markdown"),
         (status = 401, description = "`unauthenticated`, `invalid_token`", body = ErrorBody),
         (status = 403, description = "`insufficient_scope`", body = ErrorBody),
@@ -387,7 +387,7 @@ async fn get_markdown(
         ("If-Match" = String, Header, description = "`\"d{seq}\"` from a GET, or `*`"),
         MarkdownPutQuery,
     ),
-    request_body(content = String, content_type = "text/markdown", description = "Quire Markdown 1, up to 1 MiB"),
+    request_body(content = String, content_type = "text/markdown", description = "Wikanvas Markdown 1, up to 1 MiB"),
     responses(
         (status = 200, description = "Written (or already equal), with the new `ETag`", body = DocWriteResult),
         (status = 401, description = "`unauthenticated`, `invalid_token`", body = ErrorBody),
@@ -606,7 +606,7 @@ async fn put_prosemirror(
     )
 )]
 async fn get_schema(_auth: Auth<Read>) -> Json<DocSchema> {
-    Json(quire_core::schema::v1().doc_schema())
+    Json(wikanvas_core::schema::v1().doc_schema())
 }
 
 #[cfg(test)]

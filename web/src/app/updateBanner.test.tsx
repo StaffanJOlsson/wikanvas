@@ -37,9 +37,9 @@ describe('the update banner', () => {
     version = '0.2.0';
     await router.navigate('/doc/plan-AbCdEfGh12');
     const banner = await screen.findByRole('alert');
-    expect(banner.textContent).toContain('Quire was updated.');
+    expect(banner.textContent).toContain('Wikanvas was updated.');
     expect(screen.getAllByRole('button', { name: 'Reload' }).length).toBeGreaterThan(0);
-    expect(screen.getByRole('heading', { name: 'Quire was updated' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Wikanvas was updated' })).toBeTruthy();
     expect(screen.queryByText(/could not be shown/)).toBeNull();
     expect(api.calls('GET', '/config')).toHaveLength(2);
   });
@@ -50,7 +50,7 @@ describe('the update banner', () => {
     await screen.findByRole('heading', { name: 'Home' });
     await router.navigate('/doc/plan-AbCdEfGh12');
     expect(await screen.findByRole('heading', { name: 'This page could not be shown' })).toBeTruthy();
-    expect(screen.queryByText('Quire was updated.')).toBeNull();
+    expect(screen.queryByText('Wikanvas was updated.')).toBeNull();
   });
 
   it('compares version, commit and the engine base', async () => {

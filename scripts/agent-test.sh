@@ -2,20 +2,20 @@
 # The agent test harness (docs/ARCHITECTURE.md §14.1, D56): the shipped CLI against the shipped image, for AI agents
 # and CI. It never builds: build the image with scripts/image.sh first (and a host CLI with scripts/cli-dist.sh).
 #   scripts/agent-test.sh [run] [--scenario GLOB] [--keep] [--ttl MIN] [--allow-stale]
-#   scripts/agent-test.sh up [--ttl MIN] [--allow-stale]    # leave the app on 127.0.0.1:$QUIRE_AGENT_PORT
+#   scripts/agent-test.sh up [--ttl MIN] [--allow-stale]    # leave the app on 127.0.0.1:$WIKANVAS_AGENT_PORT
 #   scripts/agent-test.sh status                             # what is up, and the time left
 #   scripts/agent-test.sh down                               # stop the holder, remove the project and its files
-# run: starts project quire-agent (compose.yaml + compose.e2e.yaml, only the quire service, subnet
+# run: starts project wikanvas-agent (compose.yaml + compose.e2e.yaml, only the wikanvas service, subnet
 # 172.31.240.32/28, range .40/29, proxy address .34; --env-file /dev/null and the owner-facing variables unset),
-# provisions an owner and a read, a write and an admin token inside the container (quire admin …), runs
+# provisions an owner and a read, a write and an admin token inside the container (wikanvas admin …), runs
 # e2e/agent/scenarios/NN-*.sh in order (--scenario filters by file name), prints TAP and writes
 # e2e/agent/results/report.json (tokens masked). The project is removed on exit (down -v) unless --keep.
-# up and run --keep add compose.agent.yaml (127.0.0.1:${QUIRE_AGENT_PORT:-18080} → quire:8080) and leave the app for
-# --ttl minutes (default 15, at most 15: PLAN R1): a background holder keeps the build lock, then runs down. They
-# write, under umask 077, .cache/agent-test/env (QUIRE_URL, QUIRE_TOKEN_FILE=…/write.token) next to read.token,
+# up and run --keep add compose.agent.yaml (127.0.0.1:${WIKANVAS_AGENT_PORT:-18080} → wikanvas:8080) and leave the app
+# for --ttl minutes (default 15, at most 15: PLAN R1): a background holder keeps the build lock, then runs down. They
+# write, under umask 077, .cache/agent-test/env (WIKANVAS_URL, WIKANVAS_TOKEN_FILE=…/write.token) next to read.token,
 # write.token and admin.token.
-# Variables: QUIRE_IMAGE (default quire:latest), QUIRE_AGENT_CLI (a host quire binary: the scenarios then use it
-# against the loopback port instead of the CLI in the container), QUIRE_AGENT_PORT (default 18080).
+# Variables: WIKANVAS_IMAGE (default wikanvas:latest), WIKANVAS_AGENT_CLI (a host wikanvas binary: the scenarios then
+# use it against the loopback port instead of the CLI in the container), WIKANVAS_AGENT_PORT (default 18080).
 # Exit codes: 0 every step passed, 1 a scenario failed, 2 usage, 3 a prerequisite is missing (docker, compose >= 2.24,
 # jq, the image, a free port), the image is stale (its revision label is not HEAD; --allow-stale overrides) or the
 # project is already up, 4 the app did not become healthy. status: 0 up, 3 not up. down: 0.
@@ -25,11 +25,11 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 . "$root/scripts/lib/lock.sh"
 . "$root/scripts/lib/slice.sh"
 
-project=quire-agent
+project=wikanvas-agent
 state="$root/.cache/agent-test"
 results="$root/e2e/agent/results"
-image="${QUIRE_IMAGE:-quire:latest}"
-port="${QUIRE_AGENT_PORT:-18080}"
+image="${WIKANVAS_IMAGE:-wikanvas:latest}"
+port="${WIKANVAS_AGENT_PORT:-18080}"
 max_ttl=15
 
 usage() {
@@ -95,7 +95,7 @@ if ! [[ "$ttl" =~ ^[1-9][0-9]?$ ]] || [ "$ttl" -gt "$max_ttl" ]; then
 fi
 [ "$cmd" = up ] && keep=1
 if ! [[ "$port" =~ ^[0-9]{1,5}$ ]] || [ "$port" -lt 1024 ] || [ "$port" -gt 65535 ]; then
-  die 2 "QUIRE_AGENT_PORT=$port: a port from 1024 to 65535"
+  die 2 "WIKANVAS_AGENT_PORT=$port: a port from 1024 to 65535"
 fi
 
 project_up() {
@@ -128,12 +128,12 @@ if [ "$cmd" = status ]; then
     [ "$left" -lt 0 ] && left=0
   fi
   holder="$(cat "$state/holder.pid" 2>/dev/null || true)"
-  url="$(sed -n 's/^QUIRE_URL=//p' "$state/env" 2>/dev/null || true)"
+  url="$(sed -n 's/^WIKANVAS_URL=//p' "$state/env" 2>/dev/null || true)"
   echo "$project is up${url:+ at $url}"
   if [ -n "$left" ]; then
     echo "time left: $((left / 60)) min $((left % 60)) s (holder pid ${holder:-?}, then down)"
   fi
-  [ -f "$state/env" ] && echo "env: $state/env (QUIRE_URL, QUIRE_TOKEN_FILE)"
+  [ -f "$state/env" ] && echo "env: $state/env (WIKANVAS_URL, WIKANVAS_TOKEN_FILE)"
   exit 0
 fi
 
@@ -182,27 +182,27 @@ elif [ "$label" != "${label%-dirty}" ] || [ -n "$dirty_tree" ]; then
   echo "agent-test: warning: $image ($label) or the worktree has uncommitted changes" >&2
 fi
 with_port=0
-if [ "$keep" = 1 ] || [ -n "${QUIRE_AGENT_CLI:-}" ]; then
+if [ "$keep" = 1 ] || [ -n "${WIKANVAS_AGENT_CLI:-}" ]; then
   with_port=1
 fi
-if [ -n "${QUIRE_AGENT_CLI:-}" ] && [ ! -x "$QUIRE_AGENT_CLI" ]; then
-  die 3 "QUIRE_AGENT_CLI=$QUIRE_AGENT_CLI is not an executable (build one with scripts/cli-dist.sh)"
+if [ -n "${WIKANVAS_AGENT_CLI:-}" ] && [ ! -x "$WIKANVAS_AGENT_CLI" ]; then
+  die 3 "WIKANVAS_AGENT_CLI=$WIKANVAS_AGENT_CLI is not an executable (build one with scripts/cli-dist.sh)"
 fi
 if [ "$with_port" = 1 ] && (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null; then
-  die 3 "127.0.0.1:$port is taken: set QUIRE_AGENT_PORT to a free port"
+  die 3 "127.0.0.1:$port is taken: set WIKANVAS_AGENT_PORT to a free port"
 fi
 
-quire_lock || exit 1
-quire_slice
+wikanvas_lock || exit 1
+wikanvas_slice
 
 # The owner-facing variables (§13.3) and the other settings compose.yaml reads never reach the test project: its
 # caps and settings are always the defaults of compose.yaml.
-unset QUIRE_DOMAIN QUIRE_TLS QUIRE_BIND QUIRE_HTTP_PORT QUIRE_HTTPS_PORT QUIRE_CPUS QUIRE_MEM QUIRE_CADDY_CPUS \
-  QUIRE_CADDY_MEM QUIRE_NET_SUBNET QUIRE_NET_RANGE QUIRE_PROXY_IP
-unset QUIRE_PUBLIC_URL QUIRE_ALLOWED_HOSTS QUIRE_BACKUP_INTERVAL QUIRE_BACKUP_KEEP QUIRE_MAX_UPLOAD_MB \
-  QUIRE_MAX_BOARD_MB QUIRE_TOKEN_RATE QUIRE_TOKEN_BYTES_PER_HOUR QUIRE_MIN_FREE_MB QUIRE_CORS_ORIGINS
-export QUIRE_NET_SUBNET=172.31.240.32/28 QUIRE_NET_RANGE=172.31.240.40/29 QUIRE_PROXY_IP=172.31.240.34
-export QUIRE_IMAGE="$image" QUIRE_AGENT_PORT="$port"
+unset WIKANVAS_DOMAIN WIKANVAS_TLS WIKANVAS_BIND WIKANVAS_HTTP_PORT WIKANVAS_HTTPS_PORT WIKANVAS_CPUS WIKANVAS_MEM WIKANVAS_CADDY_CPUS \
+  WIKANVAS_CADDY_MEM WIKANVAS_NET_SUBNET WIKANVAS_NET_RANGE WIKANVAS_PROXY_IP
+unset WIKANVAS_PUBLIC_URL WIKANVAS_ALLOWED_HOSTS WIKANVAS_BACKUP_INTERVAL WIKANVAS_BACKUP_KEEP WIKANVAS_MAX_UPLOAD_MB \
+  WIKANVAS_MAX_BOARD_MB WIKANVAS_TOKEN_RATE WIKANVAS_TOKEN_BYTES_PER_HOUR WIKANVAS_MIN_FREE_MB WIKANVAS_CORS_ORIGINS
+export WIKANVAS_NET_SUBNET=172.31.240.32/28 WIKANVAS_NET_RANGE=172.31.240.40/29 WIKANVAS_PROXY_IP=172.31.240.34
+export WIKANVAS_IMAGE="$image" WIKANVAS_AGENT_PORT="$port"
 
 kept=0
 cleanup() {
@@ -225,25 +225,25 @@ trap 'exit 143' TERM
 # --- start and provision -----------------------------------------------------------------------------------------
 compose "$with_port" down -v --remove-orphans >/dev/null 2>&1 || true
 echo "starting $project ($image${label:+, $label})" >&2
-if ! compose "$with_port" up -d --wait --wait-timeout 120 quire >&2; then
+if ! compose "$with_port" up -d --wait --wait-timeout 120 wikanvas >&2; then
   die 4 "$project did not come up healthy"
 fi
-cid="$(compose "$with_port" ps -q quire)"
-[ -n "$cid" ] || die 4 "$project has no quire container"
+cid="$(compose "$with_port" ps -q wikanvas)"
+[ -n "$cid" ] || die 4 "$project has no wikanvas container"
 
-# Inside the container: the CLI execs quire-server admin. The generated password and the tokens stay in variables
+# Inside the container: the CLI execs wikanvas-server admin. The generated password and the tokens stay in variables
 # and are never printed.
-if ! owner_json="$(docker exec "$cid" quire --json admin create-owner --email agent@quire.invalid --name Agent \
+if ! owner_json="$(docker exec "$cid" wikanvas --json admin create-owner --email agent@wikanvas.invalid --name Agent \
   --workspace "Agent test" --generate-password)"; then
-  die 4 "quire admin create-owner failed"
+  die 4 "wikanvas admin create-owner failed"
 fi
 unset owner_json
 declare -A token=()
 for scope in read write admin; do
   # 2d, not §14.1's 1d: a token cannot outlive the token that creates it (to the millisecond), and the scenarios
   # create 1d tokens with these.
-  if ! out="$(docker exec "$cid" quire --json admin create-token --name "agent-$scope" --scope "$scope" --expires 2d)"; then
-    die 4 "quire admin create-token --scope $scope failed"
+  if ! out="$(docker exec "$cid" wikanvas --json admin create-token --name "agent-$scope" --scope "$scope" --expires 2d)"; then
+    die 4 "wikanvas admin create-token --scope $scope failed"
   fi
   token[$scope]="$(jq -r .token <<<"$out")"
   unset out
@@ -258,7 +258,7 @@ keep_up() {
     umask 077
     mkdir -p "$state"
     for scope in read write admin; do printf '%s\n' "${token[$scope]}" >"$state/$scope.token"; done
-    printf 'QUIRE_URL=%s\nQUIRE_TOKEN_FILE=%s\n' "$url" "$state/write.token" >"$state/env"
+    printf 'WIKANVAS_URL=%s\nWIKANVAS_TOKEN_FILE=%s\n' "$url" "$state/write.token" >"$state/env"
     echo $(($(date +%s) + ttl * 60)) >"$state/deadline"
   )
   setsid bash -c 'trap "exit 0" TERM; sleep "$1" & wait $!; exec "$2" down --from-holder' agent-test-holder \

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Formats Quire's own crates with rustfmt, in the capped toolchain container (docs/ARCHITECTURE.md §4.1).
+# Formats Wikanvas's own crates with rustfmt, in the capped toolchain container (docs/ARCHITECTURE.md §4.1).
 #   scripts/fmt.sh           # format
 #   scripts/fmt.sh --check   # only check; exit 1 when a file would change
 # Always this script, never `cargo fmt --all`: --all follows the inkboard-core path dependency into Inkboard's own
@@ -7,7 +7,7 @@
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 
-packages=(quire-api quire-core quire-store quire-server quire-assets quire-cli)
+packages=(wikanvas-api wikanvas-core wikanvas-store wikanvas-server wikanvas-assets wikanvas-cli)
 
 check=()
 case "$#:${1:-}" in

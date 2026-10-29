@@ -1,8 +1,9 @@
 // @ts-check
-// Quire's board frame page (docs/ARCHITECTURE.md §10.4), served as /inkboard/{build}/frame.html + frame.js next to the
-// engine (inkboard.js, inkboard_bg.wasm, icons.bin) and manifest.json, all written by scripts/inkboard.sh build. It
-// implements `QuireBoardFrame` of src/board/bridge.ts on top of the Inkboard JS API (§10.3, inkboard.d.ts): the SPA's
-// BoardFrameHost (same origin) calls `iframe.contentWindow.quireBoardFrame.connect(events)` once the frame has loaded.
+// Wikanvas's board frame page (docs/ARCHITECTURE.md §10.4), served as /inkboard/{build}/frame.html + frame.js next to
+// the engine (inkboard.js, inkboard_bg.wasm, icons.bin) and manifest.json, all written by scripts/inkboard.sh build. It
+// implements `WikanvasBoardFrame` of src/board/bridge.ts on top of the Inkboard JS API (§10.3, inkboard.d.ts): the
+// SPA's BoardFrameHost (same origin) calls `iframe.contentWindow.wikanvasBoardFrame.connect(events)` once the frame has
+// loaded.
 //
 // - connect: feature checks, manifest.json, the wasm download counted for onProgress, then init() (whose wasm `main`
 //   installs globalThis.inkboardEmbed). It resolves to the BoardFrameApi, or rejects {kind, message} after onError.
@@ -22,7 +23,7 @@
 //   without ending that editing: its press leaves the keyboard focus where it is, and when eframe focuses its canvas on the release
 //   anyway, onEmbedFocusBack lets the host give the focus back to the card.
 
-/** @import { BoardFrameApi, ConnectError, DragItemType, DraggedItem, FrameErrorKind, FrameEvents, FrameRect, OpenArgs, QuireBoardFrame } from '../src/board/bridge.ts' */
+/** @import { BoardFrameApi, ConnectError, DragItemType, DraggedItem, FrameErrorKind, FrameEvents, FrameRect, OpenArgs, WikanvasBoardFrame } from '../src/board/bridge.ts' */
 /** @import { CanvasRect, EngineEmbedEditEnd, EngineEmbedLayout, EngineEmbedOpen, EngineInsertEmbed, InkboardEmbed, InkboardHandle } from './inkboard.js' */
 import init from './inkboard.js';
 
@@ -34,7 +35,7 @@ import init from './inkboard.js';
 const WASM = 'inkboard_bg.wasm';
 const DOUBLE_ESCAPE_MS = 500;
 /** The native drag type of a sidebar document row (bridge.ts). @type {DragItemType} */
-const DRAG_ITEM_TYPE = 'application/x-quire-item';
+const DRAG_ITEM_TYPE = 'application/x-wikanvas-item';
 
 const canvas = /** @type {HTMLCanvasElement} */ (document.getElementById('board'));
 
@@ -302,7 +303,7 @@ async function start() {
   }
   /** @type {BoardFrameApi} */
   const api = {
-    engineVersion: `${engine.version}.quire.${manifest.patchset}`,
+    engineVersion: `${engine.version}.wikanvas.${manifest.patchset}`,
     formatVersion: engine.formatVersion,
     open(a) {
       const run = queue.then(() => openNow(engine, a));
@@ -496,8 +497,8 @@ window.addEventListener(
   { capture: true },
 );
 
-/** @type {QuireBoardFrame} */
-const quireBoardFrame = {
+/** @type {WikanvasBoardFrame} */
+const wikanvasBoardFrame = {
   connect(ev) {
     events = ev ?? {};
     if (connecting === null) {
@@ -565,4 +566,4 @@ window.addEventListener('pagehide', (e) => {
   gl?.getExtension('WEBGL_lose_context')?.loseContext();
 });
 
-window.quireBoardFrame = quireBoardFrame;
+window.wikanvasBoardFrame = wikanvasBoardFrame;

@@ -1,7 +1,7 @@
 //! The workspace export tar (owner: W2).
 //!
 //! D34, §12: `GET /api/v1/export` streams a tar of `manifest.json`, a credential-free copy of the database as
-//! `quire.db`, and every blob file as `files/aa/bb/<sha256>`.
+//! `wikanvas.db`, and every blob file as `files/aa/bb/<sha256>`.
 //! - [`prepare_copy`] runs `VACUUM INTO '<data_dir>/tmp/export-….db'` on the maintenance connection (never `/tmp`, a
 //!   small tmpfs), then opens the copy on its own connection (not through the §5 PRAGMA path) with
 //!   `journal_mode=DELETE` and `secure_delete=ON`, deletes every session and API token and clears every password
@@ -17,7 +17,7 @@ use std::fs::File;
 use std::io::{BufReader, Write};
 use std::path::{Path, PathBuf};
 
-use quire_core::api::{ErrorCode, Timestamp};
+use wikanvas_core::api::{ErrorCode, Timestamp};
 use rusqlite::{Connection, OpenFlags};
 use serde::Serialize;
 
@@ -31,14 +31,14 @@ pub const CHUNK: usize = 256 * 1024;
 /// The export's `manifest.json`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Manifest {
-    /// `quire-export`.
+    /// `wikanvas-export`.
     pub format: &'static str,
     /// The layout version of the tar (1).
     pub format_version: u32,
     pub created_at: String,
-    /// The server that wrote it (`quire-server` version).
+    /// The server that wrote it (`wikanvas-server` version).
     pub server_version: String,
-    /// `quire_api::API_VERSION`.
+    /// `wikanvas_api::API_VERSION`.
     pub api_version: &'static str,
     /// The database schema version (`user_version`).
     pub schema_version: u32,
@@ -50,11 +50,11 @@ impl Manifest {
     /// The manifest of an export written now by `server_version`.
     pub fn new(server_version: &str, schema_version: u32, now: i64) -> Manifest {
         Manifest {
-            format: "quire-export",
+            format: "wikanvas-export",
             format_version: 1,
             created_at: Timestamp(now).to_rfc3339(),
             server_version: server_version.to_owned(),
-            api_version: quire_core::api::API_VERSION,
+            api_version: wikanvas_core::api::API_VERSION,
             schema_version,
             without: ["sessions", "api_tokens", "password_hashes"],
         }
@@ -162,7 +162,7 @@ pub fn prepare_copy(db: &Db, tmp_dir: &Path) -> Result<ExportCopy> {
     Ok(clean)
 }
 
-/// Writes the tar: `manifest.json`, `quire.db` (the copy), then `files/aa/bb/<sha256>` for every file under
+/// Writes the tar: `manifest.json`, `wikanvas.db` (the copy), then `files/aa/bb/<sha256>` for every file under
 /// `files_dir`. Blocking. Returns the writer after the end-of-archive marker.
 pub fn write_tar<W: Write>(
     out: W,
@@ -185,7 +185,7 @@ pub fn write_tar<W: Write>(
     let len = db.metadata()?.len();
     append(
         &mut tar,
-        "quire.db",
+        "wikanvas.db",
         len,
         mtime,
         BufReader::with_capacity(CHUNK, db),

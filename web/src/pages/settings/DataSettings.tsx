@@ -39,8 +39,8 @@ export function DataSettings() {
       <section className="settings-section" aria-labelledby="backup-h">
         <h2 id="backup-h">Backups</h2>
         <p>
-          The server backs up its database to <code>/data/backups</code> every <code>QUIRE_BACKUP_INTERVAL</code> (default
-          24 hours) and keeps the newest <code>QUIRE_BACKUP_KEEP</code> copies (default 7). Uploaded files stay in
+          The server backs up its database to <code>/data/backups</code> every <code>WIKANVAS_BACKUP_INTERVAL</code> (default
+          24 hours) and keeps the newest <code>WIKANVAS_BACKUP_KEEP</code> copies (default 7). Uploaded files stay in
           <code> /data/files</code>; back up the whole <code>/data</code> volume to keep both.
         </p>
         <button type="button" className="button" disabled={busy} onClick={() => void run()}>

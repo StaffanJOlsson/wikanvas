@@ -4,16 +4,16 @@
 //! SQLITE_READONLY), then a `quick_check` of the copy.
 //! - [`pre_migration`]: `<data_dir>/backups/pre-migrate-v{N}-{ts}.db`, kept separately.
 //! - [`create`]: scheduled and on-demand backups. The copy is written as `backups/.tmp-…`, checked, then renamed to
-//!   `quire-YYYYMMDDTHHMMZ.db`; afterwards only the newest `keep` `quire-*.db` files remain ([`prune`]). It holds an
-//!   exclusive lock on `backups/.lock` throughout, so the admin command and a running server never back up at the
+//!   `wikanvas-YYYYMMDDTHHMMZ.db`; afterwards only the newest `keep` `wikanvas-*.db` files remain ([`prune`]). It holds
+//!   an exclusive lock on `backups/.lock` throughout, so the admin command and a running server never back up at the
 //!   same time (429 `rate_limited` with `reason: busy` for the second).
-//! - [`to_path`]: `quire-server admin backup --out PATH`, not counted against `keep`.
+//! - [`to_path`]: `wikanvas-server admin backup --out PATH`, not counted against `keep`.
 //!
 //! In one process the callers also keep backups single-flight, and they check the free space first (D33).
 
 use std::path::{Path, PathBuf};
 
-use quire_core::api::{ErrorCode, Timestamp};
+use wikanvas_core::api::{ErrorCode, Timestamp};
 use rusqlite::{Connection, OpenFlags};
 
 use crate::db::Db;
@@ -62,7 +62,7 @@ pub fn file_timestamp(now: i64) -> String {
 /// Copies the database before migrating from schema version `version`: `VACUUM INTO
 /// '<data_dir>/backups/pre-migrate-v{version}-{YYYYMMDDTHHMMZ}.db'` on [`Db::maintenance`], then `quick_check` on the
 /// copy. A name that is taken gets a `-2`, `-3`, … suffix. Returns the path of the copy. Pre-migration backups are not
-/// counted against `QUIRE_BACKUP_KEEP`.
+/// counted against `WIKANVAS_BACKUP_KEEP`.
 pub fn pre_migration(db: &Db, data_dir: &Path, version: u32, now: i64) -> Result<PathBuf> {
     let dir = backups_dir(data_dir);
     std::fs::create_dir_all(&dir)?;
@@ -81,7 +81,7 @@ pub fn pre_migration(db: &Db, data_dir: &Path, version: u32, now: i64) -> Result
 }
 
 /// A scheduled or on-demand backup: `VACUUM INTO backups/.tmp-<random>.db`, `quick_check`, rename to
-/// `backups/quire-YYYYMMDDTHHMMZ.db` (`-2`, `-3`, … when the name is taken), then [`prune`] to the newest
+/// `backups/wikanvas-YYYYMMDDTHHMMZ.db` (`-2`, `-3`, … when the name is taken), then [`prune`] to the newest
 /// `keep.max(1)` copies, all under [`lock`] (429 `busy` when another process is backing up). Returns the new file. A
 /// failed check deletes the copy.
 pub fn create(db: &Db, data_dir: &Path, keep: u32, now: i64) -> Result<PathBuf> {
@@ -94,7 +94,7 @@ pub fn create(db: &Db, data_dir: &Path, keep: u32, now: i64) -> Result<PathBuf> 
         vacuum_into(&conn, &tmp)?;
         drop(conn);
         quick_check(&tmp)?;
-        let stem = format!("quire-{}", file_timestamp(now));
+        let stem = format!("wikanvas-{}", file_timestamp(now));
         let mut path = dir.join(format!("{stem}.db"));
         let mut n = 2;
         while path.exists() {
@@ -115,8 +115,8 @@ pub fn create(db: &Db, data_dir: &Path, keep: u32, now: i64) -> Result<PathBuf> 
     Ok(path)
 }
 
-/// `quire-server admin backup --out PATH`: `VACUUM INTO path` (which must not exist) and `quick_check`. Not counted
-/// against `QUIRE_BACKUP_KEEP`.
+/// `wikanvas-server admin backup --out PATH`: `VACUUM INTO path` (which must not exist) and `quick_check`. Not counted
+/// against `WIKANVAS_BACKUP_KEEP`.
 pub fn to_path(db: &Db, path: &Path) -> Result<()> {
     if path.exists() {
         return Err(Error::validation(
@@ -134,7 +134,7 @@ pub fn to_path(db: &Db, path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// The `quire-*.db` backups in `dir`, oldest first (by name, which sorts by time).
+/// The `wikanvas-*.db` backups in `dir`, oldest first (by name, which sorts by time).
 pub fn list(dir: &Path) -> Result<Vec<PathBuf>> {
     let mut found: Vec<PathBuf> = match std::fs::read_dir(dir) {
         Ok(entries) => entries
@@ -143,7 +143,7 @@ pub fn list(dir: &Path) -> Result<Vec<PathBuf>> {
             .filter(|p| {
                 p.file_name()
                     .and_then(|n| n.to_str())
-                    .is_some_and(|n| n.starts_with("quire-") && n.ends_with(".db"))
+                    .is_some_and(|n| n.starts_with("wikanvas-") && n.ends_with(".db"))
             })
             .collect(),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
@@ -156,14 +156,14 @@ pub fn list(dir: &Path) -> Result<Vec<PathBuf>> {
 /// Sort key of a backup name: the timestamp, then the `-n` suffix as a number.
 fn backup_key(path: &Path) -> (String, u32) {
     let name = path.file_stem().and_then(|n| n.to_str()).unwrap_or("");
-    let rest = name.strip_prefix("quire-").unwrap_or(name);
+    let rest = name.strip_prefix("wikanvas-").unwrap_or(name);
     match rest.split_once('-') {
         Some((ts, n)) => (ts.to_owned(), n.parse().unwrap_or(0)),
         None => (rest.to_owned(), 1),
     }
 }
 
-/// Deletes the oldest `quire-*.db` files in `dir` until at most `keep` remain (pre-migration backups are never
+/// Deletes the oldest `wikanvas-*.db` files in `dir` until at most `keep` remain (pre-migration backups are never
 /// touched); returns the deleted paths. A file that is already gone counts as deleted.
 pub fn prune(dir: &Path, keep: u32) -> Result<Vec<PathBuf>> {
     let all = list(dir)?;

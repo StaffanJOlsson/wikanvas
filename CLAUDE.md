@@ -1,4 +1,4 @@
-# Quire
+# Wikanvas
 
 Self-hosted wiki: an Outline-style sidebar of collections with documents and Inkboard whiteboards nested to any depth.
 Rust (axum) server, SQLite, React + TipTap frontend, Inkboard (vendor/inkboard, git submodule) compiled to WebAssembly for boards.
@@ -9,30 +9,32 @@ The owner's machine has been brought to 100% by Rust builds before; caps are a h
 §13.1, D38).
 
 - Run every cargo, rustc, rustfmt, trunk, wasm-bindgen, wasm-opt, node, pnpm and npx command through
-  `scripts/dev.sh <command>`. It runs the `quire-toolchain` image capped at 6 CPUs and 12 GB RAM (no swap), pinned to
+  `scripts/dev.sh <command>`. It runs the `wikanvas-toolchain` image capped at 6 CPUs and 12 GB RAM (no swap), pinned to
   the host's last 6 cores (`--cpuset-cpus`, so `nproc` says 6), at nice 10. Do not call cargo/pnpm/node directly on the
-  host, and do not raise the caps without the owner asking: `QUIRE_BUILD_CPUS`, `QUIRE_BUILD_MEM` and
-  `QUIRE_BUILD_CPUSET` may only be lowered (the scripts refuse higher values).
-- Build Docker images only with the capped builder `quire-limited` (`docker buildx build --builder quire-limited ...`).
-  `scripts/toolchain.sh` creates it: the BuildKit container `quire-buildkit` with the same caps and cores, registered
-  with buildx's `remote` driver. If it prints a `docker buildx rm quire-limited; docker rm -f quire-buildkit;
-  scripts/toolchain.sh` instruction (caps, slice or config changed), run exactly that. The default builder has no caps.
+  host, and do not raise the caps without the owner asking: `WIKANVAS_BUILD_CPUS`, `WIKANVAS_BUILD_MEM` and
+  `WIKANVAS_BUILD_CPUSET` may only be lowered (the scripts refuse higher values).
+- Build Docker images only with the capped builder `wikanvas-limited`
+  (`docker buildx build --builder wikanvas-limited ...`). `scripts/toolchain.sh` creates it: the BuildKit container
+  `wikanvas-buildkit` with the same caps and cores, registered with buildx's `remote` driver. If it prints a
+  `docker buildx rm wikanvas-limited; docker rm -f wikanvas-buildkit; scripts/toolchain.sh` instruction (caps, slice or
+  config changed), run exactly that. The default builder has no caps.
 - `scripts/toolchain.sh` rebuilds the toolchain image, the `toolchain` target of `docker/Dockerfile`, after editing its
   `toolchain-base` or `toolchain` stage (`scripts/toolchain.sh --builder-only` only sets up or checks the builder).
 - **One build at a time, by lock.** The build scripts take one per-user lock (`scripts/lib/lock.sh`, a flock on
-  `~/.cache/quire/build.lock` resolved through the passwd database) and print "waiting for another Quire build…" while
-  another holds it. A script started from a lock holder sees `QUIRE_LOCK_HELD=1` and never waits for the lock, so nested
-  calls do not deadlock (it takes the lock only if nobody holds it). Never set `QUIRE_LOCK_HELD` by hand.
-- **The total cap is the systemd slice `quire-build.slice`** (6 CPUs, 12 GB, no swap, low CPU and IO weight via its
-  parent `quire.slice`). When it is installed, every build container and the BuildKit daemon join it as cgroup parent;
-  without it builds still run, capped per container, after the warning "quire-build.slice not installed: per-container
-  caps only". `scripts/install-build-slice.sh --check` (no root) shows whether it is installed and holds its values.
+  `~/.cache/wikanvas/build.lock` resolved through the passwd database) and print "waiting for another Wikanvas build…"
+  while another holds it. A script started from a lock holder sees `WIKANVAS_LOCK_HELD=1` and never waits for the lock,
+  so nested calls do not deadlock (it takes the lock only if nobody holds it). Never set `WIKANVAS_LOCK_HELD` by hand.
+- **The total cap is the systemd slice `wikanvas-build.slice`** (6 CPUs, 12 GB, no swap, low CPU and IO weight via its
+  parent `wikanvas.slice`). When it is installed, every build container and the BuildKit daemon join it as cgroup
+  parent; without it builds still run, capped per container, after the warning "wikanvas-build.slice not installed:
+  per-container caps only". `scripts/install-build-slice.sh --check` (no root) shows whether it is installed and holds
+  its values.
 - **Never run `sudo`** or any other root step: the coordinator runs the one privileged step
   (`scripts/install-build-slice.sh`) through the owner's askpass dialog.
 - **Never build inside `vendor/inkboard`** and never modify it (`git -C vendor/inkboard status --porcelain` stays
   empty); Inkboard builds run from the patched copy in `.cache/inkboard-src`.
 - **Format only with `scripts/fmt.sh`**, never `cargo fmt --all` (it reaches into `vendor/inkboard`).
-- The agent harness runs only through `scripts/agent-test.sh`, and agents use the `quire` CLI as described in
+- The agent harness runs only through `scripts/agent-test.sh`, and agents use the `wikanvas` CLI as described in
   `docs/AGENTS.md`.
 - `scripts/e2e.sh frame` needs the real engine: run `scripts/dev.sh scripts/inkboard.sh build` first (against the stub
   dist its `beforeAll` fails on purpose).
@@ -46,7 +48,7 @@ built only through the capped builder.
 
 ## Licensing
 
-Quire is MIT. Inkboard is MIT OR Apache-2.0: keep its LICENSE files and mark changed files. Do not copy
+Wikanvas is MIT. Inkboard is MIT OR Apache-2.0: keep its LICENSE files and mark changed files. Do not copy
 code from AGPL/BSL projects (Outline, Lore, Docmost, Wiki.js, Drafft.ink); reading them for ideas is fine.
 
 - A change to `Cargo.lock` or `web/pnpm-lock.yaml` also updates the tables in `THIRD_PARTY.md` (its last section says
@@ -55,4 +57,4 @@ code from AGPL/BSL projects (Outline, Lore, Docmost, Wiki.js, Drafft.ink); readi
 - Some questions are the owner's and stay open until the owner answers (docs/ARCHITECTURE.md §16 item 25: the
   engine's fonts, the base image's OS layer, the `LICENSE-MIT` copyright line): keep the current state, and do not
   decide them. Decided on 2026-10-28: MPL-2.0 is allowed for build-only tools (lightningcss), the image digests stay
-  as pinned, and on the owner's machine Quire's Caddy serves `127.0.0.1:8443` (a local `.env`, ignored by git).
+  as pinned, and on the owner's machine Wikanvas's Caddy serves `127.0.0.1:8443` (a local `.env`, ignored by git).

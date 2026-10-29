@@ -1,6 +1,6 @@
 //! The exit-code contract of §7.7 (owner: W8)
 
-use quire_api::cli::ExitCode;
+use wikanvas_api::cli::ExitCode;
 use serde_json::{Value, json};
 
 use crate::common::{Mock, Reply, Sandbox, fake_token, last_error, run_json};
@@ -10,7 +10,7 @@ fn json_prints_the_table() {
     let sandbox = Sandbox::new();
     let expected = serde_json::to_value(ExitCode::table()).expect("the table serializes");
     for args in [["exit-codes", "--json"], ["--json", "exit-codes"]] {
-        let out = sandbox.quire().args(args).assert().success().stderr("");
+        let out = sandbox.wikanvas().args(args).assert().success().stderr("");
         let value: Value =
             serde_json::from_slice(&out.get_output().stdout).expect("stdout is one JSON value");
         assert_eq!(value, expected, "{args:?}");
@@ -34,7 +34,7 @@ fn json_prints_the_table() {
 #[test]
 fn human_lists_every_code() {
     let out = Sandbox::new()
-        .quire()
+        .wikanvas()
         .arg("exit-codes")
         .assert()
         .success()
@@ -85,7 +85,7 @@ fn every_status_maps_to_the_table() {
             (s, None) => Reply::raw(s, "text/html", b"<html>a proxy page</html>"),
         };
         let mock = Mock::always(reply);
-        let (got, out, err) = run_json(s.quire_at(&mock.url, &fake_token(1)).args([
+        let (got, out, err) = run_json(s.wikanvas_at(&mock.url, &fake_token(1)).args([
             "--json",
             "--retries",
             "0",

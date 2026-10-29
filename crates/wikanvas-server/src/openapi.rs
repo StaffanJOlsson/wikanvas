@@ -45,10 +45,10 @@ pub fn router() -> OpenApiRouter<AppState> {
 
 /// `info`, the security schemes and the 3.1 version; the paths come from the routers.
 fn base() -> OpenApi {
-    let mut info = Info::new("Quire API", quire_api::API_VERSION);
+    let mut info = Info::new("Wikanvas API", wikanvas_api::API_VERSION);
     info.description = Some(
-        "The public API of Quire, a self-hosted wiki. The web client uses it with its session cookie; external \
-         clients and the `quire` CLI use personal access tokens (`Authorization: Bearer qpat_…`). Errors have the \
+        "The public API of Wikanvas, a self-hosted wiki. The web client uses it with its session cookie; external \
+         clients and the `wikanvas` CLI use personal access tokens (`Authorization: Bearer qpat_…`). Errors have the \
          shape `{\"error\": {\"code\", \"message\", \"details\"?}, \"request_id\"}`; clients treat an unknown \
          `code` by its HTTP status. Within v1, changes are additive only."
             .into(),
@@ -66,8 +66,8 @@ fn base() -> OpenApi {
             .build(),
     );
     let session = SecurityScheme::ApiKey(ApiKey::Cookie(ApiKeyValue::with_description(
-        "quire_session",
-        "The web client's session cookie. Over HTTPS (behind the proxy) it is named `__Host-quire_session`. A \
+        "wikanvas_session",
+        "The web client's session cookie. Over HTTPS (behind the proxy) it is named `__Host-wikanvas_session`. A \
          session has every scope; cookie-authenticated mutations must pass the Fetch-Metadata / Origin check.",
     )));
     let mut components = Components::new();
@@ -180,8 +180,8 @@ mod tests {
     fn spec_is_3_1_with_info_and_schemes() {
         let json: serde_json::Value = serde_json::from_str(&spec_json()).unwrap();
         assert_eq!(json["openapi"], "3.1.0");
-        assert_eq!(json["info"]["title"], "Quire API");
-        assert_eq!(json["info"]["version"], quire_api::API_VERSION);
+        assert_eq!(json["info"]["title"], "Wikanvas API");
+        assert_eq!(json["info"]["version"], wikanvas_api::API_VERSION);
         assert_eq!(json["info"]["license"]["name"], "MIT");
         let schemes = &json["components"]["securitySchemes"];
         assert_eq!(schemes["bearer"]["type"], "http");
@@ -189,7 +189,7 @@ mod tests {
         assert_eq!(schemes["bearer"]["bearerFormat"], "qpat");
         assert_eq!(schemes["session"]["type"], "apiKey");
         assert_eq!(schemes["session"]["in"], "cookie");
-        assert_eq!(schemes["session"]["name"], "quire_session");
+        assert_eq!(schemes["session"]["name"], "wikanvas_session");
         let paths = json["paths"].as_object().unwrap();
         assert!(
             paths.keys().all(|p| p.starts_with("/api/v1/")),

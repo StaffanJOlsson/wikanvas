@@ -1,4 +1,4 @@
-// Theme sync for the board frame (docs/ARCHITECTURE.md §9.5): the frame's chrome follows Quire's theme, which is
+// Theme sync for the board frame (docs/ARCHITECTURE.md §9.5): the frame's chrome follows Wikanvas's theme, which is
 // `<html data-theme>` (`light`, `dark` or `system`, set by theme-init.js and the settings) resolved against
 // `prefers-color-scheme`. The board's background stays board content.
 import { useSyncExternalStore } from 'react';

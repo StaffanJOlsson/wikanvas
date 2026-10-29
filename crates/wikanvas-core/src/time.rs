@@ -1,8 +1,8 @@
 //! Time helpers: unix milliseconds (D5; owner: W1).
 //!
-//! Every time in Quire is an `i64` of unix milliseconds in Rust and SQL, and an RFC 3339 UTC string on the wire
-//! (`quire_api::Timestamp`). The retention and window constants of §5 and §7.2 live here so the store, the server and
-//! the jobs agree on them.
+//! Every time in Wikanvas is an `i64` of unix milliseconds in Rust and SQL, and an RFC 3339 UTC string on the wire
+//! (`wikanvas_api::Timestamp`). The retention and window constants of §5 and §7.2 live here so the store, the server
+//! and the jobs agree on them.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 

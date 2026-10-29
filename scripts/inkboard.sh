@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Builds Quire's Inkboard engine dist (docs/ARCHITECTURE.md §10.5). Always run it through scripts/dev.sh or inside the
-# inkboard-web stage of docker/Dockerfile. It never runs git against the main repository, so it works the same in the
-# main tree, in a git worktree and in the Docker build context.
+# Builds Wikanvas's Inkboard engine dist (docs/ARCHITECTURE.md §10.5). Always run it through scripts/dev.sh or inside
+# the inkboard-web stage of docker/Dockerfile. It never runs git against the main repository, so it works the same in
+# the main tree, in a git worktree and in the Docker build context.
 #   scripts/inkboard.sh src [--force]              # rebuild .cache/inkboard-src: base copy + patches/inkboard/*.patch
 #   scripts/inkboard.sh build [--out DIR] [--quick]  # the wasm engine, the frame page, precompressed, manifest.json
 #   scripts/inkboard.sh stub [--out DIR]           # placeholder dist: frame page "engine not built" + manifest.json
@@ -23,17 +23,17 @@ upstream_dir="$root/.cache/inkboard-upstream"
 target_dir="${INKBOARD_TARGET_DIR:-$root/.cache/inkboard-target}"
 frame_dir="$root/web/inkboard-frame"
 baseline_file="$patch_dir/check-baseline.txt"
-stamp_file="$src_dir/.git/quire-src-stamp"
+stamp_file="$src_dir/.git/wikanvas-src-stamp"
 # The only Inkboard version this series is written against (§10.2); src refuses any other.
 INKBOARD_VERSION=0.2.0-beta.3
 # Every changed file carries one of these lines (§10.2); export --upstream removes them.
-NOTICE='Changed for Quire (embed feature): see patches/inkboard/README.md'
-NOTICE_RE='^(// |# |<!-- )Changed for Quire \(embed feature\): see patches/inkboard/README\.md( -->)?$'
+NOTICE='Changed for Wikanvas (embed feature): see patches/inkboard/README.md'
+NOTICE_RE='^(// |# |<!-- )Changed for Wikanvas \(embed feature\): see patches/inkboard/README\.md( -->)?$'
 # wasm-opt as trunk 0.22.1 runs it for Inkboard's web/index.html (`data-wasm-opt="s"`, no data-reference-types and no
 # data-wasm-opt-params): `wasm-opt --output=OUT -Os IN` and nothing else, read from trunk's src/pipelines/rust/mod.rs
 # (wasm_opt_build). wasm-bindgen as trunk runs it: --target web --no-typescript (plus --out-dir/--out-name).
 WASM_OPT_FLAGS=(-Os)
-# The feature set of the engine Quire ships (§10.5).
+# The feature set of the engine Wikanvas ships (§10.5).
 ENGINE_FEATURES=(--no-default-features --features web-glow,embed)
 
 usage() {
@@ -45,9 +45,9 @@ die() {
   exit 1
 }
 
-# git on the self-contained copy only (never on Quire's repository), with a fixed identity and no user hooks.
+# git on the self-contained copy only (never on Wikanvas's repository), with a fixed identity and no user hooks.
 git_src() {
-  git -C "$src_dir" -c user.name=quire -c user.email=quire@localhost -c commit.gpgsign=false -c core.hooksPath=/dev/null \
+  git -C "$src_dir" -c user.name=wikanvas -c user.email=wikanvas@localhost -c commit.gpgsign=false -c core.hooksPath=/dev/null \
     -c core.autocrlf=false -c advice.detachedHead=false "$@"
 }
 
@@ -145,7 +145,7 @@ precompress() {
 #   build           first 12 hex chars of the sha256 over all files of the dist (the sha256sum lines of every file
 #                   except manifest.json, .br and .gz variants included, sorted by name); the server serves the dist
 #                   under /inkboard/<build>/
-#   engine_version  "stub", or 0.2.0-beta.3+embed.quire.<patchset> for a real build
+#   engine_version  "stub", or 0.2.0-beta.3+embed.wikanvas.<patchset> for a real build
 #   format_version  from serial.rs (format_version above), a number
 #   patchset        "stub", or the patch series id recorded in patches/inkboard/README.md
 #   files           every file except manifest.json and the .br/.gz variants: {raw, br, gz} byte counts, where br and
@@ -213,7 +213,7 @@ EOF
   cat >"$stage/frame.js" <<'EOF'
 // Placeholder written by scripts/inkboard.sh stub: the Inkboard engine is not built into this dist.
 const message = 'Inkboard engine not built (scripts/inkboard.sh stub)';
-window.quireBoardFrame = {
+window.wikanvasBoardFrame = {
   connect(events) {
     if (events && typeof events.onError === 'function') {
       events.onError({ itemId: null, kind: 'unsupported', message });
@@ -357,7 +357,7 @@ cmd_build() {
   done
   fmt="$(format_version)"
   set="$(patchset)"
-  engine="$INKBOARD_VERSION+embed.quire.$set"
+  engine="$INKBOARD_VERSION+embed.wikanvas.$set"
   ensure_src
   has_feature embed || die "the patched copy has no 'embed' feature: is patch 0002 in patches/inkboard?"
   [ -d "$frame_dir" ] || die "$frame_dir is missing"
@@ -433,7 +433,7 @@ cmd_export() {
   if [ -n "$(git_src status --porcelain)" ]; then
     die "$src_dir has uncommitted changes: commit them first"
   fi
-  if git_src log --format=%B base..HEAD | grep -c 'Changed for Quire' >/dev/null; then
+  if git_src log --format=%B base..HEAD | grep -c 'Changed for Wikanvas' >/dev/null; then
     die "a commit message in $src_dir mentions the notice line; keep it out of the messages"
   fi
   if [ "$upstream" -eq 1 ]; then
@@ -455,7 +455,7 @@ export_upstream() {
   trap 'rm -rf "$work"' EXIT
   git clone -q --no-local "$src_dir" "$work/repo"
   _git_up() {
-    git -C "$work/repo" -c user.name=quire -c user.email=quire@localhost -c commit.gpgsign=false \
+    git -C "$work/repo" -c user.name=wikanvas -c user.email=wikanvas@localhost -c commit.gpgsign=false \
       -c core.hooksPath=/dev/null -c advice.detachedHead=false "$@"
   }
   _git_up checkout -q --detach base
@@ -470,7 +470,7 @@ export_upstream() {
   rm -rf "$upstream_dir"
   mkdir -p "$upstream_dir"
   _git_up format-patch --zero-commit --no-signature --quiet base -o "$upstream_dir"
-  if grep -rq "$NOTICE" "$upstream_dir" || grep -rq 'Changed for Quire' "$upstream_dir"; then
+  if grep -rq "$NOTICE" "$upstream_dir" || grep -rq 'Changed for Wikanvas' "$upstream_dir"; then
     die "a notice line survived in $upstream_dir"
   fi
   echo "wrote $(find "$upstream_dir" -name '*.patch' | wc -l) notice-free patch(es) to $upstream_dir" >&2

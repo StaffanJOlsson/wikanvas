@@ -1,6 +1,6 @@
 [package]
-name = "quire-store"
-description = "Quire's SQLite store: pools, migrations, repositories, blob store, tokens, backup, export and seed."
+name = "wikanvas-store"
+description = "Wikanvas's SQLite store: pools, migrations, repositories, blob store, tokens, backup, export and seed."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,7 +8,7 @@ license.workspace = true
 publish = false
 
 [dependencies]
-quire-core.workspace = true
+wikanvas-core.workspace = true
 inkboard-core.workspace = true
 yrs.workspace = true
 rusqlite.workspace = true

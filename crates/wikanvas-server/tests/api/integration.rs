@@ -23,13 +23,13 @@ use inkboard_core::geom::Frame;
 use inkboard_core::model::{BoxGeom, Document, ImageObj, Kind, Label, Object, Page};
 use inkboard_core::serial;
 use inkboard_core::style::{Align, Style};
-use quire_api::{
+use wikanvas_api::{
     Attachment, BoardPutResult, Collection, CollectionTree, CreatedToken, DocState,
     DocUpdateResult, DocWriteResult, ErrorCode, ItemDetail, ItemKind, ItemSummary, ItemText,
     Page as ApiPage, Scope, SearchHit, Sidebar, YFIELD,
 };
-use quire_core::convert::yrs;
-use quire_server::jobs::{self, PurgeReport};
+use wikanvas_core::convert::yrs;
+use wikanvas_server::jobs::{self, PurgeReport};
 use serde_json::{Value, json};
 use sha2::Digest as _;
 use uuid::Uuid;
@@ -297,7 +297,7 @@ async fn sign_in_remembered(app: &mut TestApp) {
     let owner = app.insert_owner().await;
     let res = app.login(OWNER_PASSWORD, true, None).await;
     res.assert_status_ok();
-    let session = cookie_from(&res, "quire_session").expect("a session cookie");
+    let session = cookie_from(&res, "wikanvas_session").expect("a session cookie");
     app.server = app.cookie_client(&session);
     app.owner_id = Some(owner);
     app.session = Some(session);
@@ -546,12 +546,12 @@ async fn seeded_getting_started_is_published_and_searchable() {
             "code": &*app.state.setup_code,
             "workspace_name": "Acme",
             "name": "Ada",
-            "email": "ada@quire.invalid",
+            "email": "ada@wikanvas.invalid",
             "password": "a long enough password"
         }))
         .await;
     res.assert_status(StatusCode::CREATED);
-    let owner = app.cookie_client(&cookie_from(&res, "quire_session").expect("a session cookie"));
+    let owner = app.cookie_client(&cookie_from(&res, "wikanvas_session").expect("a session cookie"));
 
     let res = owner.get("/api/v1/sidebar").await;
     res.assert_status_ok();
@@ -580,8 +580,8 @@ async fn seeded_getting_started_is_published_and_searchable() {
             .unwrap_or_else(|| panic!("{title} is seeded: {:?}", tree.items))
             .clone()
     };
-    let welcome = by_title("Welcome to Quire");
-    let writing = by_title("Writing in Quire");
+    let welcome = by_title("Welcome to Wikanvas");
+    let writing = by_title("Writing in Wikanvas");
     let board = by_title("Example board");
     assert_eq!(tree.items.len(), 3);
     assert_eq!(
@@ -602,7 +602,7 @@ async fn seeded_getting_started_is_published_and_searchable() {
         );
     }
 
-    // The content of each fixture is indexed: a word only the welcome text, only "Writing in Quire" and only the
+    // The content of each fixture is indexed: a word only the welcome text, only "Writing in Wikanvas" and only the
     // example board contain. Published items are found without drafts too.
     for (query, item) in [
         ("q=whiteboards", &welcome),
@@ -625,7 +625,7 @@ async fn seeded_getting_started_is_published_and_searchable() {
     assert!(
         welcome_text
             .body
-            .starts_with("Quire keeps your documents and whiteboards in one place."),
+            .starts_with("Wikanvas keeps your documents and whiteboards in one place."),
         "{}",
         welcome_text.body
     );
@@ -984,7 +984,7 @@ async fn export_after_api_writes_has_no_tokens_or_sessions() {
     let entries = untar(res.as_bytes());
     let names: Vec<&str> = entries.iter().map(|(n, _)| n.as_str()).collect();
     let file_of = |sha: &str| format!("files/{}/{}/{sha}", &sha[0..2], &sha[2..4]);
-    assert_eq!(names[..2], ["manifest.json", "quire.db"]);
+    assert_eq!(names[..2], ["manifest.json", "wikanvas.db"]);
     for (sha, bytes) in [
         (att.sha256.clone(), &photo),
         (sha256_hex(&asset_bytes), &asset_bytes),
@@ -998,9 +998,9 @@ async fn export_after_api_writes_has_no_tokens_or_sessions() {
 
     let raw = &entries[1].1;
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("quire.db"), raw).unwrap();
+    std::fs::write(dir.path().join("wikanvas.db"), raw).unwrap();
     let conn = rusqlite::Connection::open_with_flags(
-        dir.path().join("quire.db"),
+        dir.path().join("wikanvas.db"),
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
     )
     .unwrap();
@@ -1035,10 +1035,10 @@ async fn export_after_api_writes_has_no_tokens_or_sessions() {
     for token in [&admin_token, &write_token] {
         assert!(!contains(token.as_bytes()), "a token secret");
         assert!(!contains(&token.as_bytes()[..12]), "a token prefix");
-        assert!(!contains(&quire_store::tokens::hash(token)), "a token hash");
+        assert!(!contains(&wikanvas_store::tokens::hash(token)), "a token hash");
     }
     assert!(!contains(b"$argon2id$"), "a password hash");
-    let session = quire_store::sessions::token_hash(app.session.as_deref().unwrap()).unwrap();
+    let session = wikanvas_store::sessions::token_hash(app.session.as_deref().unwrap()).unwrap();
     assert!(!contains(&session), "a session hash");
 
     // The live database still has them.

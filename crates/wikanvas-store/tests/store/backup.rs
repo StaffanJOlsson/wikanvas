@@ -1,10 +1,10 @@
 //! Backup tests through the maintenance connection (owner: W2)
 //!
 //! The pre-migration backup and the migration runner around it; scheduled and on-demand backups through the real
-//! `Db` (the maintenance connection) with `quick_check`, rotation under `QUIRE_BACKUP_KEEP`, and `--out`.
+//! `Db` (the maintenance connection) with `quick_check`, rotation under `WIKANVAS_BACKUP_KEEP`, and `--out`.
 
-use quire_core::api::{ErrorCode, ItemKind};
-use quire_store::{Db, DbOptions, backup, migrate};
+use wikanvas_core::api::{ErrorCode, ItemKind};
+use wikanvas_store::{Db, DbOptions, backup, migrate};
 
 use crate::common::{MINUTE, NOW, TestDb};
 
@@ -46,7 +46,7 @@ async fn migrate_is_idempotent_and_refuses_a_newer_database() {
     migrate::migrations().validate().unwrap();
 
     let dir = tempfile::tempdir().unwrap();
-    let db = Db::open(dir.path().join("quire.db"), DbOptions::default()).unwrap();
+    let db = Db::open(dir.path().join("wikanvas.db"), DbOptions::default()).unwrap();
     migrate::run(&db, dir.path(), NOW).unwrap();
     db.maintenance()
         .unwrap()
@@ -68,7 +68,7 @@ async fn vacuum_into_through_db_passes_quick_check() {
     let path = backup::create(&t.db, t.data_dir(), 7, NOW).unwrap();
     assert_eq!(
         path,
-        t.data_dir().join("backups").join("quire-20261028T0930Z.db")
+        t.data_dir().join("backups").join("wikanvas-20261028T0930Z.db")
     );
     backup::quick_check(&path).unwrap();
     let copy =
@@ -85,7 +85,7 @@ async fn vacuum_into_through_db_passes_quick_check() {
     drop(copy);
     // No temporary file is left, and the name is unique within a minute.
     let second = backup::create(&t.db, t.data_dir(), 7, NOW).unwrap();
-    assert_eq!(second.file_name().unwrap(), "quire-20261028T0930Z-2.db");
+    assert_eq!(second.file_name().unwrap(), "wikanvas-20261028T0930Z-2.db");
     let names: Vec<String> = std::fs::read_dir(t.data_dir().join("backups"))
         .unwrap()
         .flatten()
@@ -124,9 +124,9 @@ async fn on_demand_counts_against_keep() {
     // Suffixes sort after their base name.
     let dir = tempfile::tempdir().unwrap();
     for name in [
-        "quire-20261028T0930Z-10.db",
-        "quire-20261028T0930Z-2.db",
-        "quire-20261028T0930Z.db",
+        "wikanvas-20261028T0930Z-10.db",
+        "wikanvas-20261028T0930Z-2.db",
+        "wikanvas-20261028T0930Z.db",
         "x.db",
     ] {
         std::fs::write(dir.path().join(name), b"").unwrap();
@@ -139,9 +139,9 @@ async fn on_demand_counts_against_keep() {
     assert_eq!(
         names,
         [
-            "quire-20261028T0930Z.db",
-            "quire-20261028T0930Z-2.db",
-            "quire-20261028T0930Z-10.db"
+            "wikanvas-20261028T0930Z.db",
+            "wikanvas-20261028T0930Z-2.db",
+            "wikanvas-20261028T0930Z-10.db"
         ]
     );
 }

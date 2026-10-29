@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Checks Quire's version pins (docs/ARCHITECTURE.md §4.1, §13.2, §15; PLAN R6). Host only: text and git, no build
+# Checks Wikanvas's version pins (docs/ARCHITECTURE.md §4.1, §13.2, §15; PLAN R6). Host only: text and git, no build
 # tools and no container. Run it after every change to a Cargo.toml, Cargo.lock or docker/Dockerfile.
 #   scripts/check-pins.sh
 # Checks:
@@ -93,16 +93,16 @@ compat_line() {
   awk -F. '{ if ($1 != "0") print $1; else if ($2 != "0") print $1 "." $2; else print $1 "." $2 "." $3 }' <<<"${1%%[-+]*}"
 }
 
-quire_lock="$root/Cargo.lock"
+our_lock="$root/Cargo.lock"
 ink_lock="$sub/Cargo.lock"
-if [ ! -f "$quire_lock" ] || [ ! -f "$ink_lock" ]; then
-  [ -f "$quire_lock" ] || fail "Cargo.lock is missing"
+if [ ! -f "$our_lock" ] || [ ! -f "$ink_lock" ]; then
+  [ -f "$our_lock" ] || fail "Cargo.lock is missing"
   [ -f "$ink_lock" ] || fail "vendor/inkboard/Cargo.lock is missing"
-elif ! lock_packages "$quire_lock" | awk '$1 == "inkboard-core" { found = 1 } END { exit !found }'; then
-  fail "Cargo.lock has no inkboard-core package (quire-core must depend on it, §4.1)"
+elif ! lock_packages "$our_lock" | awk '$1 == "inkboard-core" { found = 1 } END { exit !found }'; then
+  fail "Cargo.lock has no inkboard-core package (wikanvas-core must depend on it, §4.1)"
 else
   for crate in "${SHARED_CRATES[@]}"; do
-    ours="$(dep_version "$quire_lock" inkboard-core "$crate")"
+    ours="$(dep_version "$our_lock" inkboard-core "$crate")"
     theirs="$(dep_version "$ink_lock" inkboard-core "$crate")"
     if [ -z "$ours" ] || [ -z "$theirs" ]; then
       fail "$crate: inkboard-core's dependency not found (Cargo.lock '${ours:-none}', Inkboard '${theirs:-none}')"
@@ -116,7 +116,7 @@ else
         [ -n "$w" ] || continue
         if [ "$(compat_line "$w")" = "$line" ] && [ "$w" != "$v" ]; then bad="$bad $v≠$w"; fi
       done < <(lock_packages "$ink_lock" | awk -v c="$crate" '$1 == c { print $2 }')
-    done < <(lock_packages "$quire_lock" | awk -v c="$crate" '$1 == c { print $2 }')
+    done < <(lock_packages "$our_lock" | awk -v c="$crate" '$1 == c { print $2 }')
     if [ "$ours" = "$theirs" ] && [ -z "$bad" ]; then
       pass "$crate $ours in both lockfiles"
     elif [ "$ours" != "$theirs" ]; then

@@ -8,7 +8,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use quire_core::api::{ChildOrder, CollectionTree, Crumb, ItemSummary, Position};
+use wikanvas_core::api::{ChildOrder, CollectionTree, Crumb, ItemSummary, Position};
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 use crate::error::{Error, Result};
@@ -168,7 +168,7 @@ pub fn collection_tree(
 }
 
 /// Sorts siblings in a collection's `child_order`, as the web client does (`buildTree.ts` `comparator`): `manual` by
-/// `sort_key`; `title` A–Z by [`quire_core::tree::title_key`] (case- and accent-insensitive, numbers by value);
+/// `sort_key`; `title` A–Z by [`wikanvas_core::tree::title_key`] (case- and accent-insensitive, numbers by value);
 /// `updated` and `created` newest first. Ties go to `sort_key`, then the id.
 pub fn sort_siblings(rows: &mut [&ItemRow], order: ChildOrder) {
     let tie = |a: &ItemRow, b: &ItemRow| (&a.sort_key, &a.id).cmp(&(&b.sort_key, &b.id));
@@ -176,7 +176,7 @@ pub fn sort_siblings(rows: &mut [&ItemRow], order: ChildOrder) {
         ChildOrder::Manual => rows.sort_by(|a, b| tie(a, b)),
         ChildOrder::Title => rows.sort_by_cached_key(|r| {
             (
-                quire_core::tree::title_key(&r.title),
+                wikanvas_core::tree::title_key(&r.title),
                 r.sort_key.clone(),
                 r.id.clone(),
             )
@@ -302,7 +302,7 @@ pub fn rebalance(
     let fresh: Vec<(String, String)> = group
         .iter()
         .map(|(id, _)| id.clone())
-        .zip(quire_core::rank::rebalance(group.len()))
+        .zip(wikanvas_core::rank::rebalance(group.len()))
         .collect();
     rewrite_keys(tx, collection_id, &fresh)?;
     Ok(fresh.len() as u64)

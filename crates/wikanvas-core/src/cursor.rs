@@ -16,7 +16,7 @@
 //! with 422 `validation`, `details.field = "cursor"` ([`CursorError::FIELD`]).
 //!
 //! Keyset pages continue strictly after `(sort, id)` of the last row of the previous page; relevance-sorted search
-//! uses [`Cursor::Offset`] (capped at `quire_api::page::MAX_OFFSET_RESULTS` by the caller).
+//! uses [`Cursor::Offset`] (capped at `wikanvas_api::page::MAX_OFFSET_RESULTS` by the caller).
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -94,7 +94,7 @@ pub fn query_hash(params: &[(&str, &str)]) -> [u8; 8] {
     let mut sorted: Vec<&(&str, &str)> = params.iter().collect();
     sorted.sort();
     let mut h = Sha256::new();
-    h.update(b"quire-cursor-query-v1");
+    h.update(b"wikanvas-cursor-query-v1");
     for (name, value) in sorted {
         h.update((name.len() as u64).to_be_bytes());
         h.update(name.as_bytes());

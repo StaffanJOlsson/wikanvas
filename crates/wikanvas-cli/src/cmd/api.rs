@@ -1,4 +1,4 @@
-//! The `quire api` command: any route, with auth, retries and error mapping, as `gh api` (owner: W8)
+//! The `wikanvas api` command: any route, with auth, retries and error mapping, as `gh api` (owner: W8)
 //!
 //! §7.6 "Guards": the path must start with `/api/` and contain no scheme, no `//`, no `\` and no `.` or `..` segment
 //! (also percent-encoded); the URL is the configured origin plus the path by concatenation. `--header` refuses
@@ -154,7 +154,7 @@ pub fn run(ctx: &Ctx, a: ApiArgs) -> Res {
         },
         Answer::Text(t) => {
             if t.status == 204 || method == Method::HEAD || t.text.trim().is_empty() {
-                let rid = t.header(quire_api::common::header::REQUEST_ID);
+                let rid = t.header(wikanvas_api::common::header::REQUEST_ID);
                 return output::print_ok(Some(t.status), rid.as_deref(), None);
             }
             print_json_text(&t.text)

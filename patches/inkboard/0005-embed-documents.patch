@@ -1,5 +1,5 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: quire <quire@localhost>
+From: wikanvas <wikanvas@localhost>
 Date: Wed, 28 Oct 2026 23:08:11 +0100
 Subject: [PATCH 5/6] embed: documents
 
@@ -369,7 +369,7 @@ index 0000000..bbc1746
 --- /dev/null
 +++ b/crates/inkboard-app/src/embed_cards.rs
 @@ -0,0 +1,513 @@
-+// Changed for Quire (embed feature): see patches/inkboard/README.md
++// Changed for Wikanvas (embed feature): see patches/inkboard/README.md
 +//! Cards of a hosted board (feature `embed`, see `embed.rs`): rectangles that embed one of the host page's documents
 +//! (`BoxObj::embed`, `BoxObj::is_embed`). The host page draws the document inside the card, over the canvas, and edits it there; the
 +//! engine keeps the card a box that is selected, moved, resized, copied and deleted like any other, and tells the host page:
@@ -908,7 +908,7 @@ index ceb01e6..db4c984 100644
 --- a/crates/inkboard-app/src/panel.rs
 +++ b/crates/inkboard-app/src/panel.rs
 @@ -1,3 +1,4 @@
-+// Changed for Quire (embed feature): see patches/inkboard/README.md
++// Changed for Wikanvas (embed feature): see patches/inkboard/README.md
  //! Floating style panel (on the left), like `#panel` of the web prototype: color swatches, segmented buttons, opacity slider,
  //! actions on the selection. It only appears when there is something to set (a drawing tool or selected objects).
  
@@ -946,7 +946,7 @@ index 3daf83d..53feaa3 100644
 --- a/crates/inkboard-app/src/rich_edit.rs
 +++ b/crates/inkboard-app/src/rich_edit.rs
 @@ -1,3 +1,4 @@
-+// Changed for Quire (embed feature): see patches/inkboard/README.md
++// Changed for Wikanvas (embed feature): see patches/inkboard/README.md
  //! Rich-text editing: word selection, bold / italic / underline / strikethrough, color, highlight.
  //!
  //! The raw string (`buf`) remains the source of the input field; `rich` carries the styles and follows every keystroke
@@ -981,7 +981,7 @@ index 0000000..ca563ea
 --- /dev/null
 +++ b/crates/inkboard-app/src/tests_embed.rs
 @@ -0,0 +1,717 @@
-+// Changed for Quire (embed feature): see patches/inkboard/README.md
++// Changed for Wikanvas (embed feature): see patches/inkboard/README.md
 +//! Cards of a hosted board (`embed_cards.rs`) in a real egui cycle without a window, with the host page's events recorded: the
 +//! layout, opening a card instead of editing its label, the host's editing, inserting a card, titles in place, no rotation handle, the
 +//! wheel's own modifiers, the middle button's pan, the style panel and the cards on the clipboard.
@@ -997,7 +997,7 @@ index 0000000..ca563ea
 +use std::collections::HashMap;
 +use std::rc::Rc;
 +
-+/// Quire's shared fixture (`fixtures/boards/embed.inkboard`): two cards and a plain box.
++/// Wikanvas's shared fixture (`fixtures/boards/embed.inkboard`): two cards and a plain box.
 +const FIXTURE: &str = r##"{"format":"inkboard","version":2,"document":{"name":"Embed test","background":{"preset":"white","pattern":"dots"},"pages":[{"id":"embedtest1","name":"Page 1","layers":[{"id":"main","name":"Layer 1","visible":true,"locked":false}],"objects":[{"id":"embedcard1","kind":{"type":"box","geom":"rect","frame":{"x":-520.0,"y":-200.0,"w":480.0,"h":360.0},"label":{"text":[{"text":"First page","bold":true,"color":"#1d2430"}],"family":"sans","size":24.0,"align":"center"},"embed":{"item":"0192f0e0-0000-7000-8000-000000000001"}},"style":{"stroke":"#c4cad4","fill":"#ffffff","width":1.0,"dash":"solid","opacity":1.0,"roundness":0.04,"shadow":true},"layer":"main"},{"id":"embedcard2","kind":{"type":"box","geom":"rect","frame":{"x":40.0,"y":-200.0,"w":480.0,"h":360.0},"label":{"text":[{"text":"Second page","bold":true,"color":"#1d2430"}],"family":"sans","size":24.0,"align":"center"},"embed":{"item":"0192f0e0-0000-7000-8000-000000000002"}},"style":{"stroke":"#c4cad4","fill":"#ffffff","width":1.0,"dash":"solid","opacity":1.0,"roundness":0.04,"shadow":true},"layer":"main"},{"id":"embedplain","kind":{"type":"box","geom":"rect","frame":{"x":-120.0,"y":220.0,"w":240.0,"h":120.0},"label":{"text":[{"text":"Plain box"}],"family":"sans","size":20.0,"align":"center"}},"style":{"stroke":"ink","fill":null,"width":3.0,"dash":"solid","opacity":1.0,"roundness":0.0},"layer":"main"}],"view":{"x":0.0,"y":0.0,"zoom":1.0}}],"assets":{}}}"##;
 +const ITEM1: &str = "0192f0e0-0000-7000-8000-000000000001";
 +const ITEM2: &str = "0192f0e0-0000-7000-8000-000000000002";
@@ -1703,7 +1703,7 @@ index b6a5542..6774d27 100644
 --- a/crates/inkboard-app/src/tools.rs
 +++ b/crates/inkboard-app/src/tools.rs
 @@ -1,3 +1,4 @@
-+// Changed for Quire (embed feature): see patches/inkboard/README.md
++// Changed for Wikanvas (embed feature): see patches/inkboard/README.md
  //! Canvas interactions: tools, selection, handles, text editing.
  
  use crate::app::App;
@@ -1796,7 +1796,7 @@ index a0329e1..67719e0 100644
 --- a/crates/inkboard-core/src/model.rs
 +++ b/crates/inkboard-core/src/model.rs
 @@ -1,3 +1,4 @@
-+// Changed for Quire (embed feature): see patches/inkboard/README.md
++// Changed for Wikanvas (embed feature): see patches/inkboard/README.md
  //! Document model: objects, pages, layers, assets.
  
  use crate::connector::Connector;
@@ -1890,7 +1890,7 @@ index a0329e1..67719e0 100644
          assert!((o.frame().unwrap().w - 200.0).abs() < 1e-9);
      }
  
-+    /// A card as Quire writes it: a rectangle whose box kind ends with `embed`.
++    /// A card as Wikanvas writes it: a rectangle whose box kind ends with `embed`.
 +    const CARD: &str = r##"{"id":"card1","kind":{"type":"box","geom":"rect","frame":{"x":-240.0,"y":-180.0,"w":480.0,"h":360.0},"label":{"text":[{"text":"Meeting notes","bold":true,"color":"#1d2430"}],"family":"sans","size":24.0,"align":"center"},"embed":{"item":"0192f0e0-0000-7000-8000-000000000001"}},"style":{"stroke":"#c4cad4","fill":"#ffffff","width":1.0,"dash":"solid","opacity":1.0,"roundness":0.04,"shadow":true},"layer":"main"}"##;
 +
 +    fn box_of(o: &Object) -> &BoxObj {
@@ -1972,7 +1972,7 @@ index b3cae00..cc979c0 100644
 --- a/crates/inkboard-core/tests/properties.rs
 +++ b/crates/inkboard-core/tests/properties.rs
 @@ -1,3 +1,4 @@
-+// Changed for Quire (embed feature): see patches/inkboard/README.md
++// Changed for Wikanvas (embed feature): see patches/inkboard/README.md
  //! Engine invariants checked on random documents (0 to 200 objects): undo/redo, saving, bound connectors, elbow routing,
  //! spatial index, handle transformations.
  
@@ -1999,7 +1999,7 @@ index f0ac749..f644f30 100644
 --- a/crates/inkboard-formats/src/mermaid.rs
 +++ b/crates/inkboard-formats/src/mermaid.rs
 @@ -1,3 +1,4 @@
-+// Changed for Quire (embed feature): see patches/inkboard/README.md
++// Changed for Wikanvas (embed feature): see patches/inkboard/README.md
  //! Mermaid : `flowchart` / `graph`, `stateDiagram`, `sequenceDiagram`, `classDiagram`, `erDiagram`.
  //!
  //! The text becomes real shapes linked by real connectors: moving a node

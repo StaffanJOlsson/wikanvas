@@ -1,5 +1,5 @@
 // Schema v1 as data (docs/ARCHITECTURE.md §6.4): the live TipTap schema dumped in the shape of the API's `DocSchema`
-// (`GET /api/v1/schema/doc`), which `fixtures/schema/v1.json` holds and `quire-core::schema` must equal. ProseMirror
+// (`GET /api/v1/schema/doc`), which `fixtures/schema/v1.json` holds and `wikanvas-core::schema` must equal. ProseMirror
 // does not know attribute types, so they come from ATTR_TYPES; an attribute missing there fails the dump, so a new
 // TipTap attribute cannot slip past the server's validator. Test-only code.
 import type { Schema } from '@tiptap/pm/model';
