@@ -3202,6 +3202,16 @@ from (`.github/actions/toolchain`). Three jobs run in parallel:
 Left to the local gate: `scripts/inkboard.sh check` (ten cargo runs of the engine against its warning baseline, run
 when `patches/inkboard` changes), `scripts/cli-dist.sh`, and `scripts/install-build-slice.sh --check`.
 
+**Repository settings (2026-10-29).** The ruleset "main" on the default branch refuses deletion and force pushes,
+requires linear history, and requires the three jobs above (GitHub Actions, by job name) to have passed on the exact
+commit before it is pushed or merged; the branch must be up to date. There is no bypass, the owner included. The
+ruleset "release tags" refuses deleting or moving `v*` tags, and releases are immutable once published. Only
+GitHub-owned actions may run, workflows get a read-only token by default, and outside contributors' workflow runs need
+the owner's approval. Merge commits are off (squash and rebase stay for outside pull requests; the owner's land as
+fast-forwards), and merged branches are deleted. Security: Dependabot alerts and security updates, secret scanning
+with push protection, CodeQL default setup, and private vulnerability reporting ([`SECURITY.md`](../SECURITY.md));
+`.github/dependabot.yml` updates the pinned actions weekly with a 14-day cooldown (§16 risk 23).
+
 ---
 
 ## 15. Forward-compatibility notes

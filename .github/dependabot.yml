@@ -1,0 +1,16 @@
+# Dependabot (docs/ARCHITECTURE.md §14.2). Security updates for every ecosystem are on in the repository settings;
+# version updates run only for the workflow actions, which are pinned by commit SHA. The cooldown keeps new releases
+# out until they are two weeks old, the project's rule for pins (§16 risk 23).
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 14
+    groups:
+      actions:
+        patterns: ['*']
+    commit-message:
+      prefix: CI

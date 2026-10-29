@@ -437,6 +437,12 @@ Tests run through the same wrappers: `scripts/dev.sh cargo test --workspace --lo
 `scripts/image-smoke.sh` (the compose project with Caddy, over HTTPS) and `scripts/agent-test.sh` (CLI scenarios
 against the image). PLAN W7 "Acceptance" lists the full release gate.
 
+## Contributing and security
+
+Issues and pull requests are welcome: [`CONTRIBUTING.md`](CONTRIBUTING.md) says how to build, test and send a change,
+and [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) applies to every project space. Report security problems privately, as
+[`SECURITY.md`](SECURITY.md) describes, never in a public issue.
+
 ## Licence
 
 Wikanvas is licensed under the MIT License ([`LICENSE`](LICENSE)). Third-party software, Inkboard included, is listed in [`THIRD_PARTY.md`](THIRD_PARTY.md); the image

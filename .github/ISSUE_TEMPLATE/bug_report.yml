@@ -1,0 +1,49 @@
+name: Bug report
+description: Something in Wikanvas does not work as it should
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for reporting. For a security problem, use private reporting instead (SECURITY.md).
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open a board
+        2. …
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Settings → About, or `wikanvas-server --version` / `wikanvas --version`.
+      placeholder: 0.1.0-alpha.1 (4673f6b)
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options: [Documents, Boards, Sidebar and tree, Search, Settings and accounts, API or CLI, Install and hosting, Other]
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and OS
+      placeholder: Chrome 140 on Ubuntu 26.04
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: For example `docker compose logs wikanvas --since 10m`. Remove anything private first.
+      render: text
