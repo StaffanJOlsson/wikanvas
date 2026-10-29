@@ -2149,16 +2149,17 @@ inkboard.js + inkboard_bg.wasm  (Inkboard + patches, feature `embed`)          (
 ### 10.2 Patch series (`patches/inkboard/`, against the base copy of `41e0295`)
 
 Every changed file gets one notice line near the top, in the file's comment syntax: `// Changed for Quire (embed
-feature): see patches/inkboard/README.md` in `.rs`, `# …` in `.toml`, `<!-- … -->` in `.md`. This satisfies
-Apache-2.0 §4(b). `scripts/inkboard.sh export --upstream` writes a notice-free copy of the series for upstream PRs. The
-LICENSE files are untouched. The patches add no new `t()` strings: hiding UI is preferred over adding text, because
-Inkboard's tests require a French entry for every string. Nothing under `inkboard-core` or `inkboard-session` changes
-(amended by M1.1: 0005 adds one optional serde field to `inkboard-core`, §18.3; the server keeps compiling it unpatched).
-The patch file names come from their subjects (`theme: sync egui theme`, `embed: js api`, `optional net`,
-`docs: embedding`), the author is `quire <quire@localhost>`, and the series carries 23 notice lines in all (16 in
-0001–0004, 7 in 0005; 0006 adds none, its files carry 0004's; the `--upstream` export none). `patches/inkboard/README.md`
-holds the patchset id (`3` since M1.1 added 0005 and 0006, §18.3; `2` was M1's, after the review fixes changed 0003 and
-0004), which makes `engine_version` `0.2.0-beta.3+embed.quire.3`.
+feature): see patches/inkboard/README.md` in `.rs`, `# …` in `.toml`, `<!-- … -->` in `.md`. This satisfies Apache-2.0
+§4(b). `scripts/inkboard.sh export --upstream` writes a notice-free copy of the series for upstream PRs. The LICENSE
+files are untouched. The patches add no new `t()` strings: hiding UI is preferred over adding text, because Inkboard's
+tests require a French entry for every string. Nothing under `inkboard-core` or `inkboard-session` changes (amended by
+M1.1: 0005 adds one optional serde field to `inkboard-core`, §18.3; the server keeps compiling it unpatched). The patch
+file names come from their subjects (`theme: sync egui theme`, `embed: js api`, `optional net`, `docs: embedding`), the
+author is `quire <quire@localhost>`, and the series carries 24 notice lines in all (16 in 0001–0004, 8 in 0005 since the
+M1.1 review added `panel.rs`; 0006 adds none, its files carry 0004's; the `--upstream` export none).
+`patches/inkboard/README.md` holds the patchset id (`3` since M1.1 added 0005 and 0006, §18.3, and kept after the M1.1
+review's changes to them, D99; `2` was M1's, after the review fixes changed 0003 and 0004), which makes `engine_version`
+`0.2.0-beta.3+embed.quire.3`.
 
 | Patch | Files (`crates/inkboard-app/…` unless noted) | Change |
 |---|---|---|
@@ -3338,22 +3339,26 @@ asynchronous (board previews).
     but not the crates' own licence texts; a CLI-only `licenses.txt` in the `cli-dist` stage would add them.
 30. **Process note (W5 D18).** During W5 one `node --check e2e/serve-static.mjs` ran on the host, a syntax check that
     left nothing behind, against PLAN R1. It was reported, reviewed and not repeated; W7 acknowledges it here.
-31. **Board document embeds (M1.1, §18).** Checked only in a real browser, by the frame tests (`e2e/tests/frame.spec.ts`,
-    eleven `embeds:` tests on the real engine) and smoke step 17 (headless Chromium, SwiftShader WebGL 2), both passing
-    at the M1.1 gate (`docs/handoff/E.md`): the layout and the camera formula against the engine's own pixels, the
-    canvas-to-frame pixel conversion, the editing state and its ends, the drop listeners; and in the SPA the three ways
-    to add a card, a card centred where it was placed, a single click that selects without editing, the double-click
-    that opens the right card with the caret in its text, autosave, Esc and a click on the canvas that leave, the
-    overlay never scrolling (`overflow: clip`) and the card staying on its box while the caret is beyond the canvas
-    edge, titles saved into the board, and the reload. The cross-frame drop of a sidebar row is a **real** mouse drag in
-    the smoke (Playwright carries it into the frame), so the synthetic fallback the PLAN allowed is not used.
-    Still manual: the real drag and the `focus` end in Firefox and Safari (E1's review checked the `focus` end in
-    Chromium only); a drop from another window on the editing card (E3-D15); the cards on the engine's boxes during a
-    pan, a zoom or a drag (the smoke checks positions at rest); the clip around the engine's menus and the one-frame
-    lag of a closing engine popup (E1-D8); crisp card text after zooming in; a pinch (Ctrl+wheel) over the editing card
-    not zooming the page; the slash, mention, bubble and table menus of a card, also in Focus; the picker's focus order
-    (the dialog's restore, then the frame); IME composition in a card; a rotated card; a background tab with a card
-    editing. The overlay above canvas shapes is a documented limitation (§18.13), not a risk to fix in M1.1.
+31. **Board document embeds (M1.1, §18).** Checked only in a real browser, by the frame tests
+    (`e2e/tests/frame.spec.ts`, twelve `embeds:` tests on the real engine) and smoke step 17 (headless Chromium,
+    SwiftShader WebGL 2), both passing at the M1.1 gate (`docs/handoff/E.md`): the layout and the camera formula against
+    the engine's own pixels, the canvas-to-frame pixel conversion, the editing state and its ends, the drop listeners;
+    and in the SPA the three ways to add a card, a card centred where it was placed, a single click that selects without
+    editing, the double-click that opens the right card with the caret in its text, autosave, Esc and a click on the
+    canvas that leave, the overlay never scrolling (`overflow: clip`) and the card staying on its box while the caret is
+    beyond the canvas edge, titles saved into the board, and the reload; after the 2026-10-29 review also Esc in a
+    card's body, Shift and Alt with the wheel panning while a card is edited (the focus in the parent), a middle-button
+    pan that keeps the editing and gives the caret back, and the layout's `clipboard`. The cross-frame drop of a sidebar
+    row is a **real** mouse drag in the smoke (Playwright carries it into the frame), so the synthetic fallback the PLAN
+    allowed is not used. Still manual: the real drag and the `focus` end in Firefox and Safari (E1's review checked the
+    `focus` end in Chromium only); a drop from another window on the editing card (E3-D15); the cards on the engine's
+    boxes during a pan, a zoom or a drag (the smoke checks positions at rest); the clip around the engine's menus and
+    the one-frame lag of a closing engine popup (E1-D8); crisp card text after zooming in; a pinch (Ctrl+wheel) over the
+    editing card not zooming the page; the slash, mention, bubble and table menus of a card, also in Focus; the picker's
+    focus order (the dialog's restore, then the frame); IME composition in a card; a rotated card; a background tab with
+    a card editing; in Firefox and Safari, the middle-button pan's focus (whether their mousedown default moves the
+    focus, and `onEmbedFocusBack` after eframe's release focus); a trackpad's horizontal scroll while a card is edited.
+    The overlay above canvas shapes is a documented limitation (§18.13), not a risk to fix in M1.1.
 
 ---
 
@@ -3621,7 +3626,8 @@ to `inkboard-core` (and its constructor sites); `inkboard-session` stays untouch
 | `inkboard-app/src/app.rs` | `HostEvents` gains `embed_layout(&EmbedLayout)`, `embed_open(&Id, &str, Option<Pos2>)` and `embed_edit_end(&Id, EditEnd)`, each with an empty default body. `HostMode` gains `embed_editing: Option<Id>`, `embed_titles: HashMap<String, String>`, the last reported layout, a force flag (`requestEmbedLayout`) and the focus state of the last frame. `host_frame()` builds the layout after each frame and reports it when it differs from the last one (below). After each revision change, and when the title map changes, it applies the map in place (below). `host_load_doc` ends any embed editing with `gone` and clears the title map. While `embed_editing` is set, `shortcuts()` handles no key and no clipboard event, as while a label is edited (`app.rs:888`): keys typed while the host is still opening the card never reach the engine's single-letter tools or Delete. As built (E1-D1, D76): `HostMode`'s new state is one field, `cards: EmbedState`, built by `HostMode::new(read_only, dark, events)`; `app.rs` holds only the `HostEvents` methods, that field and three calls (`embed_frame_start` right after `host_guard`, `embed_frame_end` at the end of `host_frame`, `embed_board_replaced` in `host_load_doc`), and `host_snapshot`/`host_load`/`host_load_doc` are also compiled for the native tests |
 | `inkboard-app/src/embed_cards.rs` (new, E1-D1), `src/tests_embed.rs` (new) | The card logic, compiled on every target so that the native tests reach it: the layout, the open, the editing state, the insert and the titles. The host calls (`set_embed_editing`, `insert_embed`, `set_embed_titles`, `request_embed_layout`) are compiled for `test` and for wasm with `embed` only. `tests_embed.rs` holds the 24 native tests (below) |
 | `inkboard-app/src/rich_edit.rs` | `start_editing`: when hosted and the object `is_embed()`, it does not start label editing: it calls `embed_open` (with the double-click point when there is one) and returns; in a read-only host it does nothing at all (no `embed_open`). Every path into label editing goes through it: the double-click (`tools.rs` `handle_double_click`), Enter (`Action::EditText`), the context menu's "Edit text" (`chrome.rs`). The last two are reachable on a read-only board too: a right-click selects whatever tool is active (`tools.rs:769-777`), and `shortcuts()` runs Enter there. As built (E1-D2): `start_editing(id, cell)` keeps its signature and delegates to the new `start_editing_at(id, cell, point)`; only `handle_double_click` passes a point, so the other callers are untouched |
-| `inkboard-app/src/tools.rs` | `handle_double_click` hands its point to `start_editing` for the event. `selection_box()` returns no handles while `embed_editing` is set (as it does while a label is edited), and a single selected card gets `rotate: false` (no rotation handle). While `embed_editing` is set, the first primary press anywhere in the frame (canvas or engine chrome), or the frame gaining focus, ends it: `embed_editing = None`, `embed_edit_end(…, press \| focus)`, and a press on the canvas is swallowed (it neither selects, nor drags, nor creates), as Inkboard's own text editing does. As built (E1-D5): the rotation handle is left out only when hosted; without a host page a card is a plain rectangle, so upstream Inkboard and the desktop app keep the handle |
+| `inkboard-app/src/tools.rs` | `handle_double_click` hands its point to `start_editing` for the event. `selection_box()` returns no handles while `embed_editing` is set (as it does while a label is edited), and a single selected card gets `rotate: false` (no rotation handle). While `embed_editing` is set, the first primary press anywhere in the frame (canvas or engine chrome), or the frame gaining focus, ends it: `embed_editing = None`, `embed_edit_end(…, press \| focus)`, and a press on the canvas is swallowed (it neither selects, nor drags, nor creates), as Inkboard's own text editing does. As built (E1-D5): the rotation handle is left out only when hosted; without a host page a card is a plain rectangle, so upstream Inkboard and the desktop app keep the handle. Amended by the review (2026-10-29, D94): the canvas reads Shift and Alt of the wheel from the `MouseWheel` event itself (falling back to egui's modifiers), because a web page learns egui's modifiers only from key events on its canvas, which go to the parent while a card is edited; so Shift + wheel pans sideways and Alt + wheel up and down while the host has the focus |
+| `inkboard-app/src/panel.rs` (review, D97) | `visible()` is false while `embed_editing` is set (the style panel covered the edited card, and a click on it ended the editing); when hosted, a selection of cards alone gets no text sections (Font, Text size, Alignment, Format, Word color, Highlight: they would format the hidden title snapshot); Outline, Fill, Corners, Shadow, Opacity and Order stay |
 | `inkboard-app/src/embed.rs` | The JS side: the three new `MountOptions` callbacks (read with `Reflect::get`, called through `later`), and the handle methods `insertEmbed`, `setEmbedEditing`, `setEmbedTitles` and `requestEmbedLayout` (`with_app`, repaint) |
 | 0006: `docs/WEB.md`, `docs/fr/WEB.md`, `CHANGELOG.md` (repo root) | The embedded-documents API in the "Embedding (feature `embed`)" section, in English and French, and an `[Unreleased]` entry |
 
@@ -3643,7 +3649,8 @@ interface CanvasRect { x: number; y: number; width: number; height: number }    
 interface EngineEmbed { id: string; item: string; x: number; y: number; w: number; h: number; angle: number;
                         label: string; selected: boolean; locked: boolean }             // frame in world units
 interface EngineEmbedLayout { page: string; zoom: number; originX: number; originY: number; canvas: CanvasRect;
-                              occluders: CanvasRect[]; embeds: EngineEmbed[]; items: string[]; editing: string | null }
+                              occluders: CanvasRect[]; embeds: EngineEmbed[]; items: string[]; clipboard: string[];
+                              editing: string | null }                              // clipboard: review, D95
 interface EngineEmbedOpen { id: string; item: string; point: { x: number; y: number } | null }   // canvas px
 interface EngineEmbedEditEnd { id: string; reason: 'press' | 'focus' | 'gone' }
 interface EngineInsertEmbed { item: string; title: string; at: 'center' | { x: number; y: number }; w?: number; h?: number }
@@ -3676,6 +3683,10 @@ How it works:
     `app.sel`; `locked` is `Page::is_locked`.
   - `items` is every distinct `embed.item` of a card on any page and layer, sorted (recomputed only when the revision
     changes).
+  - `clipboard` (review, D95) is every distinct `embed.item` of a card on the engine's own clipboard (`App::clipboard`,
+    filled by Copy and Cut, kept across `setBoard`), sorted: a cut or copied card can still be pasted, here or on the
+    next board, so the host keeps its document (§18.6 (a) step 4). It is part of the comparison, so a copy alone is
+    reported.
   - `editing` is `embed_editing`.
   - It is reported after the frame (`later`, like `changed`), at most once per frame, when any field differs from the
     last report; floats are compared after rounding to 1/1000. An engine frame is one `App::update`: eframe runs one
@@ -3697,18 +3708,20 @@ How it works:
   "Edit text" or Enter then call it. When not hosted (Inkboard's own page or app) a card's label is edited as any box
   label. `embed_open` is sent at most once per frame and card (E1-D3: egui's second pass).
 - **Editing state.** `setEmbedEditing(id)` sets `embed_editing` (an id that is not a card on a visible layer of the
-  current page is ignored), keeps that card the only selected object and hides its handles. It ends in the engine on: the first
-  primary press in the frame (`press`; a canvas press is swallowed), the frame gaining keyboard focus without a press
-  (`focus`, egui's `focused` going from false to true; a press in the same frame wins), or the card leaving the
-  current page or its layer being hidden (deleted, page changed, layer hidden, `setBoard`/`host_load_doc`: `gone`;
-  the hidden layer is E1-D4, so the engine's `editing` always names a card the layout holds). Each sends
-  `onEmbedEditEnd` once and clears `embed_editing`. The swallowed press is keyed by egui's `cumulative_frame_nr`, so it
-  is swallowed in both passes of a frame (E1-D3). The `focus` end works when the host moves focus into the parent
-  document (D66): Chromium then resets the iframe's `activeElement` to `body`, so eframe's polled `focused` goes false,
-  and the next focus of the canvas is a gain (checked by E1's review; Firefox and Safari are §16 item 31).
-  `setEmbedEditing(null)` clears it without an event. The press that ends it is swallowed so that, as with Inkboard's
-  own text, the click that leaves editing does nothing else; a double-click on another card still opens that card
-  (egui counts the double-click from the two presses).
+  current page is ignored), keeps that card the only selected object and hides its handles. It ends in the engine on:
+  the first primary press in the frame (`press`; a canvas press is swallowed), a secondary press (`press`, not
+  swallowed: the context menu opens as usual; review, D94), the frame gaining keyboard focus without a press (`focus`,
+  egui's `focused` going from false to true; a press in the same frame wins; not while the middle or an extra button is
+  down, pressed or released in that frame, so a middle-button pan, whose press or release focuses the frame, keeps the
+  editing: D94), or the card leaving the current page or its layer being hidden (deleted, page changed, layer hidden,
+  `setBoard`/`host_load_doc`: `gone`; the hidden layer is E1-D4, so the engine's `editing` always names a card the
+  layout holds). Each sends `onEmbedEditEnd` once and clears `embed_editing`. The swallowed press is keyed by egui's
+  `cumulative_frame_nr`, so it is swallowed in both passes of a frame (E1-D3). The `focus` end works when the host moves
+  focus into the parent document (D66): Chromium then resets the iframe's `activeElement` to `body`, so eframe's polled
+  `focused` goes false, and the next focus of the canvas is a gain (checked by E1's review; Firefox and Safari are §16
+  item 31). `setEmbedEditing(null)` clears it without an event. The press that ends it is swallowed so that, as with
+  Inkboard's own text, the click that leaves editing does nothing else; a double-click on another card still opens that
+  card (egui counts the double-click from the two presses).
 - **Insert.** `insertEmbed` first validates a label being typed (`commit_editing`, as a file drop does, `app.rs:844`),
   then adds a card (§18.2 defaults and layer, `w` and `h` when given and > 0) centred on `at` (`'center'`:
   `view_center()`, `app.rs:662`; a point: `cam.w(point / zoom_factor)` with the last frame's camera) to the current
@@ -3761,6 +3774,7 @@ export interface FrameEvents {                              // … plus §10.4's
   onEmbedLayout?(e: EmbedLayout): void;
   onEmbedOpen?(e: EmbedOpenEvent): void;
   onEmbedEditEnd?(e: EmbedEditEndEvent): void;
+  onEmbedFocusBack?(e: EmbedFocusBackEvent): void;          // review, D94
   onDropItem?(e: DropItemEvent): void;
 }
 export interface BoardFrameApi {                            // … plus §10.4's members
@@ -3778,10 +3792,12 @@ export interface EmbedBox { readonly objectId: string; readonly item: string; re
   readonly locked: boolean }
 export interface EmbedLayout { readonly itemId: string; readonly page: string; readonly zoom: number;
   readonly originX: number; readonly originY: number; readonly canvas: FrameRect; readonly occluders: readonly FrameRect[];
-  readonly embeds: readonly EmbedBox[]; readonly items: readonly string[]; readonly editing: string | null }
+  readonly embeds: readonly EmbedBox[]; readonly items: readonly string[]; readonly clipboard?: readonly string[];
+  readonly editing: string | null }
 export interface EmbedOpenEvent { readonly itemId: string; readonly objectId: string; readonly item: string; readonly point: FramePoint | null }
 export type EmbedEditEndReason = 'press' | 'focus' | 'gone';
 export interface EmbedEditEndEvent { readonly itemId: string; readonly objectId: string; readonly reason: EmbedEditEndReason }
+export interface EmbedFocusBackEvent { readonly itemId: string; readonly objectId: string }
 export interface DropItemEvent { readonly itemId: string; readonly item: DraggedItem; readonly point: FramePoint }
 export interface InsertEmbedArgs { item: string; title: string; at: 'center' | FramePoint; w?: number; h?: number }
 ```
@@ -3814,6 +3830,14 @@ export interface InsertEmbedArgs { item: string; title: string; at: 'center' | F
   open and the engine has not stopped; a `drop` with the type is always prevented and stopped (it never reaches eframe
   or the browser's navigation) and gives `onDropItem` only in that case. The `DraggedItem` is rebuilt from its four
   fields, so extra fields never reach the host and `JSON.parse` cannot pollute a prototype.
+- **The middle button while the host edits** (review, D94). `frame.js` remembers the card of its last
+  `setEmbedEditing(id)` until `setEmbedEditing(null)`, that card's `onEmbedEditEnd` or a `setBoard`. Meanwhile a
+  capture-phase `mousedown` of the middle button has its default prevented, so the browser does not move the keyboard
+  focus into the frame during the pan; eframe still focuses its canvas on every release over it (eframe 0.33.3
+  `web/events.rs`, `pointerup`), which cannot be prevented without hiding the release from the engine, so after a middle
+  release (a capture `pointerup` and a `setTimeout(0)`, after eframe's handler) that left the canvas focused it sends
+  `onEmbedFocusBack({itemId, objectId})`, and the host puts the focus back where it was in the card. `clipboard` is
+  forwarded as the engine reports it.
 - Everything of §10.4 stays: the double-Esc, host keys, the visibility wait, panics.
 
 ### 18.5 Host overlay (`web/src/board/embed/`, `BoardFrameHost`; E3)
@@ -3955,19 +3979,28 @@ it, above).
    session still opens (E3-D6). A press in the editing body below the text (outside ProseMirror's element) puts the
    caret at the end (E3-D9: percentage heights cannot make the editor fill a flex body reliably).
 5. Editing ends on the first of:
-   - **Esc** pressed in the card when nothing consumed it (`keydown` on the card in the bubble phase with
-     `!e.defaultPrevented`; the slash and mention menus consume their own Esc): the host calls
-     `frame.setEmbedEditing(null)` and then `frame.focus()`, so the card stays selected in the engine (Delete removes
-     it, arrows move it) and a further double Esc in the frame leaves the canvas as before (§9.5);
-   - **a press in the frame** or the frame taking focus: `onEmbedEditEnd` (`press`/`focus`); the host changes no focus;
+   - **Esc** pressed in the card when nothing consumed it: the host calls `frame.setEmbedEditing(null)` and then
+     `frame.focus()`, so the card stays selected in the engine (Delete removes it, arrows move it) and a further double
+     Esc in the frame leaves the canvas as before (§9.5). As built after the review (D93): in the body, the editor's own
+     keymap does it (`QuireEditor`'s `onEscape`, an extension of priority 1, so its `Escape` binding runs after every
+     other plugin's keys: the slash and mention menus close on the first Esc, which they take, and the next one leaves).
+     A listener around the editor cannot see an unconsumed Esc there: prosemirror-view prevents the default of every Esc
+     keydown (`captureKeyDown`, `dist/index.js:2808`). Elsewhere in the card (the title input, the header's buttons, the
+     card itself while the session opens) a bubble-phase `keydown` on the card with `!e.defaultPrevented` and not
+     composing does it;
+   - **a press in the frame** or the frame taking focus: `onEmbedEditEnd` (`press`/`focus`); the host changes no focus.
+     A middle-button pan is neither (§18.3, D94): the card stays editing, and on the frame's `onEmbedFocusBack` the
+     host gives the focus back to where it last was in the card (the editor, with its selection, or the title input);
    - **a `pointerdown` in the parent outside the card and outside `popupRoot`** (capture phase on `document`), such
      as the top bar or the sidebar: `frame.setEmbedEditing(null)`, focus stays where the click put it;
    - `onEmbedEditEnd` with `gone`; a layout received after `setEmbedEditing` that does not hold the card (it is on a
      hidden layer, so the engine ignored the call, or it left the page); a layout whose `editing` is not this card
      after one whose `editing` was (the engine ended it without an event the host saw). Not the first layout after
      `onEmbedOpen` alone: the engine queues it in the same frame, after `onEmbedOpen`, so it still says `editing: null`;
-     the board becoming read-only, the target becoming trashed or archived, the board's session being released (route
-     change, board switch), the frame failing.
+     the board becoming read-only, the target becoming trashed or archived (its refetched `ItemDetail`, or a save the
+     server refuses with 409 `read_only` or 404: the session's `gone` dependency ends the editing and refetches the
+     detail, so the card shows why; review, D96), the board's session being released (route change, board switch), the
+     frame failing.
    Ending is idempotent: the host flushes the session (`await flush()`), destroys it, puts the static viewer back
    with the editor's last `getJSON()` written into `['docJson', id]` (so the card does not flicker back to older
    content), and invalidates that key. As built (E3-D3), ending does not wait for the flush: the engine is told, the
@@ -3976,13 +4009,18 @@ it, above).
    second card's session still opens after the first one's last flush.
 6. Another card of the same document on the same board shows the new content when editing ends (not while typing).
 
-**Autosave and unsaved state.** The card's `DocSession` is the document page's (§9.4): debounce 1 s / 5 s, the
-IndexedDB outbox, `missing_deps`, back-off, `registerPending` (so `beforeunload`, route changes and Mod+S flush it) and
-`setSaveStatus(target, …)`. The card header shows `useSaveStatus(target)` while editing ("Saving…", "Saved",
-"Offline", "Not saved" with Retry); a static card shows a badge only while the target's state is `offline`, `error` or
+**Autosave and unsaved state.** The card's `DocSession` is the document page's (§9.4): debounce 1 s / 5 s, the IndexedDB
+outbox, `missing_deps`, back-off, `registerPending` (so `beforeunload`, route changes and Mod+S flush it) and
+`setSaveStatus(target, …)`. The card header shows `useSaveStatus(target)` while editing ("Saving…", "Saved", "Offline",
+"Not saved" with Retry); a static card shows a badge only while the target's state is `offline`, `error` or
 `signed_out`, with the Retry button of `SaveStatus.retry`. A flush that fails when editing ends leaves the updates in
-the outbox, which the next session of that document (a card or the document page) sends first. The board's own save
-loop and status are untouched: editing a card's text never changes the board.
+the outbox, which the next session of that document (a card or the document page) sends first. As built after the review
+(D96): when the last flush left updates unsent, the static card shows the server's content again (its cached `DocJson`
+loses the ETag, so the refetch is a full GET, never a 304 against the editor's JSON) and its badge reads the state's
+label ("Not saved", "Offline", "Signed out"), not the session's message; its Retry (shown while the target is writable)
+opens a new `DocSession` of the target, which applies the outbox, sends it and is destroyed, after which the content is
+refetched. While a card of the same target is being edited, its own session sends the outbox instead. The board's own
+save loop and status are untouched: editing a card's text never changes the board.
 
 **Target states** (`data-state` on the card): `loading` (the header with the label snapshot, an empty body); `static`
 or `editing` for a live document; `trashed` and `archived` (the content dimmed, a badge "In Trash" or "Archived", not
@@ -4042,7 +4080,12 @@ the frame is not ready or lacks `insertEmbed`, or a creation runs):
    unmount or a board switch), every document created here whose id is not in the last layout's `items` is flushed
    (`flushPending`) and sent `DELETE /api/v1/items/{id}?discard_empty=true` (the server decides: 409 `not_empty` is
    ignored, §9.6.4). A created document still on the board stays, even empty. If `insertEmbed` fails after the
-   create, the document is discarded at once the same way. The layout's `items` only knows this board, while a card
+   create, the document is discarded at once the same way. As built after the review (D95): a document whose card is
+   on the engine's clipboard (the last layout's `clipboard`: cut, or copied and then deleted) is not discarded but
+   kept for a later leave (one list per tab, `textDocs.ts`): at every leave of any board, each kept document is
+   discarded once no clipboard holds it and no card of the board being left shows it (the server still decides), and
+   dropped from the list when that board shows it. A discarded document's cached `ItemDetail` and `DocJson` are reset,
+   so a card that still names it shows "Page not found". The layout's `items` only knows this board, while a card
    can reach another board (the engine's clipboard survives `setBoard`, `app.rs:1220-1238`, and the new child is in
    the sidebar, so it can be dragged onto another board): the server therefore also refuses to discard any item that
    is the target of an `embed` link (§18.8). That includes this board's own link, so a card whose removal never
@@ -4073,6 +4116,11 @@ its button.
   row's drag closure is built when the row mounts, `TreeRow.tsx:85-99`, so it can be older than a rename, and any page
   can start a drag with this type). As built (E3-D12), the row reads its title through a ref when the drag starts, so
   the drag data is never older than a rename either. The card is centred on the drop point and selected, not opened.
+  Amended by the review (D98): the drag data's title is never used. A target whose `ItemDetail` is not cached is
+  fetched first; only a live document (a doc, not trashed, not archived) is placed, titled from its own detail; a
+  target that is not one (a board, in the trash, archived, 404) places nothing, and a detail that does not load
+  (network, 5xx) gives the error toast. Every label snapshot (`snapshotTitle`, also the titles map of §18.7) is cut to
+  200 characters (`MAX_SNAPSHOT_CHARS`, code points): it is the board's search text and its previews' label.
   pragmatic-dnd in the parent sees the drag leave its window: its `onDrop` finds no drop target, so the tree does not
   move anything.
 - **Drop on the editing card** (the only part of the overlay that takes pointer events): a capture-phase `dragover`
@@ -4090,8 +4138,9 @@ its button.
 - The **snapshot** is the label stored in the board (§18.2). `insertEmbed` writes the title at insert time. The host
   keeps the engine's map current: whenever the titles of the cards' targets in the query cache change (a target's
   `ItemDetail` loaded or updated), it calls `setEmbedTitles` (250 ms debounce) with `{[id]: title.trim() || 'Untitled'}`
-  for every target in the layout's `items` whose `ItemDetail` is cached. The engine shows them in place and saves them
-  with the board's next save; a rename alone never saves the board (no write on open, no cross-tab conflict, D68).
+  (cut to 200 characters since the review, D98) for every target in the layout's `items` whose `ItemDetail` is cached.
+  The engine shows them in place and saves them with the board's next save; a rename alone never saves the board (no
+  write on open, no cross-tab conflict, D68).
 - So previews, the board's search text and the no-engine fallback may show an older title until the board is saved
   again. The engine's own titled box (cards beyond the cap or below the zoom threshold) shows the live title as soon
   as the map has it.
@@ -4214,10 +4263,11 @@ its button.
   through the TipTap schema, as on the document page.
 - `item` values come from board JSON, which API clients write: the host fetches only canonical UUIDs, always through
   `encodeURIComponent`, so no `item` can form another path, and it never builds a CSS selector or markup string from
-  `item` or from a label (React attributes and text only). The drop JSON is parsed defensively in the frame and the
-  host checks the id again; the drag type is only read on `drop` (browsers expose drag data only then). Any page in
-  another window can start a drag with this type: a drop only ever places a card for a canonical UUID, whose content
-  the host then fetches with the user's own rights, and the title shown is the target's own (§18.6 (c)).
+  `item` or from a label (React attributes and text only). The drop JSON is parsed defensively in the frame and the host
+  checks the id again; the drag type is only read on `drop` (browsers expose drag data only then). Any page in another
+  window can start a drag with this type: a drop only ever places a card for a canonical UUID of a live document, whose
+  detail and content the host fetches with the user's own rights, and both the title shown and the stored snapshot are
+  the target's own, at most 200 characters (§18.6 (c), D98).
 - Authorization (future multi-user, §15): drawing a card needs `read` on the target (`GET /items/{id}`,
   `GET …/doc/prosemirror`), editing needs `write` on it, and both go through `authz::require` like every route; a
   viewer without access sees "Page not found". The board itself stores the target's id and title snapshot, readable by
@@ -4258,6 +4308,14 @@ its button.
 14. **Boards saved before M1.1** have no `embed` rows until their next save (no schema change or backfill, R5). Only
     API clients could write cards then. A backfill (scan every board at startup or in `admin check`) is a small,
     migration-free job if backlinks ever need it.
+15. **A mixed selection** (cards and other shapes) keeps the style panel's text settings, which then also format the
+    cards' hidden title snapshots (D97): harmless (the snapshot shows only where the host draws nothing, in previews
+    and in the search text) and kept so that shapes keep their settings.
+16. **A "Text doc" document kept for the engine's clipboard** (D95) stays, an empty untitled child of its board, when
+    the tab closes or reloads before a later leave decides: the list of kept documents lives in the tab.
+17. **After a save refused as `read_only`** the card's unsent text waits in the outbox until "Retry" on the card, or the
+    next session of the document (the document page, another card), sends it (D96); a card of the same document on
+    another board of the same tab shows the server's text meanwhile, as it should.
 
 ### 18.14 Decisions
 
@@ -4304,6 +4362,19 @@ the merge's own findings (`docs/handoff/E-merge.md`); each is written into the s
 | D90 | The cards and `DocSession` are loaded lazily, once a board is shown (E3-D10) | A static import (TipTap, about 900 kB, in every page's preloads) |
 | D91 | "Text doc" places its card only on the board it was pressed on, and the page's per-board session object holds the created documents and the board's place (E3 review R1, R2; §18.6 (a)) | The board open when the POST returns (a board switch put board 1's child on board 2); an effect keyed on the board's place (a move ran the leave-the-board cleanup) |
 | D92 | "Text doc" expands the board's sidebar row (merge M-D1; §18.6 (a)) | Leaving it closed (the new page is in the tree but out of view, and expanding it by hand ends the editing); navigating to the new page (leaves the board) |
+
+Added after the independent review of the merged feature (2026-10-29, `docs/handoff/E.md` "Review findings"); each is
+written into the section it amends:
+
+| # | Decision | Rejected alternatives and why |
+|---|---|---|
+| D93 | An Esc in a card's body that no menu took is the editor's own lowest-priority keymap binding (`onEscape`, §18.5 Editing step 5); the card's bubble listener stays for the header | A bubble-phase listener alone (prosemirror-view prevents the default of every Esc, so it never acted in the body); a capture-phase listener that asks whether a suggestion is open (a second copy of the menus' state, and ordering against ProseMirror's own handlers) |
+| D94 | The canvas takes Shift and Alt from the wheel event; the middle and extra buttons, and the focus their press or release brings, never end the host's editing, while a secondary press ends it as `press`; `frame.js` keeps the focus in the parent on a middle press and, after eframe's release focus, sends `onEmbedFocusBack` so that the host gives it back (§18.3, §18.4, §18.5) | Mirroring the parent's key state into eframe from `frame.js` (the frame never sees those keys); ending on every focus gain (no pan while editing); leaving the focus in the frame after a pan (the card shows editing while keys go nowhere); stopping the middle `pointerup` or patching eframe's focus call (the engine would miss the release; eframe is a dependency outside the series); letting a secondary press keep the editing (its menu acts on the board) |
+| D95 | The layout reports the targets of the cards on the engine's clipboard; a created document on it is kept at the leave for a later one, which discards it once no clipboard holds it and the board left does not show it; a discard resets the document's cached detail and content (§18.3, §18.6 (a)) | Never discarding a document that was ever copied (every accidental copy leaves an empty page); discarding regardless (a pasted card of a deleted page, the review's case); asking the server (a clipboard is the client's state, no link exists yet) |
+| D96 | A save refused as `read_only` or 404 ends the editing and refetches the target's detail; an end whose flush left updates unsent shows the server's content and "Not saved", whose Retry opens a new session that sends the outbox (§18.5) | Keeping the editing (every save is refused while the card looks editable); showing the editor's unsent JSON (a static card that disagrees with the server and the other cards); the destroyed session's own retry (it never reloads the server state or the card's content) |
+| D97 | Hosted, the style panel is hidden while a card is edited and has no text settings for a selection of cards alone (§18.3) | Keeping them (they format the hidden title snapshot, cover the edited card, and a click on them ends the editing); hiding the whole panel for selected cards (outline, fill, corners, shadow, opacity and order still apply to the box) |
+| D98 | A drop places only a live document, titled from its own `ItemDetail` (fetched when not cached), never from the drag data; every title snapshot is at most 200 characters (§18.6 (c), §18.12) | The drag data's title when the cache is cold (any page can start such a drag and choose the stored label); refusing uncached targets (a drop from a sidebar whose rows were never opened would fail) |
+| D99 | The review's changes to 0005 and 0006 keep patchset `3` (`0.2.0-beta.3+embed.quire.3`) | Patchset 4, as M1's review fixes bumped 1 to 2 (patchset 3 never shipped: the owner's wiki runs the M1 engine, patchset 2, and only M1.1's test images carried 3; PLAN M1.1 names `3` as the series M1.1 ships and its gate checks it, and every build is still told apart by its content-hashed build id) |
 
 ### 18.15 Design inputs checked against the code (2026-10-28, main `d9cdef1`)
 

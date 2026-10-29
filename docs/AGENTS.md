@@ -235,11 +235,11 @@ this field order):
   `.item.id`). Any other string is kept but shows "Page not found". Only documents (`kind: "doc"`) are shown; a board
   id shows "Page not found" too. `embed` holds only `item`: other fields in it are dropped by the engine.
 - **The label is a title snapshot**: one bold span coloured `#1d2430` (sans, size 24, centred) holding the document's
-  title without leading and trailing spaces, `"Untitled"` when nothing else is left (as the web client writes it).
-  Previews (`board preview`), the board's search text (`item text`, `search`) and
-  engines without Quire's patch show it; the web client shows the live title and refreshes the snapshot when it next
-  saves the board. Searching for a document's title also finds the boards it is on; a board's text never holds the
-  documents' bodies (each document is its own search hit).
+  title without leading and trailing spaces, `"Untitled"` when nothing else is left (as the web client writes it; it
+  also cuts a title longer than 200 characters to its first 200). Previews (`board preview`), the board's search text
+  (`item text`, `search`) and engines without Quire's patch show it; the web client shows the live title and refreshes
+  the snapshot when it next saves the board. Searching for a document's title also finds the boards it is on; a board's
+  text never holds the documents' bodies (each document is its own search hit).
 - **Keep `embed`** when you rewrite a board through your own model of Inkboard's JSON: a model without the field drops
   it, and the card becomes a plain box. Edit the JSON (as with `jq` below) rather than rebuild it.
 - **Object ids** must be unique on their page: the engine keeps the first object with a given id and drops the rest.
