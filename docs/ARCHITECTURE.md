@@ -1447,8 +1447,8 @@ references the file as `![alt](/api/v1/attachments/<id>)` in Markdown or as `ima
   [profiles.home]
   url = "https://wiki.example.org"
   token_file = "/run/secrets/wikanvas-token"   # or: token = "qpat_…"
-  ca_file = "/etc/ssl/private-ca.pem"       # optional
-  allow_http = false                        # optional; true allows a non-loopback http:// URL
+  ca_file = "/etc/ssl/private-ca.pem"          # optional
+  allow_http = false                           # optional; true allows a non-loopback http:// URL
   ```
 - **Non-interactive.** Nothing prompts, opens a browser or a pager, or prints colour. Content comes from a file argument,
   or from stdin with `-`. Tokens come from `--token-stdin`, `--token-file`, the environment or the profile, never from

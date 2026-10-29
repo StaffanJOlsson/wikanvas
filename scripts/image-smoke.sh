@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Smoke test of the production image in its compose project, Caddy included (docs/ARCHITECTURE.md §13.3, §14).
 #   scripts/image-smoke.sh                              # WIKANVAS_SMOKE_LEVEL=full (the default)
-#   WIKANVAS_SMOKE_LEVEL=basic scripts/image-smoke.sh      # also passes with an INKBOARD_BUILD=stub image
+#   WIKANVAS_SMOKE_LEVEL=basic scripts/image-smoke.sh   # also passes with an INKBOARD_BUILD=stub image
 # Runs compose.yaml + compose.smoke.yaml as project wikanvas-smoke on its own subnet (172.31.240.48/28, range .56/29,
 # Caddy at .50), Caddy in internal mode for localhost on 127.0.0.1:18443 only, with throwaway tmpfs volumes, so the
 # caps checked are the compose ones. Neither the owner's .env (--env-file /dev/null) nor the owner-facing variables of
