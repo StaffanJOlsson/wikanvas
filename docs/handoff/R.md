@@ -299,11 +299,6 @@ The rollback copy stays until the owner confirms the new wiki: the three old vol
 
 ## What remains
 
-- **The build slice (owner, root).** `scripts/install-build-slice.sh --check` exits 3 until the owner installs
-  `wikanvas-build.slice` with the askpass command that `scripts/install-build-slice.sh` prints (runbook A4). Right
-  after it, A5 recreates the builder with the slice as its cgroup parent (`docker buildx rm wikanvas-limited; docker rm
-  -f wikanvas-buildkit; scripts/toolchain.sh --builder-only`, never the plain `scripts/toolchain.sh` that the refusal
-  prints), and gate line 1 is run again. Until then every build runs with the per-container caps only.
 - **The owner's checks (C10):** signing in again, a document with an item link, a board with a card, Settings → About.
   The cut-over itself is done (above).
 - **Removing the old resources (coordinator, after the owner confirms the new wiki; Phase D).** The old volumes after
@@ -315,6 +310,15 @@ The rollback copy stays until the owner confirms the new wiki: the three old vol
   carry the old name. Renaming them needs `git worktree repair`; nothing in the repo names either path.
 - **The workspace name (owner).** The live workspace's name holds the old name; renaming it needs the admin scope, so
   the owner does it in Settings (C10).
+- **Done since: the build slice and the release image (2026-10-29).** The owner installed `wikanvas-build.slice`
+  through the askpass dialog (runbook A4, 18:15:50 UTC; the review diff showed only names and comments changed).
+  `scripts/install-build-slice.sh --check` exits 0 with every value held, so gate line 1 passes, and builds no longer
+  print the "not installed" warning. A5 recreated the builder with the slice as its cgroup parent
+  (`wikanvas-build.slice 10-15 12884901888`; the toolchain image unchanged, `8011426db92e`). The two pass-2 lines that
+  waited for the slice (P20, P33) were then applied with a one-day write token and verified (a second run changed
+  nothing); the token was revoked (401 afterwards). The owner moved the live wiki to the release image
+  `wikanvas:4673f6b` (`.env` repinned, `docker compose up -d --wait`, 18:45:10 UTC): healthy, no first-run setup,
+  `admin check` ok with no missing blob, `/api/v1/config` 0.1.0-alpha.1 `4673f6b`, the same root CA.
 - **Decided since:** the version stays `0.1.0-alpha.1` (finding 18; the owner, 2026-10-29: no earlier version was
   released or tagged, and nothing orders versions).
 - **Done since: the code guard of finding 15** (approved by the owner on 2026-10-29), `9d22746` and `b9034e2` on
