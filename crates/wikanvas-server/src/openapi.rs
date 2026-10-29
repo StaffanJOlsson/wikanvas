@@ -52,7 +52,10 @@ fn base() -> OpenApi {
         "The public API of Wikanvas, a self-hosted wiki. The web client uses it with its session cookie; external \
          clients and the `wikanvas` CLI use personal access tokens (`Authorization: Bearer qpat_…`). Errors have the \
          shape `{\"error\": {\"code\", \"message\", \"details\"?}, \"request_id\"}`; clients treat an unknown \
-         `code` by its HTTP status. Within v1, changes are additive only."
+         `code` by its HTTP status. Access is per collection: a collection, item or attachment the caller may not \
+         read is 404 `not_found` exactly as a missing one, and every list leaves it out; one it may read but not \
+         change as asked is 403 `forbidden` (`Collection.my_access` says which). Within v1, changes are additive \
+         only."
             .into(),
     );
     let mut license = License::new("MIT");
