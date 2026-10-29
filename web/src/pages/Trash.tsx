@@ -1,7 +1,10 @@
 // Trash (docs/ARCHITECTURE.md §9.6.6): trashed collections and item roots with "+N nested" and the purge date,
-// Restore, and Delete forever (the confirmation names the count). Everything is purged after 30 days (§12).
+// Restore, and Delete forever (the confirmation names the count). Everything is purged after 30 days (§12). Deleting
+// forever is the owner's and admins' (`Action::Admin`, §8): a member or viewer sees no Delete forever and no Empty
+// Trash.
 import { Link } from 'react-router';
 import { isApiError } from '../api/client';
+import { useMe } from '../api/queries/auth';
 import type { TrashedCollection } from '../api/gen/TrashedCollection';
 import type { TrashedItem } from '../api/gen/TrashedItem';
 import { useRestoreItem } from '../api/queries/items';
@@ -36,6 +39,9 @@ export function itemCount(i: TrashedItem): number {
 }
 
 export default function Trash() {
+  const role = useMe().data?.user.role;
+  // Until `/auth/me` answers (AuthGate has it cached in the app), the server's check alone decides.
+  const canPurge = role === undefined || role === 'owner' || role === 'admin';
   const trash = useTrashList();
   const purge = usePurge().mutateAsync;
   const restoreItem = useRestoreItem().mutateAsync;
@@ -83,7 +89,7 @@ export default function Trash() {
     <div className="page">
       <PageHeader
         title="Trash"
-        actions={!empty && data ? (
+        actions={!empty && data && canPurge ? (
           <button
             type="button"
             className="button danger"
@@ -97,7 +103,10 @@ export default function Trash() {
           </button>
         ) : undefined}
       />
-      <p className="page-note">Items in Trash are deleted forever after 30 days.</p>
+      <p className="page-note">
+        Items in Trash are deleted forever after 30 days.
+        {!canPurge && ' Only the owner and admins can delete them sooner.'}
+      </p>
       {trash.isError && <p className="form-error" role="alert">{trash.error.message}</p>}
       {empty && <p className="list-empty">Trash is empty.</p>}
       {data && data.collections.length > 0 && (
@@ -120,7 +129,9 @@ export default function Trash() {
                       (e: unknown) => errorToast(e))}>
                     Restore
                   </button>
-                  <button type="button" className="button small danger" onClick={() => void purgeCollection(c)}>Delete forever</button>
+                  {canPurge && (
+                    <button type="button" className="button small danger" onClick={() => void purgeCollection(c)}>Delete forever</button>
+                  )}
                 </span>
               </li>
             ))}
@@ -146,7 +157,9 @@ export default function Trash() {
                 <span className="item-list-meta">{purgeText(i.purge_at)}</span>
                 <span className="item-list-actions">
                   <button type="button" className="button small" onClick={() => void restore(i)}>Restore</button>
-                  <button type="button" className="button small danger" onClick={() => void purgeItem(i)}>Delete forever</button>
+                  {canPurge && (
+                    <button type="button" className="button small danger" onClick={() => void purgeItem(i)}>Delete forever</button>
+                  )}
                 </span>
               </li>
             ))}

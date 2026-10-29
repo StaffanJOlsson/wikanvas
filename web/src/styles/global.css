@@ -1600,3 +1600,17 @@ mark {
     animation: none !important;
   }
 }
+
+/* ---- Settings → Members (D148) ---- */
+
+.members-table tr.disabled td:not(:last-child) {
+  color: var(--text-tertiary);
+}
+
+.members-table select {
+  min-width: 110px;
+}
+
+.member-state {
+  margin-left: var(--space-2);
+}

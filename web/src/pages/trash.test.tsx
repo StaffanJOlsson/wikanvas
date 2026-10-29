@@ -1,8 +1,9 @@
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import type { TrashList } from '../api/gen/TrashList';
 import { Overlays } from '../components/overlays/Overlays';
-import { makeCollection, makeItem, makeSidebar, mockApi } from '../test/mockApi';
+import type { Role } from '../api/gen/Role';
+import { makeCollection, makeItem, makeMe, makeSidebar, mockApi } from '../test/mockApi';
 import { render } from '../test/render';
 import Trash, { purgeText } from './Trash';
 
@@ -20,8 +21,9 @@ function trashList(): TrashList {
   };
 }
 
-function setup() {
+function setup(role: Role = 'owner') {
   const api = mockApi()
+    .on('GET', '/auth/me', [200, makeMe({ user: { ...makeMe().user, role } })])
     .on('GET', '/sidebar', [200, makeSidebar([c1])])
     .on('GET', '/trash', [200, trashList()])
     .on('POST', '/items/:id/restore', (req) => [200, { ...makeItem({ id: req.params.id!, collection_id: 'c1' }), moved_to_top: false }])
@@ -35,6 +37,19 @@ function setup() {
 const row = async (name: RegExp) => (await screen.findByText(name)).closest('li') as HTMLElement;
 
 describe('Trash', () => {
+  it('a member or viewer restores but never deletes forever (D148)', async () => {
+    for (const role of ['member', 'viewer'] as const) {
+      const api = setup(role);
+      const big = await row(/^Roadmap/);
+      await waitFor(() => expect(within(big).queryByRole('button', { name: 'Delete forever' })).toBeNull());
+      expect(within(big).getByRole('button', { name: 'Restore' })).toBeTruthy();
+      expect(screen.queryByRole('button', { name: 'Empty Trash' })).toBeNull();
+      expect(screen.getByText(/Only the owner and admins can delete them sooner/)).toBeTruthy();
+      expect(api.calls('DELETE')).toHaveLength(0);
+      cleanup();
+    }
+  });
+
   it('lists roots with "+N nested", their path and the purge date', async () => {
     setup();
     const big = await row(/^Roadmap/);

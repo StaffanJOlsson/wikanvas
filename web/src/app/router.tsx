@@ -1,11 +1,12 @@
-// The route table (docs/ARCHITECTURE.md §9.1), for React Router's data router. /setup and /login sit outside
-// AuthGate; every other route renders inside AppShell. DocPage (W4) and BoardPage (W6) are lazy chunks; a chunk that
-// fails to load runs the update check (RouteError).
+// The route table (docs/ARCHITECTURE.md §9.1), for React Router's data router. /setup, /login and /invite/:token sit
+// outside AuthGate; every other route renders inside AppShell. DocPage (W4) and BoardPage (W6) are lazy chunks; a
+// chunk that fails to load runs the update check (RouteError).
 import { createBrowserRouter, Navigate, type RouteObject } from 'react-router';
 import type { ComponentType } from 'react';
 import Archive from '../pages/Archive';
 import Collection from '../pages/Collection';
 import Home from '../pages/Home';
+import InvitePage from '../pages/Invite';
 import ItemRedirect from '../pages/ItemRedirect';
 import Login from '../pages/Login';
 import NotFound from '../pages/NotFound';
@@ -50,6 +51,7 @@ export function lazyPage(path: string, load: () => Promise<{ default: ComponentT
 export const routes: RouteObject[] = [
   { path: '/setup', Component: Setup },
   { path: '/login', Component: Login },
+  { path: '/invite/:token', Component: InvitePage },
   {
     Component: AuthGate,
     children: [
