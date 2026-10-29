@@ -890,17 +890,23 @@ async fn every_operation_enforces_its_declared_scope() {
 
 #[test]
 fn public_operations_are_exactly() {
-    let public: BTreeSet<String> = operations()
-        .into_iter()
-        .filter(|(_, _, d)| *d == Declared::Public)
-        .map(|(m, p, _)| format!("{m} {p}"))
-        .collect();
+    let spec: Value = serde_json::from_str(&wikanvas_server::openapi::spec_json()).unwrap();
+    let mut public = BTreeSet::new();
+    for (path, item) in spec["paths"].as_object().unwrap() {
+        for (method, op) in item.as_object().unwrap() {
+            if declared(&op["security"]) == Declared::Public {
+                public.insert(format!("{} {path}", method.to_uppercase()));
+            }
+        }
+    }
     let expect: BTreeSet<String> = [
         "GET /api/v1/config",
         "GET /api/v1/openapi.json",
         "GET /api/v1/setup",
         "POST /api/v1/setup",
         "POST /api/v1/auth/login",
+        "GET /api/v1/invites/{id}",
+        "POST /api/v1/invites/{id}/accept",
     ]
     .into_iter()
     .map(str::to_owned)

@@ -27,6 +27,8 @@ create; `item unpublish` makes a draft (D23).
 | auth | `auth login --url U (--token-stdin \| --token-file F) [--profile P]`, `auth logout [--revoke]`, `auth whoami` | `Me` (with `auth.token`: prefix, scopes, expiry); logout: the ok object |
 | me, session | `me update [--name N] [--email E] [--theme light\|dark\|system]`, `session list`, `session revoke (ID \| --others)` | `{user}`; the list; ok |
 | token | `token list`, `token create --name N --scope read\|write\|admin [--expires 30d\|never] [--token-out F]`, `token revoke ID` | `[ApiToken]`; `{token, api_token}` or `{token_file, api_token}`; ok |
+| user | `user list`, `user set-role USER --role admin\|member\|viewer`, `user disable USER`, `user enable USER` (`USER`: an id or an email) | `[UserInfo]` `{id, email, name, role, created_at, disabled_at}`; `UserInfo` |
+| invite | `invite create --role admin\|member\|viewer [--expires 7d] [--note T] [--url-out F]`, `invite list`, `invite revoke ID` | `{invite, url}` or `{url_file, invite}`; `[Invite]` (pending, never a link); ok |
 | config | `config show`, `config path` (local) | `{profile, url, url_source, token_source, token_prefix}`; `{path}` |
 | workspace | `workspace get`, `workspace set [--name N] [--logo ATT \| --no-logo]`, `sidebar` | the body |
 | collection | `collection list \| get COLL \| create --name N [--description D] [--icon I] [--color '#RRGGBB'] \| update COLL [--sort manual\|title\|updated\|created] \| move COLL \| delete COLL \| restore COLL \| updated COLL` | the body |
@@ -40,7 +42,7 @@ create; `item unpublish` makes a draft (D23).
 | attachment | `attachment upload F\|- [--item ITEM] [--filename N]`, `attachment get ID --out F` | `{id, url, sha256, mime, size, width, height}`; `{path, bytes, sha256, content_type}` |
 | export, backup | `export --out F` (a tar), `backup` (a file on the server) | `{path, bytes, sha256, content_type}`; `{path, size}` |
 | api | `api METHOD PATH [--input F\|-] [--header K:V]… [--out F]` (PATH under `/api/`, no `..`, no other host) | the body unchanged |
-| admin | `admin …`: runs `wikanvas-server admin …` (`create-owner`, `create-token`, `list-tokens`, `revoke-token`, `reset-password`, `backup`, `check`) | `create-owner`: `{user, workspace, generated_password}`; `create-token`: `{token, api_token}` or `{token_file, api_token}`; `list-tokens`: `[ApiToken]`; `revoke-token`: `{revoked}`; `reset-password`: `{user, password, sessions_revoked, tokens_revoked}`; `backup`: `{path, size}`; `check`: `{ok, quick_check, foreign_key_violations, cycles, fts, missing_blobs}` (exit 1 when not ok) |
+| admin | `admin …`: runs `wikanvas-server admin …` (`create-owner`, `create-token`, `list-tokens [--email E]`, `revoke-token [--email E]`, `reset-password`, `list-users`, `create-user`, `set-role`, `disable-user`, `enable-user`, `backup`, `check`) | `create-owner`: `{user, workspace, generated_password}`; `create-token`: `{token, api_token}` or `{token_file, api_token}`; `list-tokens`: `[ApiToken]`; `revoke-token`: `{revoked}`; `reset-password`: `{user, password, sessions_revoked, tokens_revoked}`; `list-users`: `[UserInfo]`; `create-user`: `{user, generated_password}`; `set-role`, `enable-user`: `{user}`; `disable-user`: `{user, sessions_revoked, tokens_revoked, invites_revoked}`; `backup`: `{path, size}`; `check`: `{ok, quick_check, foreign_key_violations, cycles, fts, missing_blobs}` (exit 1 when not ok) |
 | version, help | `version`, `exit-codes`, `help [COMMAND…]` | `{cli, server}`; the table below; the command tree |
 
 ```sh
@@ -54,6 +56,9 @@ wikanvas --json trash list
 wikanvas --json attachment upload diagram.png --item "$ID"
 wikanvas --json export --out export.tar
 wikanvas --json api GET /api/v1/sidebar
+wikanvas --json user list
+wikanvas --json user set-role bea@example.org --role viewer
+wikanvas --json invite create --role member --expires 7d --url-out invite.url
 wikanvas --json version
 wikanvas exit-codes --json
 wikanvas help --json doc put
@@ -62,6 +67,13 @@ wikanvas help --json doc put
 Content writes need `--if-match ETAG` (`d42`, `"d42"` and `W/"d42"` all work) or `--force`, and `trash purge` needs
 `--yes`; without them the command exits 2 instead of guessing. Binary output (`export`, `attachment get`,
 `board preview`) needs `--out F` with `--json`.
+
+Accounts join only through invite links (there is no sign-up). `invite create` prints the link once and it works
+once: send it to the person, or write it to a 0600 file with `--url-out`, and never log it. `user` and `invite` need an
+`admin` token of the owner or of an admin; only the owner invites or makes an admin, nobody changes the owner's role
+or their own, and disabling an account ends its sessions, tokens and pending invites at once. Accepting an invite is
+web-only (the invite page signs the new person in). Until per-collection permissions arrive (docs/multi-user.md phase
+3), every member and viewer can read every collection, and members can change them.
 
 ## 3. Getting a token
 
@@ -94,8 +106,9 @@ wikanvas --json auth login --url https://wiki.example.org --token-stdin < agent.
 `auth login` saves a profile (`~/.config/wikanvas/config.toml`, 0600; `WIKANVAS_CONFIG` moves it). The URL and the token
 are resolved as a pair: a profile's token is never sent to a URL from somewhere else (that is exit 3), and `--profile P`
 ignores `WIKANVAS_URL`, `WIKANVAS_TOKEN` and `WIKANVAS_TOKEN_FILE`. Scopes: `read` (every GET except tokens, sessions
-and export), `write` (content and structure), `admin` (tokens, sessions, `me update`, workspace settings, purge, export,
-backup). A token never creates an `admin` token, and never one that outlives it: pass a shorter `--expires`.
+and export), `write` (content and structure), `admin` (tokens, sessions, `me update`, workspace settings, accounts and
+invites, purge, export, backup). A token is also limited by its account's role: a `member`'s token never purges, a
+`viewer`'s never writes, whatever its scope. A token never creates an `admin` token, and never one that outlives it: pass a shorter `--expires`.
 `auth logout --revoke` revokes the profile's own token at the profile's URL, never a `WIKANVAS_TOKEN` you exported. For
 a LAN install on Caddy's local CA, add `--ca-file wikanvas-local-ca.crt`; plain `http://` works only for this machine
 (or with `WIKANVAS_ALLOW_HTTP=1`).
@@ -126,7 +139,7 @@ wikanvas --json item get "$ID" 2> err.jsonl || tail -n 1 err.jsonl | jq -r .erro
 | 3 | Configuration | Fix the URL or token: none set, malformed, not bound to the URL, an unsafe profile file, plain HTTP, no CA bundle, a redirect (use the URL the error names), `wikanvas-server` missing, or 421. For `admin create-owner`: the data directory holds files but no owner; follow the message (put the wiki's database in place, or move the files away). |
 | 4 | Network | If `error.details.sent` is false, retry. If true after a create, list first (the item may exist), then retry. |
 | 5 | Not authenticated | The token is unknown, expired or revoked: get a new one. |
-| 6 | Forbidden | The token lacks the scope (`details.required`), or the action needs a session: use another token. |
+| 6 | Forbidden | The token lacks the scope (`details.required`), the action needs a session, or the account's role does not allow it (`forbidden`): use another token or account. |
 | 7 | Not found | Check the reference; list or search for it. |
 | 8 | Conflict | Read `error.code` (`cycle`, `parent_invalid`, `read_only`, `not_empty`, …) and change the request. |
 | 9 | Precondition failed | Stale ETag: GET again and redo the change, or resend with `--merge` (documents). |

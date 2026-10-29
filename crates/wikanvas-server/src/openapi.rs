@@ -28,6 +28,8 @@ pub fn router() -> OpenApiRouter<AppState> {
         .merge(routes::setup::router())
         .merge(routes::workspace::router())
         .merge(routes::tokens::router())
+        .merge(routes::users::router())
+        .merge(routes::invites::router())
         .merge(routes::files::router())
         .merge(routes::export::router())
         .merge(routes::config::router())

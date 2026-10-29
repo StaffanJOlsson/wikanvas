@@ -85,6 +85,12 @@ pub enum Command {
     /// Personal access tokens
     #[command(subcommand)]
     Token(TokenCmd),
+    /// The workspace's accounts: roles, disable and enable (the owner and admins)
+    #[command(subcommand)]
+    User(UserCmd),
+    /// Invite links, the way new accounts join (the owner and admins)
+    #[command(subcommand)]
+    Invite(InviteCmd),
     /// The CLI's own configuration (local)
     #[command(subcommand)]
     Config(ConfigCmd),
@@ -258,6 +264,62 @@ pub struct TokenCreate {
 #[derive(Debug, Args)]
 pub struct IdArg {
     pub id: String,
+}
+
+// ------------------------------------------------------------------------------------------------- user, invite
+
+#[derive(Debug, Subcommand)]
+pub enum UserCmd {
+    /// List every account, the owner first, disabled ones included
+    List,
+    /// Give an account another role (only the owner makes or unmakes an admin)
+    SetRole(UserSetRole),
+    /// Disable an account: its sessions, tokens and pending invites end at once
+    Disable(UserArg),
+    /// Enable a disabled account again
+    Enable(UserArg),
+}
+
+#[derive(Debug, Args)]
+pub struct UserArg {
+    /// The account: its id, or its email
+    #[arg(value_name = "USER")]
+    pub user: String,
+}
+
+#[derive(Debug, Args)]
+pub struct UserSetRole {
+    /// The account: its id, or its email
+    #[arg(value_name = "USER")]
+    pub user: String,
+    #[arg(long, value_parser = ["admin", "member", "viewer"])]
+    pub role: String,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum InviteCmd {
+    /// Create an invite link and print it once
+    Create(InviteCreate),
+    /// List the pending invites (never their links)
+    List,
+    /// Revoke a pending invite: its link stops working
+    Revoke(IdArg),
+}
+
+#[derive(Debug, Args)]
+pub struct InviteCreate {
+    /// The new account's role (admin: the owner only)
+    #[arg(long, value_parser = ["admin", "member", "viewer"])]
+    pub role: String,
+    /// <days>d (1-30) [default: 7d]
+    #[arg(long, value_name = "7d")]
+    pub expires: Option<String>,
+    /// A note for the inviters, e.g. who it is for (at most 200 characters)
+    #[arg(long, value_name = "TEXT")]
+    pub note: Option<String>,
+    /// Write the link to this file (mode 0600) instead of stdout
+    #[arg(long, value_name = "FILE")]
+    pub url_out: Option<PathBuf>,
 }
 
 #[derive(Debug, Subcommand)]

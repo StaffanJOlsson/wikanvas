@@ -58,6 +58,8 @@ fn every_spec_operation_has_command_or_api_only_allowlist() {
         "POST /api/v1/items/{id}/doc/updates",
         "GET /api/v1/openapi.json",
         "GET /api/v1/items/{id}/board.inkboard",
+        "GET /api/v1/invites/{id}",
+        "POST /api/v1/invites/{id}/accept",
     ]
     .iter()
     .map(|s| (*s).to_owned())
@@ -242,6 +244,8 @@ fn agents_md_examples_parse() {
     for g in [
         "auth",
         "token",
+        "user",
+        "invite",
         "config",
         "collection",
         "item",

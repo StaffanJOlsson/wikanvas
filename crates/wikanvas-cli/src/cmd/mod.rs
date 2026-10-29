@@ -17,6 +17,7 @@ mod star;
 mod token;
 mod trash;
 mod tree;
+mod user;
 mod version;
 mod workspace;
 
@@ -55,6 +56,13 @@ pub const OPERATIONS: &[(&str, &str, &str)] = &[
     ("GET", "/api/v1/tokens", "token list"),
     ("POST", "/api/v1/tokens", "token create"),
     ("DELETE", "/api/v1/tokens/{id}", "token revoke"),
+    ("GET", "/api/v1/users", "user list"),
+    ("PATCH", "/api/v1/users/{id}", "user set-role"),
+    ("PATCH", "/api/v1/users/{id}", "user disable"),
+    ("PATCH", "/api/v1/users/{id}", "user enable"),
+    ("POST", "/api/v1/invites", "invite create"),
+    ("GET", "/api/v1/invites", "invite list"),
+    ("DELETE", "/api/v1/invites/{id}", "invite revoke"),
     ("GET", "/api/v1/workspace", "workspace get"),
     ("PATCH", "/api/v1/workspace", "workspace set"),
     ("GET", "/api/v1/sidebar", "sidebar"),
@@ -117,7 +125,8 @@ pub const OPERATIONS: &[(&str, &str, &str)] = &[
 ];
 
 /// The web-only operations of §7.6 "Coverage", reachable through `wikanvas api`; plus the spec document itself and the
-/// board's browser download, which `wikanvas api` and `wikanvas board get` cover (D-W8 in docs/handoff/W8.md).
+/// board's browser download, which `wikanvas api` and `wikanvas board get` cover (D-W8 in docs/handoff/W8.md). The
+/// invite page's two public routes are web-only like setup and login: accepting signs a browser in (D148).
 pub const API_ONLY: &[(&str, &str)] = &[
     ("GET", "/api/v1/setup"),
     ("POST", "/api/v1/setup"),
@@ -129,6 +138,8 @@ pub const API_ONLY: &[(&str, &str)] = &[
     ("POST", "/api/v1/items/{id}/doc/updates"),
     ("GET", "/api/v1/openapi.json"),
     ("GET", "/api/v1/items/{id}/board.inkboard"),
+    ("GET", "/api/v1/invites/{id}"),
+    ("POST", "/api/v1/invites/{id}/accept"),
 ];
 
 /// The state of one command: the global flags, the environment, and the client once configured.
@@ -398,6 +409,8 @@ fn dispatch(ctx: &Ctx, command: Command) -> Res {
         Command::Me(c) => auth::me(ctx, c),
         Command::Session(c) => auth::session(ctx, c),
         Command::Token(c) => token::run(ctx, c),
+        Command::User(c) => user::run(ctx, c),
+        Command::Invite(c) => user::invite(ctx, c),
         Command::Config(c) => profile::run(ctx, c),
         Command::Workspace(c) => workspace::run(ctx, c),
         Command::Sidebar => workspace::sidebar(ctx),

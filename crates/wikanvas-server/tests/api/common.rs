@@ -5,8 +5,8 @@
 //!   cookie, `Host: localhost` and `Sec-Fetch-Site: same-origin` with every request;
 //! - [`TestApp::with_token`]: plus the owner and a token of one scope; `server` sends `Authorization: Bearer` and
 //!   no cookie;
-//! - [`TestApp::insert_user`]: an `admin`, `member` or `viewer` beside the owner (there is no user-management API
-//!   yet), for [`TestApp::insert_session`] or [`TestApp::mint_token`].
+//! - [`TestApp::insert_user`]: an `admin`, `member` or `viewer` beside the owner, inserted with plain SQL (the API's
+//!   way is an invite), for [`TestApp::insert_session`] or [`TestApp::mint_token`].
 //!
 //! [`TestApp::client`] builds another client on the same state (no default headers), so one test can mix a cookie
 //! client, token clients and anonymous requests. Every client's router injects the peer address from an
@@ -232,7 +232,14 @@ impl TestApp {
     /// Inserts a user of `role` (not the owner: [`insert_owner`](Self::insert_owner)) with plain SQL, as
     /// `<role>@wikanvas.invalid` with [`USER_PASSWORD`]; returns its id. One user per role.
     pub async fn insert_user(&self, role: Role) -> String {
+        self.insert_user_with(role, &format!("{role}@wikanvas.invalid"))
+            .await
+    }
+
+    /// [`insert_user`](Self::insert_user) with another email (any number of users per role).
+    pub async fn insert_user_with(&self, role: Role, email: &str) -> String {
         assert_ne!(role, Role::Owner, "insert_owner inserts the owner");
+        let email = email.to_owned();
         let id = uuid::Uuid::now_v7().to_string();
         let hash = wikanvas_server::state::hash_password(true, USER_PASSWORD.into())
             .await
@@ -247,7 +254,7 @@ impl TestApp {
                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
                     rusqlite::params![
                         user,
-                        format!("{role}@wikanvas.invalid"),
+                        email,
                         format!("A {role}"),
                         hash,
                         role.as_str(),

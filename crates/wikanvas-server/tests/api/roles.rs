@@ -55,6 +55,8 @@ const OPS: &[(&str, Need)] = &[
     ("get_setup", Need::Public),
     ("setup", Need::Public),
     ("login", Need::Public),
+    ("get_invite", Need::Public),
+    ("accept_invite", Need::Public),
     ("get_workspace", Need::Read),
     ("get_doc_schema", Need::Read),
     ("get_sidebar", Need::Read),
@@ -114,6 +116,11 @@ const OPS: &[(&str, Need)] = &[
     ("put_doc_prosemirror", Need::Write),
     ("put_board", Need::Write),
     ("upload_attachment", Need::Write),
+    ("list_users", Need::Admin),
+    ("patch_user", Need::Admin),
+    ("list_invites", Need::Admin),
+    ("create_invite", Need::Admin),
+    ("revoke_invite", Need::Admin),
     ("patch_workspace", Need::Admin),
     ("backup", Need::Admin),
     ("export", Need::Admin),
@@ -173,6 +180,10 @@ struct Fixtures {
     to_trash: String,
     trashed: String,
     purgeable: String,
+    /// A member the admin actions change (an admin may: D148).
+    account: String,
+    /// A pending member invite the owner made.
+    invite: String,
 }
 
 fn ok_json(res: TestResponse, what: &str) -> Value {
@@ -234,7 +245,21 @@ async fn new_item(
     id
 }
 
-async fn fixtures(owner: &TestServer) -> Fixtures {
+async fn fixtures(app: &TestApp) -> Fixtures {
+    let owner = &app.server;
+    let account = app
+        .insert_user_with(Role::Member, "account@wikanvas.invalid")
+        .await;
+    let invite = ok_json(
+        owner
+            .post("/api/v1/invites")
+            .json(&json!({"role": "member"}))
+            .await,
+        "create an invite",
+    )["invite"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
     let collection = new_collection(owner, "Matrix", false).await;
     let doc = new_item(owner, &collection, "doc", "Matrix doc", None).await;
     let attachment = ok_json(
@@ -266,6 +291,8 @@ async fn fixtures(owner: &TestServer) -> Fixtures {
         attachment,
         doc,
         collection,
+        account,
+        invite,
     }
 }
 
@@ -413,7 +440,8 @@ async fn call_for(op: &str, app: &TestApp, caller: &Caller, fx: &Fixtures) -> Ca
     match op {
         "get_workspace" | "get_doc_schema" | "get_sidebar" | "list_collections" | "list_archive"
         | "list_drafts" | "list_updated" | "get_trash" | "list_starred" | "list_recent"
-        | "get_me" | "list_sessions" | "list_tokens" | "backup" | "export" | "empty_trash" => call,
+        | "get_me" | "list_sessions" | "list_tokens" | "backup" | "export" | "empty_trash"
+        | "list_users" | "list_invites" => call,
         "get_collection" | "get_tree" | "list_collection_updated" => call.id(&fx.collection),
         "get_item" | "get_item_text" | "get_children" | "get_doc" | "get_doc_markdown"
         | "get_doc_prosemirror" | "star_item" | "unstar_item" | "view_item" | "duplicate_item" => {
@@ -480,6 +508,9 @@ async fn call_for(op: &str, app: &TestApp, caller: &Caller, fx: &Fixtures) -> Ca
             .query(format!("filename=matrix.txt&item_id={}", fx.doc))
             .raw("application/octet-stream", "uploaded by the matrix"),
         "patch_workspace" => call.json(json!({"name": "Renamed by the matrix"})),
+        "patch_user" => call.id(&fx.account).json(json!({"role": "viewer"})),
+        "create_invite" => call.json(json!({"role": "member", "note": "From the matrix"})),
+        "revoke_invite" => call.id(&fx.invite),
         "purge_trash_item" => call.id(&fx.purgeable),
         "purge_trash_collection" => call.id(&fx.purgeable_collection),
         other => panic!("no call for {other}: add it to call_for"),
@@ -584,7 +615,7 @@ async fn fingerprint(app: &TestApp) -> String {
 /// The app for one role: the owner and the fixtures, and the caller of `role` (the owner itself for `Owner`).
 async fn app_for(role: Role) -> (TestApp, Caller, Fixtures) {
     let app = TestApp::with_owner().await;
-    let fx = fixtures(&app.server).await;
+    let fx = fixtures(&app).await;
     let caller = if role == Role::Owner {
         Caller {
             role,
@@ -651,9 +682,9 @@ async fn every_operation_checks_the_role() {
             }
         }
     }
-    // 65 operations with credentials, for 4 roles: the viewer is refused the 20 writes and the 6 admin actions,
-    // the member the 6 admin actions.
-    assert_eq!((allowed, refused), (228, 32));
+    // 70 operations with credentials, for 4 roles: the viewer is refused the 20 writes and the 11 admin actions,
+    // the member the 11 admin actions.
+    assert_eq!((allowed, refused), (238, 42));
 }
 
 /// A token is limited by its user's role as well as by its scope: an admin-scope token of a viewer reads but
@@ -661,7 +692,7 @@ async fn every_operation_checks_the_role() {
 #[tokio::test]
 async fn a_token_cannot_exceed_its_users_role() {
     let app = TestApp::with_owner().await;
-    let fx = fixtures(&app.server).await;
+    let fx = fixtures(&app).await;
     for (role, refused) in [
         (
             Role::Viewer,

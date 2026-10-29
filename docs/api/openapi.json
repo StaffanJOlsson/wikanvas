@@ -2092,6 +2092,417 @@
         ]
       }
     },
+    "/api/v1/invites": {
+      "get": {
+        "tags": [
+          "invites"
+        ],
+        "summary": "The pending invites (not used, revoked or expired), newest first, at most 100. Never a token or a link.",
+        "operationId": "list_invites",
+        "responses": {
+          "200": {
+            "description": "The pending invites",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Invite"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`, `forbidden` (a `member` or `viewer`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "admin"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "invites"
+        ],
+        "summary": "Creates an invite link for a new `admin` (the owner only), `member` or `viewer`; the response is the only place\nits link appears. It works once and expires after `expires_in_days` (1–30, default 7).",
+        "operationId": "create_invite",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewInvite"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The invite and its link",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedInvite"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`, `forbidden` (a `member` or `viewer`; an admin invite by an admin), `csrf_rejected`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "`unsupported_media_type`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`validation` (`field`: `role`, `expires_in_days`, `note`, or `invites` at 100 pending invites)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "admin"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      }
+    },
+    "/api/v1/invites/{id}": {
+      "get": {
+        "tags": [
+          "invites"
+        ],
+        "summary": "What the invite page shows (public; the `id` is the invite's token, the last segment of its link): whether it can\nbe accepted, and else why, the workspace's name and the role. Never who made it.",
+        "operationId": "get_invite",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The invite's token, `qinv_…` (the last segment of its link)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The invite (any state)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InviteLookup"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found`: no invite has this token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`rate_limited` (`reason: auth_failures`, per IP)",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "format": "int64",
+                  "minimum": 0
+                },
+                "description": "Seconds"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": []
+      },
+      "delete": {
+        "tags": [
+          "invites"
+        ],
+        "summary": "Revokes a pending invite: its link stops working at once.",
+        "operationId": "revoke_invite",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The invite's id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Revoked"
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`, `forbidden` (a `member` or `viewer`), `csrf_rejected`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found`: no pending invite has this id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "admin"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      }
+    },
+    "/api/v1/invites/{id}/accept": {
+      "post": {
+        "tags": [
+          "invites"
+        ],
+        "summary": "Accepts an invite (public; the `id` is its token): creates the account with the invite's role and signs it in\n(a browser-session cookie, as setup does). Works once. Checked in this order: the per-IP limiter of login and\nsetup (429), the invite (404 unless it is pending), the fields (`email`, `name`, `password`; 422), then a taken\nemail (409).",
+        "operationId": "accept_invite",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The invite's token, `qinv_…` (the last segment of its link)",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptInvite"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "The new account, signed in",
+            "headers": {
+              "Set-Cookie": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "The session cookie"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserEnvelope"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`csrf_rejected`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found`: no pending invite has this token (unknown, used, expired or revoked)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`conflict` (`field: email`: another account has this email)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "`unsupported_media_type`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`validation` (`field`: `email`, `name` or `password`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`rate_limited` (`reason: requests`, per IP)",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "format": "int64",
+                  "minimum": 0
+                },
+                "description": "Seconds"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
     "/api/v1/items": {
       "post": {
         "tags": [
@@ -6300,6 +6711,184 @@
         ]
       }
     },
+    "/api/v1/users": {
+      "get": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Every account, the owner first, then in the order they joined; disabled ones too.",
+        "operationId": "list_users",
+        "responses": {
+          "200": {
+            "description": "The accounts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/UserInfo"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`, `forbidden` (a `member` or `viewer`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "admin"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      }
+    },
+    "/api/v1/users/{id}": {
+      "patch": {
+        "tags": [
+          "users"
+        ],
+        "summary": "Changes an account's role (`admin`, `member` or `viewer`) and/or disables (`disabled: true`) or enables it.",
+        "description": "The owner's role never changes and the owner cannot be disabled; nobody changes their own role or disables\nthemselves; only the owner makes, changes or disables an admin; admins manage members and viewers (403\n`forbidden`). Disabling ends the account's sessions and API tokens and revokes the invites it made, at once;\ntaking the admin role away revokes those invites too. An empty body, or what the account already is, changes\nnothing.",
+        "operationId": "patch_user",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The account's id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The account",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserInfo"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`, `forbidden` (the role, or the rules above), `csrf_rejected`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "`unsupported_media_type`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`validation` (`field`: `role`, which is never `owner`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "admin"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      }
+    },
     "/api/v1/workspace": {
       "get": {
         "tags": [
@@ -6453,6 +7042,27 @@
   },
   "components": {
     "schemas": {
+      "AcceptInvite": {
+        "type": "object",
+        "description": "Body of the public `POST /invites/{id}/accept` (the `id` is the invite's token).",
+        "required": [
+          "name",
+          "email",
+          "password"
+        ],
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string",
+            "description": "12–1024 bytes, as at setup."
+          }
+        }
+      },
       "ApiToken": {
         "type": "object",
         "description": "A personal access token as lists show it. Never the secret or its hash.",
@@ -6968,6 +7578,23 @@
           "unsupported_markdown"
         ]
       },
+      "CreatedInvite": {
+        "type": "object",
+        "description": "Response of `POST /invites`: the only response that contains the invite's link.",
+        "required": [
+          "invite",
+          "url"
+        ],
+        "properties": {
+          "invite": {
+            "$ref": "#/components/schemas/Invite"
+          },
+          "url": {
+            "type": "string",
+            "description": "`<public URL>/invite/<token>`; the token (`qinv_…`, 51 characters) is its last segment."
+          }
+        }
+      },
       "CreatedToken": {
         "type": "object",
         "description": "Response of `POST /tokens`: the only response that ever contains the secret.",
@@ -7327,6 +7954,87 @@
             "$ref": "#/components/schemas/WasmBytes"
           }
         }
+      },
+      "Invite": {
+        "type": "object",
+        "description": "An invite as the owner and admins see it. Never its token.",
+        "required": [
+          "id",
+          "role",
+          "created_at",
+          "expires_at"
+        ],
+        "properties": {
+          "created_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "created_by": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Who made it; `null` once that account is gone."
+          },
+          "expires_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A note for the inviters (\"For Alex\"), never shown on the invite page."
+          },
+          "role": {
+            "$ref": "#/components/schemas/Role",
+            "description": "The role the new account gets: `admin`, `member` or `viewer`."
+          }
+        }
+      },
+      "InviteLookup": {
+        "type": "object",
+        "description": "Response of the public `GET /invites/{id}` (the `id` is the invite's token): what the invite page shows. Never\nwho made the invite.",
+        "required": [
+          "valid",
+          "state",
+          "workspace_name",
+          "role",
+          "expires_at"
+        ],
+        "properties": {
+          "expires_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "role": {
+            "$ref": "#/components/schemas/Role",
+            "description": "The role the new account gets."
+          },
+          "state": {
+            "$ref": "#/components/schemas/InviteState"
+          },
+          "valid": {
+            "type": "boolean",
+            "description": "Whether it can be accepted (`state` is `pending`)."
+          },
+          "workspace_name": {
+            "type": "string"
+          }
+        }
+      },
+      "InviteState": {
+        "type": "string",
+        "description": "Where an invite stands.",
+        "enum": [
+          "pending",
+          "used",
+          "expired",
+          "revoked"
+        ]
       },
       "ItemDetail": {
         "type": "object",
@@ -7933,6 +8641,36 @@
                 "type": "null"
               }
             ]
+          }
+        }
+      },
+      "NewInvite": {
+        "type": "object",
+        "description": "Body of `POST /invites`.",
+        "required": [
+          "role"
+        ],
+        "properties": {
+          "expires_in_days": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "1–30; omitted: 7.",
+            "maximum": 30,
+            "minimum": 1
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "At most 200 characters."
+          },
+          "role": {
+            "$ref": "#/components/schemas/Role",
+            "description": "`admin` (the owner only), `member` or `viewer`."
           }
         }
       },
@@ -8604,6 +9342,69 @@
         "properties": {
           "user": {
             "$ref": "#/components/schemas/User"
+          }
+        }
+      },
+      "UserInfo": {
+        "type": "object",
+        "description": "An account as `GET /users` lists it.",
+        "required": [
+          "id",
+          "email",
+          "name",
+          "role",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "disabled_at": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Timestamp",
+                "description": "When the account was disabled; `null` while it can sign in."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "email": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/Role"
+          }
+        }
+      },
+      "UserPatch": {
+        "type": "object",
+        "description": "Body of `PATCH /users/{id}`: a new role, and/or disable (`true`) or enable (`false`) the account. Disabling ends\nthe account's sessions, API tokens and pending invites at once.",
+        "properties": {
+          "disabled": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "role": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Role",
+                "description": "`admin`, `member` or `viewer`; only the owner makes or unmakes an admin, and nobody changes the owner's role\nor their own."
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       },

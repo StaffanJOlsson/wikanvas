@@ -13,4 +13,5 @@ mod mocked;
 mod output;
 mod tokens;
 mod transport;
+mod users;
 mod version;

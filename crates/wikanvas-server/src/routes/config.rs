@@ -1,7 +1,8 @@
 //! Route /api/v1/config (owner: W2)
 //!
-//! §7.2, public: the server version and commit, `api_version`, `openapi_url`, `setup_required`, `multi_user: false`,
-//! the embedded Inkboard build (`null` without a manifest or for the stub, §10.5) and every request limit.
+//! §7.2, public: the server version and commit, `api_version`, `openapi_url`, `setup_required`, `multi_user` (more than
+//! one account that is not disabled, D148), the embedded Inkboard build (`null` without a manifest or for the stub,
+//! §10.5) and every request limit.
 
 use axum::Json;
 use axum::extract::State;
@@ -33,7 +34,7 @@ async fn get_config(State(state): State<AppState>) -> Result<Json<Config>, ApiEr
         api_version: wikanvas_api::API_VERSION.to_owned(),
         openapi_url: "/api/v1/openapi.json".to_owned(),
         setup_required: !state.owner_exists().await?,
-        multi_user: false,
+        multi_user: state.db.read(wikanvas_store::users::count_enabled).await? > 1,
         inkboard: state.site.inkboard_info(),
         limits: state.config.limits(),
     }))

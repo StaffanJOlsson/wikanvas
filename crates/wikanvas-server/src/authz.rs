@@ -15,11 +15,13 @@
 //! - [`Action::Write`]: creating, editing, moving, duplicating, publishing, archiving, trashing and restoring items
 //!   and collections, document and board content, and uploads (`?discard_empty` deletes a new empty item: Write);
 //! - [`Action::Admin`]: purging the trash (one item, one collection, or all of it), the workspace settings, export
-//!   and backup;
+//!   and backup, and the accounts and invites (`/users…`, `/invites…`; the finer rules of D148, who may change which
+//!   account, are `wikanvas_store::users::change` and `invites::create`, which know the target's role);
 //! - [`Resource::OwnAccount`] with Read or Write: `/auth/me`, `/auth/password`, `/auth/logout`, `/auth/sessions…`
 //!   and `/tokens…`.
 //!
-//! Multi-user later changes only this function and `shared::visible_items`.
+//! Per-collection permissions (phase 3 of docs/multi-user.md) change only this function and `shared::visible_items`;
+//! until then every member and viewer sees every collection.
 
 use wikanvas_api::{ErrorCode, Role};
 
@@ -33,7 +35,7 @@ pub enum Action {
     Read,
     /// Change content or structure (the trash included, except purging it).
     Write,
-    /// Permanent deletion, settings, other users' tokens, export, backup.
+    /// Permanent deletion, settings, accounts and invites, other users' tokens, export, backup.
     Admin,
 }
 
@@ -48,6 +50,10 @@ pub enum Resource<'a> {
     Attachment(&'a str),
     /// Another user's API token (no route yet): [`Action::Admin`]. The caller's own are [`Resource::OwnAccount`].
     Token(&'a str),
+    /// Another user's account (`PATCH /users/{id}`): [`Action::Admin`].
+    User(&'a str),
+    /// An invite link (`DELETE /invites/{id}`): [`Action::Admin`].
+    Invite(&'a str),
     /// The caller's own profile, password, sessions and tokens: every role may read and change its own.
     OwnAccount,
 }
@@ -108,8 +114,15 @@ mod tests {
         // Admin on the own account is still the role's: nothing asks for it today.
         assert!(require(&actor(Role::Member), Action::Admin, Resource::OwnAccount).is_err());
         assert!(require(&actor(Role::Admin), Action::Admin, Resource::OwnAccount).is_ok());
-        // Another user's token is Admin.
-        assert!(require(&actor(Role::Member), Action::Admin, Resource::Token("t")).is_err());
-        assert!(require(&actor(Role::Admin), Action::Admin, Resource::Token("t")).is_ok());
+        // Another user's token, account or an invite is Admin.
+        for resource in [
+            Resource::Token("t"),
+            Resource::User("u2"),
+            Resource::Invite("i"),
+        ] {
+            assert!(require(&actor(Role::Member), Action::Admin, resource).is_err());
+            assert!(require(&actor(Role::Viewer), Action::Admin, resource).is_err());
+            assert!(require(&actor(Role::Admin), Action::Admin, resource).is_ok());
+        }
     }
 }

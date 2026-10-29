@@ -52,6 +52,10 @@ fn universal(req: &Recorded, _: usize) -> Reply {
             &json!({"token": fake_token(42), "api_token": {"id": ID, "prefix": &fake_token(42)[..12]}}),
         ),
         ("POST", "/api/v1/items") => Reply::json(201, &summary()),
+        ("POST", "/api/v1/invites") => Reply::json(
+            201,
+            &json!({"invite": {"id": ID, "role": "member"}, "url": "http://x/invite/qinv_x"}),
+        ),
         (_, p) if p.ends_with("/doc/markdown") && m == "PUT" => Reply::json(
             200,
             &json!({"seq": 1, "etag": "\"d1\"", "updated_at": "t", "changed": true, "merged": false, "warnings": []}),
@@ -138,6 +142,16 @@ fn every_command_accepts_json() {
             vec!["--name".into(), "t".into(), "--scope".into(), "read".into()],
         ),
         ("token revoke", vec![ID.into()]),
+        ("user list", vec![]),
+        (
+            "user set-role",
+            vec![ID.into(), "--role".into(), "viewer".into()],
+        ),
+        ("user disable", vec![ID.into()]),
+        ("user enable", vec![ID.into()]),
+        ("invite create", vec!["--role".into(), "member".into()]),
+        ("invite list", vec![]),
+        ("invite revoke", vec![ID.into()]),
         ("config show", vec![]),
         ("config path", vec![]),
         ("workspace get", vec![]),
