@@ -1,6 +1,6 @@
 {
   "name": "wikanvas-web",
-  "version": "0.1.0",
+  "version": "0.1.0-alpha.1",
   "private": true,
   "description": "Wikanvas's web client (docs/ARCHITECTURE.md §9). Run every script through scripts/dev.sh, e.g. scripts/dev.sh pnpm --dir web test.",
   "license": "MIT",

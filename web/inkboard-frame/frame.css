@@ -1,3 +1,5 @@
-/* Wikanvas's board frame page (docs/ARCHITECTURE.md §10.4). The canvas rules are those of Inkboard's web/index.html. */
+/* Wikanvas's board frame page (docs/ARCHITECTURE.md §10.4). The html, body and canvas rules come from Inkboard's
+   crates/inkboard-app/web/index.html (Copyright (c) 2026 The Inkboard contributors; MIT OR Apache-2.0, used here
+   under MIT). */
 html, body { margin: 0; height: 100%; overflow: hidden; }
 canvas { width: 100%; height: 100%; display: block; touch-action: none; outline: none; -webkit-tap-highlight-color: transparent; }

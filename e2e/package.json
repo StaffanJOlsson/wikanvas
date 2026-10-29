@@ -1,6 +1,6 @@
 {
   "name": "wikanvas-e2e",
-  "version": "0.0.0",
+  "version": "0.1.0-alpha.1",
   "private": true,
   "description": "Wikanvas's Playwright tests. Run them only through scripts/e2e.sh <frame|smoke> (docs/ARCHITECTURE.md §14).",
   "license": "MIT",

@@ -20,6 +20,7 @@ updated by hand when `Cargo.lock` or `web/pnpm-lock.yaml` changes (see "Updating
 |---|---|---|---|
 | `crates/wikanvas-core/src/convert/pm.rs` | [`@tiptap/y-tiptap`](https://github.com/ueberdosis/tiptap/tree/main/packages/y-tiptap) 3.0.10, © 2019 Kevin Jahns and © 2025 Tiptap GmbH | MIT | The Y XmlFragment ↔ ProseMirror JSON mapping: `yXmlFragmentToProsemirrorJSON`, `createTypeFromElementNode` / `createTypeFromTextNodes` and `yattr2markname`, ported to Rust (ARCHITECTURE §6.4, D49). The file's header names the source. The package itself is also bundled into the web client (below), with its MIT licence file |
 | `crates/wikanvas-core/src/rank.rs` | [`fractional-indexing`](https://github.com/rocicorp/fractional-indexing) (rocicorp), after David Greenspan's "Implementing Fractional Indexing" | CC0-1.0 | `generateKeyBetween` and `generateNKeysBetween` over a base62 alphabet, checked against the upstream test vectors (D6) |
+| `web/inkboard-frame/frame.css` | [Inkboard](https://github.com/VictorLetirand/inkboard) `crates/inkboard-app/web/index.html` at `41e0295`, © 2026 The Inkboard contributors | MIT (Inkboard is MIT OR Apache-2.0) | The `html, body` and `canvas` rules of the board frame page; the file's header names the source |
 
 No code was borrowed from GetPaper (PLAN rule R9) in milestone 1. Design values come from ARCHITECTURE §9.6, never from
 Outline's source.

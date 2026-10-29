@@ -215,7 +215,7 @@ Wikanvas/
   scripts/  dev.sh toolchain.sh image.sh image-smoke.sh inkboard.sh e2e.sh agent-test.sh cli-dist.sh fmt.sh
             check-pins.sh install-build-slice.sh lib/lock.sh lib/slice.sh
   docs/     ARCHITECTURE.md PLAN.md AGENTS.md api/openapi.json (generated, §7.4) handoff/
-  dist/cli/          # (git-ignored) scripts/cli-dist.sh output: static CLI binary, its sha256, LICENSE-*, THIRD_PARTY.md
+  dist/cli/          # (git-ignored) scripts/cli-dist.sh output: static CLI binary, its sha256, LICENSE, THIRD_PARTY.md
   vendor/inkboard                     # submodule, untouched; never built in place
 ```
 
@@ -236,7 +236,7 @@ resolver = "3"
 members  = ["crates/*"]
 exclude  = ["vendor"]          # inkboard-core belongs to vendor/inkboard's own workspace
 [workspace.package]
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 edition = "2024"
 rust-version = "1.95"
 license = "MIT"
@@ -1609,9 +1609,9 @@ With `--json` the result is one JSON document on stdout; an error is one stderr 
 `/data`. `healthcheck [--url URL]` probes `/healthz` (a URL without a path gets it appended; `http://` only) with a 3 s
 timeout and exits 0 only for 200. Its default URL is `WIKANVAS_LISTEN`'s port on 127.0.0.1 when the listen address is
 unspecified (`0.0.0.0`, `[::]`), and the listen address itself otherwise (`127.0.0.1`, `[::1]`, a LAN address), because
-a server bound to one address does not answer on another. `wikanvas-server --version` prints `wikanvas-server 0.1.0
-(<WIKANVAS_COMMIT or unknown>)`; `wikanvas --version` prints `wikanvas
-0.1.0`, without a commit (the cli stages pass no `WIKANVAS_COMMIT`).
+a server bound to one address does not answer on another. `wikanvas-server --version` prints `wikanvas-server
+0.1.0-alpha.1 (<WIKANVAS_COMMIT or unknown>)`; `wikanvas --version` prints `wikanvas 0.1.0-alpha.1`, without a commit
+(the cli stages pass no `WIKANVAS_COMMIT`).
 
 From the host: `docker compose exec wikanvas wikanvas admin create-token --name ci --scope write --expires 1d --json`.
 
@@ -1767,11 +1767,10 @@ How the pieces behave:
 - After loading an item, the page calls `history.replace` to the canonical slug.
 - **Updates.** When a lazy route chunk fails to load (W3) or `frame.html` returns 404 (W6), the client refetches
   `/api/v1/config`; if `version`, `commit` or `inkboard.base` differs from the first `/config` the page loaded (dev
-  images keep version 0.1.0 between builds, so `commit` matters), it shows one banner "Wikanvas was updated. Reload"
-  instead of an error. Both paths call the same `checkForUpdate()` (`app/updateCheck.ts`), so only one banner can
-  show. React Router 8.4.0 drops the rejection of a lazy `Component` on a route without a loader, so `lazyPage()`
-  resolves a failed import to a component that throws it during render, and the route's `ErrorBoundary` runs the
-  check.
+  images keep version 0.1.0-alpha.1 between builds, so `commit` matters), it shows one banner "Wikanvas was updated.
+  Reload" instead of an error. Both paths call the same `checkForUpdate()` (`app/updateCheck.ts`), so only one banner
+  can show. React Router 8.4.0 drops the rejection of a lazy `Component` on a route without a loader, so `lazyPage()`
+  resolves a failed import to a component that throws it during render, and the route's `ErrorBoundary` runs the check.
 
 ### 9.2 Data and state
 
@@ -3301,6 +3300,8 @@ asynchronous (board previews).
       while editable and a plain click when read-only (§17.4).
     - ~~the build slice is not installed yet (item 13)~~: installed 2026-10-28 after the M1 gate, and the builder
       recreated in it (`docs/handoff/W0a.md`, task 8); every build before that ran with the per-container caps only.
+    - ~~the copyright line of `LICENSE-MIT`~~: resolved for v0.1.0-alpha.1; the single `LICENSE` reads "Copyright (c)
+      2026 The Wikanvas contributors".
 
     Still open, and the current state stays until the owner decides:
     - the fonts the Inkboard wasm embeds (egui's default fonts under the Ubuntu Font Licence 1.0 and SIL OFL 1.1; Noto
@@ -3308,8 +3309,7 @@ asynchronous (board previews).
       Wikanvas ships them as Inkboard ships them (`THIRD_PARTY.md`);
     - the operating-system layer of the runtime base image (libc6 LGPL-2.1+, the GCC runtime libraries GPL-3+ with the
       runtime exception, the Mozilla CA data of ca-certificates MPL-2.0, among others): the allow-list is a rule for
-      Wikanvas's own dependencies, and this layer is listed in `THIRD_PARTY.md` for the owner to see;
-    - the copyright line of `LICENSE-MIT` ("The Wikanvas contributors"; the owner may want their own name, W0b D39).
+      Wikanvas's own dependencies, and this layer is listed in `THIRD_PARTY.md` for the owner to see.
 26. **Checks that need a real browser** (happy-dom does no layout and fires no native drag events). The W7 gate's
     Playwright smoke (`e2e/tests/smoke.spec.ts`, real engine, SwiftShader WebGL 2) now covers: the board host with the
     real dist (the frame page, `manifest.json` and the engine from `/inkboard/{build}/`, the iframe shown over the
@@ -3353,7 +3353,7 @@ asynchronous (board previews).
     thread; if that shows in latency on the 2-CPU limit, move the page's gzip back to `spawn_blocking` (§17.4).
 29. **Licence records.** `THIRD_PARTY.md` is kept by hand: a change to `Cargo.lock` or `web/pnpm-lock.yaml` must update
     its tables (it says how), while the image's `/licenses.txt` is regenerated by every build. The standalone CLI
-    (`dist/cli`) ships `THIRD_PARTY.md` and `LICENSE-*`, which name every crate with its version, licence and source,
+    (`dist/cli`) ships `THIRD_PARTY.md` and `LICENSE`, which name every crate with its version, licence and source,
     but not the crates' own licence texts; a CLI-only `licenses.txt` in the `cli-dist` stage would add them.
 30. **Process note (W5 D18).** During W5 one `node --check e2e/serve-static.mjs` ran on the host, a syntax check that
     left nothing behind, against PLAN R1. It was reported, reviewed and not repeated; W7 acknowledges it here.
@@ -3487,7 +3487,7 @@ asked, and the owner's open decisions (§16 items 24 and 25) were left open.
 | Title order of the tree (merge item 11; W3-D1, W1 D10) | Revised at the W7 merge to match the code: one title key defined twice, `wikanvas_core::tree::title_key` and the web's `titleKey` (accent- and case-insensitive, numbers by value), both checked against `fixtures/tree/title-order.json`; ties go to `sort_key`, then the id, for the title, updated and created orders (§5, §9.6.2) | Keeping two orders, the first wording of this row (an optimistic reorder in the browser could disagree with the server until the next fetch); `Intl.Collator` on the client (its order depends on the browser's ICU data, which the server cannot reproduce) |
 | Full width across reloads (merge item 4; W3 request W1-2) | `ItemDetail.full_width`, an additive field (R3, §7.1). Revised at the W7 merge to match the code: the document page reads `ItemDetail.full_width` directly and sets `data-full-width`; the PATCH updates the cached detail at once and rolls it back on failure (§9.6.4) | Session-only state (the column exists and the PATCH writes it, but nothing could show it after a reload); a per-session store next to the server value (`useFullWidthOf`, the first wording of this row: two sources for one setting) |
 | Sort directions, drop details and toasts the UI spec left open (W3-D1, D2, D4, D5; W3 request W7-1) | Adopted as implemented (§9.6.2, §9.6.3) | Leaving them unwritten (the next owner of the sidebar would have to read the code to keep them) |
-| What the update check compares (W3-D6) | `version`, `commit` and `inkboard.base`, against the first `/config` the page loaded (§9.1) | `version` alone (dev images keep 0.1.0 between builds) |
+| What the update check compares (W3-D6) | `version`, `commit` and `inkboard.base`, against the first `/config` the page loaded (§9.1) | `version` alone (dev images keep 0.1.0-alpha.1 between builds) |
 | `doc put --json F` (D-W8-2) | The flag is `--json-input F`, and `--json F` after the item is rewritten to it, so §7.6's spelling keeps working (§7.6) | A different public spelling (breaks the contract of §7.6); a second global flag name (clap cannot hold both ids) |
 | Operations without a CLI command (D-W8-17) | `GET /openapi.json` and `GET /items/{id}/board.inkboard` join the allow-list (§7.6) | Commands for them (`api` reads the spec; `board get` returns the same envelope) |
 | Expiry of the harness tokens (D-W8-18) | `--expires 2d` (§14.1), so a scenario's 1d child token fits under its parent | 1d (every scenario `token create … --expires 1d` would be refused as outliving its parent) |

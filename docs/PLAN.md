@@ -1233,7 +1233,7 @@ These tests must exist and pass:
   failure), `doc put --attach-images` with its containment rules, the `api` path and header guards, `--token-out`,
   `--debug`, the 204 ok object, JSON Lines on stderr with `details.sent`, the `admin` passthrough through
   `WIKANVAS_SERVER_BIN`, `version`, `exit-codes` and `help --json`.
-- `scripts/cli-dist.sh` (§13.2): the static musl binary in `dist/cli/` with its sha256 file, `LICENSE-*` and
+- `scripts/cli-dist.sh` (§13.2): the static musl binary in `dist/cli/` with its sha256 file, `LICENSE` and
   `THIRD_PARTY.md`.
 - The CLI test binary `crates/wikanvas-cli/tests/cli/` (modules below), against `wikanvas_server::testing::TestServer`
   and a scripted mock HTTP listener written in the test (std `TcpListener`, no extra crate).
@@ -1427,7 +1427,7 @@ stdin):
 - Build `THIRD_PARTY.md` and the About page's licence data: a build-time `licenses.txt` from `cargo metadata` and
   `pnpm licenses list --json`, plus Inkboard's `THIRD_PARTY_LICENSES.md` and `ICONS-LICENSES.txt`. comrak is
   BSD-2-Clause; any code W4 ported from `@tiptap/y-tiptap` (MIT) gets its entry. `THIRD_PARTY.md` covers every crate
-  in the workspace lock, so the `cli-dist` stage ships it, with `LICENSE-*`, next to the standalone binary (§13.2).
+  in the workspace lock, so the `cli-dist` stage ships it, with `LICENSE`, next to the standalone binary (§13.2).
 - Update `docs/ARCHITECTURE.md` with every deviation recorded in the handoff notes.
 
 ### Owns (from the start of the parallel phase; W7 may draft early, but runs its gate last)
@@ -1438,7 +1438,7 @@ stdin):
 | Build and deploy | `docker/**` (including `Caddyfile`, `wikanvas.slice`, `wikanvas-build.slice`), `compose.yaml`, `compose.e2e.yaml`, `compose.smoke.yaml`, `.dockerignore`, `.gitignore` |
 | Scripts | `scripts/{dev,toolchain,image,image-smoke,e2e,fmt,check-pins,install-build-slice}.sh`, `scripts/lib/**` |
 | e2e | `e2e/package.json`, `e2e/pnpm-lock.yaml`, `e2e/playwright.config.ts`, `e2e/tests/smoke.spec.ts` |
-| Docs and licences | `README.md`, `THIRD_PARTY.md`, `LICENSE-*`, `CLAUDE.md`, `docs/ARCHITECTURE.md`, `docs/PLAN.md`; `docs/api/openapi.json` (generated: every route owner regenerates it, R4) |
+| Docs and licences | `README.md`, `THIRD_PARTY.md`, `LICENSE`, `CLAUDE.md`, `docs/ARCHITECTURE.md`, `docs/PLAN.md`; `docs/api/openapi.json` (generated: every route owner regenerates it, R4) |
 | Frozen module lists | `crates/wikanvas-api/src/lib.rs`, `crates/wikanvas-core/src/lib.rs`, `crates/wikanvas-store/src/lib.rs`, `crates/wikanvas-server/src/lib.rs`, `crates/wikanvas-server/src/routes/mod.rs` |
 | Test binaries | `crates/wikanvas-store/tests/store/main.rs`, `crates/wikanvas-server/tests/api/main.rs`, `crates/wikanvas-server/tests/api/integration.rs` |
 
