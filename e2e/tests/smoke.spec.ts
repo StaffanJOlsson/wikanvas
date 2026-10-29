@@ -1047,13 +1047,13 @@ test('smoke: setup to export (PLAN W7 steps 1-15, the review fixes, M1.1 board e
     const boardRow = treeItem(page, BOARD_TITLE);
     await expect(boardRow).toBeVisible();
     const parentBefore = (await detail(page, boardId)).item.parent_id as string;
-    const cards = editor(page).locator('.board-embed');
-    const count = await cards.count();
+    const cards = editor(page).locator('.board-embed', { hasText: BOARD_TITLE });
+    await expect(cards).toHaveCount(0);
 
-    // A real drag (mouse down on the row, moves, up) to the end of C's last paragraph: the board goes after it.
-    const last = await editor(page).locator('p').last().boundingBox();
+    // A real drag (mouse down on the row, moves, up) to the end of C's "quokka" paragraph: the board goes right after it.
+    const last = await editor(page).locator('p', { hasText: 'quokka' }).last().boundingBox();
     const rowBox = await boardRow.locator('.row-label').boundingBox();
-    if (!last || !rowBox) throw new Error('no box for the last paragraph of C or the board row');
+    if (!last || !rowBox) throw new Error('no box for the "quokka" paragraph of C or the board row');
     const from = { x: rowBox.x + Math.min(20, rowBox.width / 2), y: rowBox.y + rowBox.height / 2 };
     const to = { x: last.x + last.width - 4, y: last.y + last.height / 2 };
     const saved = page.waitForResponse((r) => isDocUpdate(r) && r.ok(), { timeout: SAVE_TIMEOUT });
@@ -1064,19 +1064,20 @@ test('smoke: setup to export (PLAN W7 steps 1-15, the review fixes, M1.1 board e
       await page.waitForTimeout(30);
     }
     await page.mouse.up();
-    await expect(cards).toHaveCount(count + 1);
-    await expect(cards.last().locator('.board-embed-title')).toHaveText(BOARD_TITLE);
+    await expect(cards).toHaveCount(1);
+    await expect(cards.locator('.board-embed-title')).toHaveText(BOARD_TITLE);
     await saved;
     await expect(saveStatus(page)).toHaveText('Saved', { timeout: SAVE_TIMEOUT });
 
-    // Stored: the embed is C's last block, after the text; the tree moved nothing.
+    // Stored: the embed is the block right after the "quokka" paragraph, which is whole; the tree moved nothing.
     const stored = await (await page.request.get(`/api/v1/items/${cId}/doc/prosemirror`)).json();
     const blocks = stored.doc.content as Json[];
-    expect(blocks.at(-1)).toMatchObject({ type: 'boardEmbed', attrs: { itemId: boardId } });
-    expect(JSON.stringify(blocks.slice(0, -1))).toContain('quokka');
+    const at = blocks.findIndex((b) => b.type === 'boardEmbed' && b.attrs?.itemId === boardId);
+    expect(at, JSON.stringify(blocks)).toBeGreaterThan(0);
+    expect(JSON.stringify(blocks[at - 1])).toContain('quokka numbat');
     expect((await detail(page, boardId)).item.parent_id).toBe(parentBefore);
     await page.reload();
-    await expect(editor(page).locator('.board-embed').last().locator('.board-embed-title')).toHaveText(BOARD_TITLE);
+    await expect(editor(page).locator('.board-embed', { hasText: BOARD_TITLE }).locator('.board-embed-title')).toHaveText(BOARD_TITLE);
   });
 
   if (pageErrors.length > 0) testInfo.annotations.push({ type: 'page errors', description: pageErrors.join('\n') });
