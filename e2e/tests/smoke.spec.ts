@@ -929,6 +929,45 @@ test('smoke: setup to export (PLAN W7 steps 1-15, the review fixes, M1.1 board e
     await saved;
     await expect(cCard.locator('.board-embed-status')).toHaveText('Saved', { timeout: SAVE_TIMEOUT });
     const cText = async () => (await (await page.request.get(`/api/v1/items/${cId}/text`)).json()).body as string;
+    //    While C is edited (the keyboard focus in its editor, so the frame never hears of Shift or Alt), the board still pans
+    //    from empty canvas above the card: Shift + wheel sideways, Alt + wheel up and down, a middle-button drag; the
+    //    card stays editing, and the caret is back in it after the drag (E review, finding 2).
+    const boxOf = async () => {
+      const b = await cCard.boundingBox();
+      if (!b) throw new Error("C's card has no box");
+      return b;
+    };
+    const at0 = await boxOf();
+    const above = { x: at0.x + at0.width / 2, y: at0.y - 40 };
+    await page.mouse.move(above.x, above.y);
+    await page.keyboard.down('Shift');
+    await page.mouse.wheel(0, -120);
+    await page.keyboard.up('Shift');
+    await expect.poll(async () => Math.round((await boxOf()).x - at0.x), { message: 'Shift + wheel pans sideways' }).not.toBe(0);
+    const at1 = await boxOf();
+    expect(at1.width, 'Shift + wheel does not zoom').toBeCloseTo(at0.width, 0);
+    expect(at1.y).toBeCloseTo(at0.y, 0);
+    await page.keyboard.down('Alt');
+    await page.mouse.wheel(0, -120);
+    await page.keyboard.up('Alt');
+    await expect.poll(async () => Math.round((await boxOf()).y - at1.y), { message: 'Alt + wheel pans up and down' }).toBeGreaterThan(0);
+    const at2 = await boxOf();
+    expect(at2.width, 'Alt + wheel does not zoom').toBeCloseTo(at0.width, 0);
+    expect(at2.x).toBeCloseTo(at1.x, 0);
+    await page.mouse.down({ button: 'middle' });
+    for (let i = 1; i <= 10; i++) {
+      await page.mouse.move(above.x + 6 * i, above.y + 3 * i);
+      await page.waitForTimeout(30);
+    }
+    await page.mouse.up({ button: 'middle' });
+    await expect.poll(async () => Math.round((await boxOf()).x - at2.x), { message: 'the middle button pans' }).toBe(60);
+    expect(Math.round((await boxOf()).y - at2.y)).toBe(30);
+    await expect(cCard).toHaveAttribute('data-state', 'editing');
+    await expect(cEditor).toBeFocused();
+    saved = page.waitForResponse((r) => isDocUpdateOf(r, cId) && r.ok(), { timeout: SAVE_TIMEOUT });
+    await page.keyboard.type(' wallaby');
+    await saved;
+    await expect.poll(cText, { timeout: SAVE_TIMEOUT }).toContain('quokka numbat wallaby');
     const typed = await cText();
     expect(typed).toContain('quokka numbat');
     // Empty canvas: above the two cards at the centre, clear of the engine's floating cards at the top.
@@ -972,6 +1011,16 @@ test('smoke: setup to export (PLAN W7 steps 1-15, the review fixes, M1.1 board e
     await expect(cCard).toHaveAttribute('data-state', 'static');
     await expect.poll(cText, { timeout: SAVE_TIMEOUT, message: 'ten undos took the ten Enters back' }).toBe(typed);
     await expect(cCard.locator('.board-embed-static .ProseMirror')).toContainText('quokka numbat');
+    //    Esc in the body (not in the title input) leaves too: ProseMirror prevents the default of every Esc, so only the
+    //    editor's own key handling can tell (E review, finding 1). The card stays selected and the frame has the focus.
+    await page.mouse.dblclick(tall.x + tall.width / 2, header.y + header.height + 20);
+    await expect(cCard).toHaveAttribute('data-state', 'editing');
+    await expect(cEditor).toBeFocused();
+    await settle(page);
+    await page.keyboard.press('Escape');
+    await expect(cCard).toHaveAttribute('data-state', 'static');
+    await expect(boardFrame(page)).toBeFocused();
+    await expect(cCard.locator('.board-embed-hint')).toHaveText('Double-click to edit');
 
     // 8. Reload: the three cards are static with their documents' text; C's page holds "quokka numbat".
     expect(page.url()).toBe(embedBoardUrl);
