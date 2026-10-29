@@ -72,7 +72,7 @@ async fn migration_0002_backs_up_an_existing_database_first() {
         assert_eq!(invites, 0);
     }
     let migrated = migrate::run(&db, dir.path(), NOW).unwrap();
-    assert_eq!((migrated.from, migrated.to), (1, 2));
+    assert_eq!((migrated.from, migrated.to), (1, migrate::latest()));
     let backup_path = migrated.backup.expect("a pre-migration backup");
     assert_eq!(
         backup_path,
@@ -97,7 +97,8 @@ async fn migration_0002_backs_up_an_existing_database_first() {
     let pending = db.read(|c| invites::list_pending(c, NOW)).await.unwrap();
     assert!(pending.is_empty());
     let again = migrate::run(&db, dir.path(), NOW).unwrap();
-    assert_eq!((again.from, again.to, again.backup), (2, 2, None));
+    let latest = migrate::latest();
+    assert_eq!((again.from, again.to, again.backup), (latest, latest, None));
 }
 
 #[tokio::test]

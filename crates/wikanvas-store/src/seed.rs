@@ -40,9 +40,13 @@ pub fn getting_started(
     owner_id: &str,
     now: i64,
 ) -> Result<Collection> {
+    let owner = crate::shared::Viewer {
+        user_id: owner_id.to_owned(),
+        role: wikanvas_core::api::Role::Owner,
+    };
     let collection = crate::collections::create(
         tx,
-        owner_id,
+        &owner,
         &NewCollection {
             name: COLLECTION_NAME.to_owned(),
             icon: Some(COLLECTION_ICON.to_owned()),
@@ -82,5 +86,5 @@ pub fn getting_started(
     )?;
     crate::docs::init_with(tx, &writing_id, WRITING_YDOC, now)?;
     crate::boards::init_with(tx, blobs, &board_id, EXAMPLE_BOARD, now)?;
-    crate::collections::get(tx, &collection.id.to_string())
+    crate::collections::get(tx, &owner, &collection.id.to_string())
 }

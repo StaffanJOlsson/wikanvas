@@ -72,6 +72,12 @@ pub fn run(db: &Db, data_dir: &Path, now: i64) -> Result<Migrated> {
         None
     };
     migrations.to_latest(&mut conn)?;
+    if (1..3).contains(&from) {
+        // 0003's data step (D152): a board's text no longer holds its cards' labels.
+        let tx = conn.transaction()?;
+        crate::boards::take_cards_out_of_text(&tx)?;
+        tx.commit()?;
+    }
     let violations: i64 =
         conn.query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |r| {
             r.get(0)
@@ -93,6 +99,6 @@ mod tests {
     #[test]
     fn migrations_validate() {
         assert_eq!(migrations().validate(), Ok(()));
-        assert_eq!(latest(), 2);
+        assert_eq!(latest(), 3);
     }
 }

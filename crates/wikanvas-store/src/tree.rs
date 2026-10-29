@@ -8,7 +8,8 @@
 
 use std::collections::{HashMap, HashSet};
 
-use rusqlite::{Connection, OptionalExtension, Transaction, params};
+use rusqlite::types::Value;
+use rusqlite::{Connection, OptionalExtension, Transaction, params, params_from_iter};
 use wikanvas_core::api::{ChildOrder, CollectionTree, Crumb, ItemSummary, Position};
 
 use crate::error::{Error, Result};
@@ -34,7 +35,9 @@ pub fn breadcrumbs(conn: &Connection, item_id: &str) -> Result<Vec<Crumb>> {
     Ok(chain)
 }
 
-/// The ancestor chain as crumbs, parent first.
+/// The ancestor chain as crumbs, parent first. It stops at an ancestor in another collection, which only a corrupt
+/// tree has (parents share their children's collection, §5): access is per collection (D152), so a crumb from
+/// another collection could name an item the reader may not see.
 fn ancestor_rows(conn: &Connection, item_id: &str) -> Result<Vec<Crumb>> {
     let mut stmt = conn.prepare_cached(
         "WITH RECURSIVE anc(id, parent_id) AS (
@@ -42,9 +45,10 @@ fn ancestor_rows(conn: &Connection, item_id: &str) -> Result<Vec<Crumb>> {
            UNION
            SELECT i.id, i.parent_id FROM items i JOIN anc ON i.id = anc.parent_id
          )
-         SELECT i.id, i.parent_id, i.url_id, i.kind, i.title FROM anc JOIN items i ON i.id = anc.id",
+         SELECT i.id, i.parent_id, i.url_id, i.kind, i.title, i.collection_id FROM anc JOIN items i ON i.id = anc.id",
     )?;
-    let mut rows: HashMap<String, (Option<String>, Option<Crumb>)> = HashMap::new();
+    type Row = (Option<String>, String, Option<Crumb>);
+    let mut rows: HashMap<String, Row> = HashMap::new();
     let mut q = stmt.query([item_id])?;
     while let Some(r) = q.next()? {
         let id: String = r.get(0)?;
@@ -57,18 +61,24 @@ fn ancestor_rows(conn: &Connection, item_id: &str) -> Result<Vec<Crumb>> {
                 .map_err(|e| Error::internal("stored item kind", e))?,
             title: r.get(4)?,
         };
-        rows.insert(id, (r.get(1)?, Some(crumb)));
+        rows.insert(id, (r.get(1)?, r.get(5)?, Some(crumb)));
     }
     let mut out = Vec::new();
     let mut seen = HashSet::from([item_id.to_owned()]);
-    let mut cur = rows.get(item_id).and_then(|(p, _)| p.clone());
+    let Some((parent, collection, _)) = rows.get(item_id) else {
+        return Ok(out);
+    };
+    let (mut cur, collection) = (parent.clone(), collection.clone());
     while let Some(p) = cur {
         if !seen.insert(p.clone()) {
             break; // a corrupt cycle
         }
-        let Some((parent, crumb)) = rows.get_mut(&p) else {
+        let Some((parent, in_collection, crumb)) = rows.get_mut(&p) else {
             break;
         };
+        if *in_collection != collection {
+            break; // a corrupt tree: a parent in another collection
+        }
         out.extend(crumb.take());
         cur = parent.clone();
     }
@@ -142,16 +152,19 @@ pub fn collection_tree(
     viewer: &Viewer,
     collection_id: &str,
 ) -> Result<CollectionTree> {
-    let collection = crate::collections::get_live(conn, collection_id)?;
+    let collection = crate::collections::get_live(conn, viewer, collection_id)?;
+    let visible = visible_items(viewer);
     let sql = format!(
         "SELECT {} FROM items i JOIN collections c ON c.id = i.collection_id
-         WHERE i.collection_id = ?1 AND {} AND i.archived_at IS NULL",
+         WHERE i.collection_id = ? AND {} AND i.archived_at IS NULL",
         ItemRow::COLUMNS,
-        visible_items(viewer)
+        visible.sql
     );
+    let mut args = vec![Value::Text(collection_id.to_owned())];
+    args.extend(visible.args);
     let rows = conn
         .prepare_cached(&sql)?
-        .query_map([collection_id], ItemRow::from_row)?
+        .query_map(params_from_iter(args.iter()), ItemRow::from_row)?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let mut counts: HashMap<&str, u64> = HashMap::new();
     for r in &rows {
@@ -233,15 +246,19 @@ fn order_tree(rows: &[ItemRow], order: ChildOrder) -> Vec<&ItemRow> {
 pub fn children(conn: &Connection, viewer: &Viewer, item_id: &str) -> Result<Vec<ItemSummary>> {
     let parent = item_row(conn, item_id)?;
     let order = crate::collections::child_order(conn, &parent.collection_id)?;
+    let visible = visible_items(viewer);
     let sql = format!(
         "SELECT {}, {CHILD_COUNT} FROM items i JOIN collections c ON c.id = i.collection_id
-         WHERE i.parent_id = ?1 AND {} AND (i.archived_at IS NULL OR ?2)",
+         WHERE i.parent_id = ? AND {} AND (i.archived_at IS NULL OR ?)",
         ItemRow::COLUMNS,
-        visible_items(viewer)
+        visible.sql
     );
+    let mut args = vec![Value::Text(item_id.to_owned())];
+    args.extend(visible.args);
+    args.push(Value::from(parent.archived()));
     let rows = conn
         .prepare_cached(&sql)?
-        .query_map(params![item_id, parent.archived()], |r| {
+        .query_map(params_from_iter(args.iter()), |r| {
             Ok((
                 ItemRow::from_row(r)?,
                 r.get::<_, i64>(ItemRow::COLUMN_COUNT)?,

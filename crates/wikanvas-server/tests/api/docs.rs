@@ -39,9 +39,13 @@ async fn new_doc(app: &TestApp, title: &str) -> String {
         .state
         .db
         .write(move |tx| {
+            let by = wikanvas_store::Viewer {
+                user_id: owner.clone(),
+                role: wikanvas_api::Role::Owner,
+            };
             let c = wikanvas_store::collections::create(
                 tx,
-                &owner,
+                &by,
                 &NewCollection {
                     name: "Notes".into(),
                     ..Default::default()

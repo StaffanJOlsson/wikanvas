@@ -15,6 +15,11 @@
 //!   page with `no-cache` and an ETag, another rev a 307 to the current one, an empty page 204, a page the preview
 //!   budget left out a "too large to preview" card. A missing preview is rendered on demand.
 //!
+//! Cards (D152, §18.12): a card's label is the title snapshot of its target. For a caller who may not read some of the
+//! board's card targets (never the owner or an admin), the GET, the download and the previews replace those cards'
+//! labels with `board::REDACTED_LABEL` ([`card_filter`]); such a preview is rendered for the request and sent
+//! `no-store` without an ETag, never from or into the preview cache.
+//!
 //! Memory (D25). The `board_work` permit is owned and moves into each blocking closure, so a cancelled request never
 //! frees it while its work still runs. Large response bodies (envelopes, downloads, page SVGs of 1 MiB or more) also
 //! hold a share of [`BODY_BUDGET_MIB`] from before the body is built until it is sent: it is taken before
@@ -23,7 +28,7 @@
 //! client that stops reading for [`SEND_STALL`], or is not done after [`SEND_DEADLINE`], loses the connection and
 //! frees the body.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -51,7 +56,7 @@ use crate::authz::{self, Action, Resource};
 use crate::board_previews;
 use crate::config::JSON_DEPTH;
 use crate::error::ApiError;
-use crate::extract::{Auth, IdPath, Read, Write};
+use crate::extract::{Actor, Auth, IdPath, Read, Write};
 use crate::openapi::if_none_match;
 use crate::state::{AppState, now_ms};
 
@@ -125,9 +130,10 @@ async fn get_board(
     IdPath(id): IdPath,
 ) -> Result<Response, ApiError> {
     let item_id = id.to_string();
-    authz::require(&auth, Action::Read, Resource::Item(&item_id))?;
+    authz::require(&state, &auth, Action::Read, Resource::Item(&item_id)).await?;
+    let keep = card_filter(&state, &auth, &item_id).await?;
     let slot = body_slot(envelope_len(&state, &item_id).await?).await?;
-    let (rev, body, _) = load_with_title(&state, &item_id).await?;
+    let (rev, body, _) = load_with_title(&state, &item_id, keep).await?;
     Ok(envelope_response(rev, body, None, slot))
 }
 
@@ -158,9 +164,10 @@ async fn download_board(
     IdPath(id): IdPath,
 ) -> Result<Response, ApiError> {
     let item_id = id.to_string();
-    authz::require(&auth, Action::Read, Resource::Item(&item_id))?;
+    authz::require(&state, &auth, Action::Read, Resource::Item(&item_id)).await?;
+    let keep = card_filter(&state, &auth, &item_id).await?;
     let slot = body_slot(envelope_len(&state, &item_id).await?).await?;
-    let (rev, body, title) = load_with_title(&state, &item_id).await?;
+    let (rev, body, title) = load_with_title(&state, &item_id, keep).await?;
     Ok(envelope_response(rev, body, Some(&title), slot))
 }
 
@@ -214,7 +221,7 @@ async fn put_board(
 ) -> Result<Response, ApiError> {
     let actor = auth.into_actor();
     let item_id = id.to_string();
-    authz::require(&actor, Action::Write, Resource::Item(&item_id))?;
+    authz::require(&state, &actor, Action::Write, Resource::Item(&item_id)).await?;
     let if_match = headers
         .get(header::IF_MATCH)
         .map(|v| IfMatch::parse(v.to_str().unwrap_or("")))
@@ -359,7 +366,7 @@ async fn get_board_page(
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
     let item_id = id.to_string();
-    authz::require(&auth, Action::Read, Resource::Item(&item_id))?;
+    authz::require(&state, &auth, Action::Read, Resource::Item(&item_id)).await?;
     let page = params
         .get("n")
         .and_then(|n| n.parse::<u32>().ok())
@@ -388,6 +395,9 @@ async fn get_board_page(
         && rev != current.rev
     {
         return Ok(redirect(&item_id, page, current.rev));
+    }
+    if let Some(keep) = card_filter(&state, &auth, &item_id).await? {
+        return redacted_page(&state, &item_id, page, keep).await;
     }
     if if_none_match(&headers, &boards::etag(current.rev)) {
         return Ok(preview_headers(
@@ -460,11 +470,92 @@ async fn envelope_len(state: &AppState, item_id: &str) -> Result<u64, ApiError> 
         .map_err(not_a_board)
 }
 
-/// The full envelope, its rev and the title, read and spliced under the `board_work` permit. The permit is owned and
-/// moves into the reader and the `spawn_blocking` closure, so it is held until the blocking work ends.
+/// The card targets a caller may open, when the board must be redacted for them (module docs, D152): `None` for the
+/// owner and admins, and for a caller who may read every target the board links (and the board links fewer than
+/// `EMBED_LINKS_MAX`, so every card's target is linked); otherwise the targets they may read, and the board itself.
+async fn card_filter(
+    state: &AppState,
+    actor: &Actor,
+    item_id: &str,
+) -> Result<Option<HashSet<String>>, ApiError> {
+    if matches!(
+        actor.role,
+        wikanvas_api::Role::Owner | wikanvas_api::Role::Admin
+    ) {
+        return Ok(None);
+    }
+    let (viewer, id) = (actor.viewer(), item_id.to_owned());
+    let (mut readable, linked) = state
+        .db
+        .read(move |c| wikanvas_store::access::readable_embeds(c, &viewer, &id))
+        .await?;
+    if readable.len() == linked && linked < board::EMBED_LINKS_MAX {
+        return Ok(None);
+    }
+    readable.insert(item_id.to_owned());
+    Ok(Some(readable))
+}
+
+/// The envelope with the label of every card whose target is a canonical id outside `keep` redacted
+/// (`board::redact_cards`). A card whose `item` is no canonical id names no item the host would open.
+fn redact(body: &str, keep: &HashSet<String>) -> Result<String, ApiError> {
+    board::redact_cards(body, |item| {
+        !board::is_canonical_uuid(item) || keep.contains(item)
+    })
+    .map_err(ApiError::internal)
+}
+
+/// A page preview redacted for the caller (D152): rendered for this request from the redacted envelope, under the
+/// `board_work` permit, and sent `no-store` without an ETag; 204 for an empty page.
+async fn redacted_page(
+    state: &AppState,
+    item_id: &str,
+    page: usize,
+    keep: HashSet<String>,
+) -> Result<Response, ApiError> {
+    let permit = Arc::clone(&state.board_work)
+        .acquire_owned()
+        .await
+        .map_err(ApiError::internal)?;
+    let id = item_id.to_owned();
+    let (permit, stored) = state
+        .db
+        .read(move |c| Ok((permit, boards::stored(c, &id)?)))
+        .await
+        .map_err(not_a_board)?;
+    let blobs = state.blobs.clone();
+    let rendered = tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        let full = boards::assemble(&blobs, &stored)?;
+        drop(stored);
+        let redacted = redact(&full, &keep)?;
+        drop(full);
+        let mut previewer = board::Previewer::new(&redacted).map_err(ApiError::internal)?;
+        drop(redacted);
+        Ok::<_, ApiError>(previewer.render(page))
+    })
+    .await
+    .map_err(ApiError::internal)??;
+    let mut res = match rendered {
+        None => StatusCode::NO_CONTENT.into_response(),
+        Some(svg) => {
+            let slot = body_slot(svg.len() as u64).await?;
+            svg_response(svg, slot)
+        }
+    };
+    set(&mut res, header::CACHE_CONTROL, "no-store");
+    set(&mut res, header::X_CONTENT_TYPE_OPTIONS, "nosniff");
+    set(&mut res, header::CONTENT_SECURITY_POLICY, PREVIEW_CSP);
+    Ok(res)
+}
+
+/// The full envelope, its rev and the title, read and spliced under the `board_work` permit, with the cards outside
+/// `keep` redacted when it is given ([`card_filter`]). The permit is owned and moves into the reader and the
+/// `spawn_blocking` closure, so it is held until the blocking work ends.
 async fn load_with_title(
     state: &AppState,
     item_id: &str,
+    keep: Option<HashSet<String>>,
 ) -> Result<(i64, String, String), ApiError> {
     let permit = Arc::clone(&state.board_work)
         .acquire_owned()
@@ -479,7 +570,10 @@ async fn load_with_title(
     let blobs = state.blobs.clone();
     tokio::task::spawn_blocking(move || {
         let _permit = permit;
-        let body = boards::assemble(&blobs, &stored)?;
+        let mut body = boards::assemble(&blobs, &stored)?;
+        if let Some(keep) = &keep {
+            body = redact(&body, keep)?;
+        }
         Ok::<_, ApiError>((stored.rev, body, stored.title))
     })
     .await

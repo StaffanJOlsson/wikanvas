@@ -58,7 +58,7 @@ async fn list_archive(
     State(state): State<AppState>,
     Query(q): Query<PageQuery>,
 ) -> Result<Json<Page<ListedItem>>, ApiError> {
-    authz::require(&auth, Action::Read, Resource::Workspace)?;
+    authz::require(&state, &auth, Action::Read, Resource::Workspace).await?;
     let viewer = auth.viewer();
     let req = request("archive", q);
     Ok(Json(
@@ -90,7 +90,7 @@ async fn list_drafts(
     State(state): State<AppState>,
     Query(q): Query<PageQuery>,
 ) -> Result<Json<Page<ListedItem>>, ApiError> {
-    authz::require(&auth, Action::Read, Resource::Workspace)?;
+    authz::require(&state, &auth, Action::Read, Resource::Workspace).await?;
     let viewer = auth.viewer();
     let req = request("drafts", q);
     Ok(Json(
@@ -122,7 +122,7 @@ async fn list_starred(
     State(state): State<AppState>,
     Query(q): Query<PageQuery>,
 ) -> Result<Json<Page<ListedItem>>, ApiError> {
-    authz::require(&auth, Action::Read, Resource::Workspace)?;
+    authz::require(&state, &auth, Action::Read, Resource::Workspace).await?;
     let viewer = auth.viewer();
     let req = request("starred", q);
     Ok(Json(
@@ -154,7 +154,7 @@ async fn list_recent(
     State(state): State<AppState>,
     Query(q): Query<PageQuery>,
 ) -> Result<Json<Page<ListedItem>>, ApiError> {
-    authz::require(&auth, Action::Read, Resource::Workspace)?;
+    authz::require(&state, &auth, Action::Read, Resource::Workspace).await?;
     let viewer = auth.viewer();
     let req = request("recent", q);
     Ok(Json(
@@ -186,7 +186,7 @@ async fn list_updated(
     State(state): State<AppState>,
     Query(q): Query<PageQuery>,
 ) -> Result<Json<Page<ListedItem>>, ApiError> {
-    authz::require(&auth, Action::Read, Resource::Workspace)?;
+    authz::require(&state, &auth, Action::Read, Resource::Workspace).await?;
     let viewer = auth.viewer();
     let req = request("updated", q);
     Ok(Json(
@@ -221,14 +221,14 @@ async fn list_collection_updated(
     Query(q): Query<PageQuery>,
 ) -> Result<Json<Page<ListedItem>>, ApiError> {
     let id = id.to_string();
-    authz::require(&auth, Action::Read, Resource::Collection(&id))?;
+    authz::require(&state, &auth, Action::Read, Resource::Collection(&id)).await?;
     let viewer = auth.viewer();
     let req = request("collection_updated", q).param("collection_id", &id);
     Ok(Json(
         state
             .db
             .read(move |c| {
-                wikanvas_store::collections::get_live(c, &id)?;
+                wikanvas_store::collections::get_live(c, &viewer, &id)?;
                 wikanvas_store::lists::updated(c, &viewer, Some(&id), &req)
             })
             .await?,
@@ -254,7 +254,7 @@ async fn get_trash(
     auth: Auth<Read>,
     State(state): State<AppState>,
 ) -> Result<Json<TrashList>, ApiError> {
-    authz::require(&auth, Action::Read, Resource::Workspace)?;
+    authz::require(&state, &auth, Action::Read, Resource::Workspace).await?;
     let viewer = auth.viewer();
     Ok(Json(
         state
@@ -286,7 +286,13 @@ async fn purge_trash_item(
     State(state): State<AppState>,
     IdPath(id): IdPath,
 ) -> Result<StatusCode, ApiError> {
-    authz::require(&auth, Action::Admin, Resource::Item(&id.to_string()))?;
+    authz::require(
+        &state,
+        &auth,
+        Action::Admin,
+        Resource::Item(&id.to_string()),
+    )
+    .await?;
     state
         .db
         .write(move |tx| wikanvas_store::items::purge(tx, &id.to_string()))
@@ -316,7 +322,13 @@ async fn purge_trash_collection(
     State(state): State<AppState>,
     IdPath(id): IdPath,
 ) -> Result<StatusCode, ApiError> {
-    authz::require(&auth, Action::Admin, Resource::Collection(&id.to_string()))?;
+    authz::require(
+        &state,
+        &auth,
+        Action::Admin,
+        Resource::Collection(&id.to_string()),
+    )
+    .await?;
     state
         .db
         .write(move |tx| wikanvas_store::collections::purge(tx, &id.to_string()))
@@ -343,7 +355,7 @@ async fn empty_trash(
     auth: Auth<Admin>,
     State(state): State<AppState>,
 ) -> Result<StatusCode, ApiError> {
-    authz::require(&auth, Action::Admin, Resource::Workspace)?;
+    authz::require(&state, &auth, Action::Admin, Resource::Workspace).await?;
     state.db.write(wikanvas_store::items::purge_all).await?;
     Ok(StatusCode::NO_CONTENT)
 }

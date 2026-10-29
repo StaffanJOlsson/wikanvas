@@ -243,7 +243,7 @@ async fn get_doc(
 ) -> Result<Json<DocState>, ApiError> {
     let actor = auth.into_actor();
     let id = id.to_string();
-    authz::require(&actor, Action::Read, Resource::Item(&id))?;
+    authz::require(&state, &actor, Action::Read, Resource::Item(&id)).await?;
     let since = q.since.as_deref().map(|s| b64d("since", s)).transpose()?;
     let _permit = state.doc_work.acquire().await.map_err(ApiError::internal)?;
     let doc = state
@@ -286,7 +286,7 @@ async fn post_updates(
 ) -> Result<Json<DocUpdateResult>, ApiError> {
     let actor = auth.into_actor();
     let id = id.to_string();
-    authz::require(&actor, Action::Write, Resource::Item(&id))?;
+    authz::require(&state, &actor, Action::Write, Resource::Item(&id)).await?;
     require_media(&headers, "application/json")?;
     let author = author(&actor);
     let cap = max_doc_bytes(&state);
@@ -337,13 +337,14 @@ async fn get_markdown(
 ) -> Result<Response, ApiError> {
     let actor = auth.into_actor();
     let id = id.to_string();
-    authz::require(&actor, Action::Read, Resource::Item(&id))?;
+    authz::require(&state, &actor, Action::Read, Resource::Item(&id)).await?;
     let include = q.title == Some(MarkdownTitle::Include);
     let origin = Some(state.config.public_url.to_string());
+    let viewer = actor.viewer();
     let _permit = state.doc_work.acquire().await.map_err(ApiError::internal)?;
     let printed = state
         .db
-        .read(move |conn| docs::markdown(conn, &id, include, origin))
+        .read(move |conn| docs::markdown(conn, &viewer, &id, include, origin))
         .await?;
     let mut headers = HeaderMap::new();
     headers.insert(
@@ -414,7 +415,7 @@ async fn put_markdown(
 ) -> Result<Response, ApiError> {
     let actor = auth.into_actor();
     let id = id.to_string();
-    authz::require(&actor, Action::Write, Resource::Item(&id))?;
+    authz::require(&state, &actor, Action::Write, Resource::Item(&id)).await?;
     require_media(&headers, "text/markdown")?;
     let if_match = if_match(&headers)?;
     let _permits = two_permits(&state).await?;
@@ -443,6 +444,7 @@ async fn put_markdown(
         query: format!("markdown?{query}"),
         public_origin: Some(state.config.public_url.to_string()),
         max_doc_bytes: max_doc_bytes(&state),
+        viewer: actor.viewer(),
     };
     write(&state, req, &actor).await
 }
@@ -496,7 +498,7 @@ async fn get_prosemirror(
 ) -> Result<Response, ApiError> {
     let actor = auth.into_actor();
     let id = id.to_string();
-    authz::require(&actor, Action::Read, Resource::Item(&id))?;
+    authz::require(&state, &actor, Action::Read, Resource::Item(&id)).await?;
     let _permit = state.doc_work.acquire().await.map_err(ApiError::internal)?;
     let seq_id = id.clone();
     let seq: i64 = state
@@ -561,7 +563,7 @@ async fn put_prosemirror(
 ) -> Result<Response, ApiError> {
     let actor = auth.into_actor();
     let id = id.to_string();
-    authz::require(&actor, Action::Write, Resource::Item(&id))?;
+    authz::require(&state, &actor, Action::Write, Resource::Item(&id)).await?;
     require_media(&headers, "application/json")?;
     let if_match = if_match(&headers)?;
     let _permits = two_permits(&state).await?;
@@ -589,6 +591,7 @@ async fn put_prosemirror(
         query: format!("prosemirror?merge={}", q.merge),
         public_origin: Some(state.config.public_url.to_string()),
         max_doc_bytes: max_doc_bytes(&state),
+        viewer: actor.viewer(),
     };
     write(&state, req, &actor).await
 }
@@ -608,8 +611,11 @@ async fn put_prosemirror(
         (status = 409, description = "`setup_required`", body = ErrorBody),
     )
 )]
-async fn get_schema(auth: Auth<Read>) -> Result<Json<DocSchema>, ApiError> {
-    authz::require(&auth, Action::Read, Resource::Workspace)?;
+async fn get_schema(
+    auth: Auth<Read>,
+    State(state): State<AppState>,
+) -> Result<Json<DocSchema>, ApiError> {
+    authz::require(&state, &auth, Action::Read, Resource::Workspace).await?;
     Ok(Json(wikanvas_core::schema::v1().doc_schema()))
 }
 

@@ -141,7 +141,7 @@ async fn upload(
     let resource = item_id
         .as_deref()
         .map_or(Resource::Workspace, Resource::Item);
-    authz::require(&actor, Action::Write, resource)?;
+    authz::require(&state, &actor, Action::Write, resource).await?;
     if is_form_type(&headers) {
         return Err(ApiError::new(
             ErrorCode::UnsupportedMediaType,
@@ -218,7 +218,7 @@ async fn download(
     IdPath(id): IdPath,
 ) -> Result<Response, ApiError> {
     let id = id.to_string();
-    authz::require(&auth, Action::Read, Resource::Attachment(&id))?;
+    authz::require(&state, &auth, Action::Read, Resource::Attachment(&id)).await?;
     let row = state
         .db
         .read(move |conn| wikanvas_store::attachments::get(conn, &id))

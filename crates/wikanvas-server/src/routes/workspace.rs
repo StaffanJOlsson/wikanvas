@@ -49,7 +49,7 @@ async fn get_workspace(
     auth: Auth<Read>,
     State(state): State<AppState>,
 ) -> Result<Json<Workspace>, ApiError> {
-    authz::require(&auth, Action::Read, Resource::Workspace)?;
+    authz::require(&state, &auth, Action::Read, Resource::Workspace).await?;
     Ok(Json(
         state.db.read(wikanvas_store::settings::workspace).await?,
     ))
@@ -78,7 +78,7 @@ async fn patch_workspace(
     State(state): State<AppState>,
     Json(patch): Json<WorkspacePatch>,
 ) -> Result<Json<Workspace>, ApiError> {
-    authz::require(&auth, Action::Admin, Resource::Workspace)?;
+    authz::require(&state, &auth, Action::Admin, Resource::Workspace).await?;
     if let Some(name) = &patch.name
         && !(1..=100).contains(&name.trim().chars().count())
     {

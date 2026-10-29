@@ -193,7 +193,7 @@ async fn logout(
     State(state): State<AppState>,
     client: ClientInfo,
 ) -> Result<Response, ApiError> {
-    authz::require(&auth, Action::Write, Resource::OwnAccount)?;
+    authz::require(&state, &auth, Action::Write, Resource::OwnAccount).await?;
     let actor = auth.into_actor();
     let session = actor.session_id().unwrap_or_default().to_owned();
     state
@@ -221,7 +221,7 @@ async fn logout(
     )
 )]
 async fn get_me(auth: Auth<Read>, State(state): State<AppState>) -> Result<Json<Me>, ApiError> {
-    authz::require(&auth, Action::Read, Resource::OwnAccount)?;
+    authz::require(&state, &auth, Action::Read, Resource::OwnAccount).await?;
     let actor = auth.into_actor();
     let me = state
         .db
@@ -270,7 +270,7 @@ async fn patch_me(
     State(state): State<AppState>,
     Json(patch): Json<MePatch>,
 ) -> Result<Json<UserEnvelope>, ApiError> {
-    authz::require(&auth, Action::Write, Resource::OwnAccount)?;
+    authz::require(&state, &auth, Action::Write, Resource::OwnAccount).await?;
     let actor = auth.into_actor();
     let now = state.now();
     let is_token = actor.token_id().is_some();
@@ -326,7 +326,7 @@ async fn change_password(
     State(state): State<AppState>,
     Json(change): Json<PasswordChange>,
 ) -> Result<StatusCode, ApiError> {
-    authz::require(&auth, Action::Write, Resource::OwnAccount)?;
+    authz::require(&state, &auth, Action::Write, Resource::OwnAccount).await?;
     let actor = auth.into_actor();
     check_password_field(&change.new, "new")?;
     let user_id = actor.user_id.clone();
@@ -376,7 +376,7 @@ async fn list_sessions(
     auth: Auth<Admin>,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<SessionInfo>>, ApiError> {
-    authz::require(&auth, Action::Read, Resource::OwnAccount)?;
+    authz::require(&state, &auth, Action::Read, Resource::OwnAccount).await?;
     let actor = auth.into_actor();
     let now = state.now();
     let sessions = state
@@ -412,7 +412,7 @@ async fn revoke_sessions(
     State(state): State<AppState>,
     Query(query): Query<SessionRevokeQuery>,
 ) -> Result<StatusCode, ApiError> {
-    authz::require(&auth, Action::Write, Resource::OwnAccount)?;
+    authz::require(&state, &auth, Action::Write, Resource::OwnAccount).await?;
     if !query.others {
         return Err(ApiError::validation(
             "others",
@@ -451,7 +451,7 @@ async fn revoke_session(
     State(state): State<AppState>,
     IdPath(id): IdPath,
 ) -> Result<StatusCode, ApiError> {
-    authz::require(&auth, Action::Write, Resource::OwnAccount)?;
+    authz::require(&state, &auth, Action::Write, Resource::OwnAccount).await?;
     let user_id = auth.into_actor().user_id;
     let id = id.to_string();
     let n = state

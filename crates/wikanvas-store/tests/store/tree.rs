@@ -333,12 +333,12 @@ async fn tree_is_flat_parents_first_in_child_order() {
         t.w(move |tx| {
             collections::update(
                 tx,
+                &viewer(&o),
                 &cid,
                 &CollectionPatch {
                     child_order: Some(order),
                     ..Default::default()
                 },
-                &o,
                 NOW,
             )
         })
@@ -410,12 +410,12 @@ async fn title_order_ignores_accents_and_sorts_numbers_by_value() {
     t.w(move |tx| {
         collections::update(
             tx,
+            &viewer(&o),
             &cid,
             &CollectionPatch {
                 child_order: Some(ChildOrder::Title),
                 ..Default::default()
             },
-            &o,
             NOW,
         )
     })
@@ -553,7 +553,7 @@ async fn apply_store(
         }
         Op::RestoreCollection(c) => {
             let c = cols[c].to_string();
-            t.w(move |tx| collections::restore(tx, &c, &o, NOW).map(|_| 0))
+            t.w(move |tx| collections::restore(tx, &viewer(&o), &c, NOW).map(|_| 0))
                 .await
         }
         Op::Purge(x) => {

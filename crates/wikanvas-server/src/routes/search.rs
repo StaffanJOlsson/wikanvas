@@ -49,8 +49,16 @@ async fn search(
     Query(q): Query<SearchQuery>,
 ) -> Result<Json<Page<SearchHit>>, ApiError> {
     match q.collection_id {
-        Some(c) => authz::require(&auth, Action::Read, Resource::Collection(&c.to_string()))?,
-        None => authz::require(&auth, Action::Read, Resource::Workspace)?,
+        Some(c) => {
+            authz::require(
+                &state,
+                &auth,
+                Action::Read,
+                Resource::Collection(&c.to_string()),
+            )
+            .await?
+        }
+        None => authz::require(&state, &auth, Action::Read, Resource::Workspace).await?,
     }
     let viewer = auth.viewer();
     let page = state
@@ -82,7 +90,7 @@ async fn search_titles(
     State(state): State<AppState>,
     Query(q): Query<TitleSearchQuery>,
 ) -> Result<Json<Vec<TitleHit>>, ApiError> {
-    authz::require(&auth, Action::Read, Resource::Workspace)?;
+    authz::require(&state, &auth, Action::Read, Resource::Workspace).await?;
     let viewer = auth.viewer();
     let hits = state
         .db

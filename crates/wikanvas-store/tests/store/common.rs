@@ -61,9 +61,9 @@ impl TestDb {
         ret
     }
 
-    /// Creates a collection named `name` through `collections::create`.
+    /// Creates a collection named `name` through `collections::create`, as the owner `actor` would.
     pub async fn collection(&self, actor: &str, name: &str) -> Collection {
-        let actor = actor.to_owned();
+        let actor = viewer(actor);
         let new = NewCollection {
             name: name.to_owned(),
             ..Default::default()

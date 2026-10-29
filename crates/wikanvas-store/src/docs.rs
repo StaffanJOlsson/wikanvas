@@ -14,7 +14,7 @@
 //!   the `If-Match` base (one read snapshot), then re-check and save through [`save_update`] (one writer
 //!   transaction). The caller holds two `doc_work` permits around it (D25).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 
 use base64::Engine as _;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
@@ -36,7 +36,7 @@ use yrs::{Doc, ReadTxn, StateVector, Transact, Update, Xml, XmlFragment, XmlOut}
 use crate::db::Db;
 use crate::error::{Error, Result};
 use crate::revisions::{self, RevisionDraft};
-use crate::shared::{WriteBy, ensure_writable, item_row, set_body_text, touch_content};
+use crate::shared::{Viewer, WriteBy, ensure_writable, item_row, set_body_text, touch_content};
 
 /// `Y.encodeStateAsUpdate(new Y.Doc())`: no structs, an empty delete set.
 pub const EMPTY_YDOC: [u8; 2] = [0, 0];
@@ -83,7 +83,7 @@ fn b64(bytes: &[u8]) -> String {
 pub fn init_empty(tx: &Transaction<'_>, item_id: &str, now: i64) -> Result<()> {
     ensure_doc(tx, item_id)?;
     replace_state(tx, item_id, &empty_state(), 1, now)?;
-    derive(tx, item_id, &ytext::Walk::default())
+    derive(tx, item_id, &ytext::Walk::default(), None)
 }
 
 /// Stores `ydoc_v1`, a full Yjs v1 state (the seed's `fixtures/ydoc/getting-started.bin`), for `item_id`, replacing
@@ -94,7 +94,7 @@ pub fn init_with(tx: &Transaction<'_>, item_id: &str, ydoc_v1: &[u8], now: i64) 
     let doc = ydiff::load(&[ydoc_v1], None).map_err(|e| Error::new(ErrorCode::InvalidUpdate, e))?;
     let walk = ytext::walk(&doc);
     replace_state(tx, item_id, ydoc_v1, 1, now)?;
-    derive(tx, item_id, &walk)
+    derive(tx, item_id, &walk, None)
 }
 
 /// Like [`init_with`], with item ids replaced first: every `mention.itemId`, `boardEmbed.itemId` and `link.itemId`
@@ -128,7 +128,7 @@ pub fn init_seed(
         .encode_state_as_update_v1(&StateVector::default());
     let walk = ytext::walk(&doc);
     replace_state(tx, item_id, &state, 1, now)?;
-    derive(tx, item_id, &walk)
+    derive(tx, item_id, &walk, None)
 }
 
 /// Copies the document of `from_id` to `to_id` (duplicate): the current state (compacted state plus stored updates,
@@ -265,8 +265,20 @@ fn replace_state(
     Ok(())
 }
 
-/// Sets the body text, `item_links` and `item_attachments` (ids that exist in `attachments` only) from a walk.
-fn derive(tx: &Transaction<'_>, item_id: &str, walk: &ytext::Walk) -> Result<()> {
+/// Sets the body text, `item_links` and `item_attachments` (ids that exist in `attachments` only) from a walk. With a
+/// `writer` (a save by a user), an attachment the document did not show before is only recorded when the writer may
+/// read it (D152): `item_attachments` is what makes an attachment readable (D36), so naming another collection's
+/// image in a document of one's own must not open it to oneself or to this document's readers.
+fn derive(
+    tx: &Transaction<'_>,
+    item_id: &str,
+    walk: &ytext::Walk,
+    writer: Option<&Viewer>,
+) -> Result<()> {
+    let before: HashSet<String> = match writer {
+        Some(_) => attachment_rows(tx, item_id)?.into_iter().collect(),
+        None => HashSet::new(),
+    };
     set_body_text(tx, item_id, &walk.text)?;
     tx.execute("DELETE FROM item_links WHERE source_id = ?1", [item_id])?;
     for link in &walk.links {
@@ -277,6 +289,12 @@ fn derive(tx: &Transaction<'_>, item_id: &str, walk: &ytext::Walk) -> Result<()>
     }
     tx.execute("DELETE FROM item_attachments WHERE item_id = ?1", [item_id])?;
     for id in &walk.attachment_ids {
+        if let Some(writer) = writer
+            && !before.contains(id.as_str())
+            && !crate::access::attachment_readable(tx, writer, id)?
+        {
+            continue;
+        }
         tx.execute(
             "INSERT OR IGNORE INTO item_attachments (item_id, attachment_id)
              SELECT ?1, id FROM attachments WHERE id = ?2",
@@ -408,7 +426,8 @@ pub fn save_update(
         params![item_id, seq, update, by.user_id, now],
     )?;
     let walk = ytext::walk(&doc);
-    derive(tx, item_id, &walk)?;
+    let writer = writer_of(tx, by.user_id)?;
+    derive(tx, item_id, &walk, Some(&writer))?;
     for (client, _) in update_sv.iter() {
         tx.execute(
             "INSERT OR IGNORE INTO doc_clients (item_id, client_id, user_id, first_seen_at) VALUES (?1, ?2, ?3, ?4)",
@@ -496,6 +515,26 @@ fn too_large(limit: usize) -> Error {
     })
 }
 
+/// The writer of a save as a viewer (its role is read in the writer transaction). An account that is gone has no
+/// role, so it reads nothing it did not upload.
+fn writer_of(tx: &Transaction<'_>, user_id: &str) -> Result<Viewer> {
+    let role: Option<String> = tx
+        .query_row("SELECT role FROM users WHERE id = ?1", [user_id], |r| {
+            r.get(0)
+        })
+        .optional()?;
+    let role = match role {
+        Some(r) => r
+            .parse()
+            .map_err(|e| Error::internal("stored user role", e))?,
+        None => wikanvas_core::api::Role::Viewer,
+    };
+    Ok(Viewer {
+        user_id: user_id.to_owned(),
+        role,
+    })
+}
+
 fn attachment_rows(conn: &Connection, item_id: &str) -> Result<Vec<String>> {
     Ok(conn
         .prepare(
@@ -506,9 +545,12 @@ fn attachment_rows(conn: &Connection, item_id: &str) -> Result<Vec<String>> {
 }
 
 /// The item and attachment lookups of the converters, on a connection (§6.4 "the parser takes a lookup closure from
-/// the store").
+/// the store), for one viewer (D152): an item in a collection the viewer may not read, and an attachment the viewer
+/// may not read, are looked up as missing ones, so an export prints no title of theirs ("Deleted item") and a
+/// Markdown write cannot resolve them.
 pub struct DbLookup<'c> {
     pub conn: &'c Connection,
+    pub viewer: &'c Viewer,
     /// `WIKANVAS_PUBLIC_URL`, for absolute same-instance URLs.
     pub public_origin: Option<String>,
 }
@@ -519,10 +561,17 @@ impl Lookup for DbLookup<'_> {
             ItemRef::Id(id) => ("id", id.as_str()),
             ItemRef::UrlId(u) => ("url_id", u.as_str()),
         };
+        let readable = crate::shared::readable_collections(self.viewer);
+        let mut args = vec![rusqlite::types::Value::Text(value.to_owned())];
+        args.extend(readable.args);
         self.conn
             .query_row(
-                &format!("SELECT id, kind, title FROM items WHERE {column} = ?1"),
-                [value],
+                &format!(
+                    "SELECT i.id, i.kind, i.title FROM items i JOIN collections c ON c.id = i.collection_id
+                     WHERE i.{column} = ? AND {}",
+                    readable.sql
+                ),
+                rusqlite::params_from_iter(args.iter()),
                 |row| {
                     Ok((
                         row.get::<_, String>(0)?,
@@ -544,12 +593,7 @@ impl Lookup for DbLookup<'_> {
     }
 
     fn attachment(&self, id: &str) -> bool {
-        self.conn
-            .query_row("SELECT 1 FROM attachments WHERE id = ?1", [id], |_| Ok(()))
-            .optional()
-            .ok()
-            .flatten()
-            .is_some()
+        crate::access::attachment_readable(self.conn, self.viewer, id).unwrap_or(false)
     }
 
     fn public_origin(&self) -> Option<&str> {
@@ -580,9 +624,11 @@ pub struct MarkdownDoc {
     pub title: String,
 }
 
-/// `GET …/doc/markdown`: Wikanvas Markdown 1, with `# <title>` first when `include_title`.
+/// `GET …/doc/markdown`: Wikanvas Markdown 1, with `# <title>` first when `include_title`. Mentions and board embeds
+/// of items `viewer` may not read print as those of missing items (D152).
 pub fn markdown(
     conn: &Connection,
+    viewer: &Viewer,
     item_id: &str,
     include_title: bool,
     public_origin: Option<String>,
@@ -596,6 +642,7 @@ pub fn markdown(
         pm::read(&stored.doc()?).map_err(|e| Error::new(ErrorCode::Internal, e.to_string()))?;
     let lookup = DbLookup {
         conn,
+        viewer,
         public_origin,
     };
     let title = include_title.then_some(row.title.as_str());
@@ -642,6 +689,8 @@ pub struct ContentWrite {
     pub body_sha256: [u8; 32],
     pub public_origin: Option<String>,
     pub max_doc_bytes: usize,
+    /// The writer, whose access the Markdown parser's lookups have (D152).
+    pub viewer: Viewer,
 }
 
 /// The author of a content write, owned (for the closures of [`Db`]).
@@ -712,6 +761,7 @@ fn prepare(conn: &Connection, req: &ContentWrite) -> Result<(Prepared, Warnings,
     }
     let lookup = DbLookup {
         conn,
+        viewer: &req.viewer,
         public_origin: req.public_origin.clone(),
     };
     // 1. Parse.

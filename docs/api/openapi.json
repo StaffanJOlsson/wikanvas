@@ -1034,7 +1034,7 @@
         "tags": [
           "collections"
         ],
-        "summary": "The live collections in sidebar order.",
+        "summary": "The live collections the caller may read, in sidebar order, each with the caller's `my_access`.",
         "operationId": "list_collections",
         "responses": {
           "200": {
@@ -1096,7 +1096,7 @@
         "tags": [
           "collections"
         ],
-        "summary": "Creates a collection (last, unless `position` says otherwise).",
+        "summary": "Creates a collection (last, unless `position` says otherwise), with `default_access` (omitted: `write`). The\ncreator gets `manage` on it through a membership.",
         "operationId": "create_collection",
         "requestBody": {
           "content": {
@@ -1170,7 +1170,7 @@
             }
           },
           "422": {
-            "description": "`validation` (`field`: `name`, `color`, `icon`, `description` or `position`)",
+            "description": "`validation` (`field`: `name`, `color`, `icon`, `description`, `position` or `body`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1197,7 +1197,7 @@
         "tags": [
           "collections"
         ],
-        "summary": "A live collection, by id or `url_id`.",
+        "summary": "A live collection, by id or `url_id`, with the caller's `my_access`.",
         "operationId": "get_collection",
         "parameters": [
           {
@@ -1242,7 +1242,7 @@
             }
           },
           "404": {
-            "description": "`not_found` (also while it is in the trash)",
+            "description": "`not_found` (also while it is in the trash, and for a collection the caller may not read)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1313,7 +1313,7 @@
             }
           },
           "403": {
-            "description": "`insufficient_scope`, `forbidden` (a `viewer`), `csrf_rejected`",
+            "description": "`insufficient_scope`, `forbidden` (no `manage` on it), `csrf_rejected`",
             "content": {
               "application/json": {
                 "schema": {
@@ -1323,7 +1323,7 @@
             }
           },
           "404": {
-            "description": "`not_found` (also when it is already in the trash)",
+            "description": "`not_found` (also when it is already in the trash, and for a collection the caller may not read)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1358,7 +1358,7 @@
         "tags": [
           "collections"
         ],
-        "summary": "Edits a collection: name, icon (`null` clears it), colour, description, tree order.",
+        "summary": "Edits a collection: name, icon (`null` clears it), colour, description, tree order, default access (`manage`).",
         "operationId": "patch_collection",
         "parameters": [
           {
@@ -1404,7 +1404,7 @@
             }
           },
           "403": {
-            "description": "`insufficient_scope`, `forbidden` (a `viewer`), `csrf_rejected`",
+            "description": "`insufficient_scope`, `forbidden` (no `manage` on it), `csrf_rejected`",
             "content": {
               "application/json": {
                 "schema": {
@@ -1414,7 +1414,7 @@
             }
           },
           "404": {
-            "description": "`not_found` (also while it is in the trash)",
+            "description": "`not_found` (also while it is in the trash, and for a collection the caller may not read)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1445,6 +1445,299 @@
           },
           "422": {
             "description": "`validation` (`field`: `name`, `color`, `icon`, `description` or `body`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "write"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      }
+    },
+    "/api/v1/collections/{id}/members": {
+      "get": {
+        "tags": [
+          "collections"
+        ],
+        "summary": "The collection's members: who has more than its default access (or any, for a `none` collection), with what\nthat gives each (`effective_access`). The owner and admins manage every collection whether listed or not.",
+        "operationId": "list_members",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The collection's id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The members, by name",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CollectionMember"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`, `forbidden` (no `manage` on it)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found` (also while it is in the trash, and for a collection the caller may not read)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      }
+    },
+    "/api/v1/collections/{id}/members/{user_id}": {
+      "put": {
+        "tags": [
+          "collections"
+        ],
+        "summary": "Adds a person to the collection with `access`, or changes their access. Their role still caps it: a `viewer`\nreads at most. A disabled account cannot be added.",
+        "operationId": "set_member",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The collection's id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "path",
+            "description": "The person's id (`GET /directory`)",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetMember"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The membership",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionMember"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`, `forbidden` (no `manage` on it), `csrf_rejected`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found`: no such user, or the collection is in the trash or the caller may not read it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "`unsupported_media_type`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`validation` (`field`: `user_id` for a disabled account, or `body`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "write"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "collections"
+        ],
+        "summary": "Removes a person from the collection (also when they are not a member): they keep its default access.",
+        "operationId": "remove_member",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The collection's id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "path",
+            "description": "The person's id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Not a member"
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`, `forbidden` (no `manage` on it), `csrf_rejected`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`not_found` (also while it is in the trash, and for a collection the caller may not read)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`setup_required`",
             "content": {
               "application/json": {
                 "schema": {
@@ -1517,7 +1810,7 @@
             }
           },
           "403": {
-            "description": "`insufficient_scope`, `forbidden` (a `viewer`), `csrf_rejected`",
+            "description": "`insufficient_scope`, `forbidden` (no `manage` on it), `csrf_rejected`",
             "content": {
               "application/json": {
                 "schema": {
@@ -1527,7 +1820,7 @@
             }
           },
           "404": {
-            "description": "`not_found` (also while it is in the trash)",
+            "description": "`not_found` (also while it is in the trash, and for a collection the caller may not read)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1557,7 +1850,7 @@
             }
           },
           "422": {
-            "description": "`validation` (`field`: `position` or `body`)",
+            "description": "`validation` (`field`: `position` (also for a collection the caller may not read) or `body`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1620,7 +1913,7 @@
             }
           },
           "403": {
-            "description": "`insufficient_scope`, `forbidden` (a `viewer`), `csrf_rejected`",
+            "description": "`insufficient_scope`, `forbidden` (no `manage` on it), `csrf_rejected`",
             "content": {
               "application/json": {
                 "schema": {
@@ -1630,7 +1923,7 @@
             }
           },
           "404": {
-            "description": "`not_found`",
+            "description": "`not_found` (also for a collection the caller may not read)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1902,6 +2195,70 @@
           }
         },
         "security": []
+      }
+    },
+    "/api/v1/directory": {
+      "get": {
+        "tags": [
+          "users"
+        ],
+        "summary": "The people of the workspace, by name: the id, name and role of every account that can sign in (disabled ones\nare left out), never an email. For picking a collection's members (D152).",
+        "operationId": "list_directory",
+        "responses": {
+          "200": {
+            "description": "The people",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DirectoryUser"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`unauthenticated`, `invalid_token`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`insufficient_scope`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`setup_required`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "read"
+            ]
+          },
+          {
+            "session": []
+          }
+        ]
       }
     },
     "/api/v1/drafts": {
@@ -7361,7 +7718,9 @@
           "sort_key",
           "child_order",
           "item_count",
-          "updated_at"
+          "updated_at",
+          "default_access",
+          "my_access"
         ],
         "properties": {
           "child_order": {
@@ -7370,6 +7729,10 @@
           "color": {
             "type": "string",
             "description": "`#RRGGBB`."
+          },
+          "default_access": {
+            "$ref": "#/components/schemas/DefaultAccess",
+            "description": "The access of every member and viewer without a membership (D152)."
           },
           "description": {
             "type": "string"
@@ -7391,6 +7754,10 @@
             "description": "Live items in the collection, at every depth.",
             "minimum": 0
           },
+          "my_access": {
+            "$ref": "#/components/schemas/CollectionAccess",
+            "description": "The caller's own access (D152). Only collections with at least `read` are ever returned."
+          },
           "name": {
             "type": "string"
           },
@@ -7406,6 +7773,16 @@
           }
         }
       },
+      "CollectionAccess": {
+        "type": "string",
+        "description": "What a user may do in a collection (D152), in increasing order: each level includes the ones before it.\nThe owner and admins have `manage` on every collection; anyone else has the greater of the collection's\n`default_access` and their membership, capped by their role (a `viewer` never above `read`).",
+        "enum": [
+          "none",
+          "read",
+          "write",
+          "manage"
+        ]
+      },
       "CollectionDeleted": {
         "type": "object",
         "description": "Response of `DELETE /collections/{id}` (a soft delete; the collection appears in Trash).",
@@ -7420,9 +7797,40 @@
           }
         }
       },
+      "CollectionMember": {
+        "type": "object",
+        "description": "A membership of a collection (`GET /collections/{id}/members`).",
+        "required": [
+          "user",
+          "access",
+          "effective_access",
+          "disabled",
+          "updated_at"
+        ],
+        "properties": {
+          "access": {
+            "$ref": "#/components/schemas/MemberAccess",
+            "description": "What the membership grants."
+          },
+          "disabled": {
+            "type": "boolean",
+            "description": "The account is disabled: the membership stays and applies again once it is enabled."
+          },
+          "effective_access": {
+            "$ref": "#/components/schemas/CollectionAccess",
+            "description": "What the person may do in the collection: the greater of this and the default access, capped by the role;\n`manage` for the owner and admins; `none` while the account is disabled."
+          },
+          "updated_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          },
+          "user": {
+            "$ref": "#/components/schemas/DirectoryUser"
+          }
+        }
+      },
       "CollectionPatch": {
         "type": "object",
-        "description": "Body of `PATCH /collections/{id}`. Omitted fields stay unchanged; `icon: null` clears the icon.",
+        "description": "Body of `PATCH /collections/{id}` (`manage`, D152). Omitted fields stay unchanged; `icon: null` clears the icon.",
         "properties": {
           "child_order": {
             "oneOf": [
@@ -7438,6 +7846,17 @@
             "type": [
               "string",
               "null"
+            ]
+          },
+          "default_access": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DefaultAccess",
+                "description": "The access of every member and viewer without a membership (D152)."
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "description": {
@@ -7643,6 +8062,37 @@
           },
           "url_id": {
             "type": "string"
+          }
+        }
+      },
+      "DefaultAccess": {
+        "type": "string",
+        "description": "A collection's access for every member and viewer without a membership (D152); new and migrated\ncollections have `write` (members edit, viewers read).",
+        "enum": [
+          "none",
+          "read",
+          "write"
+        ]
+      },
+      "DirectoryUser": {
+        "type": "object",
+        "description": "A person in the workspace directory (`GET /directory`, D152): what anyone signed in may know of another account\nto pick it, without its email. Disabled accounts are left out.",
+        "required": [
+          "id",
+          "name",
+          "role"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/Role",
+            "description": "The role caps what a membership gives (a `viewer` reads at most)."
           }
         }
       },
@@ -8554,6 +9004,15 @@
           }
         }
       },
+      "MemberAccess": {
+        "type": "string",
+        "description": "A person's access through a collection membership (D152): more than the default, or any access to a `none`\ncollection. The role still caps it (a `viewer` reads at most).",
+        "enum": [
+          "read",
+          "write",
+          "manage"
+        ]
+      },
       "MoveCollection": {
         "type": "object",
         "description": "Body of `POST /collections/{id}/move`.",
@@ -8615,6 +9074,17 @@
               "null"
             ],
             "description": "`#RRGGBB`; default `#8D8D8D`."
+          },
+          "default_access": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DefaultAccess",
+                "description": "Omitted: `write` (D152). The creator gets `manage` through a membership either way."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "description": {
             "type": [
@@ -9081,6 +9551,18 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "SetMember": {
+        "type": "object",
+        "description": "Body of `PUT /collections/{id}/members/{user_id}`: adds the person or changes their access.",
+        "required": [
+          "access"
+        ],
+        "properties": {
+          "access": {
+            "$ref": "#/components/schemas/MemberAccess"
           }
         }
       },

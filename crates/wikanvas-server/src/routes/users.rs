@@ -5,17 +5,20 @@
 //! the finer rules (nobody changes the owner, their own account, or, unless they are the owner, an admin) are
 //! `wikanvas_store::users::change`, which knows the target's role. Disabling ends the account's sessions, API tokens
 //! and pending invites in the same transaction, so its next request is 401.
+//!
+//! `GET /directory` (D152) is the one view of the other accounts that every signed-in role has: id, name and role of
+//! the accounts that can sign in, for picking a collection's members. It never shows an email.
 
 use axum::Json;
 use axum::extract::State;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
-use wikanvas_api::{ErrorBody, UserInfo, UserPatch};
+use wikanvas_api::{DirectoryUser, ErrorBody, UserInfo, UserPatch};
 use wikanvas_store::users::{Manager, UserChange};
 
 use crate::authz::{self, Action, Resource};
 use crate::error::ApiError;
-use crate::extract::{Admin, Auth, IdPath};
+use crate::extract::{Admin, Auth, IdPath, Read};
 use crate::state::AppState;
 
 /// This module's routes, relative to `/api/v1`.
@@ -23,6 +26,31 @@ pub fn router() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
         .routes(routes!(list_users))
         .routes(routes!(patch_user))
+        .routes(routes!(list_directory))
+}
+
+/// The people of the workspace, by name: the id, name and role of every account that can sign in (disabled ones
+/// are left out), never an email. For picking a collection's members (D152).
+#[utoipa::path(
+    get,
+    path = "/directory",
+    tag = "users",
+    operation_id = "list_directory",
+    security(("bearer" = ["read"]), ("session" = [])),
+    responses(
+        (status = 200, description = "The people", body = Vec<DirectoryUser>),
+        (status = 401, description = "`unauthenticated`, `invalid_token`", body = ErrorBody),
+        (status = 403, description = "`insufficient_scope`", body = ErrorBody),
+        (status = 409, description = "`setup_required`", body = ErrorBody),
+    )
+)]
+async fn list_directory(
+    auth: Auth<Read>,
+    State(state): State<AppState>,
+) -> Result<Json<Vec<DirectoryUser>>, ApiError> {
+    authz::require(&state, &auth, Action::Read, Resource::Workspace).await?;
+    let people = state.db.read(wikanvas_store::access::directory).await?;
+    Ok(Json(people))
 }
 
 /// Every account, the owner first, then in the order they joined; disabled ones too.
@@ -43,7 +71,7 @@ async fn list_users(
     auth: Auth<Admin>,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<UserInfo>>, ApiError> {
-    authz::require(&auth, Action::Admin, Resource::Workspace)?;
+    authz::require(&state, &auth, Action::Admin, Resource::Workspace).await?;
     let users = state
         .db
         .read(|conn| {
@@ -89,7 +117,7 @@ async fn patch_user(
     Json(patch): Json<UserPatch>,
 ) -> Result<Json<UserInfo>, ApiError> {
     let id = id.to_string();
-    authz::require(&auth, Action::Admin, Resource::User(&id))?;
+    authz::require(&state, &auth, Action::Admin, Resource::User(&id)).await?;
     let actor = auth.into_actor();
     let now = state.now();
     let user = state

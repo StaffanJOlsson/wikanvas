@@ -1,5 +1,6 @@
 //! Wikanvas's SQLite store (docs/ARCHITECTURE.md §4.1, §5). This module list is frozen (PLAN W7 "Owns").
 
+pub mod access;
 pub mod attachments;
 pub mod backup;
 pub mod blobs;

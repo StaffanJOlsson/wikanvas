@@ -1,8 +1,11 @@
 //! Routes /api/v1/sidebar, /collections/{id}/tree and /items/{id}/children (owner: W1)
 //!
 //! D21: the sidebar loads a whole collection's visible, unarchived tree as one flat list, with
-//! `ETag: "t{tree_version}.{viewer_epoch}"` (`viewer_epoch` is 0 in M1) and 304 on a matching `If-None-Match`. All
-//! three are Read (`authz::require`, §8): on the workspace, the collection and the item.
+//! `ETag: "t{tree_version}.{viewer_epoch}"` and 304 on a matching `If-None-Match`. `viewer_epoch` is the caller's
+//! `users.access_epoch`, which moves whenever their access may have changed (a membership, their role, disabling or
+//! enabling the account, D152); a new default access bumps the collection's `tree_version`. So a cached tree, which
+//! holds the caller's `my_access`, is never confirmed across a change of access. All three are Read
+//! (`authz::require`, §8): on the workspace, the collection and the item.
 
 use axum::Json;
 use axum::extract::State;
@@ -18,9 +21,6 @@ use crate::extract::{Auth, IdPath, Read};
 use crate::openapi::if_none_match;
 use crate::state::AppState;
 
-/// The per-viewer permission epoch of the tree ETag; always 0 in M1 (D21).
-pub const VIEWER_EPOCH: i64 = 0;
-
 /// This module's routes, relative to `/api/v1`.
 pub fn router() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
@@ -29,9 +29,9 @@ pub fn router() -> OpenApiRouter<AppState> {
         .routes(routes!(get_children))
 }
 
-/// The tree ETag of a collection.
-pub fn tree_etag(tree_version: i64) -> String {
-    format!("\"t{tree_version}.{VIEWER_EPOCH}\"")
+/// The tree ETag of a collection for a viewer whose access epoch is `viewer_epoch` (D21).
+pub fn tree_etag(tree_version: i64, viewer_epoch: i64) -> String {
+    format!("\"t{tree_version}.{viewer_epoch}\"")
 }
 
 /// The sidebar: the live collections, the caller's stars (visible, unarchived, in star order) and the drafts count.
@@ -52,7 +52,7 @@ async fn get_sidebar(
     auth: Auth<Read>,
     State(state): State<AppState>,
 ) -> Result<Json<Sidebar>, ApiError> {
-    authz::require(&auth, Action::Read, Resource::Workspace)?;
+    authz::require(&state, &auth, Action::Read, Resource::Workspace).await?;
     let viewer = auth.viewer();
     let sidebar = state
         .db
@@ -89,18 +89,28 @@ async fn get_tree(
     IdPath(id): IdPath,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
-    authz::require(&auth, Action::Read, Resource::Collection(&id.to_string()))?;
+    authz::require(
+        &state,
+        &auth,
+        Action::Read,
+        Resource::Collection(&id.to_string()),
+    )
+    .await?;
     let viewer = auth.viewer();
-    let (version, tree) = state
+    let (etag, tree) = state
         .db
         .read(move |conn| {
             let id = id.to_string();
             let version = wikanvas_store::tree::tree_version(conn, &id)?;
-            if if_none_match(&headers, &tree_etag(version)) {
-                return Ok((version, None));
+            let etag = tree_etag(
+                version,
+                wikanvas_store::access::epoch(conn, &viewer.user_id)?,
+            );
+            if if_none_match(&headers, &etag) {
+                return Ok((etag, None));
             }
             Ok((
-                version,
+                etag,
                 Some(wikanvas_store::tree::collection_tree(conn, &viewer, &id)?),
             ))
         })
@@ -110,10 +120,7 @@ async fn get_tree(
         Some(tree) => Json(tree).into_response(),
     };
     let h = res.headers_mut();
-    h.insert(
-        header::ETAG,
-        HeaderValue::from_str(&tree_etag(version)).expect("ASCII"),
-    );
+    h.insert(header::ETAG, HeaderValue::from_str(&etag).expect("ASCII"));
     h.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
     Ok(res)
 }
@@ -139,7 +146,7 @@ async fn get_children(
     State(state): State<AppState>,
     IdPath(id): IdPath,
 ) -> Result<Json<Vec<ItemSummary>>, ApiError> {
-    authz::require(&auth, Action::Read, Resource::Item(&id.to_string()))?;
+    authz::require(&state, &auth, Action::Read, Resource::Item(&id.to_string())).await?;
     let viewer = auth.viewer();
     let children = state
         .db

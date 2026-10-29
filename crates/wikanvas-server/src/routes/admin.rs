@@ -40,7 +40,7 @@ async fn backup(
     auth: Auth<Admin>,
     State(state): State<AppState>,
 ) -> Result<Json<BackupResult>, ApiError> {
-    authz::require(&auth, Action::Admin, Resource::Workspace)?;
+    authz::require(&state, &auth, Action::Admin, Resource::Workspace).await?;
     let (path, size) = crate::jobs::backup_now(&state).await?;
     Ok(Json(BackupResult {
         path: path.display().to_string(),

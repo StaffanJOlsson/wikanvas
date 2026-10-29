@@ -1,11 +1,18 @@
-//! The per-role matrix over the generated spec (§8 "Authorization seam", `authz::require`) (owner: W2)
+//! The per-role and per-collection matrices over the generated spec (§8 "Authorization seam", `authz::require`)
+//! (owner: W2; collection access: D152)
 //!
 //! Every operation of `docs/api/openapi.json` is called with the session of the owner, an `admin`, a `member` and a
 //! `viewer` (a session has every scope, so the role is the only limit). Each role gets its own app, with fixtures
-//! the owner made: a call the role may make must succeed (2xx); a call it may not make must be 403 `forbidden` and
-//! leave the database (but for the preview cache and last-seen columns) and the data directory exactly as they were.
-//! The requests are real ones (existing ids, bodies that would change something), so a refusal that came too late
-//! would show. [`OPS`] must name every operation of the spec, so a new route cannot skip its role check.
+//! the owner made in collections whose default access is `write` (what every collection had before D152): a call
+//! the role may make must succeed (2xx); a call it may not make must be 403 `forbidden` and leave the database (but
+//! for the preview cache and last-seen columns) and the data directory exactly as they were. The requests are real
+//! ones (existing ids, bodies that would change something), so a refusal that came too late would show. [`OPS`] must
+//! name every operation of the spec, so a new route cannot skip its role check.
+//!
+//! The second matrix ([`every_operation_checks_collection_access`]) makes every collection private (`none`) and
+//! gives a `member` and a `viewer` each membership in turn (none, `read`, `write`, `manage`): an operation on a
+//! collection, an item or an attachment must be 404 `not_found` without read access, 403 `forbidden` with less than
+//! it needs, and succeed with enough, refusals again changing nothing.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -17,7 +24,9 @@ use base64::Engine as _;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use wikanvas_api::tokens::NewToken;
-use wikanvas_api::{DocState, ErrorCode, Role, Scope, YFIELD};
+use wikanvas_api::{
+    CollectionAccess, DefaultAccess, DocState, ErrorCode, MemberAccess, Role, Scope, YFIELD,
+};
 use wikanvas_core::convert::yrs;
 use wikanvas_store::tokens::CreatedVia;
 use yrs::updates::decoder::Decode;
@@ -25,7 +34,7 @@ use yrs::{Doc, Options, ReadTxn, Transact, Update, XmlElementPrelim, XmlFragment
 
 use crate::common::{OWNER_PASSWORD, TestApp, USER_PASSWORD, assert_error};
 
-/// What an operation needs of the caller's role (`authz::require`'s action, or no check at all).
+/// What an operation needs of the caller (`authz::require`'s action, or no check at all).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Need {
     /// No credentials, no role check.
@@ -34,15 +43,28 @@ enum Need {
     Own,
     Read,
     Write,
+    /// `manage` on the collection (D152): the owner and admins, and members it was given to.
+    Manage,
     Admin,
 }
 
 impl Need {
+    /// Whether `role` may, on the fixtures (a collection with default access `write`, of which the caller is no
+    /// member).
     fn allows(self, role: Role) -> bool {
         match self {
             Need::Public | Need::Own | Need::Read => true,
             Need::Write => role != Role::Viewer,
-            Need::Admin => matches!(role, Role::Owner | Role::Admin),
+            Need::Manage | Need::Admin => matches!(role, Role::Owner | Role::Admin),
+        }
+    }
+
+    /// The collection access the operation needs (for the per-collection matrix).
+    fn access(self) -> CollectionAccess {
+        match self {
+            Need::Public | Need::Own | Need::Read => CollectionAccess::Read,
+            Need::Write => CollectionAccess::Write,
+            Need::Manage | Need::Admin => CollectionAccess::Manage,
         }
     }
 }
@@ -85,6 +107,7 @@ const OPS: &[(&str, Need)] = &[
     ("unstar_item", Need::Read),
     ("view_item", Need::Read),
     ("list_recent", Need::Read),
+    ("list_directory", Need::Read),
     ("get_me", Need::Own),
     ("patch_me", Need::Own),
     ("list_sessions", Need::Own),
@@ -97,10 +120,13 @@ const OPS: &[(&str, Need)] = &[
     ("revoke_token", Need::Own),
     ("revoke_current_token", Need::Own),
     ("create_collection", Need::Write),
-    ("patch_collection", Need::Write),
-    ("move_collection", Need::Write),
-    ("restore_collection", Need::Write),
-    ("delete_collection", Need::Write),
+    ("patch_collection", Need::Manage),
+    ("move_collection", Need::Manage),
+    ("restore_collection", Need::Manage),
+    ("delete_collection", Need::Manage),
+    ("list_members", Need::Manage),
+    ("set_member", Need::Manage),
+    ("remove_member", Need::Manage),
     ("create_item", Need::Write),
     ("patch_item", Need::Write),
     ("move_item", Need::Write),
@@ -180,7 +206,7 @@ struct Fixtures {
     to_trash: String,
     trashed: String,
     purgeable: String,
-    /// A member the admin actions change (an admin may: D148).
+    /// A member the admin actions change (an admin may: D148), and a `read` member of `collection` (D152).
     account: String,
     /// A pending member invite the owner made.
     invite: String,
@@ -261,6 +287,15 @@ async fn fixtures(app: &TestApp) -> Fixtures {
         .unwrap()
         .to_owned();
     let collection = new_collection(owner, "Matrix", false).await;
+    ok_json(
+        owner
+            .put(&format!(
+                "/api/v1/collections/{collection}/members/{account}"
+            ))
+            .json(&json!({"access": "read"}))
+            .await,
+        "add a member",
+    );
     let doc = new_item(owner, &collection, "doc", "Matrix doc", None).await;
     let attachment = ok_json(
         owner
@@ -275,6 +310,16 @@ async fn fixtures(app: &TestApp) -> Fixtures {
         .as_str()
         .unwrap()
         .to_owned();
+    // The document shows the attachment (`item_attachments`), so whoever reads the document reads it (D36).
+    ok_json(
+        owner
+            .put(&format!("/api/v1/items/{doc}/doc/markdown"))
+            .add_header("if-match", "*")
+            .bytes(format!("Matrix doc.\n\n![matrix](/api/v1/attachments/{attachment})\n").into())
+            .content_type("text/markdown")
+            .await,
+        "show the attachment",
+    );
     let c = &collection;
     Fixtures {
         board: new_item(owner, c, "board", "Matrix board", None).await,
@@ -320,9 +365,10 @@ enum Body {
     Raw(&'static str, Vec<u8>),
 }
 
-/// One call: what replaces `{id}` (`{n}` is page 0), the query, headers, body and credentials.
+/// One call: what replaces `{id}` and `{user_id}` (`{n}` is page 0), the query, headers, body and credentials.
 struct Call {
     id: Option<String>,
+    user: Option<String>,
     query: String,
     headers: Vec<(&'static str, String)>,
     body: Body,
@@ -333,6 +379,7 @@ impl Call {
     fn new() -> Call {
         Call {
             id: None,
+            user: None,
             query: String::new(),
             headers: Vec::new(),
             body: Body::None,
@@ -342,6 +389,11 @@ impl Call {
 
     fn id(mut self, id: &str) -> Call {
         self.id = Some(id.to_owned());
+        self
+    }
+
+    fn user(mut self, user: &str) -> Call {
+        self.user = Some(user.to_owned());
         self
     }
 
@@ -441,7 +493,7 @@ async fn call_for(op: &str, app: &TestApp, caller: &Caller, fx: &Fixtures) -> Ca
         "get_workspace" | "get_doc_schema" | "get_sidebar" | "list_collections" | "list_archive"
         | "list_drafts" | "list_updated" | "get_trash" | "list_starred" | "list_recent"
         | "get_me" | "list_sessions" | "list_tokens" | "backup" | "export" | "empty_trash"
-        | "list_users" | "list_invites" => call,
+        | "list_users" | "list_invites" | "list_directory" => call,
         "get_collection" | "get_tree" | "list_collection_updated" => call.id(&fx.collection),
         "get_item" | "get_item_text" | "get_children" | "get_doc" | "get_doc_markdown"
         | "get_doc_prosemirror" | "star_item" | "unstar_item" | "view_item" | "duplicate_item" => {
@@ -471,6 +523,12 @@ async fn call_for(op: &str, app: &TestApp, caller: &Caller, fx: &Fixtures) -> Ca
         "move_collection" => call.id(&fx.collection).json(json!({"position": {}})),
         "restore_collection" => call.id(&fx.restorable_collection),
         "delete_collection" => call.id(&fx.doomed_collection),
+        "list_members" => call.id(&fx.collection),
+        "set_member" => call
+            .id(&fx.collection)
+            .user(&fx.account)
+            .json(json!({"access": "write"})),
+        "remove_member" => call.id(&fx.collection).user(&fx.account),
         "create_item" => call.json(json!({
             "collection_id": fx.collection,
             "kind": "doc",
@@ -527,6 +585,9 @@ async fn send(
     let mut path = template.replace("{n}", "0");
     if let Some(id) = &call.id {
         path = path.replace("{id}", id);
+    }
+    if let Some(user) = &call.user {
+        path = path.replace("{user_id}", user);
     }
     assert!(!path.contains('{'), "{template}: no id for {path}");
     if !call.query.is_empty() {
@@ -682,9 +743,9 @@ async fn every_operation_checks_the_role() {
             }
         }
     }
-    // 70 operations with credentials, for 4 roles: the viewer is refused the 20 writes and the 11 admin actions,
-    // the member the 11 admin actions.
-    assert_eq!((allowed, refused), (238, 42));
+    // 74 operations with credentials, for 4 roles: the viewer is refused the 16 writes, the 7 collection manage
+    // actions (D152) and the 11 admin actions, the member (no member of the collection) the manage and admin ones.
+    assert_eq!((allowed, refused), (244, 52));
 }
 
 /// A token is limited by its user's role as well as by its scope: an admin-scope token of a viewer reads but
@@ -723,4 +784,150 @@ async fn a_token_cannot_exceed_its_users_role() {
     // The trash was not emptied.
     let trash = ok_json(app.server.get("/api/v1/trash").await, "the trash");
     assert!(!trash["items"].as_array().unwrap().is_empty(), "{trash}");
+}
+
+/// The operations that name no collection, item or attachment: the role alone decides whether they run, and what
+/// they list is filtered by the caller's access (the leak tests in `access.rs` check what they show).
+const WORKSPACE_OPS: &[&str] = &[
+    "get_workspace",
+    "get_doc_schema",
+    "get_sidebar",
+    "list_collections",
+    "search",
+    "search_titles",
+    "list_archive",
+    "list_drafts",
+    "list_updated",
+    "get_trash",
+    "list_starred",
+    "list_recent",
+    "list_directory",
+    "create_collection",
+    "list_users",
+    "patch_user",
+    "list_invites",
+    "create_invite",
+    "revoke_invite",
+    "patch_workspace",
+    "backup",
+    "export",
+    "empty_trash",
+];
+
+/// Makes every collection private (`none`) and gives `user` a membership of `grant` in each, if any.
+async fn private_collections(app: &TestApp, user: &str, grant: Option<MemberAccess>) {
+    let user = user.to_owned();
+    app.state
+        .db
+        .write(move |tx| {
+            tx.execute("UPDATE collections SET default_access = 'none'", [])?;
+            if let Some(grant) = grant {
+                tx.execute(
+                    "INSERT INTO collection_members (collection_id, user_id, access, created_at, updated_at)
+                     SELECT id, ?1, ?2, 0, 0 FROM collections WHERE true
+                     ON CONFLICT (collection_id, user_id) DO UPDATE SET access = excluded.access",
+                    rusqlite::params![user, grant.as_str()],
+                )?;
+            }
+            Ok(())
+        })
+        .await
+        .expect("make the collections private");
+}
+
+/// D152 through every operation: for a `member` and a `viewer` with each membership of every collection (none,
+/// `read`, `write`, `manage`) where the default access is `none`, an operation on a collection, an item or an
+/// attachment is 404 `not_found` (as for one that does not exist) without read access, 403 `forbidden` with read
+/// access but less than it needs, and succeeds with enough; a refusal changes nothing. The operations on the
+/// workspace run as their role allows (their lists are filtered: `access.rs`). Purging stays the role's (Admin).
+#[tokio::test]
+async fn every_operation_checks_collection_access() {
+    let ops = spec_operations();
+    let mut tally: BTreeMap<u16, u32> = BTreeMap::new();
+    for role in [Role::Member, Role::Viewer] {
+        for grant in [
+            None,
+            Some(MemberAccess::Read),
+            Some(MemberAccess::Write),
+            Some(MemberAccess::Manage),
+        ] {
+            let (app, caller, fx) = app_for(role).await;
+            private_collections(&app, &caller.id, grant).await;
+            let access = CollectionAccess::effective(role, DefaultAccess::None, grant);
+            for (op, need) in OPS {
+                if matches!(need, Need::Public | Need::Own) {
+                    continue;
+                }
+                let bound = !WORKSPACE_OPS.contains(op);
+                let expected: u16 = if *need == Need::Admin {
+                    403
+                } else if !bound {
+                    if need.allows(role) { 200 } else { 403 }
+                } else if !access.allows(CollectionAccess::Read) {
+                    404
+                } else if !access.allows(need.access()) {
+                    403
+                } else {
+                    200
+                };
+                let (method, template) = &ops[*op];
+                let what = format!(
+                    "{role} with {grant:?} ({access}) {op} ({method} {template}, {need:?})"
+                );
+                let call = call_for(op, &app, &caller, &fx).await;
+                let before = (expected != 200).then_some(fingerprint(&app).await);
+                let res = send(&app, &caller, method, template, call).await;
+                if expected != 200 {
+                    assert_eq!(
+                        res.status_code().as_u16(),
+                        expected,
+                        "{what}: {}",
+                        res.text()
+                    );
+                }
+                match expected {
+                    200 => assert!(
+                        res.status_code().is_success(),
+                        "{what} is allowed: got {} {}",
+                        res.status_code(),
+                        res.text()
+                    ),
+                    403 => {
+                        assert_error(&res, 403, ErrorCode::Forbidden);
+                    }
+                    _ => {
+                        let body = assert_error(&res, 404, ErrorCode::NotFound);
+                        assert!(
+                            body.error.message.starts_with("no such "),
+                            "{what}: worded as for a missing one: {}",
+                            body.error.message
+                        );
+                    }
+                }
+                if let Some(before) = before {
+                    let after = fingerprint(&app).await;
+                    if before != after {
+                        let (b, a): (BTreeSet<&str>, BTreeSet<&str>) =
+                            (before.lines().collect(), after.lines().collect());
+                        panic!(
+                            "{what} changed something:\n- {:?}\n+ {:?}",
+                            b.difference(&a).collect::<Vec<_>>(),
+                            a.difference(&b).collect::<Vec<_>>()
+                        );
+                    }
+                }
+                *tally.entry(expected).or_default() += 1;
+            }
+        }
+    }
+    // 2 roles × 4 memberships × the operations that are neither public nor the caller's own.
+    let checked = OPS
+        .iter()
+        .filter(|(_, n)| !matches!(n, Need::Public | Need::Own))
+        .count() as u32;
+    assert_eq!(tally.values().sum::<u32>(), 8 * checked, "{tally:?}");
+    // Per app: the 11 admin actions are 403; the 13 workspace reads run, and creating a collection for a member;
+    // of the 38 others, a member gets the 16 reads with `read`, the 15 writes too with `write` and the 7 manage
+    // actions with `manage`, a viewer at most the reads, and both 404 for all 38 without a membership.
+    assert_eq!(tally, BTreeMap::from([(200, 241), (403, 187), (404, 76)]));
 }

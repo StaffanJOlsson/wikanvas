@@ -144,10 +144,12 @@ async fn create_item(
     Json(new): Json<NewItem>,
 ) -> Result<(StatusCode, Json<ItemSummary>), ApiError> {
     authz::require(
+        &state,
         &auth,
         Action::Write,
         Resource::Collection(&new.collection_id.to_string()),
-    )?;
+    )
+    .await?;
     let actor = auth.into_actor().user_id;
     let dark = dark_theme(&state, &actor).await;
     let now = now_ms();
@@ -181,7 +183,7 @@ async fn get_item(
     State(state): State<AppState>,
     item: ItemRef,
 ) -> Result<Response, ApiError> {
-    authz::require(&auth, Action::Read, Resource::Item(&item.value()))?;
+    authz::require(&state, &auth, Action::Read, Resource::Item(&item.value())).await?;
     let viewer = auth.viewer();
     let detail = state
         .db
@@ -230,7 +232,13 @@ async fn patch_item(
     headers: HeaderMap,
     Json(patch): Json<ItemPatch>,
 ) -> Result<Response, ApiError> {
-    authz::require(&auth, Action::Write, Resource::Item(&id.to_string()))?;
+    authz::require(
+        &state,
+        &auth,
+        Action::Write,
+        Resource::Item(&id.to_string()),
+    )
+    .await?;
     let actor = auth.into_actor().user_id;
     let if_match = if_match_meta(&headers);
     let now = now_ms();
@@ -278,7 +286,13 @@ async fn delete_item(
     IdPath(id): IdPath,
     Query(q): Query<DeleteItemQuery>,
 ) -> Result<Json<ItemTrashed>, ApiError> {
-    authz::require(&auth, Action::Write, Resource::Item(&id.to_string()))?;
+    authz::require(
+        &state,
+        &auth,
+        Action::Write,
+        Resource::Item(&id.to_string()),
+    )
+    .await?;
     let actor = auth.into_actor().user_id;
     let now = now_ms();
     let trashed = state
@@ -316,7 +330,7 @@ async fn item_text(
     State(state): State<AppState>,
     IdPath(id): IdPath,
 ) -> Result<Json<ItemText>, ApiError> {
-    authz::require(&auth, Action::Read, Resource::Item(&id.to_string()))?;
+    authz::require(&state, &auth, Action::Read, Resource::Item(&id.to_string())).await?;
     let text = state
         .db
         .read(move |conn| wikanvas_store::items::text(conn, &id.to_string()))
@@ -351,13 +365,21 @@ async fn move_item(
     IdPath(id): IdPath,
     Json(mv): Json<MoveItem>,
 ) -> Result<Json<ItemSummary>, ApiError> {
-    authz::require(&auth, Action::Write, Resource::Item(&id.to_string()))?;
+    authz::require(
+        &state,
+        &auth,
+        Action::Write,
+        Resource::Item(&id.to_string()),
+    )
+    .await?;
     if let Some(collection) = mv.collection_id {
         authz::require(
+            &state,
             &auth,
             Action::Write,
             Resource::Collection(&collection.to_string()),
-        )?;
+        )
+        .await?;
     }
     let actor = auth.into_actor().user_id;
     let now = now_ms();
@@ -391,7 +413,13 @@ async fn duplicate_item(
     State(state): State<AppState>,
     IdPath(id): IdPath,
 ) -> Result<(StatusCode, Json<ItemSummary>), ApiError> {
-    authz::require(&auth, Action::Write, Resource::Item(&id.to_string()))?;
+    authz::require(
+        &state,
+        &auth,
+        Action::Write,
+        Resource::Item(&id.to_string()),
+    )
+    .await?;
     let actor = auth.into_actor().user_id;
     let now = now_ms();
     let item = state
@@ -428,7 +456,13 @@ async fn publish_item(
     IdPath(id): IdPath,
     OptionalJson(req): OptionalJson<PublishRequest>,
 ) -> Result<Json<ItemSummary>, ApiError> {
-    authz::require(&auth, Action::Write, Resource::Item(&id.to_string()))?;
+    authz::require(
+        &state,
+        &auth,
+        Action::Write,
+        Resource::Item(&id.to_string()),
+    )
+    .await?;
     let actor = auth.into_actor().user_id;
     let now = now_ms();
     let item = state
@@ -463,7 +497,13 @@ async fn unpublish_item(
     State(state): State<AppState>,
     IdPath(id): IdPath,
 ) -> Result<Json<ItemSummary>, ApiError> {
-    authz::require(&auth, Action::Write, Resource::Item(&id.to_string()))?;
+    authz::require(
+        &state,
+        &auth,
+        Action::Write,
+        Resource::Item(&id.to_string()),
+    )
+    .await?;
     let actor = auth.into_actor().user_id;
     let now = now_ms();
     let item = state
@@ -495,7 +535,13 @@ async fn archive_item(
     State(state): State<AppState>,
     IdPath(id): IdPath,
 ) -> Result<Json<ItemsArchived>, ApiError> {
-    authz::require(&auth, Action::Write, Resource::Item(&id.to_string()))?;
+    authz::require(
+        &state,
+        &auth,
+        Action::Write,
+        Resource::Item(&id.to_string()),
+    )
+    .await?;
     let now = now_ms();
     let archived = state
         .db
@@ -527,7 +573,13 @@ async fn unarchive_item(
     State(state): State<AppState>,
     IdPath(id): IdPath,
 ) -> Result<Json<RestoredItem>, ApiError> {
-    authz::require(&auth, Action::Write, Resource::Item(&id.to_string()))?;
+    authz::require(
+        &state,
+        &auth,
+        Action::Write,
+        Resource::Item(&id.to_string()),
+    )
+    .await?;
     let item = state
         .db
         .write(move |tx| wikanvas_store::items::unarchive(tx, &id.to_string()))
@@ -558,7 +610,13 @@ async fn restore_item(
     State(state): State<AppState>,
     IdPath(id): IdPath,
 ) -> Result<Json<RestoredItem>, ApiError> {
-    authz::require(&auth, Action::Write, Resource::Item(&id.to_string()))?;
+    authz::require(
+        &state,
+        &auth,
+        Action::Write,
+        Resource::Item(&id.to_string()),
+    )
+    .await?;
     let item = state
         .db
         .write(move |tx| wikanvas_store::items::restore(tx, &id.to_string()))
@@ -593,7 +651,7 @@ async fn star_item(
     OptionalJson(req): OptionalJson<StarRequest>,
 ) -> Result<StatusCode, ApiError> {
     // The caller's own star: reading the item is enough (§8).
-    authz::require(&auth, Action::Read, Resource::Item(&id.to_string()))?;
+    authz::require(&state, &auth, Action::Read, Resource::Item(&id.to_string())).await?;
     let actor = auth.into_actor().user_id;
     let now = now_ms();
     state
@@ -626,7 +684,7 @@ async fn unstar_item(
     State(state): State<AppState>,
     IdPath(id): IdPath,
 ) -> Result<StatusCode, ApiError> {
-    authz::require(&auth, Action::Read, Resource::Item(&id.to_string()))?;
+    authz::require(&state, &auth, Action::Read, Resource::Item(&id.to_string())).await?;
     let actor = auth.into_actor().user_id;
     state
         .db
@@ -658,7 +716,7 @@ async fn view_item(
     IdPath(id): IdPath,
 ) -> Result<StatusCode, ApiError> {
     // The caller's own view: reading the item is enough (§8).
-    authz::require(&auth, Action::Read, Resource::Item(&id.to_string()))?;
+    authz::require(&state, &auth, Action::Read, Resource::Item(&id.to_string())).await?;
     let actor = auth.into_actor().user_id;
     let now = now_ms();
     state

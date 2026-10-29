@@ -220,6 +220,7 @@ impl Fixture {
             .into(),
             public_origin: None,
             max_doc_bytes: docs::DEFAULT_MAX_DOC_BYTES,
+            viewer: crate::common::viewer(&self.owner),
         }
     }
 
@@ -239,7 +240,7 @@ impl Fixture {
         let id = self.doc_id.clone();
         self.t
             .db
-            .read(move |c| docs::markdown(c, &id, false, None))
+            .read(move |c| docs::markdown(c, &crate::common::viewer(""), &id, false, None))
             .await
             .unwrap()
             .markdown

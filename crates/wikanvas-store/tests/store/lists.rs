@@ -56,14 +56,17 @@ async fn visible_items_hides_trashed_items_and_deleted_collections() {
         user_id: owner.clone(),
         role: Role::Owner,
     };
+    let visible = shared::visible_items(&viewer);
     let sql = format!(
         "SELECT i.title FROM items i JOIN collections c ON c.id = i.collection_id WHERE {} ORDER BY i.title",
-        shared::visible_items(&viewer)
+        visible.sql
     );
     let titles: Vec<String> = t
         .query(move |c| {
             c.prepare(&sql)?
-                .query_map([], |r| r.get::<_, String>(0))?
+                .query_map(rusqlite::params_from_iter(visible.args.iter()), |r| {
+                    r.get::<_, String>(0)
+                })?
                 .collect()
         })
         .await;

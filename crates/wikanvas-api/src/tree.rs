@@ -7,8 +7,128 @@ use uuid::Uuid;
 
 use crate::boards::BoardMeta;
 use crate::common::{
-    ChildOrder, ItemKind, Position, Timestamp, double_option, required_option, string_enum,
+    ChildOrder, ItemKind, Position, Role, Timestamp, double_option, required_option, string_enum,
 };
+
+// ---------------------------------------------------------------- collection access (D152)
+
+string_enum! {
+    /// What a user may do in a collection (D152), in increasing order: each level includes the ones before it.
+    /// The owner and admins have `manage` on every collection; anyone else has the greater of the collection's
+    /// `default_access` and their membership, capped by their role (a `viewer` never above `read`).
+    pub enum CollectionAccess {
+        /// The collection and everything in it are hidden: its routes answer 404, and no list, search or title
+        /// lookup shows it.
+        None = "none",
+        /// Open its items, search them, star them; no edits.
+        Read = "read",
+        /// Create, edit, move, trash and restore its items.
+        Write = "write",
+        /// Also its settings (`PATCH`, move, trash and restore the collection), default access and members.
+        Manage = "manage",
+    }
+}
+
+string_enum! {
+    /// A collection's access for every member and viewer without a membership (D152); new and migrated
+    /// collections have `write` (members edit, viewers read).
+    #[derive(Default)]
+    pub enum DefaultAccess {
+        /// Only the owner, admins and the collection's members see it.
+        None = "none",
+        /// Everyone reads; members of the collection may get more.
+        Read = "read",
+        /// Members (the role) edit, viewers read.
+        #[default]
+        Write = "write",
+    }
+}
+
+string_enum! {
+    /// A person's access through a collection membership (D152): more than the default, or any access to a `none`
+    /// collection. The role still caps it (a `viewer` reads at most).
+    pub enum MemberAccess {
+        Read = "read",
+        Write = "write",
+        Manage = "manage",
+    }
+}
+
+impl From<DefaultAccess> for CollectionAccess {
+    fn from(a: DefaultAccess) -> CollectionAccess {
+        match a {
+            DefaultAccess::None => CollectionAccess::None,
+            DefaultAccess::Read => CollectionAccess::Read,
+            DefaultAccess::Write => CollectionAccess::Write,
+        }
+    }
+}
+
+impl From<MemberAccess> for CollectionAccess {
+    fn from(a: MemberAccess) -> CollectionAccess {
+        match a {
+            MemberAccess::Read => CollectionAccess::Read,
+            MemberAccess::Write => CollectionAccess::Write,
+            MemberAccess::Manage => CollectionAccess::Manage,
+        }
+    }
+}
+
+impl CollectionAccess {
+    /// The effective access of D152: `manage` for the owner and admins; otherwise the greater of the collection's
+    /// default and the membership, capped by the role (`read` for a viewer).
+    pub fn effective(
+        role: Role,
+        default: DefaultAccess,
+        member: Option<MemberAccess>,
+    ) -> CollectionAccess {
+        let granted =
+            CollectionAccess::from(default).max(member.map_or(CollectionAccess::None, Into::into));
+        match role {
+            Role::Owner | Role::Admin => CollectionAccess::Manage,
+            Role::Member => granted,
+            Role::Viewer => granted.min(CollectionAccess::Read),
+        }
+    }
+
+    /// Whether this access includes `needed`.
+    pub fn allows(self, needed: CollectionAccess) -> bool {
+        self >= needed
+    }
+}
+
+/// A person in the workspace directory (`GET /directory`, D152): what anyone signed in may know of another account
+/// to pick it, without its email. Disabled accounts are left out.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS, ToSchema)]
+#[ts(export)]
+pub struct DirectoryUser {
+    pub id: Uuid,
+    pub name: String,
+    /// The role caps what a membership gives (a `viewer` reads at most).
+    pub role: Role,
+}
+
+/// A membership of a collection (`GET /collections/{id}/members`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS, ToSchema)]
+#[ts(export)]
+pub struct CollectionMember {
+    pub user: DirectoryUser,
+    /// What the membership grants.
+    pub access: MemberAccess,
+    /// What the person may do in the collection: the greater of this and the default access, capped by the role;
+    /// `manage` for the owner and admins; `none` while the account is disabled.
+    pub effective_access: CollectionAccess,
+    /// The account is disabled: the membership stays and applies again once it is enabled.
+    pub disabled: bool,
+    pub updated_at: Timestamp,
+}
+
+/// Body of `PUT /collections/{id}/members/{user_id}`: adds the person or changes their access.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS, ToSchema)]
+#[ts(export)]
+pub struct SetMember {
+    pub access: MemberAccess,
+}
 
 // ---------------------------------------------------------------- collections
 
@@ -30,6 +150,10 @@ pub struct Collection {
     /// Live items in the collection, at every depth.
     pub item_count: u64,
     pub updated_at: Timestamp,
+    /// The access of every member and viewer without a membership (D152).
+    pub default_access: DefaultAccess,
+    /// The caller's own access (D152). Only collections with at least `read` are ever returned.
+    pub my_access: CollectionAccess,
 }
 
 /// Body of `POST /collections`.
@@ -47,9 +171,12 @@ pub struct NewCollection {
     /// Omitted: last.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub position: Option<Position>,
+    /// Omitted: `write` (D152). The creator gets `manage` through a membership either way.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_access: Option<DefaultAccess>,
 }
 
-/// Body of `PATCH /collections/{id}`. Omitted fields stay unchanged; `icon: null` clears the icon.
+/// Body of `PATCH /collections/{id}` (`manage`, D152). Omitted fields stay unchanged; `icon: null` clears the icon.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS, ToSchema)]
 #[ts(export)]
 pub struct CollectionPatch {
@@ -69,6 +196,9 @@ pub struct CollectionPatch {
     pub description: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub child_order: Option<ChildOrder>,
+    /// The access of every member and viewer without a membership (D152).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_access: Option<DefaultAccess>,
 }
 
 /// Body of `POST /collections/{id}/move`.
@@ -405,6 +535,52 @@ pub struct TitleHit {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn effective_access_is_the_greater_grant_capped_by_the_role() {
+        use CollectionAccess as A;
+        use DefaultAccess as D;
+        use MemberAccess as M;
+        let e = CollectionAccess::effective;
+        for default in [D::None, D::Read, D::Write] {
+            for member in [None, Some(M::Read), Some(M::Write), Some(M::Manage)] {
+                // The owner and admins manage everything, whatever the collection says.
+                assert_eq!(e(Role::Owner, default, member), A::Manage);
+                assert_eq!(e(Role::Admin, default, member), A::Manage);
+                // A viewer reads at most, and only where something lets it.
+                let viewer = e(Role::Viewer, default, member);
+                assert_eq!(
+                    viewer,
+                    if default == D::None && member.is_none() {
+                        A::None
+                    } else {
+                        A::Read
+                    }
+                );
+            }
+        }
+        // A member: the greater of the default and the membership.
+        assert_eq!(e(Role::Member, D::None, None), A::None);
+        assert_eq!(e(Role::Member, D::None, Some(M::Read)), A::Read);
+        assert_eq!(e(Role::Member, D::Read, None), A::Read);
+        assert_eq!(e(Role::Member, D::Write, None), A::Write);
+        assert_eq!(
+            e(Role::Member, D::Write, Some(M::Read)),
+            A::Write,
+            "a membership never lowers"
+        );
+        assert_eq!(e(Role::Member, D::Read, Some(M::Write)), A::Write);
+        assert_eq!(e(Role::Member, D::None, Some(M::Manage)), A::Manage);
+        assert!(
+            A::Manage.allows(A::Write) && A::Write.allows(A::Read) && !A::Read.allows(A::Write)
+        );
+        assert!(!A::None.allows(A::Read));
+        // The wire spellings, and the default of a new collection.
+        assert_eq!(serde_json::to_value(A::None).unwrap(), "none");
+        assert_eq!(DefaultAccess::default(), D::Write);
+        assert!(serde_json::from_str::<MemberAccess>("\"none\"").is_err());
+        assert!(serde_json::from_str::<DefaultAccess>("\"manage\"").is_err());
+    }
 
     #[test]
     fn move_item_requires_parent_id() {

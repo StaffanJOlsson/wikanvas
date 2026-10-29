@@ -697,7 +697,7 @@ async fn collections_create_validates_and_orders() {
     assert_eq!(first.updated_at.millis(), NOW);
     let create = |new: NewCollection| {
         let o = owner.clone();
-        t.db.write(move |tx| collections::create(tx, &o, &new, NOW))
+        t.db.write(move |tx| collections::create(tx, &viewer(&o), &new, NOW))
     };
     let second = create(NewCollection {
         name: "Second".into(),
@@ -708,6 +708,7 @@ async fn collections_create_validates_and_orders() {
             after_id: None,
             before_id: Some(first.id),
         }),
+        default_access: None,
     })
     .await
     .unwrap();
@@ -765,10 +766,13 @@ async fn collections_create_validates_and_orders() {
     }
     t.item(&owner, first.id, None, ItemKind::Doc, "one").await;
     let id = first.id.to_string();
-    let again = t.db.read(move |c| collections::get(c, &id)).await.unwrap();
+    let again =
+        t.db.read(move |c| collections::get(c, &viewer(""), &id))
+            .await
+            .unwrap();
     assert_eq!(again.item_count, 1);
     assert!(
-        t.db.read(|c| collections::get(c, "nope"))
+        t.db.read(|c| collections::get(c, &viewer(""), "nope"))
             .await
             .unwrap_err()
             .is(ErrorCode::NotFound)
@@ -1001,13 +1005,13 @@ async fn collection_delete_restore_roundtrip() {
     }
     let cid = c.id.to_string();
     let (deleted, at) = t
-        .r(move |conn| collections::get_with_state(conn, &cid))
+        .r(move |conn| collections::get_with_state(conn, &viewer(""), &cid))
         .await
         .unwrap();
     assert_eq!((deleted.item_count, at), (3, Some(NOW + MINUTE)));
     let cid = c.id.to_string();
     assert!(
-        t.r(move |conn| collections::get_live(conn, &cid))
+        t.r(move |conn| collections::get_live(conn, &viewer(""), &cid))
             .await
             .unwrap_err()
             .is(ErrorCode::NotFound)
@@ -1034,7 +1038,7 @@ async fn collection_delete_restore_roundtrip() {
     );
     let (cid, o) = (c.id.to_string(), owner.clone());
     let back = t
-        .w(move |tx| collections::restore(tx, &cid, &o, NOW + 2 * MINUTE))
+        .w(move |tx| collections::restore(tx, &viewer(&o), &cid, NOW + 2 * MINUTE))
         .await
         .unwrap();
     assert_eq!(back.item_count, 2, "a and b; arch is archived");
@@ -1049,7 +1053,7 @@ async fn collection_delete_restore_roundtrip() {
     );
     let (cid, o) = (c.id.to_string(), owner.clone());
     assert!(
-        t.w(move |tx| collections::restore(tx, &cid, &o, NOW))
+        t.w(move |tx| collections::restore(tx, &viewer(&o), &cid, NOW))
             .await
             .unwrap_err()
             .is(ErrorCode::Conflict)
@@ -1137,7 +1141,7 @@ async fn create_restore_or_move_into_deleted_collection_409() {
     assert!(e.is(ErrorCode::ParentInvalid), "move: {e:?}");
     // After the collection is restored, the earlier item restores too.
     let (xid, o) = (x.id.to_string(), owner.clone());
-    t.w(move |tx| collections::restore(tx, &xid, &o, NOW))
+    t.w(move |tx| collections::restore(tx, &viewer(&o), &xid, NOW))
         .await
         .unwrap();
     assert!(!restore(&t, earlier.id).await.unwrap().moved_to_top);
@@ -1468,7 +1472,7 @@ async fn rebalance_when_key_over_64() {
         .w(move |tx| {
             collections::create(
                 tx,
-                &o,
+                &viewer(&o),
                 &NewCollection {
                     name: "between".into(),
                     position: Some(Position {

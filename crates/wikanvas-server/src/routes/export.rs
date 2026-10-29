@@ -92,7 +92,7 @@ async fn export(
     headers: HeaderMap,
     uri: Uri,
 ) -> Result<Response, ApiError> {
-    authz::require(&auth, Action::Admin, Resource::Workspace)?;
+    authz::require(&state, &auth, Action::Admin, Resource::Workspace).await?;
     if auth.session_id().is_some() {
         let host = request_host(&headers, &uri).unwrap_or_default();
         if !navigation_allowed(&state.config, &headers, &host) {

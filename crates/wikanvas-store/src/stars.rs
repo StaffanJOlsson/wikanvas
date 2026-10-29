@@ -4,7 +4,8 @@
 //! keys as siblings (D6), rebalanced past 64 characters. The lists show starred items that are visible and
 //! unarchived; a star on a trashed or archived item stays and shows again once it is restored or unarchived.
 
-use rusqlite::{Connection, OptionalExtension, Transaction, params};
+use rusqlite::types::Value;
+use rusqlite::{Connection, OptionalExtension, Transaction, params, params_from_iter};
 use wikanvas_core::api::{ErrorCode, ItemSummary, Position};
 
 use crate::error::{Error, Result};
@@ -80,16 +81,19 @@ pub fn is_starred(conn: &Connection, user_id: &str, item_id: &str) -> Result<boo
 
 /// The viewer's starred items that are visible and unarchived, in star order (the sidebar's STARRED section).
 pub fn list(conn: &Connection, viewer: &Viewer) -> Result<Vec<ItemSummary>> {
+    let visible = visible_items(viewer);
     let sql = format!(
         "SELECT {}, {CHILD_COUNT} FROM stars s JOIN items i ON i.id = s.item_id JOIN collections c ON c.id = i.collection_id
-         WHERE s.user_id = ?1 AND {} AND i.archived_at IS NULL
+         WHERE s.user_id = ? AND {} AND i.archived_at IS NULL
          ORDER BY s.sort_key, s.item_id",
         ItemRow::COLUMNS,
-        visible_items(viewer)
+        visible.sql
     );
+    let mut args = vec![Value::Text(viewer.user_id.clone())];
+    args.extend(visible.args);
     let rows = conn
         .prepare_cached(&sql)?
-        .query_map([&viewer.user_id], |r| {
+        .query_map(params_from_iter(args.iter()), |r| {
             Ok((
                 ItemRow::from_row(r)?,
                 r.get::<_, i64>(ItemRow::COLUMN_COUNT)?,

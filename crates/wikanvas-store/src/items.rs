@@ -596,7 +596,7 @@ pub fn summary(conn: &Connection, item_id: &str) -> Result<ItemSummary> {
 pub fn detail(conn: &Connection, viewer: &Viewer, row: &ItemRow) -> Result<ItemDetail> {
     Ok(ItemDetail {
         item: summary(conn, &row.id)?,
-        collection: crate::collections::get(conn, &row.collection_id)?,
+        collection: crate::collections::get(conn, viewer, &row.collection_id)?,
         breadcrumbs: tree::breadcrumbs(conn, &row.id)?,
         starred: crate::stars::is_starred(conn, &viewer.user_id, &row.id)?,
         effectively_published: crate::shared::effectively_published(conn, &row.id)?,

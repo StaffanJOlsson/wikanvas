@@ -4,14 +4,20 @@
 //! tree answer 404 for it, item creates and moves into it answer 409 `parent_invalid`, and only [`restore`] and
 //! [`purge`] act on it. Deleting a collection marks its live items with the collection as their trash root; restoring
 //! it clears exactly those rows, so items trashed earlier stay in Trash.
+//!
+//! Every [`Collection`] a function here returns carries the viewer's own access (`my_access`, D152), so each takes
+//! the [`Viewer`]; which collections a viewer may see or change is `crate::access` and `shared::readable_collections`.
+//! The writes take the viewer as the actor.
 
-use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
+use rusqlite::types::Value;
+use rusqlite::{Connection, OptionalExtension, Row, Transaction, params, params_from_iter};
 use wikanvas_core::api::{
-    ChildOrder, Collection, CollectionPatch, ErrorCode, NewCollection, Position, Timestamp,
+    ChildOrder, Collection, CollectionAccess, CollectionPatch, DefaultAccess, ErrorCode,
+    MemberAccess, NewCollection, Position, Timestamp,
 };
 
 use crate::error::{Error, Result};
-use crate::shared::{Viewer, new_id, new_url_id, place_rebalancing};
+use crate::shared::{Viewer, new_id, new_url_id, place_rebalancing, readable_collections};
 
 /// The default collection colour (§5).
 pub const DEFAULT_COLOR: &str = "#8D8D8D";
@@ -22,17 +28,29 @@ pub const MAX_DESCRIPTION_CHARS: usize = 500;
 
 /// The columns [`from_row`] reads, for a query that names the collection `c`. `item_count` is the live, unarchived
 /// items of a live collection, and the items its deletion trashed for a deleted one (what a restore brings back).
+/// The last column is the viewer's membership: COLUMNS takes one parameter, the viewer's id, as the query's first
+/// anonymous `?` (so the query uses anonymous parameters only).
 const COLUMNS: &str = "c.id, c.url_id, c.name, c.description, c.icon, c.color, c.sort_key, c.child_order, c.updated_at,
     (SELECT count(*) FROM items i WHERE i.collection_id = c.id AND CASE WHEN c.deleted_at IS NULL
        THEN i.deleted_at IS NULL AND i.archived_at IS NULL ELSE i.trash_root_id = c.id END),
-    c.deleted_at";
+    c.deleted_at, c.default_access,
+    (SELECT m.access FROM collection_members m WHERE m.collection_id = c.id AND m.user_id = ?)";
 
-fn from_row(r: &Row<'_>) -> rusqlite::Result<(Collection, Option<i64>)> {
+/// Reads a row selected with [`COLUMNS`] for `viewer` (whose id was its parameter).
+fn from_row(r: &Row<'_>, viewer: &Viewer) -> rusqlite::Result<(Collection, Option<i64>)> {
     let id: String = r.get(0)?;
     let child_order: String = r.get(7)?;
     let bad = |col, e: Box<dyn std::error::Error + Send + Sync>| {
         rusqlite::Error::FromSqlConversionFailure(col, rusqlite::types::Type::Text, e)
     };
+    let default_access: DefaultAccess = r
+        .get::<_, String>(11)?
+        .parse()
+        .map_err(|e| bad(11, Box::new(e)))?;
+    let member: Option<MemberAccess> = r
+        .get::<_, Option<String>>(12)?
+        .map(|a| a.parse::<MemberAccess>().map_err(|e| bad(12, Box::new(e))))
+        .transpose()?;
     Ok((
         Collection {
             id: uuid::Uuid::parse_str(&id).map_err(|e| bad(0, Box::new(e)))?,
@@ -47,20 +65,24 @@ fn from_row(r: &Row<'_>) -> rusqlite::Result<(Collection, Option<i64>)> {
                 .map_err(|e| bad(7, Box::new(e)))?,
             item_count: r.get::<_, i64>(9)? as u64,
             updated_at: Timestamp(r.get(8)?),
+            default_access,
+            my_access: CollectionAccess::effective(viewer.role, default_access, member),
         },
         r.get(10)?,
     ))
 }
 
-/// Creates a collection at `new.position` among all collections (omitted: last). Validation (422, `details.field`):
-/// `name` 1–100 characters after trimming, `description` at most 500, `color` `#RRGGBB`, `icon` a lucide name
-/// (1–64 of `a-z0-9-`), `position` naming collections.
+/// Creates a collection at `new.position` among all collections (omitted: last), with `new.default_access` (omitted:
+/// `write`), and gives the creator (`viewer`) a `manage` membership (D152). Validation (422, `details.field`): `name`
+/// 1–100 characters after trimming, `description` at most 500, `color` `#RRGGBB`, `icon` a lucide name (1–64 of
+/// `a-z0-9-`), `position` naming collections the viewer may read.
 pub fn create(
     tx: &Transaction<'_>,
-    actor_id: &str,
+    viewer: &Viewer,
     new: &NewCollection,
     now: i64,
 ) -> Result<Collection> {
+    let actor_id = viewer.user_id.as_str();
     let name = check_name(&new.name)?;
     let description = new.description.as_deref().unwrap_or("");
     check_description(description)?;
@@ -69,36 +91,79 @@ pub fn create(
     if let Some(icon) = &new.icon {
         check_icon(icon)?;
     }
+    check_position(tx, viewer, new.position.as_ref())?;
     let sort_key = place(tx, None, new.position.as_ref())?;
     let id = new_id();
+    let default_access = new.default_access.unwrap_or_default();
     tx.execute(
         "INSERT INTO collections (id, url_id, name, description, icon, color, sort_key, created_by, updated_by,
-           created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8, ?9, ?9)",
-        params![id, new_url_id()?, name, description, new.icon, color, sort_key, actor_id, now],
+           created_at, updated_at, default_access)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8, ?9, ?9, ?10)",
+        params![
+            id,
+            new_url_id()?,
+            name,
+            description,
+            new.icon,
+            color,
+            sort_key,
+            actor_id,
+            now,
+            default_access.as_str()
+        ],
     )?;
-    get(tx, &id)
+    // The creator manages it (D152). No access epoch moves: nobody had a tree of this collection to revalidate.
+    tx.execute(
+        "INSERT INTO collection_members (collection_id, user_id, access, created_by, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?2, ?4, ?4)",
+        params![id, actor_id, MemberAccess::Manage.as_str(), now],
+    )?;
+    get(tx, viewer, &id)
 }
 
-/// A collection by id, whatever its state. `not_found` when missing.
-pub fn get(conn: &Connection, id: &str) -> Result<Collection> {
-    Ok(get_with_state(conn, id)?.0)
+/// A collection by id, whatever its state, with the viewer's access. `not_found` when missing. It does not check that
+/// the viewer may read it: the caller has (`authz::require`, or a list through `readable_collections`).
+pub fn get(conn: &Connection, viewer: &Viewer, id: &str) -> Result<Collection> {
+    Ok(get_with_state(conn, viewer, id)?.0)
 }
 
 /// A collection by id with its `deleted_at`. `not_found` when missing.
-pub fn get_with_state(conn: &Connection, id: &str) -> Result<(Collection, Option<i64>)> {
+pub fn get_with_state(
+    conn: &Connection,
+    viewer: &Viewer,
+    id: &str,
+) -> Result<(Collection, Option<i64>)> {
     conn.query_row(
-        &format!("SELECT {COLUMNS} FROM collections c WHERE c.id = ?1"),
-        [id],
-        from_row,
+        &format!("SELECT {COLUMNS} FROM collections c WHERE c.id = ?"),
+        params![viewer.user_id, id],
+        |r| from_row(r, viewer),
     )
     .optional()?
     .ok_or_else(|| Error::not_found("no such collection"))
 }
 
+/// Whether a collection exists, and its `deleted_at`. `not_found` when missing.
+fn state(conn: &Connection, id: &str) -> Result<Option<i64>> {
+    conn.query_row(
+        "SELECT deleted_at FROM collections WHERE id = ?1",
+        [id],
+        |r| r.get(0),
+    )
+    .optional()?
+    .ok_or_else(|| Error::not_found("no such collection"))
+}
+
+/// `not_found` unless the collection exists and is live.
+fn ensure_live(conn: &Connection, id: &str) -> Result<()> {
+    match state(conn, id)? {
+        None => Ok(()),
+        Some(_) => Err(Error::not_found("the collection is in the trash")),
+    }
+}
+
 /// A live collection by id. `not_found` when missing or deleted (a deleted collection is only in Trash).
-pub fn get_live(conn: &Connection, id: &str) -> Result<Collection> {
-    match get_with_state(conn, id)? {
+pub fn get_live(conn: &Connection, viewer: &Viewer, id: &str) -> Result<Collection> {
+    match get_with_state(conn, viewer, id)? {
         (c, None) => Ok(c),
         (_, Some(_)) => Err(Error::not_found("the collection is in the trash")),
     }
@@ -116,24 +181,33 @@ pub fn resolve(conn: &Connection, id_or_url_id: &str) -> Result<String> {
     .ok_or_else(|| Error::not_found("no such collection"))
 }
 
-/// The live collections in sidebar order.
-pub fn list(conn: &Connection, _viewer: &Viewer) -> Result<Vec<Collection>> {
+/// The live collections the viewer may read (D152), in sidebar order.
+pub fn list(conn: &Connection, viewer: &Viewer) -> Result<Vec<Collection>> {
+    let readable = readable_collections(viewer);
+    let mut args = vec![Value::Text(viewer.user_id.clone())];
+    args.extend(readable.args);
     Ok(conn
         .prepare_cached(&format!(
-            "SELECT {COLUMNS} FROM collections c WHERE c.deleted_at IS NULL ORDER BY c.sort_key, c.id"
+            "SELECT {COLUMNS} FROM collections c WHERE c.deleted_at IS NULL AND {} ORDER BY c.sort_key, c.id",
+            readable.sql
         ))?
-        .query_map([], |r| Ok(from_row(r)?.0))?
+        .query_map(params_from_iter(args.iter()), |r| Ok(from_row(r, viewer)?.0))?
         .collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
-/// The deleted collections with their `deleted_at`, most recently deleted first (Trash).
-pub fn deleted(conn: &Connection) -> Result<Vec<(Collection, i64)>> {
+/// The deleted collections the viewer may read with their `deleted_at`, most recently deleted first (Trash).
+pub fn deleted(conn: &Connection, viewer: &Viewer) -> Result<Vec<(Collection, i64)>> {
+    let readable = readable_collections(viewer);
+    let mut args = vec![Value::Text(viewer.user_id.clone())];
+    args.extend(readable.args);
     Ok(conn
         .prepare_cached(&format!(
-            "SELECT {COLUMNS} FROM collections c WHERE c.deleted_at IS NOT NULL ORDER BY c.deleted_at DESC, c.id DESC"
+            "SELECT {COLUMNS} FROM collections c WHERE c.deleted_at IS NOT NULL AND {}
+             ORDER BY c.deleted_at DESC, c.id DESC",
+            readable.sql
         ))?
-        .query_map([], |r| {
-            let (c, deleted) = from_row(r)?;
+        .query_map(params_from_iter(args.iter()), |r| {
+            let (c, deleted) = from_row(r, viewer)?;
             Ok((c, deleted.unwrap_or_default()))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?)
@@ -155,16 +229,18 @@ pub fn child_order(conn: &Connection, id: &str) -> Result<ChildOrder> {
 }
 
 /// Edits a live collection: the fields `patch` sets (an `icon: null` clears the icon), validated as in [`create`].
-/// A change sets `updated_at`/`updated_by` and bumps `tree_version` (the tree response holds the collection);
-/// a patch that changes nothing writes nothing. `not_found` when missing or deleted.
+/// A change sets `updated_at`/`updated_by` and bumps `tree_version` (the tree response holds the collection, and a
+/// new `default_access` changes every member's and viewer's `my_access` in it); a patch that changes nothing writes
+/// nothing. `not_found` when missing or deleted.
 pub fn update(
     tx: &Transaction<'_>,
+    viewer: &Viewer,
     id: &str,
     patch: &CollectionPatch,
-    actor_id: &str,
     now: i64,
 ) -> Result<Collection> {
-    let current = get_live(tx, id)?;
+    let actor_id = viewer.user_id.as_str();
+    let current = get_live(tx, viewer, id)?;
     let name = patch.name.as_deref().map(check_name).transpose()?;
     if let Some(d) = &patch.description {
         check_description(d)?;
@@ -184,6 +260,7 @@ pub fn update(
         icon: patch.icon.clone().unwrap_or(current.icon.clone()),
         color: patch.color.clone().unwrap_or(current.color.clone()),
         child_order: patch.child_order.unwrap_or(current.child_order),
+        default_access: patch.default_access.unwrap_or(current.default_access),
         ..current.clone()
     };
     if next == current {
@@ -191,7 +268,7 @@ pub fn update(
     }
     tx.execute(
         "UPDATE collections SET name = ?2, description = ?3, icon = ?4, color = ?5, child_order = ?6, updated_at = ?7,
-           updated_by = ?8, tree_version = tree_version + 1
+           updated_by = ?8, default_access = ?9, tree_version = tree_version + 1
          WHERE id = ?1",
         params![
             id,
@@ -201,35 +278,56 @@ pub fn update(
             next.color,
             next.child_order.as_str(),
             now,
-            actor_id
+            actor_id,
+            next.default_access.as_str()
         ],
     )?;
-    get(tx, id)
+    get(tx, viewer, id)
 }
 
 /// Moves a live collection to `position` among the collections (bumping its `tree_version`: the tree response holds
-/// the collection's `sort_key`). `not_found` when missing or deleted.
+/// the collection's `sort_key`). `not_found` when missing or deleted; 422 `position` for a position that names a
+/// collection the viewer may not read, as for one that does not exist.
 pub fn move_to(
     tx: &Transaction<'_>,
+    viewer: &Viewer,
     id: &str,
     position: &Position,
-    actor_id: &str,
     now: i64,
 ) -> Result<Collection> {
-    get_live(tx, id)?;
+    ensure_live(tx, id)?;
+    check_position(tx, viewer, Some(position))?;
     let key = place(tx, Some(id), Some(position))?;
     tx.execute(
         "UPDATE collections SET sort_key = ?2, updated_at = ?3, updated_by = ?4, tree_version = tree_version + 1
          WHERE id = ?1",
-        params![id, key, now, actor_id],
+        params![id, key, now, viewer.user_id],
     )?;
-    get(tx, id)
+    get(tx, viewer, id)
+}
+
+/// 422 `validation` (`field: "position"`) when the position names a collection the viewer may not read: such an id
+/// is treated as one that does not exist, so a position cannot test whether a hidden collection exists.
+fn check_position(conn: &Connection, viewer: &Viewer, position: Option<&Position>) -> Result<()> {
+    let Some(p) = position else {
+        return Ok(());
+    };
+    for id in [p.after_id, p.before_id].into_iter().flatten() {
+        if !crate::access::collection(conn, viewer, &id.to_string())?.allows(CollectionAccess::Read)
+        {
+            return Err(Error::validation(
+                "position",
+                "the position names a row that is not a sibling",
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Soft-deletes a live collection: sets its `deleted_at` and marks its live items (archived ones included) with the
 /// collection as their trash root. Returns how many items it trashed. `not_found` when missing or already deleted.
 pub fn delete(tx: &Transaction<'_>, id: &str, actor_id: &str, now: i64) -> Result<u64> {
-    get_live(tx, id)?;
+    ensure_live(tx, id)?;
     tx.execute(
         "UPDATE collections SET deleted_at = ?2, deleted_by = ?3, tree_version = tree_version + 1 WHERE id = ?1",
         params![id, now, actor_id],
@@ -244,8 +342,9 @@ pub fn delete(tx: &Transaction<'_>, id: &str, actor_id: &str, now: i64) -> Resul
 
 /// Restores a deleted collection and exactly the items its deletion trashed. `not_found` when missing; 409
 /// `conflict` when it is not deleted.
-pub fn restore(tx: &Transaction<'_>, id: &str, actor_id: &str, now: i64) -> Result<Collection> {
-    if get_with_state(tx, id)?.1.is_none() {
+pub fn restore(tx: &Transaction<'_>, viewer: &Viewer, id: &str, now: i64) -> Result<Collection> {
+    let actor_id = viewer.user_id.as_str();
+    if state(tx, id)?.is_none() {
         return Err(Error::new(
             ErrorCode::Conflict,
             "the collection is not in the trash",
@@ -262,13 +361,13 @@ pub fn restore(tx: &Transaction<'_>, id: &str, actor_id: &str, now: i64) -> Resu
          WHERE id = ?1",
         params![id, now, actor_id],
     )?;
-    get(tx, id)
+    get(tx, viewer, id)
 }
 
 /// Permanently deletes a deleted collection with every item in it, leaves first (§5 "Purge"). Returns how many items
 /// it deleted. `not_found` when missing; 409 `conflict` when it is not deleted.
 pub fn purge(tx: &Transaction<'_>, id: &str) -> Result<u64> {
-    if get_with_state(tx, id)?.1.is_none() {
+    if state(tx, id)?.is_none() {
         return Err(Error::new(
             ErrorCode::Conflict,
             "only a collection in the trash can be purged; delete it first",

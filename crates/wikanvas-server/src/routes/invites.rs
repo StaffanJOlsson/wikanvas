@@ -71,7 +71,7 @@ async fn create_invite(
     State(state): State<AppState>,
     Json(new): Json<NewInvite>,
 ) -> Result<(StatusCode, Json<CreatedInvite>), ApiError> {
-    authz::require(&auth, Action::Admin, Resource::Workspace)?;
+    authz::require(&state, &auth, Action::Admin, Resource::Workspace).await?;
     let actor = auth.into_actor();
     let now = state.now();
     let created = state
@@ -116,7 +116,7 @@ async fn list_invites(
     auth: Auth<Admin>,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<Invite>>, ApiError> {
-    authz::require(&auth, Action::Admin, Resource::Workspace)?;
+    authz::require(&state, &auth, Action::Admin, Resource::Workspace).await?;
     let now = state.now();
     let list = state
         .db
@@ -153,7 +153,7 @@ async fn revoke_invite(
     IdPath(id): IdPath,
 ) -> Result<StatusCode, ApiError> {
     let id = id.to_string();
-    authz::require(&auth, Action::Admin, Resource::Invite(&id))?;
+    authz::require(&state, &auth, Action::Admin, Resource::Invite(&id)).await?;
     let now = state.now();
     let n = state
         .db

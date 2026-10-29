@@ -609,7 +609,11 @@ async fn purge_and_gc_runs_purge_then_attachment_gc_then_blob_gc() {
                 name: "Notes".into(),
                 ..Default::default()
             };
-            let c = wikanvas_store::collections::create(tx, &owner, &new, now)?;
+            let by = wikanvas_store::Viewer {
+                user_id: owner.clone(),
+                role: wikanvas_api::Role::Owner,
+            };
+            let c = wikanvas_store::collections::create(tx, &by, &new, now)?;
             let new = NewItem {
                 collection_id: c.id,
                 parent_id: None,

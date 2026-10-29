@@ -19,7 +19,7 @@ use wikanvas_core::cursor::{self, Cursor, SortValue};
 use wikanvas_core::time::purge_at;
 
 use crate::error::{Error, Result};
-use crate::shared::{ItemRow, Viewer, visible_items};
+use crate::shared::{ItemRow, Viewer, readable_collections, visible_items};
 use crate::tree::{CHILD_COUNT, breadcrumbs};
 
 /// One page request: the list's name and its normalized parameters (what the cursor is bound to), the cursor of
@@ -191,25 +191,21 @@ fn listed(conn: &Connection, r: &Row<'_>) -> Result<(ListedItem, Option<i64>)> {
 
 /// `GET /recent`: the viewer's viewed items, most recently viewed first, with `last_viewed_at`.
 pub fn recent(conn: &Connection, viewer: &Viewer, req: &PageRequest) -> Result<Page<ListedItem>> {
+    let visible = visible_items(viewer);
     let sql = format!(
         "SELECT v.last_viewed_at AS sort_value, i.id AS row_id, {}
          FROM item_views v JOIN items i ON i.id = v.item_id JOIN collections c ON c.id = i.collection_id
          WHERE v.user_id = ? AND {} AND i.archived_at IS NULL",
         item_columns("v.last_viewed_at"),
-        visible_items(viewer)
+        visible.sql
     );
-    page(
-        conn,
-        req,
-        &sql,
-        vec![Value::Text(viewer.user_id.clone())],
-        Order::Desc,
-        |r| {
-            let (mut item, extra) = listed(conn, r)?;
-            item.last_viewed_at = extra.map(Timestamp);
-            Ok(item)
-        },
-    )
+    let mut args = vec![Value::Text(viewer.user_id.clone())];
+    args.extend(visible.args);
+    page(conn, req, &sql, args, Order::Desc, |r| {
+        let (mut item, extra) = listed(conn, r)?;
+        item.last_viewed_at = extra.map(Timestamp);
+        Ok(item)
+    })
 }
 
 /// `GET /updated` (every collection) and `GET /collections/{id}/updated` (`collection_id`): items at every depth,
@@ -220,15 +216,18 @@ pub fn updated(
     collection_id: Option<&str>,
     req: &PageRequest,
 ) -> Result<Page<ListedItem>> {
+    let visible = visible_items(viewer);
     let sql = format!(
         "SELECT i.updated_at AS sort_value, i.id AS row_id, {}
          FROM items i JOIN collections c ON c.id = i.collection_id
          WHERE {} AND i.archived_at IS NULL AND (? IS NULL OR i.collection_id = ?)",
         item_columns("NULL"),
-        visible_items(viewer)
+        visible.sql
     );
     let c = collection_id.map_or(Value::Null, |c| Value::Text(c.to_owned()));
-    page(conn, req, &sql, vec![c.clone(), c], Order::Desc, |r| {
+    let mut args = visible.args;
+    args.extend([c.clone(), c]);
+    page(conn, req, &sql, args, Order::Desc, |r| {
         Ok(listed(conn, r)?.0)
     })
 }
@@ -236,72 +235,75 @@ pub fn updated(
 /// `GET /drafts`: unpublished items (in M1 only those unpublished through the API or CLI, D23), most recently
 /// updated first.
 pub fn drafts(conn: &Connection, viewer: &Viewer, req: &PageRequest) -> Result<Page<ListedItem>> {
+    let visible = visible_items(viewer);
     let sql = format!(
         "SELECT i.updated_at AS sort_value, i.id AS row_id, {}
          FROM items i JOIN collections c ON c.id = i.collection_id
          WHERE {} AND i.archived_at IS NULL AND i.published_at IS NULL",
         item_columns("NULL"),
-        visible_items(viewer)
+        visible.sql
     );
-    page(conn, req, &sql, Vec::new(), Order::Desc, |r| {
+    page(conn, req, &sql, visible.args, Order::Desc, |r| {
         Ok(listed(conn, r)?.0)
     })
 }
 
 /// The number of items `/drafts` lists (`Sidebar.drafts_count`).
 pub fn drafts_count(conn: &Connection, viewer: &Viewer) -> Result<u64> {
+    let visible = visible_items(viewer);
     let sql = format!(
         "SELECT count(*) FROM items i JOIN collections c ON c.id = i.collection_id
          WHERE {} AND i.archived_at IS NULL AND i.published_at IS NULL",
-        visible_items(viewer)
+        visible.sql
     );
-    Ok(conn.query_row(&sql, [], |r| r.get::<_, i64>(0))? as u64)
+    Ok(
+        conn.query_row(&sql, params_from_iter(visible.args.iter()), |r| {
+            r.get::<_, i64>(0)
+        })? as u64,
+    )
 }
 
 /// `GET /starred`: the viewer's starred items in star order, with `starred_at`.
 pub fn starred(conn: &Connection, viewer: &Viewer, req: &PageRequest) -> Result<Page<ListedItem>> {
+    let visible = visible_items(viewer);
     let sql = format!(
         "SELECT s.sort_key AS sort_value, i.id AS row_id, {}
          FROM stars s JOIN items i ON i.id = s.item_id JOIN collections c ON c.id = i.collection_id
          WHERE s.user_id = ? AND {} AND i.archived_at IS NULL",
         item_columns("s.created_at"),
-        visible_items(viewer)
+        visible.sql
     );
-    page(
-        conn,
-        req,
-        &sql,
-        vec![Value::Text(viewer.user_id.clone())],
-        Order::Asc,
-        |r| {
-            let (mut item, extra) = listed(conn, r)?;
-            item.starred_at = extra.map(Timestamp);
-            Ok(item)
-        },
-    )
+    let mut args = vec![Value::Text(viewer.user_id.clone())];
+    args.extend(visible.args);
+    page(conn, req, &sql, args, Order::Asc, |r| {
+        let (mut item, extra) = listed(conn, r)?;
+        item.starred_at = extra.map(Timestamp);
+        Ok(item)
+    })
 }
 
 /// `GET /archive`: archive roots that are not in the trash, most recently archived first, with `archived_at`.
 pub fn archive(conn: &Connection, viewer: &Viewer, req: &PageRequest) -> Result<Page<ListedItem>> {
+    let visible = visible_items(viewer);
     let sql = format!(
         "SELECT i.archived_at AS sort_value, i.id AS row_id, {}
          FROM items i JOIN collections c ON c.id = i.collection_id
          WHERE {} AND i.archive_root_id = i.id",
         item_columns("i.archived_at"),
-        visible_items(viewer)
+        visible.sql
     );
-    page(conn, req, &sql, Vec::new(), Order::Desc, |r| {
+    page(conn, req, &sql, visible.args, Order::Desc, |r| {
         let (mut item, extra) = listed(conn, r)?;
         item.archived_at = extra.map(Timestamp);
         Ok(item)
     })
 }
 
-/// `GET /trash` (roots only, unpaginated): the deleted collections, and every item that is its own trash root (also
-/// those in a deleted collection, trashed before it), most recently deleted first, each with its purge date; an item
-/// root also with the number of descendants trashed with it and its path.
-pub fn trash(conn: &Connection, _viewer: &Viewer) -> Result<TrashList> {
-    let collections = crate::collections::deleted(conn)?
+/// `GET /trash` (roots only, unpaginated): of the collections the viewer may read (D152), the deleted ones, and every
+/// item that is its own trash root (also those in a deleted collection, trashed before it), most recently deleted
+/// first, each with its purge date; an item root also with the number of descendants trashed with it and its path.
+pub fn trash(conn: &Connection, viewer: &Viewer) -> Result<TrashList> {
+    let collections = crate::collections::deleted(conn, viewer)?
         .into_iter()
         .map(|(collection, deleted_at)| TrashedCollection {
             collection,
@@ -309,14 +311,17 @@ pub fn trash(conn: &Connection, _viewer: &Viewer) -> Result<TrashList> {
             purge_at: Timestamp(purge_at(deleted_at)),
         })
         .collect();
+    let readable = readable_collections(viewer);
     let sql = format!(
         "SELECT {}, {CHILD_COUNT}, (SELECT count(*) FROM items d WHERE d.trash_root_id = i.id AND d.id <> i.id)
-         FROM items i WHERE i.trash_root_id = i.id ORDER BY i.deleted_at DESC, i.id DESC",
-        ItemRow::COLUMNS
+         FROM items i JOIN collections c ON c.id = i.collection_id
+         WHERE i.trash_root_id = i.id AND {} ORDER BY i.deleted_at DESC, i.id DESC",
+        ItemRow::COLUMNS,
+        readable.sql
     );
     let rows = conn
         .prepare_cached(&sql)?
-        .query_map([], |r| {
+        .query_map(params_from_iter(readable.args.iter()), |r| {
             Ok((
                 ItemRow::from_row(r)?,
                 r.get::<_, i64>(ItemRow::COLUMN_COUNT)?,

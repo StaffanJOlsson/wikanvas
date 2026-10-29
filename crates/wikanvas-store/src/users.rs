@@ -379,8 +379,9 @@ pub fn change(
         (true, None) => Some(now),
         (false, _) => None,
     };
+    // The role caps collection access and a disabled account has none (D152): the tree ETag's epoch moves on.
     tx.execute(
-        "UPDATE users SET role = ?2, disabled_at = ?3, updated_at = ?4 WHERE id = ?1",
+        "UPDATE users SET role = ?2, disabled_at = ?3, updated_at = ?4, access_epoch = access_epoch + 1 WHERE id = ?1",
         params![id, role.as_str(), disabled_at, now],
     )?;
     let newly_disabled = disable && user.disabled_at.is_none();

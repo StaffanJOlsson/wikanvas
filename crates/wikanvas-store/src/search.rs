@@ -175,6 +175,7 @@ pub fn search(conn: &Connection, viewer: &Viewer, q: &SearchQuery) -> Result<Pag
     let Some(fts) = build_match(&q.q) else {
         return Ok(Page::new(Vec::new(), None));
     };
+    let visible = visible_items(viewer);
     let mut sql = format!(
         "SELECT {}, {CHILD_COUNT}, bm25(item_fts, 8.0, 1.0),
            snippet(item_fts, 1, char(57344), char(57345), '…', {SNIPPET_TOKENS})
@@ -182,9 +183,10 @@ pub fn search(conn: &Connection, viewer: &Viewer, q: &SearchQuery) -> Result<Pag
            JOIN items i ON i.id = t.item_id JOIN collections c ON c.id = i.collection_id
          WHERE item_fts MATCH ? AND {}",
         ItemRow::COLUMNS,
-        visible_items(viewer)
+        visible.sql
     );
     let mut args = vec![Value::Text(fts)];
+    args.extend(visible.args);
     if !q.include_archived {
         sql.push_str(" AND i.archived_at IS NULL");
     }
@@ -299,32 +301,28 @@ pub fn titles(
         return Err(Error::validation("q", "q is at most 500 characters"));
     }
     let limit = page_limit(limit, TITLES_MAX_LIMIT, TITLES_DEFAULT_LIMIT)?;
+    let visible = visible_items(viewer);
     let base = |from: &str, extra: &str| {
         format!(
             "SELECT {}, {CHILD_COUNT} FROM {from} JOIN collections c ON c.id = i.collection_id
              WHERE {} AND i.archived_at IS NULL {extra}",
             ItemRow::COLUMNS,
-            visible_items(viewer)
+            visible.sql
         )
     };
-    let (sql, args) = if q.trim().is_empty() {
-        (
-            base("items i", "ORDER BY i.updated_at DESC, i.id DESC LIMIT ?"),
-            vec![Value::Integer(i64::from(limit))],
-        )
+    let mut args = visible.args.clone();
+    let sql = if q.trim().is_empty() {
+        args.push(Value::Integer(i64::from(limit)));
+        base("items i", "ORDER BY i.updated_at DESC, i.id DESC LIMIT ?")
     } else {
         let Some(fts) = build_match(q) else {
             return Ok(Vec::new());
         };
-        (
-            base(
-                "item_fts JOIN item_text t ON t.text_id = item_fts.rowid JOIN items i ON i.id = t.item_id",
-                "AND item_fts MATCH ? ORDER BY bm25(item_fts, 1.0, 0.0), i.updated_at DESC, i.id LIMIT ?",
-            ),
-            vec![
-                Value::Text(format!("title : ({fts})")),
-                Value::Integer(i64::from(limit)),
-            ],
+        args.push(Value::Text(format!("title : ({fts})")));
+        args.push(Value::Integer(i64::from(limit)));
+        base(
+            "item_fts JOIN item_text t ON t.text_id = item_fts.rowid JOIN items i ON i.id = t.item_id",
+            "AND item_fts MATCH ? ORDER BY bm25(item_fts, 1.0, 0.0), i.updated_at DESC, i.id LIMIT ?",
         )
     };
     let rows = conn

@@ -2,6 +2,7 @@
 
 mod common;
 
+mod access;
 mod accounts;
 mod admin;
 mod auth;

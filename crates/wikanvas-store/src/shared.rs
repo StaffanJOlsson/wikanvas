@@ -5,6 +5,7 @@
 
 use std::path::Path;
 
+use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use uuid::Uuid;
 use wikanvas_core::api::{ErrorCode, ItemKind, ItemSummary, Role, Timestamp};
@@ -198,11 +199,46 @@ pub fn item_row(conn: &Connection, item_id: &str) -> Result<ItemRow> {
     .ok_or_else(|| Error::not_found("no such item"))
 }
 
-/// The SQL condition every list, tree, sidebar, search and backlink query selects items with (§5 "Visibility"). The
-/// query must name `items` as `i` and the item's collection as `c`. M1: a live item in a live collection; the tree
-/// and default search add `i.archived_at IS NULL` themselves. Multi-user later changes only this function (§15).
-pub fn visible_items(_viewer: &Viewer) -> &'static str {
-    "(c.deleted_at IS NULL AND i.deleted_at IS NULL)"
+/// A viewer-specific SQL condition: its text, with anonymous `?` placeholders only, and the values they take, in
+/// order. A query that includes one uses anonymous placeholders throughout and binds its values where the condition
+/// stands in the text.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Filter {
+    pub sql: String,
+    pub args: Vec<Value>,
+}
+
+/// The collections `viewer` may read (D152), whatever their state, for a query that names the collection `c`: every
+/// one for the owner and admins; otherwise those whose `default_access` is not `none` and those the viewer is a
+/// member of (any membership is at least `read`, and the role caps nothing below `read`). One bound value, the
+/// viewer's id. Groups, later, add their memberships here and in `access::collection`.
+pub fn readable_collections(viewer: &Viewer) -> Filter {
+    match viewer.role {
+        Role::Owner | Role::Admin => Filter {
+            sql: "1".to_owned(),
+            args: Vec::new(),
+        },
+        Role::Member | Role::Viewer => Filter {
+            sql: "(c.default_access <> 'none' OR EXISTS (SELECT 1 FROM collection_members m \
+                  WHERE m.collection_id = c.id AND m.user_id = ?))"
+                .to_owned(),
+            args: vec![Value::Text(viewer.user_id.clone())],
+        },
+    }
+}
+
+/// The SQL condition every list, tree, sidebar, search and title query selects items with (§5 "Visibility", D152).
+/// The query must name `items` as `i` and the item's collection as `c`: a live item in a live collection that the
+/// viewer may read ([`readable_collections`]); the tree and default search add `i.archived_at IS NULL` themselves.
+pub fn visible_items(viewer: &Viewer) -> Filter {
+    let readable = readable_collections(viewer);
+    Filter {
+        sql: format!(
+            "(c.deleted_at IS NULL AND i.deleted_at IS NULL AND {})",
+            readable.sql
+        ),
+        args: readable.args,
+    }
 }
 
 /// Whether the item and every ancestor have `published_at` (D23, §5 "Effective publication"). `not_found` when the

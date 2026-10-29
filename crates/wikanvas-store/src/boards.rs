@@ -610,6 +610,37 @@ pub fn save(
     })
 }
 
+/// Migration 0003's step (D152, §12): takes the cards' labels out of the search text and `meta.text_excerpt` of the
+/// boards an earlier build derived them for. A card's label is the title snapshot of a document that someone who may
+/// read the board may not be allowed to read, and the text is searched and shown (`GET …/text`, search snippets,
+/// the excerpt) without a per-reader check. Only boards that hold a card are read again; one board in memory at a
+/// time (D25). Returns how many boards changed.
+pub fn take_cards_out_of_text(tx: &Transaction<'_>) -> Result<u64> {
+    let ids: Vec<String> = tx
+        .prepare("SELECT item_id FROM board_state ORDER BY item_id")?
+        .query_map([], |r| r.get(0))?
+        .collect::<rusqlite::Result<_>>()?;
+    let mut changed = 0;
+    for id in ids {
+        let body: Vec<u8> = tx.query_row(
+            "SELECT body FROM board_state WHERE item_id = ?1",
+            [&id],
+            |r| r.get(0),
+        )?;
+        let Some(text) = board::text_without_cards(&inflate(&body)?) else {
+            continue;
+        };
+        drop(body);
+        set_body_text(tx, &id, &text)?;
+        tx.execute(
+            "UPDATE board_state SET meta = json_set(meta, '$.text_excerpt', ?2) WHERE item_id = ?1",
+            params![id, board::excerpt(&text)],
+        )?;
+        changed += 1;
+    }
+    Ok(changed)
+}
+
 /// 412 `rev_mismatch` with `details {etag, rev}` of the current revision (§7.1).
 pub fn rev_mismatch(rev: i64) -> Error {
     Error::new(
