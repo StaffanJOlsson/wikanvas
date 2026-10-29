@@ -2,7 +2,8 @@
 // Y.Doc already holds the server state (applied with origin 'server' before the editor exists); content is never
 // passed to the editor. `variant="embed"` is the editor of a board card (§18.5 Editing step 2): its popups go to
 // `popupRoot`, it has no block handle and no heading anchors, and Backspace at the start of an empty body goes to
-// `titleInput`. Without `pickBoard`/`newBoard` the slash menu leaves out "Embed board…"/"New board".
+// `titleInput`, and an Esc that no menu took calls `onEscape`. Without `pickBoard`/`newBoard` the slash menu leaves out
+// "Embed board…"/"New board".
 import { EditorContent, useEditor, type Editor } from '@tiptap/react';
 import { useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router';
@@ -33,6 +34,8 @@ export interface QuireEditorProps {
   popupRoot?: HTMLElement | null;
   /** The title input Backspace at the start of an empty body moves to (default: the page's `#item-title`). */
   titleInput?(): HTMLElement | null;
+  /** Esc in the editor that no menu took (a board card leaves editing). Fixed when the editor is created. */
+  onEscape?(): void;
 }
 
 function sameHeadings(a: Heading[], b: Heading[]): boolean {
@@ -40,12 +43,13 @@ function sameHeadings(a: Heading[], b: Heading[]): boolean {
 }
 
 export function QuireEditor(props: QuireEditorProps) {
-  const { itemId, session, readOnly, onHeadings, onEditor, pickBoard, newBoard, variant = 'page', popupRoot, titleInput } = props;
+  const { itemId, session, readOnly, onHeadings, onEditor, pickBoard, newBoard, variant = 'page', popupRoot } = props;
+  const { titleInput, onEscape } = props;
   const embed = variant === 'embed';
   const portal = embed ? (popupRoot ?? null) : null;
   const popups = useMemo(() => ({ slash: new Popup(), mention: new Popup() }), []);
-  const callbacks = useRef({ pickBoard, newBoard, onHeadings, titleInput });
-  callbacks.current = { pickBoard, newBoard, onHeadings, titleInput };
+  const callbacks = useRef({ pickBoard, newBoard, onHeadings, titleInput, onEscape });
+  callbacks.current = { pickBoard, newBoard, onHeadings, titleInput, onEscape };
   const fileInput = useRef<HTMLInputElement>(null);
   const editorRef = useRef<Editor | null>(null);
   // Which board items the slash menu offers is fixed when the editor is created (its extensions are).
@@ -81,6 +85,7 @@ export function QuireEditor(props: QuireEditorProps) {
         openLink,
         variant,
         ...(callbacks.current.titleInput ? { titleInput: () => callbacks.current.titleInput?.() ?? null } : {}),
+        ...(callbacks.current.onEscape ? { onEscape: () => callbacks.current.onEscape?.() } : {}),
       }),
       editable: !readOnly,
       immediatelyRender: true,

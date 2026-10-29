@@ -7,8 +7,11 @@
 //   `setEmbedEditing(id)`, the card focused at once, then a `DocSession` (after the previous one's last flush); the
 //   card renders `QuireEditor` on it. Editing ends on Esc (then `frame.focus()`), `onEmbedEditEnd`, a pointerdown in
 //   the parent outside the card and the popup root, a later layout without the card or no longer editing it, the
-//   board turning read-only, the target trashed or archived, the board released, a frame reset. Ending is idempotent:
-//   the editor's last JSON goes into `['docJson', id]`, the session flushes and is destroyed, the key is invalidated.
+//   board turning read-only, the target trashed or archived (also learnt from a save the server refuses as
+//   `read_only`), the board released, a frame reset. Ending is idempotent: the editor's last JSON goes into
+//   `['docJson', id]`, the session flushes and is destroyed, the key is invalidated; when the flush left updates unsent,
+//   the static card shows the server's content again and "Not saved", whose Retry (`retrySave`) opens a new session of
+//   the target that sends the outbox.
 // - Adding: `insertCard` (the "Text doc" button, the picker and both drop paths end there) and `dropItem`.
 // - `popupRoot`: the editor's popups (`.board-embed-popups`) in `document.body`, moved into the frame layer while it
 //   is the fullscreen element (Focus).
@@ -20,6 +23,7 @@ import type { ItemDetail } from '../../api/gen/ItemDetail';
 import { docJsonKey, type CachedDocJson } from '../../api/queries/docs';
 import { fetchItem, itemKey } from '../../api/queries/items';
 import type { DocSession } from '../../editor/docSession';
+import { setSaveStatus } from '../../state/saveStatus';
 import { toast } from '../../state/toasts';
 import type {
   BoardFrameApi,
@@ -27,6 +31,7 @@ import type {
   DropItemEvent,
   EmbedBox,
   EmbedEditEndEvent,
+  EmbedFocusBackEvent,
   EmbedLayout,
   EmbedOpenEvent,
   FramePoint,
@@ -144,6 +149,7 @@ export class EmbedController implements EmbedSink {
   /** Refetch the targets' content and details at the first layout after an open. */
   private refresh = false;
   private focusOnMount: string | null = null;
+  private lastFocus: HTMLElement | null = null;
   private attached = false;
 
   constructor(qc: QueryClient) {
@@ -266,8 +272,25 @@ export class EmbedController implements EmbedSink {
     if (this.ed?.objectId === e.objectId) this.end({ tellEngine: false });
   }
 
+  /** The frame took the focus during the editing without ending it (a middle-button pan): back to where it was. */
+  focusBack(e: EmbedFocusBackEvent): void {
+    const ed = this.ed;
+    if (ed?.objectId !== e.objectId) return;
+    const card = this.cardEls.get(ed.objectId);
+    const last = this.lastFocus;
+    const editor = this.editor;
+    if (editor && !editor.isDestroyed && (!last || !last.isConnected || editor.view.dom.contains(last))) editor.view.focus();
+    else if (last?.isConnected && card?.contains(last)) last.focus({ preventScroll: true });
+    else card?.focus({ preventScroll: true });
+  }
+
+  /** Where the focus was last inside the editing card (`focusBack` returns there). */
+  cardFocused(objectId: string, el: HTMLElement): void {
+    if (this.ed?.objectId === objectId) this.lastFocus = el;
+  }
+
   drop(e: DropItemEvent): void {
-    this.dropItem(e.item, e.point);
+    void this.dropItem(e.item, e.point);
   }
 
   reset(): void {
@@ -428,7 +451,7 @@ export class EmbedController implements EmbedSink {
       // Loaded with the editor's chunk, not with the shell (the overlay is part of every page).
       const { DocSession: Session } = await import('../../editor/docSession');
       if (this.ed !== ed) return;
-      session = await Session.open(ed.item);
+      session = await Session.open(ed.item, { gone: () => this.sessionGone(ed) });
     } catch (e) {
       console.warn('opening the embedded page failed', e);
       if (this.ed === ed) {
@@ -485,6 +508,39 @@ export class EmbedController implements EmbedSink {
     if (this.ed?.objectId === objectId) this.end({ tellEngine: true });
   }
 
+  /**
+   * The server refused a save of `ed`'s session because the target can no longer take one (trashed, archived or
+   * deleted elsewhere): editing ends, and the target's detail is fetched again so the card shows why.
+   */
+  private sessionGone(ed: Editing): void {
+    void this.qc.invalidateQueries({ queryKey: itemKey(ed.item) });
+    if (this.ed === ed) this.end({ tellEngine: true });
+  }
+
+  /**
+   * "Retry" on a static card whose last session ended with updates unsent: a new session of the target applies the
+   * outbox (those updates), sends them and is destroyed; the card then shows the server's content. Not while a card
+   * of the same target is being edited (its own session sends the outbox).
+   */
+  retrySave(item: string): void {
+    if (this.ed?.item === item) return;
+    this.closing = this.closing.then(async () => {
+      let session: DocSession | null = null;
+      try {
+        const { DocSession: Session } = await import('../../editor/docSession');
+        session = await Session.open(item, { gone: () => void this.qc.invalidateQueries({ queryKey: itemKey(item) }) });
+        await session.flush();
+        if (!session.hasPending()) setSaveStatus(item, 'saved');
+      } catch (e) {
+        console.warn('saving the embedded page failed', e);
+        setSaveStatus(item, { state: 'error', message: e instanceof Error ? e.message : String(e) });
+      } finally {
+        session?.destroy();
+      }
+      void this.qc.invalidateQueries({ queryKey: docJsonKey(item) });
+    });
+  }
+
   private onPointerDown = (ev: Event): void => {
     const ed = this.ed;
     if (!ed) return;
@@ -502,6 +558,7 @@ export class EmbedController implements EmbedSink {
     if (!ed) return;
     this.ed = null;
     this.focusOnMount = null;
+    this.lastFocus = null;
     document.removeEventListener('pointerdown', this.onPointerDown, true);
     // What `start` set by hand, in case React never rendered the editing state in between.
     const el = this.cardEls.get(ed.objectId);
@@ -538,13 +595,20 @@ export class EmbedController implements EmbedSink {
     const session = ed.session;
     const item = ed.item;
     this.closing = this.closing.then(async () => {
+      let unsent = false;
       if (session) {
         try {
           await session.flush();
         } catch (e) {
           console.warn('saving the embedded page failed', e);
         }
+        unsent = session.hasPending();
         session.destroy();
+      }
+      if (unsent) {
+        // The server does not have what the editor showed: fetch its content in full (no 304 against the editor's
+        // JSON). The updates wait in the outbox for `retrySave` or the next session of the target.
+        this.qc.setQueryData<CachedDocJson>(docJsonKey(item), (prev) => (prev ? { ...prev, etag: null } : prev));
       }
       void this.qc.invalidateQueries({ queryKey: docJsonKey(item) });
     });
@@ -593,21 +657,34 @@ export class EmbedController implements EmbedSink {
     return id;
   }
 
-  /** A sidebar document dropped at `point` (frame px): a card there, titled from the cached detail if any. */
-  dropItem(item: DraggedItem, point: FramePoint): void {
+  /**
+   * A sidebar document dropped at `point` (frame px): a card there, for a live document only, titled from its own
+   * `ItemDetail` (fetched when the cache does not have it). The drag data's title is never stored: any page can start a
+   * drag with this type (§18.12). A target that is not a live document is ignored; one whose detail does not load gives
+   * the error toast. Resolves once the card is placed or refused.
+   */
+  async dropItem(item: DraggedItem, point: FramePoint): Promise<void> {
     const b = useEmbedStore.getState().board;
     if (!b || b.readOnly || frameApi()?.current() !== b.itemId) return;
     if (!isItemId(item.id)) return;
-    const d = cachedItem(this.qc, item.id);
-    if (d && d.item.kind !== 'doc') return;
-    this.insert({ id: item.id, title: d ? d.item.title : item.title }, point);
+    let d: ItemDetail | undefined = cachedItem(this.qc, item.id);
+    if (!d) {
+      try {
+        d = await this.qc.fetchQuery({ queryKey: itemKey(item.id), queryFn: ({ signal }) => fetchItem(item.id, signal) });
+      } catch (e) {
+        if (!isApiError(e, 'not_found')) toast({ message: INSERT_FAILED, kind: 'error' });
+        return;
+      }
+    }
+    if (!d || !isEditableTarget(d)) return;
+    this.insert({ id: item.id, title: d.item.title }, point, { board: b.itemId });
   }
 
   /** A drop on the editing card (the overlay's capture listener), at a viewport point. */
-  dropAtViewport(item: DraggedItem, clientX: number, clientY: number): void {
+  dropAtViewport(item: DraggedItem, clientX: number, clientY: number): Promise<void> {
     const iframe = useHostStore.getState().iframe;
     const r = iframe ? iframe.getBoundingClientRect() : { left: 0, top: 0 };
-    this.dropItem(item, viewportToFrame(r, { x: clientX, y: clientY }));
+    return this.dropItem(item, viewportToFrame(r, { x: clientX, y: clientY }));
   }
 }
 

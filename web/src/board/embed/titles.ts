@@ -1,17 +1,24 @@
 // Titles (docs/ARCHITECTURE.md §18.7): the host keeps the engine's title map current. Whenever the cached
-// `ItemDetail` of a card's target is loaded or changes (a rename anywhere), it sends, 250 ms later, `{[id]:
-// title.trim() || 'Untitled'}` for every target in the layout's `items` whose detail is cached, and only when that map
-// differs from the one sent last. The engine shows the titles in place and saves them with the board's next save; a
-// rename alone never saves the board (D68). After every `open()` the engine's map is empty again, so it is resent.
+// `ItemDetail` of a card's target is loaded or changes (a rename anywhere), it sends, 250 ms later,
+// `{[id]: snapshotTitle(title)}` (trimmed, 'Untitled' when blank, at most 200 characters) for every target in the
+// layout's `items` whose detail is cached, and only when that map differs from the one sent last. The engine shows
+// the titles in place and saves them with the board's next save; a rename alone never saves the board (D68). After
+// every `open()` the engine's map is empty again, so it is resent.
 import type { QueryClient } from '@tanstack/react-query';
 import type { ItemDetail } from '../../api/gen/ItemDetail';
 import type { BoardFrameApi } from '../bridge';
 
 export const TITLE_DEBOUNCE_MS = 250;
 
-/** The title a card's label snapshot gets. */
+/** The longest label snapshot, in characters (code points): previews and the board's search text show it. */
+export const MAX_SNAPSHOT_CHARS = 200;
+
+/** The title a card's label snapshot gets: trimmed, `'Untitled'` when blank, at most `MAX_SNAPSHOT_CHARS` characters. */
 export function snapshotTitle(title: string): string {
-  return title.trim() || 'Untitled';
+  const t = title.trim();
+  if (!t) return 'Untitled';
+  const chars = Array.from(t);
+  return chars.length <= MAX_SNAPSHOT_CHARS ? t : chars.slice(0, MAX_SNAPSHOT_CHARS).join('').trimEnd();
 }
 
 /** The cached `ItemDetail` of item `id`, whichever ref (UUID or url_id) it was loaded by. */

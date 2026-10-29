@@ -26,6 +26,7 @@ import {
 } from '../testkit';
 import { isExpanded } from '../../state/expanded';
 import { embedController, useEmbedStore } from './controller';
+import { deferredTextDocs, resetDeferredTextDocs } from './textDocs';
 
 let app: Rendered | null = null;
 
@@ -33,6 +34,7 @@ afterEach(async () => {
   await embedController()?.settled();
   app?.unmount();
   app = null;
+  resetDeferredTextDocs();
 });
 
 const DOC_4 = '0192f0e0-0000-7000-8000-000000000004';
@@ -220,6 +222,84 @@ describe('Text doc', () => {
     await waitFor(() => expect(deletes(m.requests)).toHaveLength(1));
     await waitFor(() => expect(invalidate.mock.calls.some(([f]) => JSON.stringify(f?.queryKey) === '["tree","col-1"]')).toBe(true));
     expect(invalidate.mock.calls.some(([f]) => JSON.stringify(f?.queryKey) === '["tree","col-2"]')).toBe(false);
+  });
+
+  it('a card on the engine’s clipboard keeps its document; a later leave discards it once no clipboard holds it', async () => {
+    const a = boardItem(1);
+    const b = boardItem(2);
+    let gone = false;
+    const m = mockFetch({
+      ...routes(a),
+      ...boardRoutes(b),
+      [`GET /api/v1/items/${DOC_3}`]: () => (gone ? [404, errorBody('not_found')] : [200, docItem(DOC_3, { title: '', parent_id: 'board-1' })]),
+      [`DELETE /api/v1/items/${DOC_3}`]: () => {
+        gone = true;
+        return [204];
+      },
+    });
+    vi.stubGlobal('fetch', m.fetch);
+    const r = (app = await openBoardApp(a));
+    await waitFor(() => expect(textDoc().disabled).toBe(false));
+    fireEvent.click(textDoc());
+    await waitFor(() => expect(r.fake.inserted).toHaveLength(1));
+    // The card is cut (or copied, then deleted): on no card of the board, but on the engine's clipboard.
+    act(() => {
+      r.fake.layout({ embeds: [], clipboard: [DOC_3] });
+    });
+    await act(() => r.router.navigate(boardPath(b)));
+    await waitFor(() => expect(useEmbedStore.getState().board?.itemId).toBe('board-2'));
+    await act(() => new Promise((resolve) => setTimeout(resolve, 30)));
+    expect(deletes(m.requests)).toEqual([]);
+    expect(deferredTextDocs()).toEqual([DOC_3]);
+    // Still on the clipboard when the page leaves the next board: kept again.
+    act(() => {
+      r.fake.layout({ embeds: [], clipboard: [DOC_3] });
+    });
+    await act(() => r.router.navigate(boardPath(a)));
+    await waitFor(() => expect(useEmbedStore.getState().board?.itemId).toBe('board-1'));
+    await act(() => new Promise((resolve) => setTimeout(resolve, 30)));
+    expect(deletes(m.requests)).toEqual([]);
+    // Something else was copied: the next leave discards it, and its cached detail goes with it.
+    expect(r.queryClient.getQueryData(itemKey(DOC_3))).toBeDefined();
+    act(() => {
+      r.fake.layout({ embeds: [], clipboard: [] });
+    });
+    await act(() => r.router.navigate(boardPath(b)));
+    await waitFor(() =>
+      expect(deletes(m.requests).map((q) => `${q.path}${q.search}`)).toEqual([`/api/v1/items/${DOC_3}?discard_empty=true`]),
+    );
+    expect(deferredTextDocs()).toEqual([]);
+    await waitFor(() => expect(r.queryClient.getQueryData(itemKey(DOC_3))).toBeUndefined());
+    // A card that still names it (pasted later) shows "Page not found".
+    await waitFor(() => expect(useEmbedStore.getState().board?.itemId).toBe('board-2'));
+    act(() => {
+      r.fake.layout({ embeds: [{ objectId: 'pasted', item: DOC_3, label: 'Untitled' }] });
+    });
+    await waitFor(() => expect(cardEl('pasted')?.dataset.state).toBe('missing'));
+  });
+
+  it('a document kept for the clipboard and pasted on the next board stays', async () => {
+    const a = boardItem(1);
+    const b = boardItem(2);
+    const m = mockFetch({ ...routes(a), ...boardRoutes(b), [`DELETE /api/v1/items/${DOC_3}`]: [204] });
+    vi.stubGlobal('fetch', m.fetch);
+    const r = (app = await openBoardApp(a));
+    await waitFor(() => expect(textDoc().disabled).toBe(false));
+    fireEvent.click(textDoc());
+    await waitFor(() => expect(r.fake.inserted).toHaveLength(1));
+    act(() => {
+      r.fake.layout({ embeds: [], clipboard: [DOC_3] });
+    });
+    await act(() => r.router.navigate(boardPath(b)));
+    await waitFor(() => expect(useEmbedStore.getState().board?.itemId).toBe('board-2'));
+    // Pasted here; the clipboard then holds something else.
+    act(() => {
+      r.fake.layout({ embeds: [{ objectId: 'pasted', item: DOC_3 }], clipboard: [] });
+    });
+    await act(() => r.router.navigate('/home'));
+    await act(() => new Promise((resolve) => setTimeout(resolve, 30)));
+    expect(deletes(m.requests)).toEqual([]);
+    expect(deferredTextDocs()).toEqual([]);
   });
 
   it('an insert failure shows the toast and discards the new document at once', async () => {

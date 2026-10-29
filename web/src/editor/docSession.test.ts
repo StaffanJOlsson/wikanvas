@@ -1,5 +1,6 @@
 // DocSession (docs/ARCHITECTURE.md §9.4): debounce and max wait, the outbox (throttled writes, replay), the
-// missing_deps resend, the flush on visibilitychange → hidden, and the offline back-off.
+// missing_deps resend, the flush on visibilitychange → hidden, the offline back-off, and `gone` for an update refused
+// for good.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
 import { ApiError } from '../api/client';
@@ -203,6 +204,30 @@ describe('DocSession', () => {
     await settle();
     expect(statuses.at(-1)?.state).toBe('error');
     expect(typeof statuses.at(-1)?.retry).toBe('function');
+    s.destroy();
+  });
+
+  it('calls `gone` when the server refuses an update for good (409 read_only, 404), not for other errors; the updates stay queued', async () => {
+    let error = new ApiError(500, 'internal', 'no');
+    const gone = vi.fn();
+    const { d, mem } = deps({
+      gone,
+      postUpdate: vi.fn(async () => {
+        throw error;
+      }),
+    });
+    const s = await DocSession.open('doc-7', d);
+    typeInto(s.ydoc, 'x');
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(gone).not.toHaveBeenCalled();
+    error = new ApiError(409, 'read_only', 'the item is in the trash or archived');
+    await s.flush();
+    expect(gone).toHaveBeenCalledWith('doc-7');
+    error = new ApiError(404, 'not_found', 'gone');
+    await s.flush();
+    expect(gone).toHaveBeenCalledTimes(2);
+    expect(s.hasPending()).toBe(true);
+    expect(mem.data.get('doc-7')?.length).toBeGreaterThan(0);
     s.destroy();
   });
 

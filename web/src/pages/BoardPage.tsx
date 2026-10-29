@@ -14,7 +14,7 @@ import { useConfig, useCreateItem, useItem, useRecordView } from '../api/queries
 import { BoardPreview } from '../board/BoardPreview';
 import { EmbedPageButton, TextDocButton, useCanAddCards } from '../board/embed/AddButtons';
 import { discardTextDocs } from '../board/embed/textDocs';
-import { lastEmbedItems } from '../board/host';
+import { lastEmbedClipboard, lastEmbedItems } from '../board/host';
 import { BoardSurface } from '../board/BoardSurface';
 import { useBoardFrame, type BoardFrameContext } from '../board/BoardFrameHost';
 import { fallbackReason } from '../board/fallback';
@@ -93,9 +93,10 @@ export function BoardView({ item }: { item: ItemDetail }) {
       const docs = mine.docs.splice(0);
       const { collectionId, parentId } = mine;
       void (async () => {
-        // First the created documents that are on no card (the server keeps embedded ones), then the board itself:
-        // its `has_children` check would otherwise keep it for a child about to go.
-        await discardTextDocs(qc, { id, collectionId }, docs, lastEmbedItems(id));
+        // First the created documents that are on no card (the server keeps embedded ones; one on the engine's
+        // clipboard waits for a later leave), then the board itself: its `has_children` check would otherwise keep it
+        // for a child about to go.
+        await discardTextDocs(qc, { id, collectionId }, docs, lastEmbedItems(id), lastEmbedClipboard());
         if (!discard) return;
         // The save loop and the title input save first; the server decides (409 `not_empty` once the board has a
         // title, an object or a child, which is ignored).

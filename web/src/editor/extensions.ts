@@ -37,6 +37,8 @@ export interface EditorSetup {
   variant?: 'page' | 'embed';
   /** Where Backspace at the start of an empty body goes; default the page's `#item-title`. */
   titleInput?(): HTMLElement | null;
+  /** Esc that nothing in the editor took (a board card's editor leaves editing, §18.5 Editing step 5). */
+  onEscape?(): void;
 }
 
 // ------------------------------------------------------------------------------------------------- uploads
@@ -244,6 +246,26 @@ function BackspaceToTitle(titleInput: () => HTMLElement | null) {
   });
 }
 
+/**
+ * Esc that nothing else in the editor took: ProseMirror itself prevents the default of every Esc (prosemirror-view's
+ * `captureKeyDown`), so a listener around the editor cannot tell an Esc that a menu used from one that nobody did. The
+ * lowest priority puts this keymap after every other plugin's keys, so the slash and mention menus close first.
+ */
+function EscapeOut(onEscape: () => void) {
+  return Extension.create({
+    name: 'quireEscapeOut',
+    priority: 1,
+    addKeyboardShortcuts() {
+      return {
+        Escape: () => {
+          onEscape();
+          return true;
+        },
+      };
+    },
+  });
+}
+
 export const mentionKey = new PluginKey('quireMention');
 
 /** The `@` menu: a title search; the chosen item becomes a mention (§9.6.5). */
@@ -342,5 +364,6 @@ export function editorExtensions(s: EditorSetup): AnyExtension[] {
     ...(s.openLink ? [LinkOpener(s.openLink, typeof window !== 'undefined' ? window.location.origin : '')] : []),
     SlashCommand(s.slash, s.ctx),
     BackspaceToTitle(s.titleInput ?? (() => document.getElementById(TITLE_INPUT_ID))),
+    ...(s.onEscape ? [EscapeOut(s.onEscape)] : []),
   ];
 }

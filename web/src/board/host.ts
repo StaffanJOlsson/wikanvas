@@ -18,6 +18,7 @@ import type {
   BoardFrameApi,
   DropItemEvent,
   EmbedEditEndEvent,
+  EmbedFocusBackEvent,
   EmbedLayout,
   EmbedOpenEvent,
   FrameError,
@@ -82,6 +83,8 @@ export interface EmbedSink {
   layout(l: EmbedLayout): void;
   open(e: EmbedOpenEvent): void;
   editEnd(e: EmbedEditEndEvent): void;
+  /** The frame took the focus during an editing it did not end (`onEmbedFocusBack`). */
+  focusBack?(e: EmbedFocusBackEvent): void;
   drop(e: DropItemEvent): void;
   /** A board is about to be opened (another one, or the same one again), or the frame was reset or removed: the
    *  layout is gone, the overlay is emptied, editing ends. */
@@ -95,6 +98,9 @@ let embedLayout: EmbedLayout | null = null;
 /** The `items` of each board's last layout (kept across a board switch: the page discards "Text doc" documents that
  *  are on no card after it left the board, §18.6 (a)). */
 const itemsByBoard = new Map<string, readonly string[]>();
+/** The `clipboard` of the last layout of any board: the engine's clipboard outlives a board switch, so a card cut or
+ *  copied on one board can be pasted on the next (§18.6 (a) step 4). Null until an engine reports one. */
+let clipboard: readonly string[] | null = null;
 
 /** Sets the overlay's sink (null: none). */
 export function setEmbedSink(s: EmbedSink | null): void {
@@ -109,6 +115,11 @@ export function currentEmbedLayout(): EmbedLayout | null {
 /** The `items` of `itemId`'s last layout, or null when none was reported. */
 export function lastEmbedItems(itemId: string): readonly string[] | null {
   return itemsByBoard.get(itemId) ?? null;
+}
+
+/** The targets of the cards on the engine's clipboard, as last reported (null: never reported). */
+export function lastEmbedClipboard(): readonly string[] | null {
+  return clipboard;
 }
 
 function dropLayout(): void {
@@ -163,6 +174,7 @@ export const frameEvents: FrameEvents = {
     if (e.itemId !== current) return;
     embedLayout = e;
     itemsByBoard.set(e.itemId, e.items);
+    if (e.clipboard) clipboard = e.clipboard;
     sink?.layout(e);
   },
   onEmbedOpen(e) {
@@ -170,6 +182,9 @@ export const frameEvents: FrameEvents = {
   },
   onEmbedEditEnd(e) {
     if (e.itemId === current) sink?.editEnd(e);
+  },
+  onEmbedFocusBack(e) {
+    if (e.itemId === current) sink?.focusBack?.(e);
   },
   onDropItem(e) {
     if (e.itemId === current && active?.itemId === e.itemId) sink?.drop(e);
@@ -241,5 +256,6 @@ export function resetHost(): void {
   active = null;
   dropLayout();
   itemsByBoard.clear();
+  clipboard = null;
   useHostStore.setState({ ...initial });
 }

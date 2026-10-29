@@ -5,7 +5,8 @@
 //   write per 250 ms, and always right before a POST). A 1 s debounce, at most 5 s apart, then POST
 //   `Y.mergeUpdates(queue)`; on success those updates and the outbox go. 409 `missing_deps`: POST
 //   `Y.encodeStateAsUpdate(ydoc, serverSV)`. Network error: `offline`, back off 1, 2, 5, 10, then 30 s, and retry at
-//   once on `online`. Other errors: `error` with a retry action; 401: `signed_out`.
+//   once on `online`. Other errors: `error` with a retry action; 401: `signed_out`. A 409 `read_only` or a 404 (the item
+//   went to the trash, was archived or deleted) also calls the optional `gone` dependency (a board card ends its editing).
 // - `pm_json` (the editor's JSON) rides along at most every 30 s and when leaving the page.
 // - Focus or visibility → visible: GET `?since=<local SV>`, applied with origin 'server'. Visibility → hidden, blur,
 //   route change and Ctrl/Cmd+S flush. On `pagehide`, a payload under 60 KB goes with `fetch(keepalive)`; a larger
@@ -70,6 +71,9 @@ export interface DocSessionDeps {
   /** Where focus, visibility, online and pagehide events come from (default: `window` and `document`). */
   win?: Window;
   doc?: Document;
+  /** The server refused an update because the item can no longer take one: 409 `read_only` (in the trash, archived)
+   *  or 404 (deleted). The updates stay queued and in the outbox. */
+  gone?(itemId: string): void;
 }
 
 const defaultDeps = (): DocSessionDeps => ({
@@ -273,6 +277,7 @@ export class DocSession {
     } else {
       const message = e instanceof Error ? e.message : String(e);
       this.deps.status(this.itemId, { state: 'error', message, retry });
+      if (isApiError(e, 'read_only') || isApiError(e, 'not_found')) this.deps.gone?.(this.itemId);
     }
   }
 

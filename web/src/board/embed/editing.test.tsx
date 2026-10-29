@@ -6,7 +6,7 @@ import type { Editor } from '@tiptap/react';
 import { EditorView } from '@tiptap/pm/view';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ItemDetail } from '../../api/gen/ItemDetail';
-import { updateCachedItem } from '../../api/queries/items';
+import { itemKey, updateCachedItem } from '../../api/queries/items';
 import type { EmbedLayout } from '../bridge';
 import {
   boardItem,
@@ -81,6 +81,9 @@ function held(reply: Reply) {
   };
 }
 
+/** Esc as a browser sends it: ProseMirror's own keydown handling goes by `keyCode` and prevents the default of every Esc. */
+const ESC = { key: 'Escape', code: 'Escape', keyCode: 27 };
+
 const editorDom = (objectId = 'c1') =>
   cardEl(objectId)?.querySelector<HTMLElement>('.board-embed-editor .ProseMirror[contenteditable="true"]') ?? null;
 const editorOf = (objectId = 'c1') => (editorDom(objectId) as unknown as { editor: Editor }).editor;
@@ -123,7 +126,7 @@ describe('editing a card', () => {
     act(() => {
       editor.commands.insertContent(' numbat');
     });
-    fireEvent.keyDown(editorDom() as HTMLElement, { key: 'Escape' });
+    fireEvent.keyDown(editorDom() as HTMLElement, ESC);
     await waitFor(() => expect(posts(requests, DOC_1)).toHaveLength(1));
     expect(requests.some((q) => q.method === 'PUT')).toBe(false);
     expect(requests.some((q) => q.method === 'POST' && q.path.includes(DOC_2))).toBe(false);
@@ -136,12 +139,23 @@ describe('editing a card', () => {
       editorOf().commands.insertContent('wombat ');
     });
     const before = r.fake.calls.filter((c) => c.method === 'focus').length;
-    fireEvent.keyDown(editorDom() as HTMLElement, { key: 'Escape' });
+    // ProseMirror prevents the default of the Esc, as in a browser: the editor's own keymap leaves.
+    expect(fireEvent.keyDown(editorDom() as HTMLElement, ESC)).toBe(false);
     expect(editingCalls(r)).toEqual(['c1', null]);
     expect(r.fake.calls.filter((c) => c.method === 'focus').length).toBe(before + 1);
     expect(cardEl('c1')?.dataset.state).toBe('static');
     await waitFor(() => expect(posts(requests, DOC_1)).toHaveLength(1));
     expect(cardEl('c1')?.querySelector('.board-embed-static .ProseMirror')?.textContent).toContain('wombat');
+  });
+
+  it('Esc in the title input leaves too', async () => {
+    const { r } = await setup();
+    await openCard(r);
+    const title = screen.getByRole('textbox', { name: 'Page title' });
+    title.focus();
+    fireEvent.keyDown(title, ESC);
+    expect(editingCalls(r)).toEqual(['c1', null]);
+    expect(cardEl('c1')?.dataset.state).toBe('static');
   });
 
   it('Esc while the session still opens ends it', async () => {
@@ -152,7 +166,7 @@ describe('editing a card', () => {
     expect(document.activeElement).toBe(card);
     // The session's GET is out.
     await waitFor(() => expect(requests.some((q) => q.method === 'GET' && q.path === `/api/v1/items/${DOC_1}/doc`)).toBe(true));
-    fireEvent.keyDown(card, { key: 'Escape' });
+    fireEvent.keyDown(card, ESC);
     expect(editingCalls(r)).toEqual(['c1', null]);
     expect(card.dataset.state).toBe('static');
     await act(() => doc.release());
@@ -197,6 +211,35 @@ describe('editing a card', () => {
     expect(cardEl('c2')).toBeNull();
     expect(editingCalls(r).at(-1)).toBeNull();
     expect(embedController()?.editingId()).toBeNull();
+  });
+
+  it('the frame giving the focus back after a middle-button pan puts it where it was in the card', async () => {
+    const { r } = await setup();
+    await openCard(r);
+    const editor = editorOf();
+    act(() => {
+      editor.commands.setTextSelection(3);
+    });
+    // The pan's release focuses the frame (eframe focuses its canvas); the editing goes on.
+    (document.activeElement as HTMLElement | null)?.blur();
+    act(() => r.fake.focusBack('c1'));
+    expect(document.activeElement).toBe(editorDom());
+    expect(editor.state.selection.from).toBe(3);
+    // From the title input, back to the title input.
+    const title = screen.getByRole('textbox', { name: 'Page title' });
+    title.focus();
+    title.blur();
+    act(() => r.fake.focusBack('c1'));
+    expect(document.activeElement).toBe(title);
+    // Another card's, or after the editing ended: nothing.
+    title.blur();
+    act(() => r.fake.focusBack('c2'));
+    expect(document.activeElement).toBe(document.body);
+    fireEvent.keyDown(title, ESC);
+    expect(cardEl('c1')?.dataset.state).toBe('static');
+    act(() => r.fake.focusBack('c1'));
+    expect(document.activeElement).not.toBe(editorDom());
+    expect(editingCalls(r)).toEqual(['c1', null]);
   });
 
   it('a pointerdown outside the card ends it; one in the popup root or in the card does not', async () => {
@@ -283,6 +326,42 @@ describe('editing a card', () => {
     expect(editingCalls(r)).toEqual(['c1', null]);
   });
 
+  it('a save refused as read_only ends the editing; the static card shows the server’s text and "Not saved", whose Retry sends the outbox', async () => {
+    const TRASHED = { trashed_at: '2026-10-28T10:00:00.000Z' };
+    let trashed = false;
+    let post: Reply = [409, errorBody('read_only')];
+    const { r, requests } = await setup({
+      [`GET /api/v1/items/${DOC_1}`]: () => [200, docItem(DOC_1, { title: 'First page' }, trashed ? TRASHED : {})],
+      [`POST /api/v1/items/${DOC_1}/doc/updates`]: () => post,
+    });
+    await openCard(r);
+    // Another client trashes the target; this tab does not know until its next save.
+    trashed = true;
+    act(() => {
+      editorOf().commands.insertContent('unsent ');
+    });
+    await waitFor(() => expect(posts(requests, DOC_1).length).toBeGreaterThanOrEqual(1), { timeout: 4000 });
+    await waitFor(() => expect(editingCalls(r)).toEqual(['c1', null]));
+    await waitFor(() => expect(cardEl('c1')?.dataset.state).toBe('trashed'));
+    // The server's content, not what the editor showed; "Not saved" without a Retry while the target is in the trash.
+    await waitFor(() => expect(cardEl('c1')?.querySelector('.board-embed-body')?.textContent).toBe('kangaroo'));
+    const badge = () => cardEl('c1')?.querySelector('.board-embed-save') ?? null;
+    await waitFor(() => expect(badge()?.textContent).toBe('Not saved'));
+    expect(badge()?.querySelector('button')).toBeNull();
+    // Restored elsewhere: the card is live again, and Retry opens a new session that sends the outbox.
+    trashed = false;
+    post = [200, { seq: 9, state_vector: '', updated_at: '2026-10-28T10:00:00.000Z' }];
+    await act(() => r.queryClient.invalidateQueries({ queryKey: itemKey(DOC_1) }));
+    await waitFor(() => expect(cardEl('c1')?.dataset.state).toBe('static'));
+    const sent = posts(requests, DOC_1).length;
+    const gets = requests.filter((q) => q.method === 'GET' && q.path === `/api/v1/items/${DOC_1}/doc`).length;
+    fireEvent.click(badge()?.querySelector('button') as HTMLButtonElement);
+    await waitFor(() => expect(badge()).toBeNull());
+    expect(requests.filter((q) => q.method === 'GET' && q.path === `/api/v1/items/${DOC_1}/doc`).length).toBe(gets + 1);
+    expect(posts(requests, DOC_1).length).toBe(sent + 1);
+    expect(embedController()?.editingId()).toBeNull();
+  });
+
   it('an open failure shows the toast and ends the editing', async () => {
     const { r } = await setup({ [`GET /api/v1/items/${DOC_1}/doc`]: [500, errorBody('internal')] });
     act(() => r.fake.openEmbed('c1', null));
@@ -330,11 +409,11 @@ describe('editing a card', () => {
     });
     const root = document.querySelector('.board-embed-popups') as HTMLElement;
     await waitFor(() => expect(root.querySelector('[role="listbox"][aria-label="Insert a block"]')).not.toBeNull());
-    fireEvent.keyDown(editorDom() as HTMLElement, { key: 'Escape' });
+    fireEvent.keyDown(editorDom() as HTMLElement, ESC);
     await waitFor(() => expect(root.querySelector('[role="listbox"]')).toBeNull());
     expect(cardEl('c1')?.dataset.state).toBe('editing');
     expect(editingCalls(r)).toEqual(['c1']);
-    fireEvent.keyDown(editorDom() as HTMLElement, { key: 'Escape' });
+    fireEvent.keyDown(editorDom() as HTMLElement, ESC);
     expect(cardEl('c1')?.dataset.state).toBe('static');
     expect(editingCalls(r)).toEqual(['c1', null]);
   });

@@ -5,7 +5,8 @@
 // M1.1 (§18.4): it has the embed members (`insertEmbed`, `setEmbedEditing`, `setEmbedTitles`, `requestEmbedLayout`;
 // `embeds: false` makes a frame without them, like M1's), and the engine's side of them as helpers: `layout(l)` sends
 // an `onEmbedLayout`, `openEmbed(objectId, point)` a double-click, `endEdit(objectId, reason)` the engine ending the
-// editing, `dropItem(item, point)` a sidebar drop; `inserted` lists the cards `insertEmbed` placed.
+// editing, `focusBack(objectId)` the frame giving the focus back after a middle-button pan, `dropItem(item, point)` a
+// sidebar drop; `inserted` lists the cards `insertEmbed` placed.
 import type {
   BoardFrameApi,
   DraggedItem,
@@ -60,6 +61,8 @@ export interface FakeFrame {
   openEmbed(objectId: string, point?: FramePoint | null): void;
   /** The engine ends the editing (a press, focus, the card gone): `onEmbedEditEnd`. */
   endEdit(objectId: string, reason?: EmbedEditEndReason): void;
+  /** The frame took the focus during the editing without ending it (a middle-button pan): `onEmbedFocusBack`. */
+  focusBack(objectId: string): void;
   /** A sidebar document dropped on the canvas: `onDropItem`. */
   dropItem(item: DraggedItem, point: FramePoint): void;
   /** The cards `insertEmbed` placed (id and arguments), in order. */
@@ -286,6 +289,10 @@ export function createFakeFrame(opts: FakeFrameOptions = {}): FakeFrame {
       if (current === null) throw new Error('no board is open');
       if (editing === objectId) editing = null;
       events?.onEmbedEditEnd?.({ itemId: current, objectId, reason });
+    },
+    focusBack(objectId) {
+      if (current === null) throw new Error('no board is open');
+      events?.onEmbedFocusBack?.({ itemId: current, objectId });
     },
     dropItem(item, point) {
       if (current === null) throw new Error('no board is open');

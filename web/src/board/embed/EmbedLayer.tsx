@@ -96,7 +96,7 @@ export function EmbedLayer({ visible, overlayRef }: EmbedLayerProps) {
       e.preventDefault();
       e.stopPropagation();
       const item = parseDraggedItem(e.dataTransfer?.getData(DRAG_ITEM_TYPE));
-      if (item) controller.dropAtViewport(item, e.clientX, e.clientY);
+      if (item) void controller.dropAtViewport(item, e.clientX, e.clientY);
     };
     overlay.addEventListener('dragenter', accept, true);
     overlay.addEventListener('dragover', accept, true);

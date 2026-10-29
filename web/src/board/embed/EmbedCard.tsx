@@ -68,19 +68,26 @@ function TitleInput({ detail, objectId, controller, onEnter }: {
   );
 }
 
-function SaveState({ itemId, editing }: { itemId: string; editing: boolean }) {
+/**
+ * The target's save state. While editing: the session's status, its message and Retry. On a static card, only trouble
+ * (offline, not saved, signed out), by its state's label: the session that reported it is gone, so `onRetry` (a new
+ * session that sends the outbox) replaces its retry, and there is none while `writable` is false (the target is in the
+ * trash or archived; the card's own badge says so).
+ */
+function SaveState({ itemId, editing, writable, onRetry }: { itemId: string; editing: boolean; writable: boolean; onRetry(): void }) {
   const s = useSaveStatus(itemId);
   const trouble = s.state === 'offline' || s.state === 'error' || s.state === 'signed_out';
   if (!editing && !trouble) return null;
-  const label = s.message && trouble ? s.message : saveStateLabel(s.state);
+  const label = editing && s.message && trouble ? s.message : saveStateLabel(s.state);
+  const retry = editing ? s.retry : writable ? onRetry : undefined;
   return (
     <span className={editing ? 'board-embed-status' : 'board-embed-badge board-embed-save'} role="status" data-state={s.state}>
       {label}
-      {s.retry && (s.state === 'error' || s.state === 'offline') && (
+      {retry && (s.state === 'error' || s.state === 'offline') && (
         <>
           {' '}
           {/* A static card is aria-hidden: its Retry is for the pointer only (the page itself has the keyboard path). */}
-          <button type="button" className="board-embed-retry" tabIndex={editing ? undefined : -1} onClick={s.retry}>
+          <button type="button" className="board-embed-retry" tabIndex={editing ? undefined : -1} onClick={retry}>
             Retry
           </button>
         </>
@@ -124,7 +131,9 @@ export function EmbedCard({ card, editing, readOnly, controller }: EmbedCardProp
     if (gone || (detail && !isEditableTarget(detail))) controller.targetGone(objectId);
   }, [isEditing, gone, detail, controller, objectId]);
 
-  // While editing: Esc (unless something in the card consumed it) leaves; a pinch over the card never zooms the page.
+  // While editing: Esc in the header (the title input, its buttons) leaves unless something consumed it; the editor's own
+  // Esc comes through `onEscape` (ProseMirror prevents the default of every Esc, so this listener never acts on it). A pinch
+  // over the card never zooms the page.
   useEffect(() => {
     const node = el.current;
     if (!isEditing || !node) return;
@@ -137,11 +146,16 @@ export function EmbedCard({ card, editing, readOnly, controller }: EmbedCardProp
     const onWheel = (e: WheelEvent) => {
       if (e.ctrlKey) e.preventDefault();
     };
+    const onFocus = (e: FocusEvent) => {
+      if (e.target instanceof HTMLElement) controller.cardFocused(objectId, e.target);
+    };
     node.addEventListener('keydown', onKey);
     node.addEventListener('wheel', onWheel, { passive: false });
+    node.addEventListener('focusin', onFocus);
     return () => {
       node.removeEventListener('keydown', onKey);
       node.removeEventListener('wheel', onWheel);
+      node.removeEventListener('focusin', onFocus);
     };
   }, [isEditing, controller, objectId]);
 
@@ -193,6 +207,7 @@ export function EmbedCard({ card, editing, readOnly, controller }: EmbedCardProp
           variant="embed"
           popupRoot={controller.popupRoot}
           titleInput={() => controller.titleInput(objectId)}
+          onEscape={() => controller.escape(objectId)}
           onEditor={onEditor}
         />
       </div>
@@ -227,7 +242,14 @@ export function EmbedCard({ card, editing, readOnly, controller }: EmbedCardProp
         {state === 'trashed' && <span className="board-embed-badge">In Trash</span>}
         {state === 'archived' && <span className="board-embed-badge">Archived</span>}
         {state === 'static' && card.selected && !readOnly && <span className="board-embed-hint">Double-click to edit</span>}
-        {live && <SaveState itemId={target} editing={isEditing} />}
+        {live && (
+          <SaveState
+            itemId={target}
+            editing={isEditing}
+            writable={!readOnly && (state === 'static' || state === 'editing')}
+            onRetry={() => controller.retrySave(target)}
+          />
+        )}
         {isEditing && detail && (
           <button type="button" className="board-embed-open" onClick={() => void navigate(itemPath(detail.item))}>
             Open page
