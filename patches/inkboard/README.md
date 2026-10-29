@@ -13,7 +13,7 @@ patch series, applied to a self-contained copy in `.cache/inkboard-src` by `scri
 | Commit | `41e0295d50433faa5d05b2ff48f85eac079a981d` (tag `v0.2.0-beta.3`, merge of PR #31, 2026-10-27) |
 | Workspace version | `0.2.0-beta.3` (`vendor/inkboard/Cargo.toml`; `scripts/inkboard.sh src` refuses any other) |
 | Board format | `inkboard_core::serial::VERSION = 2` (`crates/inkboard-core/src/serial.rs`) |
-| Patchset | `3` (bump it with every change to the series: the dist's `engine_version` is `0.2.0-beta.3+embed.quire.<patchset>`) |
+| Patchset | `3` (bump it with every change to a series that has shipped: the dist's `engine_version` is `0.2.0-beta.3+embed.quire.<patchset>`; the M1.1 review's changes to 0005 and 0006 came before 3 shipped and kept it, docs/ARCHITECTURE.md D99) |
 
 `scripts/check-pins.sh` (on the host) checks that the submodule is at this commit and clean, and that the crates Quire
 shares with `inkboard-core` (serde, serde_json, base64, thiserror) have the same versions in both lockfiles.
@@ -33,7 +33,7 @@ D59).
 | `0002-embed-js-api.patch` | feature `embed`: the JS API on `globalThis.inkboardEmbed` (§10.3, `src/embed.rs`), host mode (`App::host`), `host_load` resets, pause, single mount, Present and the host-owned menu entries hidden when hosted, `platform::init` split | not opened yet |
 | `0003-optional-net.patch` | feature `net` (default): `inkboard-net` optional for the wasm build, `session_net_off.rs`; the public page keeps `net` (`web/Trunk.toml`, and the WebGPU build of `scripts/build_web.sh` / `build_web.ps1`, whose `--features` list replaces Trunk.toml's); droppable | not opened yet |
 | `0004-docs-embedding.patch` | "Embedding (feature `embed`)" in `docs/WEB.md`, `docs/fr/WEB.md`, and the `CHANGELOG.md` entries | not opened yet |
-| `0005-embed-documents.patch` | embedded documents (§18.3): `inkboard-core`'s optional `BoxObj.embed` (`Embed {item}`, lenient, `is_embed`); in `inkboard-app` the cards of a hosted board (`src/embed_cards.rs`): the per-frame layout report, `onEmbedOpen` instead of a card's label editing (none when read-only), the host's editing state (no keys, no handles, ended by a press or focus, the press swallowed), `insertEmbed`, titles in place, no rotation handle for a single card; the JS side in `src/embed.rs`; native tests (`src/tests_embed.rs`, `cargo test -p inkboard-app embed`) | not opened yet |
+| `0005-embed-documents.patch` | embedded documents (§18.3): `inkboard-core`'s optional `BoxObj.embed` (`Embed {item}`, lenient, `is_embed`); in `inkboard-app` the cards of a hosted board (`src/embed_cards.rs`): the per-frame layout report, `onEmbedOpen` instead of a card's label editing (none when read-only), the host's editing state (no keys, no handles, no style panel, ended by a primary or secondary press or the focus, a primary press swallowed, the middle button still panning), `insertEmbed`, titles in place, no rotation handle and no text settings for cards, the cards on the clipboard in the layout; the canvas reads the wheel's Shift and Alt from the wheel event (`src/tools.rs`); the JS side in `src/embed.rs`; native tests (`src/tests_embed.rs`, `cargo test -p inkboard-app embed`) | not opened yet |
 | `0006-docs-embedded-documents.patch` | "Embedded documents (cards)" in `docs/WEB.md` and `docs/fr/WEB.md`, and the `CHANGELOG.md` entry | not opened yet |
 
 The engine Quire ships is built with `--no-default-features --features web-glow,embed` (no `net`). 0003 stays

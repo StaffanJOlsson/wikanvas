@@ -8,31 +8,32 @@ Subject: [PATCH 6/6] docs: embedded documents
 the four handle methods, and the changelog entry. Kept apart so that the
 code patch reviews on its own.
 ---
- CHANGELOG.md   |  4 ++++
- docs/WEB.md    | 39 +++++++++++++++++++++++++++++++++++++++
- docs/fr/WEB.md | 42 ++++++++++++++++++++++++++++++++++++++++++
- 3 files changed, 85 insertions(+)
+ CHANGELOG.md   |  5 +++++
+ docs/WEB.md    | 41 +++++++++++++++++++++++++++++++++++++++++
+ docs/fr/WEB.md | 45 +++++++++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 91 insertions(+)
 
 diff --git a/CHANGELOG.md b/CHANGELOG.md
-index 30b35ce..3b8644e 100644
+index 30b35ce..f65bfe6 100644
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
-@@ -14,6 +14,10 @@ follows [Semantic Versioning](https://semver.org/) (pre-releases carry a hyphen,
+@@ -14,6 +14,11 @@ follows [Semantic Versioning](https://semver.org/) (pre-releases carry a hyphen,
    presentation, the tab title…) is hidden. One board per page.
  - **Feature `net`** (on by default): a web build can leave out the network of shared sessions (`--no-default-features`); such a page
    cannot join a session. The desktop application always has it.
 +- **Embedded documents (feature `embed`):** a host page can embed its own documents in a board as cards, rectangles with an optional
 +  `embed` field (`{"item": "…"}`; the native format stays version 2, and a malformed value loads as a plain box). The host is told where
 +  the cards are after every frame that moved them, opens a card's document instead of its label's editing, and can insert cards and
-+  show its documents' titles as their labels without an undo step (see [Embedded documents](docs/WEB.md#embedded-documents-cards)).
++  show its documents' titles as their labels without an undo step (see [Embedded documents](docs/WEB.md#embedded-documents-cards)). The
++  wheel's Shift and Alt are read from the wheel event, so they pan while the host page has the keyboard focus.
  
  ### Fixed
  
 diff --git a/docs/WEB.md b/docs/WEB.md
-index 52498be..cf84359 100644
+index 52498be..10fb1e2 100644
 --- a/docs/WEB.md
 +++ b/docs/WEB.md
-@@ -161,6 +161,45 @@ the engine reads and writes. `mount` rejects with `{kind, message}`: `webgl` (no
+@@ -161,6 +161,47 @@ the engine reads and writes. `mount` rejects with `{kind, message}`: `webgl` (no
    The board reads neither the page's address (invitation links) nor the network events, and it takes pastes only while it has the focus.
  - Callbacks are called after the frame that caused them, never from inside it, so they may call the handle.
  
@@ -62,27 +63,29 @@ index 52498be..cf84359 100644
 +
 +| Callback | When |
 +|---|---|
-+| `onEmbedLayout({page, zoom, originX, originY, canvas, occluders, embeds, items, editing})` | after a frame in which any of it changed, at most once per frame: the current page, the camera (`screen = origin + world × zoom`), the drawing area, the engine's own interface over it (`occluders`: floating cards, menus, popups, tooltips, toasts, windows), the cards of the current page on visible layers in drawing order (`{id, item, x, y, w, h, angle, label, selected, locked}`, as drawn, gestures included), every distinct `item` of the board, sorted, and the card being edited by the host. A page without cards reports no pan or zoom. |
++| `onEmbedLayout({page, zoom, originX, originY, canvas, occluders, embeds, items, clipboard, editing})` | after a frame in which any of it changed, at most once per frame: the current page, the camera (`screen = origin + world × zoom`), the drawing area, the engine's own interface over it (`occluders`: floating cards, menus, popups, tooltips, toasts, windows), the cards of the current page on visible layers in drawing order (`{id, item, x, y, w, h, angle, label, selected, locked}`, as drawn, gestures included), every distinct `item` of the board, sorted, every distinct `item` of the cards on the board's clipboard (cut or copied, so still to be pasted, here or on the next board), sorted, and the card being edited by the host. A page without cards reports no pan or zoom. |
 +| `onEmbedOpen({id, item, point})` | instead of editing a card's label (double-click, Enter, the menu's "Edit text"); `point` is the double-click, `null` otherwise. Never on a read-only board |
-+| `onEmbedEditEnd({id, reason})` | the editing set by `setEmbedEditing` ended in the board: `'press'` (a primary press anywhere in the board), `'focus'` (the board took the keyboard focus), `'gone'` (the card left the current page, or `setBoard`) |
++| `onEmbedEditEnd({id, reason})` | the editing set by `setEmbedEditing` ended in the board: `'press'` (a primary or secondary press anywhere in the board), `'focus'` (the board took the keyboard focus, other than by a press of the middle button, which pans), `'gone'` (the card left the current page, or `setBoard`) |
 +
 +| Call | What it does |
 +|---|---|
 +| `insertEmbed({item, title, at, w?, h?})` → id or `null` | adds a card centred on `at` (`'center'`: the centre of the view, or a canvas point), `w` × `h` world units (480 × 360 by default), labelled `title` in bold, on the first visible and unlocked layer: one undo step, selected; `null` on a read-only board. A label being typed is validated first |
-+| `setEmbedEditing(id \| null)` | the host edits that card: it stays selected without handles, the board handles no key, and the first press in the board or the board taking the focus ends it (`onEmbedEditEnd`); the press that ends it does nothing else on the canvas. An id that is not a card of the current page is ignored; `null` ends it without an event |
++| `setEmbedEditing(id \| null)` | the host edits that card: it stays selected without handles, the board handles no key and hides its style panel, and the first primary or secondary press in the board or the board taking the focus ends it (`onEmbedEditEnd`); a primary press that ends it does nothing else on the canvas, and the middle button still pans. An id that is not a card of the current page is ignored; `null` ends it without an event |
 +| `setEmbedTitles({item: title, …})` | the documents' live titles: shown as the cards' labels at once, with no undo step and no revision (a title change alone never makes the board dirty); the next save keeps them. `setBoard` forgets them |
 +| `requestEmbedLayout()` | `onEmbedLayout` after the next frame even when nothing changed |
 +
-+A single card has no rotation handle while hosted (the host draws the document upright).
++A single card has no rotation handle while hosted (the host draws the document upright), and the style panel has no text settings for a
++selection of cards alone (their label is only the title). The wheel's Shift and Alt are read from the wheel event itself: the board learns
++the other modifiers from key events on its canvas, which it does not get while the host page has the keyboard focus.
 +
  ## Test the page
  
  Two scripts, both by hand (never `cargo test`): `page.mjs` (the local page) and `e2e.mjs` (**a real native host and browser guests through the public relay;
 diff --git a/docs/fr/WEB.md b/docs/fr/WEB.md
-index 86fcba3..153141e 100644
+index 86fcba3..e555980 100644
 --- a/docs/fr/WEB.md
 +++ b/docs/fr/WEB.md
-@@ -165,6 +165,48 @@ moteur n'a pas pu démarrer, ou un autre tableau est monté). La poignée :
+@@ -165,6 +165,51 @@ moteur n'a pas pu démarrer, ou un autre tableau est monté). La poignée :
    d'invitation) ni les événements réseau, et il ne prend les collages que lorsqu'il a le focus.
  - Les rappels sont appelés après l'image qui les a provoqués, jamais pendant : ils peuvent appeler la poignée.
  
@@ -115,18 +118,21 @@ index 86fcba3..153141e 100644
 +
 +| Rappel | Quand |
 +|---|---|
-+| `onEmbedLayout({page, zoom, originX, originY, canvas, occluders, embeds, items, editing})` | après une image où l'un de ces éléments a changé, au plus une fois par image : la page courante, la caméra (`écran = origine + monde × zoom`), la zone de dessin, l'interface du moteur par-dessus (`occluders` : cartes flottantes, menus, fenêtres contextuelles, infobulles, notifications, fenêtres), les cartes de la page courante sur les calques visibles dans l'ordre de dessin (`{id, item, x, y, w, h, angle, label, selected, locked}`, telles que dessinées, gestes compris), chaque `item` distinct du tableau, trié, et la carte que l'hôte est en train de modifier. Une page sans carte ne signale ni défilement ni zoom. |
++| `onEmbedLayout({page, zoom, originX, originY, canvas, occluders, embeds, items, clipboard, editing})` | après une image où l'un de ces éléments a changé, au plus une fois par image : la page courante, la caméra (`écran = origine + monde × zoom`), la zone de dessin, l'interface du moteur par-dessus (`occluders` : cartes flottantes, menus, fenêtres contextuelles, infobulles, notifications, fenêtres), les cartes de la page courante sur les calques visibles dans l'ordre de dessin (`{id, item, x, y, w, h, angle, label, selected, locked}`, telles que dessinées, gestes compris), chaque `item` distinct du tableau, trié, chaque `item` distinct des cartes du presse-papiers du tableau (coupées ou copiées, donc encore à coller, ici ou sur le tableau suivant), trié, et la carte que l'hôte est en train de modifier. Une page sans carte ne signale ni défilement ni zoom. |
 +| `onEmbedOpen({id, item, point})` | au lieu de modifier le libellé d'une carte (double-clic, Entrée, « Edit text » du menu) ; `point` est le double-clic, `null` sinon. Jamais sur un tableau en lecture seule |
-+| `onEmbedEditEnd({id, reason})` | la modification posée par `setEmbedEditing` a pris fin dans le tableau : `'press'` (un appui principal n'importe où dans le tableau), `'focus'` (le tableau a pris le focus clavier), `'gone'` (la carte a quitté la page courante, ou `setBoard`) |
++| `onEmbedEditEnd({id, reason})` | la modification posée par `setEmbedEditing` a pris fin dans le tableau : `'press'` (un appui principal ou secondaire n'importe où dans le tableau), `'focus'` (le tableau a pris le focus clavier, autrement que par un appui du bouton du milieu, qui fait défiler), `'gone'` (la carte a quitté la page courante, ou `setBoard`) |
 +
 +| Appel | Effet |
 +|---|---|
 +| `insertEmbed({item, title, at, w?, h?})` → identifiant ou `null` | ajoute une carte centrée sur `at` (`'center'` : le centre de la vue, ou un point du canevas), de `w` × `h` unités du monde (480 × 360 par défaut), au libellé `title` en gras, sur le premier calque visible et non verrouillé : une étape d'annulation, sélectionnée ; `null` sur un tableau en lecture seule. Un libellé en cours de saisie est d'abord validé |
-+| `setEmbedEditing(id \| null)` | l'hôte modifie cette carte : elle reste sélectionnée sans poignées, le tableau ne traite aucune touche, et le premier appui dans le tableau ou la prise du focus par le tableau y mettent fin (`onEmbedEditEnd`) ; l'appui qui y met fin ne fait rien d'autre sur le canevas. Un identifiant qui n'est pas une carte de la page courante est ignoré ; `null` y met fin sans événement |
++| `setEmbedEditing(id \| null)` | l'hôte modifie cette carte : elle reste sélectionnée sans poignées, le tableau ne traite aucune touche et masque son panneau de style, et le premier appui principal ou secondaire dans le tableau ou la prise du focus par le tableau y mettent fin (`onEmbedEditEnd`) ; un appui principal qui y met fin ne fait rien d'autre sur le canevas, et le bouton du milieu fait toujours défiler. Un identifiant qui n'est pas une carte de la page courante est ignoré ; `null` y met fin sans événement |
 +| `setEmbedTitles({item: titre, …})` | les titres à jour des documents : affichés aussitôt comme libellés des cartes, sans étape d'annulation ni révision (un changement de titre seul ne rend jamais le tableau modifié) ; le prochain enregistrement les garde. `setBoard` les oublie |
 +| `requestEmbedLayout()` | `onEmbedLayout` après la prochaine image même si rien n'a changé |
 +
-+Une carte seule n'a pas de poignée de rotation dans une page hôte (l'hôte dessine le document droit).
++Une carte seule n'a pas de poignée de rotation dans une page hôte (l'hôte dessine le document droit), et le panneau de style n'a pas de
++réglages de texte pour une sélection faite seulement de cartes (leur libellé n'est que le titre). Maj et Alt de la molette sont lus sur
++l'événement de molette lui-même : le tableau apprend les autres modificateurs par les touches reçues sur son canevas, qu'il ne reçoit pas
++tant que la page hôte a le focus clavier.
 +
  ## Tester la page
  

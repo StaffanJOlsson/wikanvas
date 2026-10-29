@@ -102,6 +102,7 @@ export interface EngineEmbedLayout {
   occluders: CanvasRect[];             // every visible egui layer above Order::Background
   embeds: EngineEmbed[];               // drawing order, bottom first
   items: string[];                     // distinct embed.item values of every page and layer, sorted
+  clipboard: string[];                 // distinct embed.item values of the cards on the engine's clipboard, sorted
   editing: string | null;              // the id set by setEmbedEditing, while it lasts
 }
 

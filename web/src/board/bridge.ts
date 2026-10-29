@@ -19,6 +19,9 @@ export interface FrameEvents {
   onEmbedOpen?(e: EmbedOpenEvent): void;
   /** The engine ended the editing set by `setEmbedEditing` (a press in the frame, the frame took focus, the card left). */
   onEmbedEditEnd?(e: EmbedEditEndEvent): void;
+  /** The frame took the keyboard focus during that editing without ending it (the middle button's pan: eframe focuses
+   *  its canvas on every release over it); the host may give the focus back to the card. */
+  onEmbedFocusBack?(e: EmbedFocusBackEvent): void;
   /** A sidebar document was dropped on the canvas (`DragItemType`); the host decides whether to insert it. */
   onDropItem?(e: DropItemEvent): void;
 }
@@ -123,6 +126,9 @@ export interface EmbedLayout {
   readonly embeds: readonly EmbedBox[];
   /** Every distinct `embed.item` on every page and layer, sorted. */
   readonly items: readonly string[];
+  /** Every distinct `embed.item` of the cards on the engine's clipboard (cut or copied, still to be pasted, here or on
+   *  the next board), sorted. Missing from an engine that does not report it. */
+  readonly clipboard?: readonly string[];
   /** The card the engine holds as being edited (`setEmbedEditing`), or null. */
   readonly editing: string | null;
 }
@@ -143,6 +149,13 @@ export interface EmbedEditEndEvent {
   readonly itemId: string;
   readonly objectId: string;
   readonly reason: EmbedEditEndReason;
+}
+
+export interface EmbedFocusBackEvent {
+  /** The board. */
+  readonly itemId: string;
+  /** The card being edited. */
+  readonly objectId: string;
 }
 
 export interface DropItemEvent {

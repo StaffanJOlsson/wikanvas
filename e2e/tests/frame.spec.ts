@@ -58,7 +58,7 @@ type EmbedBox = {
 };
 type Layout = {
   itemId: string; page: string; zoom: number; originX: number; originY: number; canvas: Rect; occluders: Rect[]; embeds: EmbedBox[];
-  items: string[]; editing: string | null;
+  items: string[]; clipboard: string[]; editing: string | null;
 };
 
 type Log = {
@@ -71,6 +71,7 @@ type Log = {
   layout: Layout[];
   open: { itemId: string; objectId: string; item: string; point: Point | null }[];
   end: { itemId: string; objectId: string; reason: string }[];
+  focusBack: { itemId: string; objectId: string }[];
   drop: { itemId: string; item: unknown; point: Point }[];
 };
 
@@ -89,7 +90,7 @@ async function connect(page: Page): Promise<void> {
   expect(response?.status()).toBe(200);
   await page.evaluate(async () => {
     const w = window as any;
-    const log = { progress: [], ready: [], change: [], save: [], error: [], hostKey: [], layout: [], open: [], end: [], drop: [] } as any;
+    const log = { progress: [], ready: [], change: [], save: [], error: [], hostKey: [], layout: [], open: [], end: [], focusBack: [], drop: [] } as any;
     w.__log = log;
     w.__api = await w.quireBoardFrame.connect({
       onProgress: (p: unknown) => log.progress.push(p),
@@ -101,6 +102,7 @@ async function connect(page: Page): Promise<void> {
       onEmbedLayout: (e: unknown) => log.layout.push(e),
       onEmbedOpen: (e: unknown) => log.open.push(e),
       onEmbedEditEnd: (e: unknown) => log.end.push(e),
+      onEmbedFocusBack: (e: unknown) => log.focusBack.push(e),
       onDropItem: (e: unknown) => log.drop.push(e),
     });
   });
@@ -684,6 +686,7 @@ test.describe('Inkboard frame', () => {
       { objectId: 'embedcard2', item: ITEM2, x: 40, y: -200, w: 480, h: 360, angle: 0, label: 'Second page', selected: false, locked: false },
     ]);
     expect(l.items).toEqual([ITEM1, ITEM2]);
+    expect(l.clipboard).toEqual([]);
     expect(l.editing).toBeNull();
     expect(l.canvas).toEqual({ x: 0, y: 0, width: 1280, height: 720 });
     expect(l.occluders.length).toBeGreaterThan(0);
@@ -797,6 +800,8 @@ test.describe('Inkboard frame', () => {
     // selected and copied first, so that Delete and Ctrl+V would have something to act on
     await page.mouse.click(card.x, card.y);
     await press(page, 'Control+c');
+    // the layout names the copied card's document: it can still be pasted, so the host keeps it
+    await expect.poll(async () => (await lastLayout(page))!.clipboard).toEqual([ITEM1]);
     const editing = async () => (await lastLayout(page))!.editing;
     await call(page, 'setEmbedEditing', 'embedcard1');
     await expect.poll(editing).toBe('embedcard1');
@@ -861,6 +866,68 @@ test.describe('Inkboard frame', () => {
     expect((await log(page)).end[3]).toEqual({ itemId: 'item-a', objectId: 'embedcard2', reason: 'gone' });
     await expect.poll(async () => (await lastLayout(page))!.itemId).toBe('item-b');
     expect((await lastLayout(page))!.editing).toBeNull();
+    await expectClean(page);
+  });
+
+  test('embeds: while the host edits, Shift and Alt with the wheel pan and the middle button pans, keeping the focus', async ({ page }) => {
+    await connect(page);
+    await open(page, 'item-a', EMBED);
+    const l = await settledLayout(page);
+    const empty = EMBED_EMPTY.from;
+    expectClear(l, empty, 'the empty area');
+    await call(page, 'setEmbedEditing', 'embedcard1');
+    await expect.poll(async () => (await lastLayout(page))!.editing).toBe('embedcard1');
+    // the host's editor has the keyboard focus: the board gets no key event, so it never hears of Shift or Alt
+    await page.mouse.move(empty.x, empty.y);
+    await page.evaluate(() => {
+      // fixed and tiny: an input below the canvas would make the page scroll to it
+      const input = document.createElement('input');
+      input.id = 'host-editor';
+      input.style.cssText = 'position: fixed; right: 0; bottom: 0; width: 1px; height: 1px; opacity: 0';
+      document.body.append(input);
+      input.focus();
+    });
+    const camera = async () => {
+      await page.waitForTimeout(300);
+      const now = (await lastLayout(page))!;
+      return { x: now.originX, y: now.originY, zoom: now.zoom };
+    };
+    const start = await camera();
+    await page.keyboard.down('Shift');
+    await page.mouse.wheel(0, 120);
+    await page.keyboard.up('Shift');
+    const shifted = await camera();
+    expect(shifted.zoom, 'Shift + wheel does not zoom').toBeCloseTo(start.zoom, 6);
+    expect(Math.abs(shifted.x - start.x), 'Shift + wheel pans sideways').toBeGreaterThan(30);
+    expect(shifted.y).toBeCloseTo(start.y, 3);
+    await page.keyboard.down('Alt');
+    await page.mouse.wheel(0, 120);
+    await page.keyboard.up('Alt');
+    const alted = await camera();
+    expect(alted.zoom, 'Alt + wheel does not zoom').toBeCloseTo(start.zoom, 6);
+    expect(Math.abs(alted.y - shifted.y), 'Alt + wheel pans up and down').toBeGreaterThan(30);
+    expect(alted.x).toBeCloseTo(shifted.x, 3);
+    // the middle button pans and the editing goes on: the press leaves the focus in the host's editor, and once eframe has
+    // focused its canvas on the release, the host hears that it may take the focus back
+    await page.mouse.move(empty.x, empty.y);
+    await page.mouse.down({ button: 'middle' });
+    for (let i = 1; i <= 10; i++) {
+      await page.mouse.move(empty.x + 8 * i, empty.y + 4 * i);
+      await page.waitForTimeout(30);
+    }
+    expect(await page.evaluate(() => document.activeElement?.id), 'the press keeps the focus').toBe('host-editor');
+    expect((await log(page)).focusBack).toEqual([]);
+    await page.mouse.up({ button: 'middle' });
+    const panned = await camera();
+    expect(panned.x - alted.x).toBeCloseTo(80, 0);
+    expect(panned.y - alted.y).toBeCloseTo(40, 0);
+    expect((await log(page)).focusBack).toEqual([{ itemId: 'item-a', objectId: 'embedcard1' }]);
+    expect((await log(page)).end).toEqual([]);
+    expect((await lastLayout(page))!.editing).toBe('embedcard1');
+    // a secondary press ends it like a primary one (its menu opens as usual)
+    await page.mouse.click(empty.x + 80, empty.y + 40, { button: 'right' });
+    await expect.poll(async () => (await log(page)).end).toEqual([{ itemId: 'item-a', objectId: 'embedcard1', reason: 'press' }]);
+    await page.keyboard.press('Escape');
     await expectClean(page);
   });
 

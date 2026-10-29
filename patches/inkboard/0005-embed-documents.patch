@@ -18,29 +18,40 @@ When the board is hosted (feature `embed`), src/embed_cards.rs:
   its label, on every path into label editing (double-click with its point,
   Enter, the menu's "Edit text"), and never in a read-only host;
 - keeps the card the host edits (`setEmbedEditing`): no handles, no keys,
-  and the first primary press in the board or the board taking the focus
-  ends it (`onEmbedEditEnd`), the press doing nothing else on the canvas;
-  a card that leaves the page or a new board end it as `gone`;
+  no style panel, and the first primary or secondary press in the board or
+  the board taking the focus ends it (`onEmbedEditEnd`), a primary press
+  doing nothing else on the canvas; the middle button still pans, and the
+  focus its press brings does not end it; a card that leaves the page or a
+  new board end it as `gone`;
 - inserts cards (`insertEmbed`: 480 x 360 by default, the first visible
   unlocked layer, one undo step, null when read-only) and shows the
   documents' live titles as the labels in place (`setEmbedTitles`: no undo
   step, no revision, again after every revision change);
-- gives a single card no rotation handle.
+- gives a single card no rotation handle, and a selection of cards alone
+  no text settings in the style panel (their label is only the title);
+- reports the documents of the cards on the clipboard (`clipboard` in the
+  layout: a cut or copied card can still be pasted, so the host keeps its
+  document).
+
+The canvas reads the wheel's Shift and Alt from the wheel event itself: a
+web page learns the other modifiers from key events on its canvas, which
+it does not get while the host page has the keyboard focus.
 
 Not hosted, a card is a plain rectangle. No new text is shown, so no
 translation is added. Native tests in src/tests_embed.rs.
 ---
  crates/inkboard-app/src/app.rs           |  29 +-
- crates/inkboard-app/src/embed.rs         | 145 +++++-
- crates/inkboard-app/src/embed_cards.rs   | 494 +++++++++++++++++++
+ crates/inkboard-app/src/embed.rs         | 146 ++++-
+ crates/inkboard-app/src/embed_cards.rs   | 513 ++++++++++++++++
  crates/inkboard-app/src/main.rs          |   3 +
+ crates/inkboard-app/src/panel.rs         |  13 +-
  crates/inkboard-app/src/rich_edit.rs     |  12 +-
- crates/inkboard-app/src/tests_embed.rs   | 577 +++++++++++++++++++++++
- crates/inkboard-app/src/tools.rs         |  23 +-
- crates/inkboard-core/src/model.rs        | 123 ++++-
+ crates/inkboard-app/src/tests_embed.rs   | 717 +++++++++++++++++++++++
+ crates/inkboard-app/src/tools.rs         |  30 +-
+ crates/inkboard-core/src/model.rs        | 123 +++-
  crates/inkboard-core/tests/properties.rs |   5 +-
  crates/inkboard-formats/src/mermaid.rs   |   3 +-
- 10 files changed, 1395 insertions(+), 19 deletions(-)
+ 11 files changed, 1570 insertions(+), 24 deletions(-)
  create mode 100644 crates/inkboard-app/src/embed_cards.rs
  create mode 100644 crates/inkboard-app/src/tests_embed.rs
 
@@ -141,7 +152,7 @@ index e54512d..e098d4d 100644
          self.screenshot_step(ctx);
          if ctx.input(|i| i.viewport().close_requested()) && self.screenshot.is_none() {
 diff --git a/crates/inkboard-app/src/embed.rs b/crates/inkboard-app/src/embed.rs
-index cea5dc4..a8b7dbd 100644
+index cea5dc4..9fc70a3 100644
 --- a/crates/inkboard-app/src/embed.rs
 +++ b/crates/inkboard-app/src/embed.rs
 @@ -7,12 +7,15 @@
@@ -267,7 +278,7 @@ index cea5dc4..a8b7dbd 100644
  }
  
  impl HostEvents for JsEvents {
-@@ -345,6 +416,72 @@ impl HostEvents for JsEvents {
+@@ -345,6 +416,73 @@ impl HostEvents for JsEvents {
      fn save(&self) {
          later(self.save.as_ref(), JsValue::UNDEFINED);
      }
@@ -303,6 +314,7 @@ index cea5dc4..a8b7dbd 100644
 +            .collect();
 +        set(&e, "embeds", &cards);
 +        set(&e, "items", &l.items.iter().map(|i| JsValue::from_str(i)).collect::<js_sys::Array>());
++        set(&e, "clipboard", &l.clipboard.iter().map(|i| JsValue::from_str(i)).collect::<js_sys::Array>());
 +        set(&e, "editing", &l.editing.as_ref().map_or(JsValue::NULL, |id| JsValue::from_str(id.as_str())));
 +        later(self.embed_layout.as_ref(), e.into());
 +    }
@@ -340,7 +352,7 @@ index cea5dc4..a8b7dbd 100644
  }
  
  /// Calls `f(arg)` once the current frame is over (eframe holds the application while it builds one, so a callback that calls the
-@@ -415,6 +552,10 @@ fn error(kind: &str, message: &str) -> JsValue {
+@@ -415,6 +553,10 @@ fn error(kind: &str, message: &str) -> JsValue {
      o.into()
  }
  
@@ -353,10 +365,10 @@ index cea5dc4..a8b7dbd 100644
  }
 diff --git a/crates/inkboard-app/src/embed_cards.rs b/crates/inkboard-app/src/embed_cards.rs
 new file mode 100644
-index 0000000..f1145c4
+index 0000000..bbc1746
 --- /dev/null
 +++ b/crates/inkboard-app/src/embed_cards.rs
-@@ -0,0 +1,494 @@
+@@ -0,0 +1,513 @@
 +// Changed for Quire (embed feature): see patches/inkboard/README.md
 +//! Cards of a hosted board (feature `embed`, see `embed.rs`): rectangles that embed one of the host page's documents
 +//! (`BoxObj::embed`, `BoxObj::is_embed`). The host page draws the document inside the card, over the canvas, and edits it there; the
@@ -365,9 +377,10 @@ index 0000000..f1145c4
 +//! - after every frame in which any of it changed: the cards of the current page, the camera and the engine's own interface over the
 +//!   canvas ([`EmbedLayout`], `HostEvents::embed_layout`), so that the host page can follow pans, zooms and gestures;
 +//! - instead of editing a card's label: that its document should be opened (`HostEvents::embed_open`), never in a read-only host;
-+//! - while the host page edits a card ([`App::set_embed_editing`]) the engine takes no key and shows no handle, and the first press in
-+//!   the board, or the board taking the keyboard focus, ends that editing (`HostEvents::embed_edit_end`); a press on the canvas then
-+//!   does nothing else, as the click that leaves a label's editing.
++//! - while the host page edits a card ([`App::set_embed_editing`]) the engine takes no key and shows no handle, and the first primary or
++//!   secondary press in the board, or the board taking the keyboard focus, ends that editing (`HostEvents::embed_edit_end`); a primary
++//!   press on the canvas then does nothing else, as the click that leaves a label's editing. The middle button still pans the board
++//!   without ending it.
 +//!
 +//! [`App::insert_embed`] adds a card, and [`App::set_embed_titles`] shows the documents' live titles as the cards' labels, in place:
 +//! no undo step and no revision, and the next save keeps them. Coordinates for the host page are CSS pixels of the canvas element
@@ -426,9 +439,9 @@ index 0000000..f1145c4
 +/// Why the host page's editing of a card ended in the engine.
 +#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 +pub enum EditEnd {
-+    /// A primary press in the board (its canvas or its interface).
++    /// A primary or secondary press in the board (its canvas or its interface).
 +    Press,
-+    /// The board took the keyboard focus.
++    /// The board took the keyboard focus (not by a press of the middle or an extra button).
 +    Focus,
 +    /// The card left the current page (deleted, hidden, another page or another board).
 +    Gone,
@@ -478,6 +491,9 @@ index 0000000..f1145c4
 +    pub cards: Vec<EmbedBox>,
 +    /// Every distinct `embed.item` of the board's cards (all pages and layers), sorted.
 +    pub items: Vec<String>,
++    /// Every distinct `embed.item` of the cards on the engine's clipboard, sorted: a cut or copied card can still be pasted, on this
++    /// board or on the next one the host opens, so the host page keeps its document.
++    pub clipboard: Vec<String>,
 +    /// The card the host page edits.
 +    pub editing: Option<Id>,
 +}
@@ -497,10 +513,11 @@ index 0000000..f1145c4
 +}
 +
 +impl EmbedLayout {
-+    /// The cards, the board's items and the editing state are the same.
++    /// The cards, the board's items, the clipboard's items and the editing state are the same.
 +    fn same_cards(&self, other: &EmbedLayout) -> bool {
 +        self.page == other.page
 +            && self.items == other.items
++            && self.clipboard == other.clipboard
 +            && self.editing == other.editing
 +            && self.cards.len() == other.cards.len()
 +            && self.cards.iter().zip(&other.cards).all(|(a, b)| same_card(a, b))
@@ -596,20 +613,30 @@ index 0000000..f1145c4
 +    }
 +
 +    /// Start of a hosted frame, before anything handles input: the host's editing ends on a primary press (whose canvas part is then
-+    /// swallowed) or when the board takes the focus without one; the titles follow a revision change.
++    /// swallowed), on a secondary press (the context menu then opens as usual), or when the board takes the focus without a press; the
++    /// titles follow a revision change. The middle button (a pan) and the extra buttons leave the editing as it is, and so does the
++    /// focus their press brings to the board.
 +    pub(crate) fn embed_frame_start(&mut self, ctx: &egui::Context) {
 +        let Some(h) = self.host.as_mut() else { return };
-+        let (pressed, focused) = ctx.input(|i| (i.pointer.button_pressed(egui::PointerButton::Primary), i.focused));
++        let (primary, secondary, panning, focused) = ctx.input(|i| {
++            let p = &i.pointer;
++            let panning = [egui::PointerButton::Middle, egui::PointerButton::Extra1, egui::PointerButton::Extra2]
++                .into_iter()
++                .any(|b| p.button_down(b) || p.button_pressed(b) || p.button_released(b));
++            (p.button_pressed(egui::PointerButton::Primary), p.button_pressed(egui::PointerButton::Secondary), panning, i.focused)
++        });
 +        let c = &mut h.cards;
 +        c.frame = ctx.cumulative_frame_nr();
 +        c.zoom_factor = ctx.zoom_factor();
 +        let gained = focused && !c.focused;
 +        c.focused = focused;
 +        if c.editing.is_some() {
-+            if pressed {
-+                c.swallow = Some(c.frame);
++            if primary || secondary {
++                if primary {
++                    c.swallow = Some(c.frame);
++                }
 +                self.end_embed_editing(EditEnd::Press);
-+            } else if gained {
++            } else if gained && !panning {
 +                self.end_embed_editing(EditEnd::Focus);
 +            }
 +        }
@@ -665,6 +692,9 @@ index 0000000..f1145c4
 +            h.cards.items = Some((rev, items));
 +        }
 +        let items = h.cards.items.as_ref().map(|(_, items)| items.clone()).unwrap_or_default();
++        let mut clipboard: Vec<String> = self.clipboard.iter().filter_map(card_item).map(str::to_owned).collect();
++        clipboard.sort_unstable();
++        clipboard.dedup();
 +        let zf = h.cards.zoom_factor;
 +        let editing = h.cards.editing.clone();
 +        let px = |r: egui::Rect| egui::Rect::from_min_max(pos2(r.min.x * zf, r.min.y * zf), pos2(r.max.x * zf, r.max.y * zf));
@@ -710,6 +740,7 @@ index 0000000..f1145c4
 +            occluders,
 +            cards,
 +            items,
++            clipboard,
 +            editing,
 +        })
 +    }
@@ -872,6 +903,44 @@ index b97b5b9..ce800fc 100644
  mod tests_hostile_host;
  #[cfg(test)]
  mod tests_session_e2e;
+diff --git a/crates/inkboard-app/src/panel.rs b/crates/inkboard-app/src/panel.rs
+index ceb01e6..db4c984 100644
+--- a/crates/inkboard-app/src/panel.rs
++++ b/crates/inkboard-app/src/panel.rs
+@@ -1,3 +1,4 @@
++// Changed for Quire (embed feature): see patches/inkboard/README.md
+ //! Floating style panel (on the left), like `#panel` of the web prototype: color swatches, segmented buttons, opacity slider,
+ //! actions on the selection. It only appears when there is something to set (a drawing tool or selected objects).
+ 
+@@ -155,9 +156,10 @@ fn swatches(ui: &mut Ui, set: Swatches, mut pick: impl FnMut(Option<Color>), mut
+     ui.add_space(6.0);
+ }
+ 
+-/// Does the panel have anything to show?
++/// Does the panel have anything to show? Not while the host page edits a card: the panel would cover the document being edited, and
++/// a click on it would end that editing.
+ pub fn visible(app: &App) -> bool {
+-    app.layers_open || !app.sel.is_empty() || drawing_tool(app.tool) || app.editing.is_some()
++    app.embed_editing().is_none() && (app.layers_open || !app.sel.is_empty() || drawing_tool(app.tool) || app.editing.is_some())
+ }
+ 
+ fn drawing_tool(t: Tool) -> bool {
+@@ -654,10 +656,13 @@ fn props(app: &mut App, ui: &mut Ui) {
+     if target.connectors() || matches!(app.tool, Tool::Line | Tool::Arrow) {
+         connector_section(app, ui, &target);
+     }
+-    if target.shapes() || matches!(app.tool, Tool::Text | Tool::Sticky | Tool::Shape(_)) {
++    // a hosted card's label is only the title snapshot of the host page's document (the host draws the document over it): a selection
++    // of cards alone has no text to set
++    let cards_only = app.hosted() && has_sel && target.objs.iter().all(|o| crate::embed_cards::card_item(o).is_some());
++    if !cards_only && (target.shapes() || matches!(app.tool, Tool::Text | Tool::Sticky | Tool::Shape(_))) {
+         text_section(app, ui, &target);
+     }
+-    if has_sel || app.editing.is_some() {
++    if !cards_only && (has_sel || app.editing.is_some()) {
+         rich_section(app, ui, dark);
+     }
+ 
 diff --git a/crates/inkboard-app/src/rich_edit.rs b/crates/inkboard-app/src/rich_edit.rs
 index 3daf83d..53feaa3 100644
 --- a/crates/inkboard-app/src/rich_edit.rs
@@ -908,19 +977,20 @@ index 3daf83d..53feaa3 100644
          }
 diff --git a/crates/inkboard-app/src/tests_embed.rs b/crates/inkboard-app/src/tests_embed.rs
 new file mode 100644
-index 0000000..19100b2
+index 0000000..ca563ea
 --- /dev/null
 +++ b/crates/inkboard-app/src/tests_embed.rs
-@@ -0,0 +1,577 @@
+@@ -0,0 +1,717 @@
 +// Changed for Quire (embed feature): see patches/inkboard/README.md
 +//! Cards of a hosted board (`embed_cards.rs`) in a real egui cycle without a window, with the host page's events recorded: the
-+//! layout, opening a card instead of editing its label, the host's editing, inserting a card, titles in place, no rotation handle.
++//! layout, opening a card instead of editing its label, the host's editing, inserting a card, titles in place, no rotation handle, the
++//! wheel's own modifiers, the middle button's pan, the style panel and the cards on the clipboard.
 +
 +use crate::app::{HostEvents, HostMode};
 +use crate::embed_cards::{EditEnd, EmbedLayout};
 +use crate::tests::T;
 +use crate::tools::Tool;
-+use eframe::egui::{CursorIcon, Event, Key, Modifiers, PointerButton, Pos2, vec2};
++use eframe::egui::{self, CursorIcon, Event, Key, Modifiers, PointerButton, Pos2, vec2};
 +use inkboard_core::num;
 +use inkboard_core::*;
 +use std::cell::RefCell;
@@ -1489,8 +1559,147 @@ index 0000000..19100b2
 +    t.h.step();
 +    assert!((t.frame(&id("embedcard1")).x - (-420.0)).abs() < 1.0, "committed where it was dropped");
 +}
++
++/// A hosted board whose window has no keyboard focus while the host page edits card 1; nothing heard yet.
++fn editing_elsewhere() -> (T, Host) {
++    let (mut t, host) = hosted(FIXTURE, false);
++    t.h.input_mut().focused = false;
++    t.h.event(Event::WindowFocused(false));
++    t.h.step();
++    t.app().set_embed_editing(Some(id("embedcard1")));
++    t.h.step();
++    host.take();
++    (t, host)
++}
++
++fn wheel(t: &mut T, p: Pos2, modifiers: Modifiers) -> View {
++    t.mv(p);
++    let before = t.app().ed.page().view;
++    t.h.event(Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: vec2(0.0, -120.0), modifiers });
++    t.h.step();
++    let after = t.app().ed.page().view;
++    View { x: after.x - before.x, y: after.y - before.y, zoom: after.zoom / before.zoom }
++}
++
++#[test]
++fn the_wheel_follows_its_own_modifiers() {
++    // in a web page the board learns the modifiers from key events on its canvas: while the host page has the keyboard focus (its
++    // editor), Shift and Alt are only on the wheel event itself
++    let (mut t, host) = editing_elsewhere();
++    let p = t.at(300.0, -300.0);
++    assert_eq!(t.h.input_mut().modifiers, Modifiers::NONE);
++    let shift = wheel(&mut t, p, Modifiers::SHIFT);
++    assert!(shift.x.abs() > 50.0 && shift.y.abs() < 1e-9 && (shift.zoom - 1.0).abs() < 1e-9, "Shift + wheel pans sideways: {shift:?}");
++    let alt = wheel(&mut t, p, Modifiers::ALT);
++    assert!(alt.y.abs() > 50.0 && alt.x.abs() < 1e-9 && (alt.zoom - 1.0).abs() < 1e-9, "Alt + wheel pans up and down: {alt:?}");
++    // the control: without a modifier the wheel zooms
++    let plain = wheel(&mut t, p, Modifiers::NONE);
++    assert!((plain.zoom - 1.0).abs() > 0.05, "the wheel zooms: {plain:?}");
++    assert_eq!(host.others(), [], "the host page's editing goes on");
++}
++
++#[test]
++fn the_middle_button_pans_without_ending_the_editing() {
++    let (mut t, host) = editing_elsewhere();
++    let p = t.at(300.0, -300.0);
++    t.mv(p);
++    let before = t.app().ed.page().view;
++    // the press, then the focus that the browser gives the board after it, while the button is down
++    t.h.event(Event::PointerButton { pos: p, button: PointerButton::Middle, pressed: true, modifiers: Modifiers::NONE });
++    t.h.step();
++    t.h.input_mut().focused = true;
++    t.h.event(Event::WindowFocused(true));
++    t.h.step();
++    for k in 1..=4 {
++        t.mv(p + vec2(20.0, 10.0) * num::f32(f64::from(k)));
++    }
++    let q = p + vec2(80.0, 40.0);
++    t.h.event(Event::PointerButton { pos: q, button: PointerButton::Middle, pressed: false, modifiers: Modifiers::NONE });
++    t.h.step();
++    settle(&mut t);
++    let v = t.app().ed.page().view;
++    assert!((v.x - before.x - 80.0).abs() < 1.0 && (v.y - before.y - 40.0).abs() < 1.0, "the middle drag panned: {before:?} → {v:?}");
++    assert_eq!(host.others(), [], "the editing goes on");
++    assert_eq!(t.app().embed_editing(), Some(&id("embedcard1")));
++    // a quick middle click whose release comes with the focus
++    t.h.input_mut().focused = false;
++    t.h.event(Event::WindowFocused(false));
++    t.h.step();
++    t.h.event(Event::PointerButton { pos: p, button: PointerButton::Middle, pressed: true, modifiers: Modifiers::NONE });
++    t.h.step();
++    let input = t.h.input_mut();
++    input.focused = true;
++    input.events.push(Event::WindowFocused(true));
++    input.events.push(Event::PointerButton { pos: p, button: PointerButton::Middle, pressed: false, modifiers: Modifiers::NONE });
++    t.h.step();
++    settle(&mut t);
++    assert_eq!(host.others(), []);
++    assert_eq!(t.app().embed_editing(), Some(&id("embedcard1")));
++    // a secondary press ends it (the context menu opens as usual)
++    t.h.event(Event::PointerButton { pos: p, button: PointerButton::Secondary, pressed: true, modifiers: Modifiers::NONE });
++    t.h.step();
++    t.h.event(Event::PointerButton { pos: p, button: PointerButton::Secondary, pressed: false, modifiers: Modifiers::NONE });
++    t.h.step();
++    assert_eq!(host.others(), [Heard::End(id("embedcard1"), EditEnd::Press)]);
++}
++
++/// Does the frame show a widget labelled `label`?
++fn shown(t: &T, label: &str) -> bool {
++    use egui_kittest::kittest::Queryable;
++    t.h.query_all_by_label(label).next().is_some()
++}
++
++#[test]
++fn the_style_panel_has_no_text_for_cards_and_hides_while_a_card_is_edited() {
++    let (mut t, _host) = hosted(FIXTURE, false);
++    // the control: a plain box has its text settings
++    t.app().sel = vec![id("embedplain")];
++    settle(&mut t);
++    assert!(crate::panel::visible(t.app()));
++    assert!(shown(&t, "Text size") && shown(&t, "Font") && shown(&t, "Word color"), "a plain box's text settings");
++    // a card's label is the title snapshot: no text settings, the box's own still there
++    t.app().sel = vec![id("embedcard1"), id("embedcard2")];
++    settle(&mut t);
++    assert!(crate::panel::visible(t.app()));
++    assert!(!shown(&t, "Text size") && !shown(&t, "Font"), "no text settings for cards");
++    assert!(!shown(&t, "Word color") && !shown(&t, "Format of all the text"));
++    assert!(shown(&t, "Order"), "the box's settings stay");
++    // while the host page edits a card there is no panel
++    t.app().set_embed_editing(Some(id("embedcard1")));
++    settle(&mut t);
++    assert!(!crate::panel::visible(t.app()));
++    assert!(!shown(&t, "Order"), "no panel");
++    // not hosted, a card is a plain rectangle with its text settings
++    t.app().set_embed_editing(None);
++    t.app().host = None;
++    t.app().sel = vec![id("embedcard1")];
++    settle(&mut t);
++    assert!(shown(&t, "Text size"));
++}
++
++#[test]
++fn embed_layout_holds_the_cards_on_the_clipboard() {
++    let (mut t, host) = hosted(FIXTURE, false);
++    t.app().sel = vec![id("embedcard2"), id("embedplain")];
++    t.h.step();
++    host.take();
++    t.h.event(Event::Cut);
++    settle(&mut t);
++    let l = host.layouts().last().cloned().expect("a cut is reported");
++    assert_eq!(l.clipboard, [ITEM2], "the cut card's document");
++    assert_eq!(l.items, [ITEM1], "no longer on the board");
++    // the clipboard survives another board, and a copy of something else replaces it
++    t.app().host_load(FIXTURE).unwrap();
++    settle(&mut t);
++    assert_eq!(host.layouts().last().map(|l| l.clipboard.clone()), Some(vec![ITEM2.to_owned()]));
++    t.app().sel = vec![id("embedplain")];
++    t.h.step();
++    t.h.event(Event::Copy);
++    settle(&mut t);
++    assert_eq!(host.layouts().last().map(|l| l.clipboard.clone()), Some(vec![]));
++}
 diff --git a/crates/inkboard-app/src/tools.rs b/crates/inkboard-app/src/tools.rs
-index b6a5542..335bc30 100644
+index b6a5542..6774d27 100644
 --- a/crates/inkboard-app/src/tools.rs
 +++ b/crates/inkboard-app/src/tools.rs
 @@ -1,3 +1,4 @@
@@ -1543,7 +1752,21 @@ index b6a5542..335bc30 100644
          }
          if let Some(Drag::Pan { from, view }) = &app.drag {
              let d = sp - *from;
-@@ -881,6 +893,7 @@ pub fn canvas(app: &mut App, ui: &mut egui::Ui) {
+@@ -845,7 +857,12 @@ pub fn canvas(app: &mut App, ui: &mut egui::Ui) {
+     let mut cam = Cam { origin: rect.min + vec2(num::f32(view.x), num::f32(view.y)), zoom: num::f32(view.zoom) };
+ 
+     // ---- zoom / scrolling
+-    let (scroll, zoom_d, mods, ptr) = ctx.input(|i| (i.raw_scroll_delta, i.zoom_delta(), i.modifiers, i.pointer.hover_pos()));
++    // the wheel's own modifiers when this frame has a wheel event: in a web page the board's modifiers come from key events on its
++    // canvas, so Shift or Alt held while the keyboard focus is elsewhere (the host page's own editor) would turn a pan into a zoom
++    let (scroll, zoom_d, mods, ptr) = ctx.input(|i| {
++        let wheel = i.events.iter().rev().find_map(|e| if let egui::Event::MouseWheel { modifiers, .. } = e { Some(*modifiers) } else { None });
++        (i.raw_scroll_delta, i.zoom_delta(), wheel.unwrap_or(i.modifiers), i.pointer.hover_pos())
++    });
+     if let (true, Some(p)) = (resp.hovered(), ptr) {
+         let factor = if (zoom_d - 1.0).abs() > 1e-4 {
+             zoom_d
+@@ -881,6 +898,7 @@ pub fn canvas(app: &mut App, ui: &mut egui::Ui) {
      });
  
      canvas_pointer(app, &ctx, &resp, rect, &mut cam);
@@ -1551,7 +1774,7 @@ index b6a5542..335bc30 100644
      // ---- drawing
      let dark = app.ed.doc.background.preset.is_dark();
      let (r, g, b) = app.ed.doc.background.preset.rgb();
-@@ -927,14 +940,14 @@ pub fn canvas(app: &mut App, ui: &mut egui::Ui) {
+@@ -927,14 +945,14 @@ pub fn canvas(app: &mut App, ui: &mut egui::Ui) {
      });
  }
  

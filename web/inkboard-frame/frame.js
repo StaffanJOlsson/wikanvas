@@ -18,7 +18,9 @@
 // - Board document embeds (§18.4): the engine's card events are forwarded with the board's itemId, in frame-viewport pixels
 //   (the canvas's offset added); insertEmbed, setEmbedEditing, setEmbedTitles and requestEmbedLayout reach the engine; a sidebar
 //   document dragged onto the canvas (DragItemType) is accepted in the capture phase, never reaches the engine's own file drop,
-//   and becomes onDropItem. Refused while the board is read-only.
+//   and becomes onDropItem. Refused while the board is read-only. While the host edits a card, the middle button pans the board
+//   without ending that editing: its press leaves the keyboard focus where it is, and when eframe focuses its canvas on the release
+//   anyway, onEmbedFocusBack lets the host give the focus back to the card.
 
 /** @import { BoardFrameApi, ConnectError, DragItemType, DraggedItem, FrameErrorKind, FrameEvents, FrameRect, OpenArgs, QuireBoardFrame } from '../src/board/bridge.ts' */
 /** @import { CanvasRect, EngineEmbedEditEnd, EngineEmbedLayout, EngineEmbedOpen, EngineInsertEmbed, InkboardEmbed, InkboardHandle } from './inkboard.js' */
@@ -56,6 +58,8 @@ let readOnly = false;
  * @type {string | null}
  */
 let leaving = null;
+/** The card the host edits (setEmbedEditing), until the engine or the host ends it, or another board opens. @type {string | null} */
+let editingCard = null;
 
 /**
  * Reports a failure through onError (a panic only once) and returns what to throw or reject with.
@@ -268,6 +272,7 @@ async function openNow(engine, a) {
     if (!active) handle.setActive(false);
   } else {
     leaving = current;
+    editingCard = null;
     try {
       handle.setBoard(a.board, a.name);
     } catch (error) {
@@ -337,7 +342,10 @@ async function start() {
       if (a.h !== undefined) args.h = a.h;
       return handle.insertEmbed(args);
     },
-    setEmbedEditing: (objectId) => handle?.setEmbedEditing?.(objectId),
+    setEmbedEditing: (objectId) => {
+      editingCard = handle?.setEmbedEditing ? objectId : null;
+      handle?.setEmbedEditing?.(objectId);
+    },
     setEmbedTitles: (titles) => handle?.setEmbedTitles?.({ ...titles }),
     requestEmbedLayout: () => handle?.requestEmbedLayout?.(),
   };
@@ -384,6 +392,7 @@ function onEmbedLayout(e) {
       locked: b.locked,
     })),
     items: e.items,
+    clipboard: e.clipboard,
     editing: e.editing,
   });
 }
@@ -398,6 +407,7 @@ function onEmbedOpen(e) {
 
 /** @param {EngineEmbedEditEnd} e */
 function onEmbedEditEnd(e) {
+  if (e.id === editingCard) editingCard = null;
   const itemId = e.reason === 'gone' && leaving !== null ? leaving : current;
   leaving = null;
   if (itemId === null) return;
@@ -456,6 +466,32 @@ window.addEventListener(
     const item = draggedItem(e.dataTransfer.getData(DRAG_ITEM_TYPE));
     if (item === null) return;
     events.onDropItem?.({ itemId: current, item, point: { x: e.clientX, y: e.clientY } });
+  },
+  { capture: true },
+);
+
+// While the host edits a card its editor has the keyboard focus, and the middle button pans the board without ending that editing
+// (patch 0005). Its press would move the focus into the frame (the browser focuses on mousedown): prevented, so the caret stays in
+// the card during the pan. eframe focuses its canvas on every release over it (web/events.rs, pointerup), which cannot be
+// prevented without hiding the release from the engine: once that release is handled, the host is told, and gives the focus back.
+// The engine reads pointer events, which this does not change; a primary or secondary press still ends the editing.
+window.addEventListener(
+  'mousedown',
+  (e) => {
+    if (editingCard !== null && e.button === 1) e.preventDefault();
+  },
+  { capture: true },
+);
+window.addEventListener(
+  'pointerup',
+  (e) => {
+    if (editingCard === null || e.button !== 1) return;
+    const card = editingCard;
+    setTimeout(() => {
+      if (editingCard === card && current !== null && document.activeElement === canvas) {
+        events.onEmbedFocusBack?.({ itemId: current, objectId: card });
+      }
+    }, 0);
   },
   { capture: true },
 );
