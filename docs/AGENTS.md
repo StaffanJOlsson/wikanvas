@@ -123,7 +123,7 @@ wikanvas --json item get "$ID" 2> err.jsonl || tail -n 1 err.jsonl | jq -r .erro
 | 0 | Success | Read stdout. |
 | 1 | Unexpected error | A CLI bug or an unparseable response: report it, do not retry blindly. |
 | 2 | Usage | Fix the command: flags, a missing `--yes`, `--if-match`/`--force`, or a refused `api` path or header. |
-| 3 | Configuration | Fix the URL or token: none set, malformed, not bound to the URL, an unsafe profile file, plain HTTP, no CA bundle, a redirect (use the URL the error names), `wikanvas-server` missing, or 421. |
+| 3 | Configuration | Fix the URL or token: none set, malformed, not bound to the URL, an unsafe profile file, plain HTTP, no CA bundle, a redirect (use the URL the error names), `wikanvas-server` missing, or 421. For `admin create-owner`: the data directory holds files but no owner; follow the message (put the wiki's database in place, or move the files away). |
 | 4 | Network | If `error.details.sent` is false, retry. If true after a create, list first (the item may exist), then retry. |
 | 5 | Not authenticated | The token is unknown, expired or revoked: get a new one. |
 | 6 | Forbidden | The token lacks the scope (`details.required`), or the action needs a session: use another token. |
