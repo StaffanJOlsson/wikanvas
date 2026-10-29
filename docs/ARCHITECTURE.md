@@ -8,7 +8,9 @@ how the owner requirements of 2026-10-27 (public API, CLI, agent testing) were d
 review of those amendments was resolved (§17.2), and the owner decisions of 2026-10-28 (published on create, 2 CPUs /
 1 GiB, the build slice, HTTPS through Caddy; D23, D25, D38, D57, §17.3). §17.4 records the decisions taken when the
 workstreams' deviations were folded into this document (W7, 2026-10-28). §18 is the normative design of M1.1, board
-document embeds (owner request of 2026-10-28; D58–D75), built after M1 by PLAN's workstreams E1–E3.
+document embeds (owner request of 2026-10-28; D58–D75), built after M1 by PLAN's workstreams E1–E3. §19 is the design of
+M2, the egui client (owner decisions of 2026-10-29; D101–D143): a proposal for the owner's review, with the owner's open
+questions in §19.15, built by PLAN's "M2" section once accepted; `docs/parity-seed.md` seeds its parity ledger.
 
 Hard rules (from CLAUDE.md, repeated because they constrain the design):
 - No compiler, bundler or package manager runs on the host. Everything goes through `scripts/dev.sh` (wikanvas-toolchain
@@ -124,6 +126,7 @@ layout slots (§15).
 | D64–D66 | Static cards are read-only TipTap viewers of `DocJson`; one card at a time is edited with `WikanvasEditor` on a `DocSession`; the engine holds the editing state and ends it on a press or focus (§18.5). | No writes from looking; the editing card behaves like Inkboard's own text. |
 | D67–D75 | Paper cards, live titles with a stored snapshot, the three ways to add a card, the sidebar drag through native external data, tree semantics, no new API, Focus over the layer, patches 0005/0006, read-only rules (§18.14). | See §18.14 for each with its rejected alternatives. |
 | D100 | **Renamed from Quire to Wikanvas (wiki + canvas) in v0.1.0-alpha.1.** Every name the project owns changed, with no legacy alias: crates `wikanvas-*`, binaries `wikanvas` and `wikanvas-server`, `WIKANVAS_*` settings, the `wikanvas_session` cookie, the `Wikanvas-*` and `X-Wikanvas-Engine` headers, `wikanvas://item/` links, `wikanvas.db` with its backups and exports, the browser storage keys, the frame global and drag type, the image, builder and slice names, and the patches' `Changed for Wikanvas` notices and author; the docs, handoff notes included, use the new names, also where they record worktree paths, image tags or settings that had the old name at the time (the main checkout is named by its role, not its path), with commits and version numbers as recorded. The engine version became `0.2.0-beta.3+embed.wikanvas.3` (patchset 3 had still not shipped, D99). The token prefix `qpat_` stays. | "Quire" is taken: Quire.io holds a Class 42 trademark that covers document management and ships a `quire` CLI, and Getty's Quire is a trademark with a `quire` CLI too. Aliases would keep the old name in the code for good; the one live instance was migrated once instead (volumes copied, the database file and backups renamed, `.env` and stored links rewritten), and its users sign in again once. `qpat_` does not contain the name, and changing it would invalidate every issued token. |
+| D101–D143 | **The egui client (M2, §19), a proposal for the owner's review:** one egui app for desktop and browser with boards and documents in one UI, Wikanvas Desktop and Wikanvas Server from one binary `wikanvas`, a server-rendered HTML read view, stored formats and schema unchanged (§19.2). | See §19.2 for each with its rejected alternatives, and §19.15 for the owner's open questions. Until the cutover (§19.13), the decisions they supersede stay in force. |
 
 ### 2.2 Alternatives considered
 
@@ -214,7 +217,7 @@ Wikanvas/
   compose.yaml  compose.e2e.yaml  compose.agent.yaml  compose.smoke.yaml  .dockerignore
   scripts/  dev.sh toolchain.sh image.sh image-smoke.sh inkboard.sh e2e.sh agent-test.sh cli-dist.sh fmt.sh
             check-pins.sh install-build-slice.sh lib/lock.sh lib/slice.sh
-  docs/     ARCHITECTURE.md PLAN.md AGENTS.md api/openapi.json (generated, §7.4) handoff/
+  docs/     ARCHITECTURE.md PLAN.md AGENTS.md parity-seed.md (M2, §19.11) api/openapi.json (generated, §7.4) handoff/
   dist/cli/          # (git-ignored) scripts/cli-dist.sh output: static CLI binary, its sha256, LICENSE, THIRD_PARTY.md
   vendor/inkboard                     # submodule, untouched; never built in place
 ```
@@ -4431,3 +4434,1229 @@ Added by the independent review of the same day (main `ae0ed61`; each fixed in p
 | `WikanvasEditor` can be mounted in a card as it is | Refined: `pickBoard` and `newBoard` are required props (`WikanvasEditor.tsx:17-28`) behind the slash items "Embed board…" and "New board" (`slash.ts:56-57`), whose picker is the document page's own (`DocPage.tsx:148-177`); they become optional and are left out in a card (§18.5) |
 | A static TipTap viewer is CSP-clean by default | Refuted: TipTap injects a `<style>` element unless `injectCSS: false` (`WikanvasEditor.tsx:65-66`), and the SPA CSP has `style-src 'self'` (§11) (§18.5 Static cards) |
 | The frame test can probe a card's white fill at its centre | Refuted: the engine draws the title snapshot there, and the fixture's background is white too (`fixtures/boards/embed.inkboard`); the test probes the title's dark pixels instead (PLAN M1.1 E1) |
+
+---
+
+## 19. The egui client (M2)
+
+Status: proposal for the owner's review, written 2026-10-29 against main `d5d3c94` and brought up to date after its
+review against main `9c6e60a`, which the M1.1 review had just reached (it added §18.14's D93-D99 and changed 0005,
+0006, `frame.js` and the smoke). Once accepted it becomes the normative design of milestone 2; PLAN's "M2" section
+builds it, and `docs/parity-seed.md` is the seed of its parity ledger, which F0 expands into `docs/parity.md`. Existing
+code is named by its current path, with the names of the rename to Wikanvas (D100: `crates/wikanvas-*`, `web/…`); new
+things get names of the same kind (`wikanvas-*` crates, `WIKANVAS_*` variables) and the one new binary is `wikanvas`,
+which the CLI's binary is called today (it becomes `wikanvas-cli`, D127). Inkboard paths drop `vendor/inkboard/`:
+`crates/inkboard-app/src/app.rs:1192` means `vendor/inkboard/crates/inkboard-app/src/app.rs:1192`, and `0005…:619` is a
+line of `patches/inkboard/0005-embed-documents.patch` at `9c6e60a`. Line numbers of other repository files are those of
+`9c6e60a`, or of the rename's tip `484905c` where the rename moved them. "egui 0.37 `src/x.rs:N`" is the published crate
+source (https://docs.rs/crate/egui/0.37.0/source/), read from a local download. UNVERIFIED marks what nobody could check
+without a build; S0 (PLAN M2) measures those that decide the design.
+
+Owner decisions of 2026-10-29, the inputs of this section and not re-argued here:
+- the whole client moves to Rust and egui: one egui app that runs natively and as WebAssembly, boards and documents in
+  one UI (no iframe, no JS bridge, no DOM overlay);
+- editing in the browser without a screen reader is accepted; the desktop keeps AccessKit;
+- a server-rendered HTML read view is added (accessible reading, Ctrl+F, print, translation, reading links);
+- two ways to run: **Wikanvas Desktop** (a native window, the server and store in-process, local SQLite, no Docker, no
+  browser) and **Wikanvas Server** (the same binary, `wikanvas serve`, natively or in Docker); Docker stays the build and
+  test sandbox;
+- Rust first: as little JS/TS and non-Rust code in what ships as possible; documents keep their stored Yjs format, so
+  the live wiki needs no conversion.
+
+The owner's relayed note, "Inkboard is renderable on the web and works there", matches the evidence: the patched engine
+already ships as 15,680,620 bytes of WebAssembly (4,034,465 brotli, `patches/inkboard/README.md`, "Sizes") and passes
+the 24 runnable frame tests and smoke steps 9-12 and 17 in headless Chromium at the M1.1 gate (`docs/handoff/E.md:93`,
+`:95`; main `9c6e60a` has 26 frame tests, 12 of them `embeds:`, one skipped). Nothing in its canvas depends on the iframe
+(§19.6).
+
+### 19.1 Goals and non-goals
+
+Goals:
+1. One egui app, `wikanvas-app`, for desktop and browser: the sidebar tree, documents and boards in one `egui::Context`,
+   with the behaviours of today's web client (the 202 items of `docs/parity-seed.md`), except the changes this section
+   decides.
+2. Wikanvas Desktop and Wikanvas Server from one binary, `wikanvas` (§19.8).
+3. A read view at `/read/…`: semantic HTML without JavaScript, for reading, finding, printing, translating and sharing
+   with people who can sign in (§19.7).
+4. Stored formats unchanged: documents stay Yjs v1 updates in `doc_updates` written in y-tiptap's exact structure (D7,
+   §6.1), boards stay the native Inkboard envelope (D8). No content migration.
+5. One API boundary. Every client mode speaks the public `/api/v1` with the shared Rust DTOs (D39); v1 stays additive
+   (§7.1). The desktop calls the same router in-process (§19.4).
+6. Rust in what ships: no hand-written JavaScript or TypeScript except one boot loader of at most 80 lines (D139), which a
+   browser needs before any WebAssembly can run; the other JS is the glue `wasm-bindgen` generates. §19.12.1 lists every
+   non-Rust part of what ships, with its reason.
+7. Tests without a DOM: the AccessKit tree is the selector API (§19.11).
+
+Not in M2 (designed for, built later, or the owner's call):
+- Screen-reader editing in the browser (owner decision). On the desktop, AccessKit exposes blocks as text nodes; it has
+  no rich-text model (https://github.com/AccessKit/accesskit: "They don't yet support rich text or hypertext").
+- Live push and co-editing presence: SSE events, awareness and remote cursors (§19.4.6). M2 keeps the M1 pull protocol.
+- Wikanvas Desktop as a client of a remote Wikanvas Server: the transport exists (§19.4.1), the mode is not in the M2
+  gate.
+- macOS and Windows releases. M2 ships Linux x86_64 and aarch64; the Unix-only code paths are listed (§19.8.9).
+- Right-to-left text, spell checking while editing, shipped CJK or italic fonts: owner questions (§19.15).
+- Inkboard's iroh sharing and its MCP live mode inside Wikanvas (D129).
+- Anonymous share links (the reserved `shares` table, §15), server-side board import (D52 stands), auto-update,
+  mobile apps.
+
+### 19.2 Decisions
+
+New decisions start at D101: D100 is the rename to Wikanvas (`docs/ARCHITECTURE.md:126`, §2.1) and D99 the highest of
+§18.14 (`docs/ARCHITECTURE.md:4393`). The M1.1 review added D93-D99 while this section was written and the rename then
+took D100, so its rows were renumbered twice. Where a row supersedes an earlier decision, the earlier one stays in force
+until the cutover (§19.13), because the React client keeps running beside the egui client until then.
+
+| # | Decision | Rejected alternatives and why |
+|---|---|---|
+| D101 | **One egui app for the whole client**, natively and as wasm32, one `egui::Context` holding the shell, the document editor and the board (owner, 2026-10-29). Supersedes at cutover D11 (iframe), D20 (React stack), the frame half of D12 and D14, and the overlay design of D61-D66, D70, D73, D81, D82, D86 and D90; their user-visible behaviours stay where `docs/parity-seed.md` lists them | React for documents beside egui for boards (the split the owner rejected); a webview shell such as Tauri (JavaScript and a DOM in what ships, two UI stacks) |
+| D102 | **egui and eframe 0.37.0** for the client and for Inkboard, through a local Inkboard patch (0007) that is also offered upstream. Supersedes D13 | Staying on 0.33.3, Inkboard's pin (`crates/inkboard-app/Cargo.toml:36`, `:42`): the editor needs what 0.35-0.37 added to IME and text: `ImeEvent::Preedit { active_range_chars }` and `ImeEvent::DeleteSurrounding` (egui 0.37 `src/data/input/ime_event.rs:6-38`; 0.33.3's `ImeEvent` has only `Enabled`, `Preedit(String)`, `Commit` and `Disabled`, `src/data/input.rs:565-577`), `Memory::interrupt_ime` (https://github.com/emilk/egui/pull/7983; 0.37 `src/memory/mod.rs:1078`), the mobile web keyboard fixes (0.36, #8045) and harfrust shaping (#8031). (`owns_ime_events` itself is only `has_focus`, 0.37 `src/memory/mod.rs:1068-1074`, which 0.33.3 has, `src/memory/mod.rs:845`; composition visuals, #8083, are `TextEdit`'s own drawing, which the editor replaces.) And a host cannot run another egui version than the board, because they share one `Context` and Cargo treats 0.33 and 0.37 as different crates (https://doc.rust-lang.org/cargo/reference/resolver.html#version-incompatibility-hazards); waiting for upstream (its `main` was still on 0.33.3 on 2026-10-28, https://raw.githubusercontent.com/VictorLetirand/inkboard/main/crates/inkboard-app/Cargo.toml) |
+| D103 | **Inkboard patch series 4:** 0007 the egui 0.37 upgrade, 0008 a library target with a narrow `widget` module (`BoardView`), 0009 its docs; 0003 extended so native builds may leave out `net`. The series is re-cut once at the cutover (§19.6.6) | A crate split of `inkboard-app` (thousands of changed lines against an upstream that made at least 26 commits between 2026-10-26 and 2026-10-28, https://api.github.com/repos/VictorLetirand/inkboard/commits); a fork (breaks R8: Inkboard changes only through `patches/inkboard/`) |
+| D104 | **One API boundary.** The client always speaks `/api/v1` with the `wikanvas-api` DTOs through a `Transport`: `FetchTransport` in the browser, `HttpTransport` to a remote server, `LocalTransport` in the desktop, which calls the server's `axum::Router` in-process with `tower::ServiceExt::oneshot`, no socket (§19.4) | The desktop calling `wikanvas-store` directly (a second data layer that re-implements authorization, permits, conversions, preview jobs and revision rules: `crates/wikanvas-server/src/routes/*.rs` is 4,504 lines for 70 operations, and every UI flow would need two test runs); a loopback TCP listener for the desktop's own use (a port every local user can reach, and the cookie-per-port collision of §19.8.4) |
+| D105 | `LocalTransport` authenticates with a **desktop session** minted in-process at every start and kept in memory only (never written to disk; `user_agent` "Wikanvas Desktop"); on a 401 it mints a new one and retries once, because a browser session that changes the password or signs out the other sessions deletes it (`crates/wikanvas-server/src/routes/auth.rs:346`, `:416`) (§19.8.5). It sends `Host: localhost`, `Sec-Fetch-Site: same-origin` and `ConnectInfo(127.0.0.1:0)`, so the CSRF layer, the Host allowlist, deadlines, body limits and the panic catcher run as for a browser | A personal access token (limited to 600 requests a minute and 1 GiB of body per hour, D47: a 50 MiB board autosaved 21 times an hour would be cut off); bypassing the middleware (the desktop would run other code than the server) |
+| D106 | **`wikanvas-client`** holds the data layer, free of egui and compiled for native and wasm32: transports, the typed API, the query cache, `doc_sync`, `board_sync`, the outbox. Results reach egui through channels and `request_repaint`; an in-house `Pending<T>` (about 100 lines) instead of poll-promise; every timer of the data layer runs on the injected `Clock` of `clock.rs`: a monotonic time, the wall time with the local UTC offset, and a sleep on the client's executor (§19.4.2), so saves fire while the window is minimised or the tab hidden; never egui's input time, which stops then (egui 0.37 `src/context.rs:1148-1174`, eframe 0.37 `src/epi.rs:152-170`), and never `Instant::now` outside `clock.rs` | poll-promise 0.3.0 (last release 2023); ehttp (cannot carry the in-process transport); the data layer inside the UI crate (no headless tests against a real server) |
+| D107 | **The document editor edits the yrs `XmlFragment("default")` directly**, through a read-only mirror (`DocView`) keyed by each element's `BranchID`, and writes exactly the Y structure y-tiptap writes today (§19.5) | The editor's own tree mirrored into yrs by a diff (y-prosemirror's design: a two-way binding, an O(document) diff per keystroke, and the guesses of `convert/ydiff.rs:1-26` on every edit); a step log applied to both (both costs); one `TextEdit` per block (no selection across blocks, and egui's undoer fights yrs's); parley or cosmic-text layout (their glyph output does not feed egui's painter) |
+| D108 | **Per-block layout, virtualised; heights are cached, galleys are not kept across frames.** Visible blocks are laid out through egui's own galley cache each frame | An own `Arc<Galley>` cache (the editor report's proposal): epaint clears every galley cache when the glyph atlas passes 80 % or the text options change, "Galleys point into the old atlas" (egui 0.37 epaint `src/text/fonts.rs:176-184`; 0.33.3 `src/text/fonts.rs:539-549`), so a kept galley can paint the wrong glyphs; one galley for the whole document (rebuilt and re-hashed every frame) |
+| D109 | **Board cards use the same editor widget**: read-only for static cards, painted inside the renderer's object loop; one editing card in a child `Ui` (§19.6.3), whose rect the canvas treats as outside itself for presses. Card text is laid out at a zoom bucket, the largest power of 2^(1/16) not above the zoom, and painted unscaled at that size, so it is at most 4.3 % smaller than the frame and never wider; never through a layer transform. Only upright cards (angle 0) get host content | An egui layer transform (blurry above zoom 1: https://github.com/emilk/egui/issues/4813, open on 2026-10-29); a second card renderer (two renderings of every node); a rotated child `Ui` (egui has none) |
+| D110 | **IME preedit never enters yrs**; a commit is one transaction and one undo step | Writing preedit text into yrs (undo, the outbox, the server, other clients and the input rules would all see half-composed words) |
+| D111 | **Undo is the yrs `UndoManager`**, tracking only the origin `wikanvas.local`, with a 500 ms capture window timed by the app's `Clock` and selection bookmarks as `StickyIndex` pairs in each stack item | egui's `TextEdit` undoer (per field, blind to remote updates); an own history (re-implements yrs) |
+| D112 | **Clipboard:** copy and cut write plain text and HTML whose root carries `data-wikanvas-slice` (the exact schema-v1 slice); "Copy as Markdown" is a command. The browser build installs its own `copy`, `cut` and `paste` listeners; the desktop uses arboard. Foreign HTML is parsed with html5ever and walked through an allow-list | eframe's clipboard alone (plain text both ways; its web write uses `navigator.clipboard`, which needs a secure context, so copy fails on a plain-HTTP LAN server: eframe 0.37 `src/web/mod.rs:202-219`); a sanitiser crate (the allow-list walk emits only schema nodes, so nothing else can survive) |
+| D113 | **Read view under `/read/`**, rendered Y → normalized ProseMirror JSON → semantic HTML by a new `convert::html_out`, with no script at all (§19.7) | Content negotiation on `/doc/…` (both views are browser navigations with the same `Accept`; it would need `Vary: Cookie` and two CSPs); HTML through Markdown and comrak (Markdown is lossy, §6.4); inlining board SVG (up to 16 MiB a page, colliding filter ids) |
+| D114 | **On the web, sign-in and setup are server-rendered HTML forms** (`/login`, `/setup`, `POST /logout`). On a 401 the egui web app persists its outbox and any board snapshot, then navigates to `/login?next=…` | Forms drawn on the canvas (password managers fill only real `<form>` fields, https://web.dev/articles/sign-in-form-best-practices, and they are not accessible); today's in-place "Sign in again" dialog (P-015) on the web |
+| D115 | **One binary, `wikanvas`**: no subcommand opens the desktop window; `serve`, `admin` and `healthcheck` as today's `wikanvas-server`; the CLI's binary, called `wikanvas` since D100, becomes `wikanvas-cli` (D127). glibc-linked. The Docker image runs the same binary's `serve`, behind a gate that its `NEEDED` libraries are only libc, libm, libgcc_s and the loader (§19.8.7) | Two binaries (the owner asked for the same binary); a static musl binary (cannot `dlopen` the GPU and window libraries: https://openwall.com/lists/musl/2012/12/09/12) |
+| D116 | **Wikanvas Desktop runs the server in-process**: `Server::start` on a per-OS data directory, no listener unless the owner turns on browser or agent access, an owner account without a password, a lock on the data directory (§19.8) | Docker for desktop users (the owner decision); an always-on loopback listener (D104) |
+| D117 | **`wikanvas serve` defaults:** the per-OS app data dir, flags `--listen`, `--data-dir`, `--public-url`, `--open`, the data-dir lock, the port in the cookie name on plain HTTP, and a refusal of plain HTTP on a non-loopback address unless `WIKANVAS_ALLOW_HTTP=1` or a trusted proxy is set | `./data` (depends on the working directory, `crates/wikanvas-server/src/config.rs:322-324`); one cookie name per scheme (cookies are not isolated by port, https://www.rfc-editor.org/rfc/rfc6265#section-8.5, so two local instances sign each other out) |
+| D118 | **Document sync phase 1 is the M1 pull protocol ported to Rust unchanged** (§9.4). The Rust client sends no `pm_json`; when a POST carries none, the store fills an auto revision's preview from Y with `pm::read`. Push comes later as SSE on one stream per client | WebSocket y-sync for the Rust client (`oneshot` has no upgrade: https://docs.rs/axum/0.8.9/axum/extract/ws/rejection/struct.ConnectionNotUpgradable.html; per-document streams hit the 6-connection HTTP/1.1 limit, https://developer.mozilla.org/en-US/docs/Web/API/EventSource); keeping `pm_json` (it is only the revision preview, `crates/wikanvas-store/src/docs.rs:451-452`, `crates/wikanvas-store/src/revisions.rs:72-73`) |
+| D119 | **During the port the egui web app is served under `/next/`** beside the React SPA at `/`; at the cutover it moves to `/` and `/next/*` answers 308 to the same path without the prefix | A cookie switch (one URL, two apps, cache confusion); a second port (a second origin, cookie and CSRF rules) |
+| D120 | **Fonts:** the host installs one `FontDefinitions` on every platform, Inkboard's embedded set plus egui's fallbacks; glyphs outside it come from the system (egui 0.37's font provider, native) or the browser (eframe 0.37's canvas glyph rasterizer, `src/web/app_runner.rs:50`). No new font file ships until §16 item 25 is decided | System fonts by default on the desktop (line breaks and tests differ per machine, `crates/inkboard-app/src/fonts.rs:33-51`); shipping Noto CJK (large, and it widens the open OFL question) |
+| D121 | **One locale source.** The UI is English; dates use `en`; Inkboard is set to the same language instead of following the browser (§19.10) | Two sources, as today (P-188) |
+| D122 | **Wikanvas owns the context's style, fonts and zoom.** A hosted board never calls `fonts::apply`, `theme::apply` or `options_mut`; Ctrl+= and Ctrl+− zoom the board while it has focus, otherwise the UI (desktop) or the browser page (web) | Letting the board set them (`crates/inkboard-app/src/app.rs:192-208` sets fonts, visuals and `zoom_with_keyboard = false` for the whole context) |
+| D123 | **Board previews in documents** (the `boardEmbed` node, the loading state) rasterise the stored page SVG (`GET …/board/pages/0?rev=`) with resvg into a cached texture | A second, read-only `BoardView` (a second engine instance and id salting); the browser's SVG decoder (web only) |
+| D124 | **D59 is reworded:** the binary compiles the patched `inkboard-core` from `.cache/inkboard-src` for the server and the client alike, because one binary holds one copy of a crate. D9 still holds, so stored bodies do not change. `scripts/check-pins.sh` also compares egui, eframe, epaint, wgpu, resvg and image with Inkboard's lock; the manifest's `format_version` check becomes a compile-time identity | Two copies of `inkboard-core` in one graph (refused by Cargo for one name and version, UNVERIFIED for two path sources) |
+| D125 | **Testing:** five Rust layers plus a browser smoke and a desktop smoke; the AccessKit tree is the selector API, a label audit fails unnamed widgets; the browser smoke is a Rust CDP driver (chromiumoxide) in the pinned Playwright image; the read view's structure is checked over html5ever (MIT OR Apache-2.0, already a dependency) through `wikanvas_core::convert::html_dom`, the small tree the paste importer also uses (§19.11) | DOM tests (no DOM); axe-core (MPL-2.0, https://github.com/dequelabs/axe-core/blob/develop/LICENSE: outside R6 even as a test tool unless the owner allows it); scraper 0.29.0 (ISC itself, but its required cssparser 0.38 and selectors 0.41 are MPL-2.0, https://crates.io/api/v1/crates/scraper/0.29.0/dependencies, and it was published 2026-10-21, less than two weeks before 2026-10-29) |
+| D126 | **Cutover**: `web/`, the frame page, vitest, the Playwright DOM specs, ts-rs and Node go only after two consecutive clean M2 gate runs with both clients, a parity ledger without `missing` rows, equal server-state digests, and the owner's sign-off (PLAN M2 "X") | Deleting React when the egui client "works" (parity would rest on memory) |
+| D127 | **Renames in M2.** The project was renamed to Wikanvas before M2, in v0.1.0-alpha.1, with no legacy alias (D100): crates `wikanvas-*`, `WIKANVAS_*`, the CLI's profile path, `wikanvas://item/` links, `wikanvas.db`, images `wikanvas:<commit>`; `qpat_` stayed. M2 renames only what its one binary needs: the server's binary moves from `wikanvas-server` to the new crate `wikanvas` as `wikanvas` (D115), and the CLI's binary, `wikanvas` since D100, becomes `wikanvas-cli`, with no alias; `scripts/image.sh` tags `wikanvas:latest` only for a clean tree on main. What stays is D142's (§19.8.10) | An alias that keeps `wikanvas` running the CLI (one name for two programs); keeping the CLI's `wikanvas` and naming the one binary otherwise (the owner's decision names it `wikanvas serve`; §19.15 question 20) |
+| D128 | **Graphics:** WebGL2 through glow on the web; natively OpenGL (glow) first and wgpu when OpenGL fails, as Inkboard's launcher does (`crates/inkboard-app/src/main.rs:217-243`), with `WIKANVAS_RENDERER` to force one. eframe 0.37 no longer enables glow by default, so it is named in the features | WebGPU on the web (partial on Linux browsers: https://github.com/gpuweb/gpuweb/wiki/Implementation-Status, edited 2026-10-02) |
+| D129 | **Inkboard's iroh sharing and MCP live mode are off in Wikanvas** (default; owner confirms, §19.15). The native build leaves out `net` (0003 extended), and the MCP live server is never started; agents use the CLI against the desktop's opt-in listener (§19.8.6) | Two collaboration systems and a third-party relay (D29, D30) |
+| D130 | **Phones** (coarse pointer and narrower than 768 px) open the read view by default, with an "Open editor" link; the boot loader decides before the download (D139) | Loading 4-5 MB of WebAssembly to read a page on a phone |
+| D131 | **Exports** (Markdown, HTML, `.inkboard`, SVG, the workspace tar) are downloads on the web and native save dialogs (rfd) on the desktop, through the same server routes | A per-platform export implementation |
+| D132 | **The sidebar tree is Wikanvas's own widget** over `ScrollArea::show_rows` with egui's drag-and-drop payloads | egui_ltreeview and egui_dnd (their drop rules differ from P-040-P-049, and every add-on crate must follow the same egui version) |
+| D133 | **Icons:** the 83 lucide SVGs in use (48 collection icons and 35 UI icons, P-185, P-186) are embedded and rasterised with resvg per size; lucide is ISC, with the MIT licence of Feather for the icons derived from it (chevrons, arrows, x, plus and others listed in https://raw.githubusercontent.com/lucide-icons/lucide/main/LICENSE), as today through lucide-react; that LICENSE file ships with the icons | An icon font (another font file and licence row) |
+| D134 | **Image decoding** in documents: natively the `image` crate (png, jpeg, gif, webp) off the UI thread; in the browser `createImageBitmap` through web-sys, so a large photo does not freeze the single wasm thread; other formats show a "Preview unavailable · Open" card | Decoding in wasm on the main thread (UNVERIFIED cost, but linear in pixels with no thread to move it to) |
+| D135 | **Find in the editor** (Mod+F) searches the mirror's text and highlights hits, with the browser's own Mod+F suppressed on the app's pages (D140); the browser's Ctrl+F covers the read view | No find while editing (P-195 would be lost on the canvas) |
+| D136 | **Code highlighting** uses Inkboard's lexer highlighter (`crates/inkboard-core/src/highlight.rs`, 14 languages) with token kinds mapped to theme colours (an accessor of about 40 lines in 0008); other languages are plain text | syntect with the Sublime grammars (their custom notice is not on the R6 list: owner question); tree-sitter (C grammars on wasm32, UNVERIFIED) |
+| D137 | **One live board on screen at a time** in M2. 0008 still salts the board's egui ids, so a split view later needs no patch | Two engines in one context without salting (shared text field and floating cards, `crates/inkboard-app/src/rich_edit.rs:510`, `:572`, `:616`, `theme.rs:127`) |
+| D138 | **The `wikanvas` binary links no TLS stack in M2**, so D29 holds for it. `HttpTransport` sits behind two features of `wikanvas-client`: `http` (ureq without TLS, plain HTTP, enabled only by tests against `TestServer`) and `https` (rustls with ring, for the later desktop-remote mode). The binary enables neither; the gate's `cargo tree` check covers `wikanvas` | Linking rustls into the server binary now for a mode M2 does not ship (a TLS stack and outbound connections in the server artifact, against D29) |
+| D139 | **One hand-written boot loader**, `crates/wikanvas-web/boot/boot.js` (an ES module of at most 80 lines, the only hand-written JS that ships, served as `/app/{build}/boot.js`), because a browser runs no WebAssembly without a script: wasm-bindgen's `--target web` output must be imported and its `init()` awaited (https://wasm-bindgen.github.io/wasm-bindgen/examples/without-a-bundler.html), and the app CSP has no `'unsafe-inline'`, so it is a file. Its jobs are those of Inkboard's inline script and `initializer.js` (`crates/inkboard-app/web/index.html:34-68`, `initializer.js:1-30`): feature checks before the download (WebAssembly, WebGL2), the phone check (D130), a progress bar, one retry of a failed download, and the error panel with the reading link (§19.9). R15's gate allows exactly this path and its line budget | No loader (impossible: nothing calls `init()`); an inline `<script>` (needs `'unsafe-inline'` or a hash per build in the CSP); doing the checks in Rust (no Rust runs when WebAssembly is off, and the phone check must come before the 4-5 MB download) |
+| D140 | **The app's shortcuts suppress the browser's own action for the same keys.** `wikanvas-web` installs one capture-phase `keydown` listener (web-sys) that calls `preventDefault` for exactly the chords of the app's shortcut table (`wikanvas_app::hotkeys::TABLE`, the keymap's one source), never for Mod+C, Mod+X, Mod+V or reload. eframe 0.37 suppresses only Mod with `,` `O` `P` `S`, and Space, Tab, Backspace and the arrows (`src/web/events.rs:237-279`), so Mod+K, Mod+F, Mod+U, Mod+E and Mod+Shift+B would also run the browser's search, find bar, view-source and bookmarks-bar actions (https://support.google.com/chrome/answer/157179). Mod+P opens the read view of the current item in a new tab (web) or runs "Print" (desktop). A key-event hook is offered to eframe upstream | `WebOptions::should_prevent_default` (eframe consults it for text, clipboard and wheel events but not for `Key` events, whose default it decides alone, `events.rs:165-171`, `:214`); leaving the browser's actions (Mod+K and Mod+F move the focus out of the page) |
+| D141 | **App assets are served under `/app/{build}/`** (`boot.js`, `wikanvas_web.js`, `wikanvas_web_bg.wasm`, `icons.bin`, the licence files; `{build}` hashes the dist, as `/inkboard/{build}/` does today), immutable for a year; every app path's `index.html` is `no-cache`; another `{build}` answers 404 | Fixed names with an immutable cache (an upgraded server keeps serving the old client from the browser cache, and "Reload", P-010, reloads the old build) |
+| D142 | **What keeps its name in M2: everything D100 named, except the CLI's binary (D127).** `compose.yaml` keeps `name: wikanvas`, the service `wikanvas`, the volumes `wikanvas-data`, `caddy-data` and `caddy-config`, and its `WIKANVAS_*` variables, because the owner's live wiki runs from that file and its `.env` (`compose.yaml:1`, `:3`, `:30`, `:78-81`): renaming the project, service or volume would start the next `docker compose up` on empty volumes and a new local CA. The container's environment keys stay `WIKANVAS_*` too. The build infrastructure keeps its internal names: the lock `~/.cache/wikanvas/build.lock`, `WIKANVAS_BUILD_*`, `WIKANVAS_LOCK_HELD`, `WIKANVAS_SHARED_CARGO_HOME`, `WIKANVAS_DEV_*`, the image `wikanvas-toolchain`, the builder `wikanvas-limited` and `wikanvas-buildkit`, the slices `wikanvas.slice` and `wikanvas-build.slice` (`scripts/lib/lock.sh:21`, `scripts/toolchain.sh:126`, `scripts/install-build-slice.sh:2-9`). The export tar's database entry stays `wikanvas.db` (agent scenario 09, smoke step 13 and the API test assert it, `e2e/agent/scenarios/09-export.sh:9`, `crates/wikanvas-server/tests/api/export.rs:80`) | Renaming any of them in M2 (worktrees on the old scripts would take a different lock, so two builds would run at once; the slice rename needs the privileged install step; the owner's wiki would move to new volumes) |
+| D143 | **No schema change in M2.** The store keeps `PRAGMA user_version` at 1, so an M1 image can still open a database an M2 build used (§19.13 "Rollback"). The desktop's agent token is an ordinary `api_tokens` row with `created_via = 'admin'` (a local process with direct database access, as `wikanvas admin` is), named "Wikanvas Desktop: agents", whose id is kept in the `settings` key `desktop.agent_token_id`; a workspace `language`, if the owner wants it, is the `settings` key `workspace.language` (the table is key-value, `crates/wikanvas-store/migrations/0001-init/up.sql:1`) | Migration 0002 widening the `created_via` `CHECK` with `desktop` (a table rebuild that raises the schema version, after which the M1 binary refuses the database, `crates/wikanvas-store/src/migrate.rs:53-60`, so a rollback would need the pre-migrate backup) |
+
+Where the six research reports disagreed:
+
+| Question | One report | The other | Decided, and why |
+|---|---|---|---|
+| egui version | Board embedding: pin 0.33.3, upgrade only for a needed fix | Editor and platform: upgrade to 0.37 first | 0.37 (D102): the editor's IME work needs 0.35-0.37 APIs, and one `Context` allows one egui |
+| How the desktop reaches its data | Board embedding: a `BoardStore` calling `wikanvas_store::boards::prepare`/`save` directly. Testing: the same HTTP API over a loopback listener, like `TestServer` | Server: the router in-process through `oneshot` | `oneshot` (D104): one data layer, the middleware in the path, no port. Tests run every flow on `LocalTransport` and the smoke sequence also over `HttpTransport` to `TestServer` (§19.11) |
+| Galley caching | Editor: an own LRU of `Arc<Galley>` | Platform: cache heights, not galleys | Heights (D108), on epaint's own code |
+| Where schema, conversion and HTML live | Editor: a new `wikanvas-doc` crate split out of `wikanvas-core` | Server: `wikanvas-core` with `convert::html_out` | One crate, `wikanvas-core`, made to build for wasm32. Every dependency of `crates/wikanvas-core/Cargo.toml` is pure Rust; a split would move 6,762 lines of `schema`, `convert` and `ytext` and every import for no gain; the client links `board.rs`'s `inkboard-core` anyway through the engine |
+| Card text under zoom | Board embedding: break lines at zoom 1, paint each line at `size × zoom` (how `render.rs:671-718` draws labels) | Editor: lay out each block at `size × zoom`, zoom quantised | The editor's way, one layout path for page and card, if S0 G15 shows the line breaks equal zoom 1's; otherwise static cards switch to Inkboard's per-line method |
+| `pm_json` | Editor: stop sending it | Server: decide with the editor | Stop sending it; the store fills the preview from Y (D118) |
+| Web sign-in | Inventory: the in-page "Sign in again" dialog (P-015) | Platform and server: HTML forms | HTML forms (D114) |
+| Web unit test count | Inventory: 343 | Testing: 396 | Both hold at `d5d3c94`: 343 `it`/`test` call sites in 79 files (grep over `web/src/**/*.test.ts(x)`), 396 tests run, parametrised ones expanded (`docs/handoff/E.md:90`); 350 call sites at `9c6e60a` |
+| Patch numbering | Board embedding: 0007 widget, 0008 docs | Platform: the upgrade first or last | Upgrade last as 0007, so 0001-0006 need no rebase; then 0008 widget and 0009 docs (D103) |
+| Board save loop | Board embedding: in `wikanvas-board` | Server: `wikanvas-client::board_sync` | `wikanvas-client` (egui-free, tested headless, shares the back-off code with `doc_sync`) |
+| axe-core for the read view | Server: in the Playwright e2e, test-only | Testing: an owner question | Not used; structural checks over html5ever (D125; scraper is out too, its dependencies are MPL-2.0); owner question (§19.15) |
+| Desktop fonts | Board embedding: embedded by default | Testing: an owner question | Embedded by default with system fallback for missing glyphs (D120); the font licences stay the owner's (§16 item 25) |
+| egui add-on crates | Platform: egui_ltreeview, egui_dnd, egui_virtual_list are available on 0.37 | | Not used (D132): fewer crates tied to the egui version |
+
+### 19.3 Crate layout
+
+| Crate | From | Kind and targets | Contents | Depends on |
+|---|---|---|---|---|
+| `wikanvas-api` | `crates/wikanvas-api` | lib; native, wasm32 | The DTOs, `ErrorCode`, `ErrorBody`, `Page<T>`, `Scope`, token format, exit codes. utoipa moves behind an `openapi` feature that only the server enables; ts-rs stays behind a `ts` feature until the cutover, then goes | serde, serde_json, uuid, crc32fast (`crates/wikanvas-api/Cargo.toml`) |
+| `wikanvas-core` | `crates/wikanvas-core` | lib; native, wasm32 | As today (`ids`, `rank`, `tree`, `cursor`, `ytext`, `schema`, `convert`, `board`), plus `convert::html_out` (§19.7.2) and, behind the feature `html-dom`, `convert::html_dom`: an html5ever tree builder into a small arena DOM, used by the editor's HTML paste and by the read view's structure tests. getrandom with its wasm backend | wikanvas-api, inkboard-core (patched, D124), yrs, comrak, html5ever (feature `html-dom`), … |
+| `wikanvas-store` | `crates/wikanvas-store` | lib; native | As today, plus: an owner without a password, the desktop agent token's `settings` key, the revision preview from Y (D118); no schema change (D143) | as today |
+| `wikanvas-server` | `crates/wikanvas-server` (library part) | lib; native | `Server::{start, router, listen, shutdown}` (§19.8.2), the read view and HTML forms (`read`, `pages`), `/login/once`, the app shell per path and the assets under `/app/{build}/` (D141), `testing::TestServer` with `start_unprovisioned` and `seed` | wikanvas-store, wikanvas-core, wikanvas-assets, axum, tower, … |
+| `wikanvas-assets` | `crates/wikanvas-assets` | lib; native | Embeds `wikanvas-web`'s dist (`index.html` template, `boot.js`, `wikanvas_web.js`, `wikanvas_web_bg.wasm` with `.br`/`.gz`, `icons.bin`) under its build id, `read.css`, `licenses.txt` and the licence files (§19.12); during the port also `web/dist` and `web/dist-inkboard` | rust-embed |
+| `wikanvas-cli` | `crates/wikanvas-cli` | bin `wikanvas-cli` (`wikanvas` until F0, D127); static musl | As today, plus a `desktop` URL source (§19.8.6) and `doc get --format html` | wikanvas-api, ureq, rustls |
+| `wikanvas-client` | new | lib; native, wasm32 | `transport`, `api` (one typed method per operation), `cache`, `doc_sync`, `board_sync`, `outbox`, `clock`, `pending` (§19.4) | wikanvas-api, wikanvas-core, yrs, futures-util, web-time 1.1.0 and chrono 0.4.45 (both already in a lock, `vendor/inkboard/Cargo.lock`, `Cargo.lock:417`; chrono with `wasmbind` on wasm32, in `clock.rs` only); native: tokio, and ureq (rustls) only under the `http`/`https` features (D138); wasm32: web-sys, wasm-bindgen-futures |
+| `wikanvas-editor` | new | lib; native, wasm32 | `DocView`, commands, layout, painting, selection, input and IME, keymap, clipboard (`html-paste` feature: `wikanvas_core::convert::html_dom`), undo, menus, find, AccessKit nodes; the `EditorHost` trait (`search_titles`, `upload`, `open_link`, `item_title`, `attachment_texture`) (§19.5) | egui, yrs, wikanvas-core, unicode-segmentation; native: arboard; wasm32: web-sys |
+| `wikanvas-board` | new | lib; native, wasm32 | The board surface: `BoardView` hosting, the `CardPainter` that draws cards with the editor, the save-loop glue, the conflict banner, the unsaved-restore prompt, the title map, sidebar drops (§19.6) | inkboard-app (feature `widget`), inkboard-core, wikanvas-editor, wikanvas-client, egui |
+| `wikanvas-app` | new | lib; native, wasm32 | `WikanvasApp: eframe::App`: routes, shell, sidebar tree, pages, settings, dialogs, toasts, theme, icons, i18n, hotkeys; a `Platform` trait for what differs between desktop and web (history, file sinks, new tab, window close) | egui, eframe, wikanvas-client, wikanvas-editor, wikanvas-board, resvg |
+| `wikanvas-web` | new | cdylib; wasm32 | The browser entry (§19.9): the boot loader `boot/boot.js` (D139), `WebRunner` start, the History router, the shortcut `keydown` listener (D140), DOM clipboard listeners, file picks and drops, uploads with progress, the IndexedDB outbox, visibility, `pagehide`, `beforeunload` and `online` handlers, the `test-bridge` feature | wikanvas-app, web-sys, wasm-bindgen |
+| `wikanvas` | new (takes `wikanvas-server`'s binary) | bin `wikanvas` plus a lib for tests; native, glibc | Modes: desktop (default), `serve`, `admin`, `healthcheck`; `LocalTransport`; the data-dir lock; the opt-in agent listener and discovery file; native save dialogs; "Open in browser"; the desktop's log file and panic hook (§19.8.4); `--screenshot` for the smoke. Features `desktop` (default) and `server` | wikanvas-server, wikanvas-app, eframe |
+| `wikanvas-testkit` | new, dev-only | lib; native | The kittest harness wrapper, `FakeBackend`, `run_until_idle`, `tree_rows`, input helpers, the AccessKit label audit, the server-state digest | egui_kittest, wikanvas-app, wikanvas-client |
+| `wikanvas-browser-test` | new, test-only | bin; static musl | The CDP driver of the browser smoke (B1-B16, §19.11) | chromiumoxide, tokio |
+| `wikanvas-tools` | new, build-only | bin `licenses`; native | Writes `licenses.txt` from `cargo metadata` for `x86_64-unknown-linux-gnu` and `wasm32-unknown-unknown`, plus Inkboard's `THIRD_PARTY_LICENSES.md` and `ICONS-LICENSES.txt`, the font licences and lucide's LICENSE, and (during the dual run) the npm list; replaces the Node script of the `licenses` stage (§19.13) | serde_json |
+
+```
+wikanvas-api ─ wikanvas-core ─┬─ wikanvas-store ─ wikanvas-server ─┐
+                              │                                   ├─ wikanvas (bin: desktop, serve, admin)
+                              ├─ wikanvas-client ─┬───────────────┤
+                              ├─ wikanvas-editor ─┤               │
+inkboard-app (patched) ───────┴─ wikanvas-board ──┴─ wikanvas-app ┴─ wikanvas-web (cdylib, wasm32)
+wikanvas-api ─ wikanvas-cli (static musl; never links core, store, yrs or Inkboard, §14)
+```
+
+Rules that follow from the layout:
+- `wikanvas-client` has no egui dependency, and `wikanvas-editor` has no transport and no Inkboard dependency. The editor
+  reaches the app only through `EditorHost`, so board cards, the document page and tests plug in different hosts.
+- Only `wikanvas-board` depends on `inkboard-app`. A rebase of the Inkboard series touches one crate.
+- `inkboard-app` and every crate that uses `inkboard-core` take them by path from `.cache/inkboard-src/crates/…`, the
+  patched copy (D124; today the root manifest points at `vendor/inkboard/crates/inkboard-core`, `Cargo.toml:35`).
+  `scripts/dev.sh` runs `scripts/inkboard.sh src` first when the submodule or the patch files changed (the staleness
+  check already exists, `patches/inkboard/README.md`, "Working on the series"), and the Docker build does the same in
+  its stage.
+- The workspace lock grows from 372 packages (`Cargo.lock`) towards Inkboard's 730 (`vendor/inkboard/Cargo.lock`).
+  `scripts/check-pins.sh` extends its equal-version check (D124). Builds stay under the 6-CPU cap and the one-build lock;
+  nothing in this layout changes the caps.
+- `scripts/fmt.sh` lists the new crates explicitly, as it lists today's (§4.1).
+
+### 19.4 The client data layer and its one API boundary
+
+#### 19.4.1 Transports
+
+```rust
+pub trait Transport: MaybeSend + MaybeSync + 'static {
+    /// One HTTP exchange; the response body is collected, or streamed for downloads and (later) SSE.
+    fn send(&self, req: http::Request<Body>) -> Pending<Result<http::Response<Body>, TransportError>>;
+    /// An upload whose progress (bytes sent, total) is reported as it goes (P-097).
+    fn upload(&self, req: http::Request<UploadBody>, progress: Progress) -> Pending<Result<http::Response<Body>, TransportError>>;
+}
+```
+
+`fetch` reports no upload progress, which is why the React client uploads with `XMLHttpRequest`
+(`web/src/editor/upload.ts:3`, `:25-30`). So `FetchTransport::upload` uses web-sys `XmlHttpRequest` with
+`upload.onprogress` and a `web_sys::File` body; `HttpTransport` and `LocalTransport` report the bytes as their body
+stream hands them on.
+
+| Transport | Where | How | Authentication |
+|---|---|---|---|
+| `FetchTransport` | `wikanvas-client`, wasm32 | web-sys `fetch` with `credentials: same-origin`; uploads take a `web_sys::File` as the body, so large files are streamed by the browser and never copied into wasm memory (eframe 0.37 `src/web/dropped_file.rs`) | the HttpOnly session cookie; the browser sends `Sec-Fetch-Site` and `Origin` |
+| `HttpTransport` | `wikanvas-client`, native, features `http` (plain HTTP, tests) and `https` (rustls, later) (D138) | ureq 3.5 (with rustls and ring under `https`, the CLI's stack, D54) on the client's tokio runtime through `spawn_blocking`; no redirects followed, no proxy | a token or a sign-in cookie in tests; the session cookie of a sign-in in the later desktop-remote mode |
+| `LocalTransport` | `wikanvas` (the binary crate, so the client never depends on the server) | `router.clone().oneshot(req)` on the desktop's tokio runtime; inserts `Host: localhost` (the allowlist admits loopback, `crates/wikanvas-server/src/csrf.rs:54-62`), `Sec-Fetch-Site: same-origin` (the cookie-mutation rule, `csrf.rs:65-112`), the desktop session cookie, and `ConnectInfo(127.0.0.1:0)` so access logs and per-IP keys stay meaningful (`crates/wikanvas-server/src/extract.rs:448-453`) | the desktop session (D105) |
+
+That the router runs without TCP is already proven: the API tests drive it through axum-test's mock transport and
+inject the peer as `ConnectInfo` from a header (`crates/wikanvas-server/tests/api/common.rs:11-44`). `oneshot` needs
+tower's `util` feature, which axum 0.8.9 always turns on (`axum-0.8.9/Cargo.toml:268-271`, `[dependencies.tower]
+features = ["util"]`). A handler panic becomes a 500 through the catch-panic layer, not a crashed window. A 401 on
+`LocalTransport` mints a new desktop session and retries once (D105).
+
+#### 19.4.2 Modules of `wikanvas-client`
+
+| Module | Content |
+|---|---|
+| `transport` | The trait, `FetchTransport`, `HttpTransport`, shared request building (headers, `Wikanvas-Api-Version` check, the error envelope into `ApiError {status, code, message, details, request_id}`, P-179) |
+| `api` | One async method per operation of `docs/api/openapi.json` (70 today; the web client uses 59 method and path pairs, `docs/parity-seed.md` §"API calls"), typed with `wikanvas-api`; ETag and `If-Match` handling (D45); base64 of Yjs updates over HTTP |
+| `cache` | The query cache with the TanStack semantics the UI relies on (P-170): keys `me`, `config`, `sidebar`, `tree/<cid>` (ETag, 304 keeps), `item/<ref>`, `children/<id>`, `list/<name>`, `search`, `titles`, `tokens`, `sessions`, `docJson/<id>` (ETag), `collection/<ref>`; optimistic updates with a snapshot and rollback; invalidation after every mutation; retries only for network errors and 5xx, at most twice |
+| `doc_sync` | The port of `DocSession` (`web/src/editor/docSession.ts`, 345 lines): load, queue, send, `missing_deps`, back-off, pull on focus (§19.4.4) |
+| `board_sync` | The port of the board save loop (`web/src/board/saveLoop.ts`, 265 lines): 1.5 s quiet, at most 10 s, `If-Match: "r{rev}"`, `mark_saved(revision)`, 412, 413, back-off, the unsaved snapshot |
+| `outbox` | Native: one file per item under the state dir, written atomically; wasm32: IndexedDB through web-sys (database `wikanvas`, stores `outbox` and `board_unsaved`), no extra crate. Every access survives full or disabled storage |
+| `pending` | The registry of things with unsaved work (`{has_pending, flush}`) that route changes, Mod+S, window close, a minimised desktop window, `visibilitychange`, `pagehide` and `beforeunload` use (P-024, P-124); it answers `has_pending` synchronously, so the web's `beforeunload` handler can prompt |
+| `clock` | `Clock { now() -> Instant, wall() -> (unix ms, local UTC offset), sleep(d) }`. The real clock takes `now` from `web_time::Instant` (std's `Instant` natively, `performance.now()` on wasm32), `wall` from chrono's `Local` (natively `SystemTime` and the TZ database; on wasm32 its `wasmbind` feature reads `Date.now()` and `getTimezoneOffset`; std's `SystemTime::now` panics there, https://crates.io/crates/web-time), and `sleep` from `tokio::time::sleep` natively or a `setTimeout` future on wasm32 (about 30 lines of web-sys). `ManualClock` in tests: `advance(d)` moves both times and completes due sleeps; the testkit advances it with kittest's steps. The undo manager's timestamp reads the same clock (§19.5.6). The gate greps for `Instant::now`, `SystemTime::now`, `Date::now`, `performance().now`, `Performance::now`, `Local::now` and `Utc::now` outside `clock.rs` (PLAN M2 R14). Visual UI timers (hover expand, type-ahead, toasts, double Esc) may read egui's input time, because nothing is lost when they stop with the window; anything that saves (the title autosave, `doc_sync`, `board_sync`, the outbox) runs on this clock |
+
+Executors: natively the tokio runtime the desktop already has for its server (2 workers on a background thread; eframe
+keeps the main thread); a remote-mode or test client starts a small one. On wasm32, `wasm_bindgen_futures::spawn_local`;
+futures are not `Send` there, so the bounds are `MaybeSend` under `cfg`.
+
+#### 19.4.3 What the egui app asks of the server
+
+Additive v1 changes and new non-API routes (owned by PLAN M2 C7):
+- `GET /api/v1/items/{id}/doc/html` (scope `read`): the read view's `<article>` fragment, `ETag: "d{seq}"`, the
+  Markdown GET's headers (`crates/wikanvas-server/src/routes/docs.rs:355-361`). Used by "Copy as HTML", desktop print
+  and export, and agents (`wikanvas-cli doc get --format html`).
+- `/read/…`, `/login`, `/setup`, `POST /logout`, `/login/once` (§19.7, §19.8.5): HTML, outside `/api`.
+- The store fills the revision preview from Y when a POST carries no `pm_json` (D118). The field stays accepted.
+- No migration (D143): `created_via` keeps its `CHECK` list (`crates/wikanvas-store/migrations/0001-init/up.sql:64`);
+  the desktop's agent token is a `created_via = 'admin'` row found through the `settings` key `desktop.agent_token_id`.
+- `NewOwner.password_hash` becomes optional (`crates/wikanvas-server/src/admin.rs:39`); `login` refuses an account
+  without one. The column is already nullable (`up.sql:33`).
+- If the owner wants it (§19.15): a workspace `language` (BCP 47, default `en`) in `GET`/`PATCH /workspace`, stored as
+  the `settings` key `workspace.language`.
+
+No route the web client uses changes, so the React client keeps working during the port.
+
+#### 19.4.4 Document sync (phase 1)
+
+`doc_sync` keeps §9.4's rules on a `yrs::Doc` created with `OffsetKind::Utf16`, as the server's converters are
+(`crates/wikanvas-core/src/convert/pm.rs:38-45`):
+- Load: `GET …/doc`, applied with origin `server`; then the outbox, applied with origin `outbox` and queued.
+- Send: every local update is queued; `POST …/doc/updates` with the merged update after a 1 s debounce, at most 5 s
+  apart (D32), in every mode. The desktop keeps these timings: a save costs no network there, but every POST loads the
+  whole stored document, applies the update, walks the whole text and rewrites the body text, `item_links` and
+  `item_attachments` inside the one writer transaction (`crates/wikanvas-store/src/docs.rs:339-420`, `derive` at
+  `:269-284`), so its cost grows with the document. S0 G13 records POST latency and writer hold time on G10's
+  20,000-block document; a shorter desktop debounce is a later change if that cost is small. 409 `missing_deps` is
+  answered with the update from the server's state vector.
+- Outbox: the merged pending update is written at most every 250 ms and always right before a POST.
+- Failures: network → offline, retry after 1, 2, 5, 10, then every 30 s, and at once when the browser fires `online`
+  (as `web/src/editor/docSession.ts:8` does today); 401 → signed out (web: §19.7.5; desktop: a new session, D105);
+  other → error with Retry. A 409 `read_only` or a 404 also tells a board card that its document is gone (§18.14's D96).
+- Timers run on `Clock` (§19.4.2), so a debounce or back-off fires while the window is minimised or the tab hidden. The
+  desktop also flushes every pending save when the root viewport becomes invisible (minimised or occluded, which
+  `App::logic` still sees, eframe 0.37 `src/native/epi_integration.rs:377-400`), as the web does on `visibilitychange`.
+- Converge: on window focus and when the page becomes visible, `GET …/doc?since=<state vector>`.
+- Opening never writes: an empty fragment is shown as one virtual empty paragraph and nothing is written until the
+  first keystroke (§19.5.1). This replaces the "held" blank-document updates of `docSession.ts:95-101`, `:147-167`.
+- When the egui web client opens a document, it also reads the React client's pending entry for it from IndexedDB
+  `wikanvas.outbox`, store `updates` (`web/src/editor/docSession.ts:58-62`), and queues it like its own; Yjs applies a
+  duplicate update as a no-op. Once the POST that carried it succeeds, the egui client deletes that React entry, so a
+  later open does not queue it again and opening still never writes (G9). So unsent React edits survive the cutover.
+- The React client's UI preferences (`localStorage` keys `wikanvas.ui` with the sidebar width and collapsed state,
+  `wikanvas.theme`, `wikanvas.sidebar.expanded`: `web/src/state/ui.ts:8-9`, `web/src/state/expanded.ts:6`) are read
+  once, when eframe storage holds no Wikanvas value yet, and left in place for the React client during the dual run.
+
+#### 19.4.5 Board sync
+
+Unchanged on the wire: the whole envelope, `GET`/`PUT …/board` with `If-Match: "r{rev}"`, 412 on a stale revision (D28),
+the `X-Wikanvas-Engine` header. `board_sync` takes `BoardView::snapshot_doc()` on the UI thread (a cheap clone: asset
+data and strokes are `Arc`, `crates/inkboard-core/src/model.rs:681-685`) and serialises it on a worker thread natively;
+on wasm32 it serialises on the main thread, as the engine does today. The unsaved snapshot goes to the outbox store
+before each PUT and is cleared on 200 (P-131). It is also written when the page becomes hidden, on `pagehide` (the
+IndexedDB write is started; best effort), before a 401 navigates to `/login`, and, while the board is dirty, at most
+every 2 s if its last envelope was at most 2 MiB (a larger board is not serialised that often on the one wasm thread;
+the leave prompt of §19.9 covers it). A network error retries at once on `online` (`web/src/board/saveLoop.ts:85-89`),
+besides the back-off. The React client's snapshots live under the key `wikanvas.board.unsaved/<id>`
+(`web/src/board/unsaved.ts:16-19`) in idb-keyval's default store, the IndexedDB database `keyval-store` with the object
+store `keyval` (`unsaved.ts:5` imports `set` with no custom store; idb-keyval 6.3.0 `dist/index.js:31`), not in
+`wikanvas.outbox`. The egui client reads such an entry when it opens the board, offers it through the same restore
+prompt, and deletes it after "Restore" or "Discard".
+#### 19.4.6 Push (after M2)
+
+`GET /api/v1/events?docs=…&boards=…` as `text/event-stream`: `doc` events with committed updates, `board` events with the
+new rev, `tree` and `item` events with the monotonic counters §15 lists, a heartbeat every 25 s, and a `?since=` pull on
+reconnect. One stream per client, because a browser allows 6 HTTP/1.1 connections per origin across tabs. It works
+through `oneshot` (a streaming body, no upgrade) and through Caddy (which flushes event streams at once,
+https://caddyserver.com/docs/caddyfile/directives/reverse_proxy). Writes stay `POST …/doc/updates`. The WebSocket route
+stays reserved for third-party Yjs clients (§7.2). Remote cursors use a later `POST …/doc/awareness` with an `awareness`
+event; the editor's `StickyIndex` positions must then match Yjs `RelativePosition` encoding if a TipTap client is still
+in use (UNVERIFIED: yrs documents no byte or JSON compatibility, https://docs.rs/yrs/latest/yrs/struct.StickyIndex.html).
+
+### 19.5 The document editor (`wikanvas-editor`)
+
+One widget, `DocEditor`, that edits a document full-page, inside a board card at any zoom, natively and in wasm32. egui
+has no rich-text editor: its text widgets are plain text (https://docs.rs/egui/0.37.0/egui/struct.TextEdit.html). This is
+the largest new component: about 23,000 production lines (range 17,000-31,000) plus about as much test code, against
+2,215 lines of TipTap glue in `web/src/editor` over about 18,000 lines of ProseMirror source (estimate from reading, not
+from written code). Of those, about 21,000 (15,200-29,300) are the editor proper: the rest is the read view's HTML
+export (C7), the Rust doc session (C1) and later awareness. PLAN M2 turns lines into person-days at an assumed 300
+lines of production code plus its tests per person-day (UNVERIFIED; S0 measures the real rate per track-day, and F0
+re-derives C4 and C5 from it).
+
+#### 19.5.1 Model
+
+- **Source of truth:** the yrs document. The contract is schema v1 (`crates/wikanvas-core/src/schema.rs:240-460`: 19
+  node types, 7 marks) in y-tiptap's mapping (§6.1, `crates/wikanvas-core/src/convert/pm.rs:1-15`): an `XmlElement` per
+  non-text node, attributes as JSON values with null never stored, consecutive text as one `XmlText` with marks as
+  format attributes, inline atoms (`mention`, `hardBreak`) as element siblings, UTF-16 offsets.
+- **Mirror (`DocView`):** a tree of blocks keyed by `NodeKey = BranchID` of each element. yrs 0.28.0 exposes it:
+  `Branch::id()` returns `BranchID::Nested(ID)` for a nested type (`yrs-0.28.0/src/branch.rs:245-250`, `:861-864`). Each
+  node holds its tag (the 19 names plus `Unknown(String)`), the attributes the renderer needs, and for a textblock an
+  `Inline` with its text (mentions as U+FFFC, hard breaks as `\n`), mark ranges, atoms and a generation counter.
+- **Updates:** a deep observer on the fragment maps each event's target to the nearest textblock or container
+  (`Event::target`, `path`: `yrs-0.28.0/src/types/mod.rs:1024`, `:1037`); those are re-read after the transaction.
+  Local edits, remote updates, outbox replay and undo all take this one path.
+- **Read-time repair, no write:** a CRDT merge can leave a tree that breaks schema v1 (a `listItem` without its first
+  paragraph). The mirror shows a virtual block where one is required and writes nothing; the next local edit in that
+  region writes the repaired structure. Opening never writes (§9.4's blank-document rule,
+  `docs/ARCHITECTURE.md:1853-1858`).
+- **Unknown nodes and marks** from a newer client are shown read-only as a grey box with their text and never deleted
+  unless the user deletes the box.
+- **Block ids:** a block a command creates gets a UUID v4 `blockId` in the same transaction (a seeded counter in
+  fixture mode); a pasted block whose id exists gets a new one; a block from the server or another client is never
+  given one; an old block without one gets one only when the user edits it, and so does the later of two blocks that
+  share an id (the duplicate of §19.5.2), the first time the user edits it.
+
+#### 19.5.2 Positions and primitives
+
+- A position is `Pos { block: NodeKey, off: u32 }` in model units (one per Unicode scalar, one per inline atom), or a
+  node selection, a cell rectangle, or a gap between two blocks that cannot hold a caret (ProseMirror's gap cursor).
+- Durable positions (undo bookmarks, upload placeholders, the composition anchor, kept selections across a remote
+  apply) are yrs `StickyIndex` values (`yrs-0.28.0/src/sticky_index.rs:611`).
+- Every edit is a command built only from these primitives, all inside one `TransactionMut` with origin
+  `wikanvas.local`: `insert_text`, `delete_text`, `format`, `set_attr`, `insert_nodes` (through `pm::insert_node`,
+  `pm.rs:328-350`), `remove_nodes`, `split_textblock`, `join_textblocks`, and `rewrap` (copy the subtree, keeping
+  `blockId`s, then delete the original: yrs has no move for XML children, and element tags cannot change, so set-block-
+  type, wrap, lift, sink and drag-move copy and delete, as y-prosemirror does).
+- Consequences, both as with y-prosemirror today, so neither is a regression: (1) a remote user's concurrent typing
+  inside a block that is rewrapped lands in the deleted original and is lost; (2) when two clients rewrap the same block
+  at the same time (both make it a heading, or both wrap it in a quote), both copies survive the merge and both deletes
+  hit the one original, so the block's text appears twice with the same `blockId` (an inference from Yjs insert and
+  delete semantics, not run; S0 G9 records the outcome). The read view de-duplicates heading anchors (§19.7.2) and the
+  editor gives the later copy a new id when it is edited (§19.5.1). Commands keep text in its `XmlText` whenever the tag
+  stays; a remote delete of the caret's block shows a short "edits merged" notice.
+
+#### 19.5.3 Layout and painting
+
+- One `LayoutJob` per textblock, one section per mark run. Body 16/26, H1 28/36, H2 22/30, H3 18/26 (§9.6.1,
+  `docs/ARCHITECTURE.md:1961-1963`; H4-H6 need values), code 14/20; bold through a bold family; italics are egui's
+  synthetic shear until an italic face ships (owner, §16 item 25); underline and strike through `TextFormat`; code and
+  highlight as backgrounds; links in the accent colour with an underline; mentions as chips.
+- Containers are our own box layout: list markers in the indent, the quote bar, the callout frame and icon, task
+  checkboxes, table grids through a `TableMap`. Atoms are fixed boxes (images at their width %, the board card at its
+  preview's aspect, the rule).
+- **Virtualisation:** `ScrollArea::show_viewport` (egui 0.37 `src/containers/scroll_area.rs:1124`); only blocks within one
+  screen of the viewport are laid out and painted. A Fenwick tree over the top-level blocks holds measured heights or
+  estimates; it answers "which block is at y" in O(log n). When blocks above the viewport change height, the scroll
+  offset moves so the first visible block keeps its place (the CSS scroll anchoring TipTap got from the browser).
+- **Caching (D108):** heights per block per width; layout jobs are rebuilt only for dirty blocks; galleys come from
+  egui's cache each frame and are never kept. If S0 (G10) shows the per-frame hashing of visible jobs is too slow, the
+  fallback is an own galley cache flushed whenever egui recreates its glyph atlas (how the app learns of that is
+  UNVERIFIED).
+- **Painting:** selection rectangles per galley row; the caret with egui's stroke, blinking only while focused; the
+  IME preedit inline and underlined; remote carets later (§19.4.6); `scroll_to_rect` after every move.
+
+#### 19.5.4 Selection, input and keymap
+
+- Mouse: the height index gives the block at `y`, then `galley.cursor_from_pos`; double-click selects a word (UAX #29
+  through unicode-segmentation, already an epaint dependency), triple-click the textblock, dragging after either extends
+  by word or block (egui 0.37 #8370); Shift+click extends; Ctrl/Cmd+click follows a link while editing, a plain click
+  when read-only (§17.4).
+- Keyboard motions are written once against `DocView` and the galleys and unit-tested without a UI: grapheme, word,
+  row with a kept goal x, block edges crossing into the next textblock, document edges, page up and down; Shift extends.
+- Focus: `Memory::request_focus` plus a focus-lock filter that keeps Tab and the arrows inside the editor.
+- Events per frame, as `TextEdit` handles them (egui `src/widgets/text_edit/builder.rs`, MIT OR Apache-2.0, code borrowed
+  with attribution): `Text`, `Key` (the keymap; unmatched keys pass to the app, so Mod+K and Mod+. still work), `Copy`,
+  `Cut`, `Paste`, and `Ime` only while `owns_ime_events` is true.
+- **IME (D110):** `Preedit` sets a composition anchored at a `StickyIndex` and is laid out inline, never written; a
+  remote update moves the anchor; `Commit` deletes the selection and inserts the text in one transaction and resets the
+  undo capture; `DeleteSurrounding` serves Android-style corrections; `IMEOutput { rect, cursor_rect }` is published
+  every frame while focused. On the web, eframe's hidden `<input>` text agent never holds the text around the caret:
+  its only `set_value` call clears it (eframe 0.37 `src/web/text_agent.rs:283`), and it has no `beforeinput` handler.
+  So a phone keyboard sees only what was typed since the last clear, and predictive text, autocorrection and
+  autocapitalisation degrade by construction; S0 G5 measures how much, and P-085 records it as a change.
+- **Keymap:** TipTap 3.32.0's defaults as listed in P-104, plus Enter, Backspace and Delete semantics per node, list
+  Tab and Shift+Tab, table Tab, Mod+Z, Mod+Shift+Z and Mod+Y, Mod+S. A table of `(KeyboardShortcut, context, command)`, so
+  a board card can drop entries (no block handle, no board items in the slash menu, §18.13). On the web every chord of
+  the app's tables also suppresses the browser's own action for it (D140).
+- **Input rules:** the block and mark rules of P-103 as small hand-written matchers (Rust `regex` has no look-ahead,
+  which TipTap's mark rules use); Backspace right after a rule restores the typed text. Typography rules are off (the
+  current editor has none; owner question).
+
+#### 19.5.5 Clipboard (D112)
+
+- Copy and cut serialise the selection as a schema-v1 slice (normalized JSON plus the open depth at each end, like
+  ProseMirror's `Slice`) into `text/plain` (one line per textblock, the `ytext` walk) and `text/html` (from the read
+  view's serializer, one implementation, §19.7.2) with `data-wikanvas-slice="<base64 slice>"` on the root.
+- Desktop: `arboard::Clipboard::set().html(html, Some(plain))` and `get().html()`, `.text()`, `.image()`, `.file_list()`
+  (arboard 3.7.0, already an Inkboard desktop dependency, `crates/inkboard-app/Cargo.toml:35`). arboard reads HTML back
+  on Linux, macOS and Windows (`fn html` in `arboard-3.7.0/src/platform/linux/mod.rs:180`, `osx.rs:219`,
+  `windows.rs:611`); on Linux that is X11, or XWayland under Wayland, unless its `wayland-data-control` feature is on
+  (`arboard-3.7.0/Cargo.toml:43`). Wikanvas leaves that feature off in M2 (it adds wl-clipboard-rs), so S0 G8 runs X11
+  under Xvfb and records Wayland by hand.
+- Web: `wikanvas-web` registers `copy` and `cut` listeners after eframe's. eframe runs the app's pass inside its own
+  listener (Safari allows clipboard writes only during the event, eframe 0.37 `src/web/events.rs:370-412`); the app
+  leaves the serialised slice in a thread-local; the second listener calls `clipboardData.setData` for both types and
+  `preventDefault`. `ClipboardEvent` is not limited to secure contexts (https://w3c.github.io/clipboard-apis/), so this
+  works on plain HTTP. A `paste` listener reads `text/html`, `text/plain` and files into the same frame's input, which
+  the editor prefers over eframe's text-only `Event::Paste` (`src/web/events.rs:339-367`).
+- Paste pipeline: inside a code block or with Mod+Shift+V, plain text; HTML with `data-wikanvas-slice`, the slice after
+  `schema::validate` (`schema.rs:1117`); other HTML through html5ever into the small DOM of
+  `wikanvas_core::convert::html_dom`, walked by an allow-list that ports `web/src/editor/schema.ts`'s parse rules and
+  the StarterKit tags, with Google Docs and Word inline styles; links through
+  `link_allowed`, images through `image_allowed`, item URLs through `item_ref`
+  (`crates/wikanvas-core/src/convert/mod.rs:62`, `:67`, `:113`); plain text that looks like Markdown through
+  `md_in::parse` (`md_in.rs:148`, with the API's 1 MiB and depth limits); image files or data to the uploader. A paste
+  of exactly `__inkboard_objects__` (the board's object copy marker, `crates/inkboard-app/src/clipboard.rs:10`) is
+  ignored.
+- Fitting a slice at the caret is a simplified port of ProseMirror's `Fitter` (MIT, with a header comment and a
+  `THIRD_PARTY.md` row, as `convert::pm` does for y-tiptap); `schema::content_valid` (`schema.rs:520`) checks every
+  container it touches.
+
+#### 19.5.6 Undo (D111)
+
+`UndoManager::with_options` scoped to the fragment, `tracked_origins = {wikanvas.local}`, `capture_timeout_millis = 500`
+(`yrs-0.28.0/src/undo.rs:778`, `:783`), and `timestamp` set to a `Send + Sync` closure over the app's `Clock` (an
+`AtomicU64` of milliseconds the app updates; `ManualClock` in tests). yrs groups by that clock (`undo.rs:239`), and its
+default is the wall clock natively and absent on wasm (`impl Default` is `#[cfg(not(target_family = "wasm"))]` with
+`SystemClock`, `undo.rs:788-813`; `src/sync/time.rs:19-33`), so without it the 500 ms grouping would measure real time
+while kittest simulates time, and `Options` would not build on wasm32. Transactions from `server`, `outbox` or `remote`
+are never undone. `reset()` ends a capture before and after every structural command, on a caret jump, after an IME
+commit and before an input rule. Stack items carry the selection before and after as `StickyIndex` pairs. yrs has no
+delete filter (the call is commented out, `undo.rs:696`), unlike y-tiptap's: undoing the first typing of an empty
+document can leave an empty fragment, which the mirror shows as one empty paragraph.
+
+#### 19.5.7 Blocks, menus and the page around the editor
+
+Every node and mark of P-080 with its interaction (`docs/parity-seed.md` group I): lists and task lists (a port of
+prosemirror-schema-list, 267 lines), quotes, callouts with a variant picker, code blocks with a language picker and
+Inkboard's highlighter (D136), rules, hard breaks, tables (a port of prosemirror-tables' `TableMap`, `CellSelection`,
+row and column commands, `goToNextCell`, `fixTables`; 2,625 lines of JS upstream), images (load, width buttons, alt,
+caption as a single-line `TextEdit`, upload placeholders at a `StickyIndex`), external images (never fetched), mentions
+with live titles, board embeds (D123), links (follow, edit popup, autolink, URL paste), the slash and mention menus as
+egui `Area`s under the caret, the bubble menu, the table menu, the block handle with drag reorder, the Contents list and
+scroll spy, the placeholder, read-only mode and find (D135). Prior art and what is borrowed: egui `TextEdit` and
+`accesskit_text` (code), Inkboard's `rich_edit.rs` format bar and paste listener (code, MIT OR Apache-2.0), parley's
+`PlainEditorDriver` method set and cosmic-text's motion design (semantics), ProseMirror and y-prosemirror (semantics,
+MIT). Zed's GPUI is ideas only (GPL/AGPL repository); Outline, Docmost and Wiki.js are ideas only (AGPL/BSL). Every file
+that borrows or ports code carries a header naming its source and licence and gets a `THIRD_PARTY.md` "Code ported"
+row (PLAN M2 R20): egui's `TextEdit` builder and `accesskit_text`, Inkboard's `rich_edit.rs` format bar and paste
+listener, prosemirror-schema-list, prosemirror-tables, ProseMirror's `Fitter`, and Inkboard's test input helpers in the
+testkit.
+
+#### 19.5.8 Accessibility (desktop) and tests
+
+Each block writes an AccessKit node (`paragraph`, `heading` with its level, list, list item, table, row, cell, image with
+its alt text, link) with text runs per galley row, as egui's `update_accesskit_for_text_widget` builds them. These nodes
+are also what tests select by (§19.11). Whether one AccessKit text selection can span runs in different paragraph nodes
+is UNVERIFIED (https://docs.rs/accesskit/latest/accesskit/struct.TextSelection.html); screen-reader behaviour on NVDA,
+Orca and VoiceOver is checked by hand and recorded, not gated.
+
+### 19.6 Boards in the one UI, and the Inkboard patch plan
+
+#### 19.6.1 Why a widget works
+
+- Inkboard's canvas paints only through `egui::Painter` and allocates textures only through `Context::load_texture`
+  (`crates/inkboard-app/src/render.rs:283`, `:296`); `inkboard-app` has no paint callback and no wgpu or glow handle
+  (grep for `PaintCallback|egui_wgpu|wgpu::|glow::` finds only the `on_exit` signature, `app.rs:1128`). The host's
+  renderer draws it with no device sharing.
+- It draws into whatever rect its `Ui` offers (`tools.rs:829-834`) and already runs windowless in egui_kittest
+  (`tests.rs:15-28`; patch 0005's native tests drive a hosted board, `0005…:978-1066`, the `hosted` helper at `:1047`).
+- What stops it today is packaging and global state: only a `[[bin]]` target (`crates/inkboard-app/Cargo.toml:9-11`);
+  `App::build` takes an `eframe::CreationContext` and sets the context's fonts, visuals and keyboard zoom
+  (`app.rs:192-208`); `update` owns the window, its title, close, autosave and a 500 ms repaint (`app.rs:1137-1195`,
+  `:1192`); the floating chrome is anchored to the screen (`theme.rs:125-133`); egui ids are fixed strings (15 `Id::new`
+  sites in non-test code); keys, file drops and web pastes are read from the whole context (`app.rs:802-830`,
+  `:747-776`, the paste listener of `platform_web.rs`, gated in 0002 only on `ctx.input(|i| i.focused)`,
+  `0002…:943-948`, which is always true in one app).
+
+#### 19.6.2 The widget API (`inkboard_app::widget`, feature `widget`)
+
+```rust
+pub struct BoardOptions { pub read_only: bool, pub dark_chrome: Option<bool>, pub id_salt: egui::Id, pub chrome: Chrome }
+pub enum Chrome { Full, Tools, None }   // Full = today's hosted chrome (0002 hides New, Open, Join, Save, Quit, Language, Present)
+
+impl BoardView {
+    pub fn new(ctx: &egui::Context, opts: BoardOptions) -> Self;          // App in host mode; sets nothing global
+    pub fn load_json(&mut self, envelope: &str) -> Result<(), LoadError>; // host_load (0002)
+    pub fn snapshot_json(&self) -> String;                                // host_snapshot, pending label text included
+    pub fn snapshot_doc(&self) -> inkboard_core::Document;                // the same before to_json (cheap clone)
+    pub fn revision(&self) -> u64;  pub fn is_dirty(&self) -> bool;  pub fn mark_saved(&mut self, rev: u64);
+    pub fn set_read_only(&mut self, on: bool);  pub fn set_name(&mut self, name: &str);
+    pub fn set_view(&mut self, v: View);  pub fn fit_view(&mut self);  pub fn run_action(&mut self, a: Action);
+    pub fn insert_embed(&mut self, item: &str, title: &str, at: Option<egui::Pos2>, size: Option<(f64, f64)>) -> Option<Id>;
+    pub fn set_embed_editing(&mut self, id: Option<Id>);
+    pub fn set_embed_titles(&mut self, titles: HashMap<String, String>);
+    pub fn embedded_items(&self) -> Vec<String>;
+    pub fn show(&mut self, ui: &mut egui::Ui, cards: &mut dyn CardPainter) -> BoardResponse;
+    pub fn take_ops(&mut self) -> Vec<Op>;  pub fn apply_remote(&mut self, ops: &[Op]);   // later live sync
+}
+pub trait CardPainter {
+    fn paint(&mut self, painter: &egui::Painter, card: &CardView<'_>); // static content, in z-order, no input
+    fn edit(&mut self, ui: &mut egui::Ui, card: &CardView<'_>);        // the one editing card, a child Ui
+}
+pub struct BoardResponse { pub response: egui::Response, pub changed: Option<u64>, pub save_requested: bool,
+    pub open_card: Option<(Id, String, Option<egui::Pos2>)>, pub edit_ended: Option<(Id, EditEnd)>, pub has_focus: bool }
+```
+
+`show` runs, in order: focus bookkeeping and the inbox poll (only when focused), `host_guard` (`0002…:139-151`),
+`embed_frame_start` (`0005…:615-644`), `shortcuts` (only when the canvas has egui focus: 0008 changes its guard from
+`ctx.wants_keyboard_input()`, `app.rs:809`, which in 0.37 is true whenever any widget has focus, the canvas included,
+egui 0.37 `src/context.rs:3485-3487`, to "a focused widget that is not the canvas"; the canvas requests focus on a
+press, which it never does today), `dropped_files` (only when the pointer is over the rect), the chrome constrained to
+the rect (`Area::constrain_to`, egui `src/containers/area.rs`), `tools::canvas`, the dialogs and the toast, and
+`host_frame`. It skips fonts, theme, presentation, guest sessions, file
+watch, MCP live mode, sharing, the window title, autosave, screenshots and the periodic repaint (the host requests the
+500 ms tick only while a board is shown). The event logic of 0002 and 0005 is reused through a collecting `HostEvents`.
+
+Rules for the host:
+- Install fonts (starting from `inkboard_fonts::definitions()`, `crates/inkboard-fonts/src/lib.rs:36`) and the theme
+  once (D120, D122); call `inkboard_core::model::seed_ids` once at startup with a random seed (`model.rs:24-44`). The
+  in-process server seeds the same process-global generator (`crates/wikanvas-server/src/state.rs:238-239`): one seed
+  for the process, tested.
+- Consume global shortcuts (Mod+K, Mod+., Mod+S) before `show`, as `frame.js` does today
+  (`web/inkboard-frame/frame.js:526-547`); a second Esc within 500 ms leaves the canvas (P-138).
+- Draw Wikanvas's menus, popovers and dialogs in `Order::Foreground` or above, so they paint over the board's
+  `Order::Middle` chrome (`theme.rs:129`) (P-139).
+- Accessibility: the canvas is one AccessKit node; Wikanvas adds a hidden list "Text on this board" from
+  `BoardMeta.text_excerpt` (P-193).
+
+#### 19.6.3 Cards (the in-process form of patch 0005)
+
+- No occluders and no layout report: the board's chrome and the label editor are in higher egui layers
+  (`theme.rs:129`, `rich_edit.rs:510`, `:618`), so card content drawn in the board's layer is under them for painting
+  and input.
+- Static cards: the renderer calls `CardPainter::paint` right after a card's box inside its object loop
+  (`render.rs:462-477`), so an arrow above a card stays above its content, which the DOM overlay could not do
+  (§18.13). `wikanvas-board` paints the target document with the editor in read-only mode (the first 200 top-level
+  blocks, the light "paper" palette, D67) from the cached `docJson` or the open `DocView`. No widget is allocated, so
+  every press still reaches the canvas.
+- The editing card: `CardPainter::edit` gets a child `Ui` with `max_rect = card.screen` and the clip of `card.clip`,
+  after the page and before the selection handles (`tools.rs:912-914`), so the outline and handles stay visible. The
+  child `Ui` shares the canvas's layer, and egui hides a covered widget only when the covering one is on another layer
+  (egui 0.37 `src/hit_test.rs:142-152`), so the canvas's `contains_pointer()` stays true over the editor
+  (`src/hit_test.rs:160-164`, `src/context.rs:1749-1752`; the same code in 0.33.3 `src/hit_test.rs:139-161`). The
+  canvas decides presses (`press_tool`, `tools.rs:750-761`), the context menu (`:766`) and the laser trail (`:915`) from
+  that flag. So 0008 adds `App::pointer_in_editing_card(pos)` and the canvas treats a primary or secondary press, a
+  drag start, a right-click and the laser over `card.screen` as outside itself while a card is edited; the middle
+  button still pans there (§18.14's D94). The wheel path already reads `resp.hovered()` (`tools.rs:849`), which the
+  editor, the later interactive widget, wins (egui 0.37 `src/interaction.rs:256-290`), so scrolling over the editing
+  card scrolls the editor, not the board. A separate egui layer for the card was rejected: its content would then paint
+  over arrows and chrome above the card.
+- Ending an edit changes (about 50 lines in 0008), keeping main's rules (§18.14's D94, `0005…:615-644`): a primary
+  press inside the board rect and outside `card.screen` ends it with `EditEnd::Press` and is swallowed
+  (`0005…:1741-1742`); a secondary press there ends it with `EditEnd::Press` and opens the board's context menu; the
+  middle and extra buttons never end it; `EditEnd::Focus` becomes "the canvas took egui focus without a press"; a press
+  in Wikanvas's own UI is the host's decision. While the editor has focus, the board's shortcuts do not run (the guard
+  of §19.6.2).
+- Units: `open_card` and `insert_embed` work in egui points; 0005's CSS-pixel factor (`0005…:761-762`, `:831-860`) is 1.
+- Text under zoom (D109). Inkboard's zoom is continuous (`(cam.zoom * factor).clamp(0.05, 8.0)`, `tools.rs:858`), so
+  card text is laid out at a bucket: `zb`, the largest `2^(k/16)` not above the zoom (about 120 buckets between 0.05
+  and 8), with the font size `size × zb` and the wrap width `width × zb`, and painted unscaled from the card's top left. Line breaks
+  are those of zoom 1 when glyph advances scale linearly (G15 measures it); the text is at most 4.3 % smaller than the
+  frame and never wider, so it never overflows the card. Hit testing uses the same galley at the same origin, so a
+  click maps to the character drawn under it. During a pinch each frame takes the bucket of its zoom; a bucket change
+  re-lays out the editing card and at most 6 static cards per frame, largest first, and the others ask egui's galley
+  cache for their previous bucket's jobs again (a cache hit, painted unscaled and clipped to the card), so no galley is
+  kept across frames (D108): when egui recreates its atlas the cache is empty and those jobs are laid out anew. Every
+  card reaches the current bucket within 4 frames of the zoom coming to rest. S0 G15 decides whether static cards need
+  Inkboard's per-line method (`render.rs:671-718`) to keep zoom-1 line breaks.
+- Card thresholds stay as §18.11: the editing card always; others at zoom ≥ 0.5, ≥ 120 × 80 px on screen, at most 24,
+  largest first (P-142).
+- The sidebar drag: a document row carries an egui drag-and-drop payload; the host takes it from
+  `BoardResponse.response` and calls `insert_embed(item, title, Some(pointer), None)` (P-151). No native drag type
+  crosses a frame any more.
+
+#### 19.6.4 Persistence
+
+The board loads and saves through `board_sync` over the one API boundary (§19.4.5), in every mode. The desktop's
+`LocalTransport` puts the envelope straight into the same handler that runs `boards::prepare` and `boards::save`
+(`crates/wikanvas-store/src/boards.rs:438-612`) under the same `If-Match` rule; a 412 can still happen when the CLI or a
+second process writes the board. Inkboard's own autosave is off when hosted.
+
+#### 19.6.5 The patch series
+
+| Patch | Change | Size (estimate from reading, UNVERIFIED until written) |
+|---|---|---|
+| `0003-optional-net.patch` (changed) | `net` may be off natively too: drop the `compile_error!` (`0003…:16-17`), use `session_net_off.rs` and the share and join stubs on native, a native `check_relay_url` stub. Iroh stays out of Wikanvas: `inkboard-app`'s lock closure is at most 715 packages with `inkboard-net` and 540 without (upper bounds from `vendor/inkboard/Cargo.lock`) | about +40 / −10 |
+| `0007-egui-0-37.patch` (new) | egui, eframe, egui_kittest 0.37.0, wgpu 30, accesskit 0.25; `App::update` → `ui`; `CentralPanel::show(ui)`; `ViewportCommand::Screenshot` with a callback; `DroppedFile` as a trait (async reads on wasm); `raw_scroll_delta` replaced; `wants_keyboard_input` → `egui_wants_keyboard_input`; `style()` → `global_style()`; `Id::new` → `IdSalt` (15 sites); `WidgetType` → `Role`; `CharIndex`; `monochrome_emoji_fonts`; `glow` named in the native features; `rust-version` 1.95; re-pinned font widths; 11 reference PNGs regenerated. 0007 also fixes what 0001-0006 add (a grep of their added lines at `9c6e60a` finds 6 such sites): `ctx.style()` twice in 0001's test (`0001…:48`, `:52`), and in 0005 `wants_keyboard_input` (`0005…:116`), `raw_scroll_delta` (`:1764`) and the test's `Event::MouseWheel { unit, delta, modifiers }` literal (`:1578`), which lacks 0.37's new `phase` and `source` fields (egui 0.37 `src/data/input/event.rs:170-197`; `modifiers` stays, so the non-test match `MouseWheel { modifiers, .. }` at `:1763` compiles unchanged) | about 110 non-test lines in 12 files, about 90 test lines in 8 files, 5 manifest edits, a new `Cargo.lock` (re-counted on `.cache/inkboard-src` when S0-a starts) |
+| `0008-lib-board-widget.patch` (new) | `[lib] name = "inkboard_app"`; `src/lib.rs` with the module tree; `main.rs` → `src/desktop.rs` (a rename); `src/widget.rs` (§19.6.2); `App::hosted(ctx)`; an `id_salt` at the fixed-id sites; focus gating of `shortcuts` (the new guard of §19.6.2), `dropped_files`, `poll_platform` and the web paste listener; the canvas's focus request on a press; `pointer_in_editing_card` in `canvas_pointer`, the context menu and the laser (§19.6.3); `floating(ctx, bounds, …)` with `constrain_to`; bounds instead of `content_rect()` at 11 sites; the two card painter calls in `tools.rs` and `render.rs`; the in-process ending rules in `embed_cards.rs`, with main's secondary-press and middle-button rules; an icon-pack URL setter (`platform_web.rs:24`); highlighter token kinds (D136); `tests_widget.rs` (two boards in one context, chrome inside the rect, keys only when focused and working once the canvas has focus, card painter rects and z-order, editing end by a primary or secondary press outside the card, a press, a drag and a right-click inside the editing card that leave the selection, the objects' frames, the drag state and the context menu unchanged, a middle-button drag over the card that pans and keeps the editing, snapshot round trip) | about +1,030 / −65, plus the 260-line rename |
+| `0009-docs-board-widget.patch` (new) | "Embedding in an egui app (feature `widget`)" in `docs/WEB.md` and `docs/fr/WEB.md`, the `CHANGELOG.md` entry | about +120 |
+
+- The upgrade goes last as 0007, so 0001-0006 apply unchanged (0001's test and 0005's `wants_keyboard_input` touch
+  lines 0007 changes). Patchset 4; `engine_version` becomes `0.2.0-beta.3+embed.wikanvas.4`.
+- Every new or changed text file gets the notice line. Files that cannot carry one, the regenerated reference PNGs and
+  the `Cargo.lock` that cargo rewrites, are listed in `patches/inkboard/README.md`'s patch table, which is their notice;
+  the README states that exception from 0007 on (Inkboard is used under MIT, which asks for no per-file notice; the
+  line is the project's own rule). New public items need `#[must_use]`, `# Errors` docs and `Debug` impls, because
+  `scripts/inkboard.sh check` fails on any warning above the baseline (`patches/inkboard/README.md`). Only `widget` and
+  `theme` are public.
+- Upstream: offer 0007 (generic) first, then the lib target with `widget` and native-optional `net`, then host mode and
+  cards; none of the six current patches has an upstream PR yet (`patches/inkboard/README.md`, table). Each upstream
+  release means a rebase of a series that touches `app.rs`, `tools.rs`, `chrome.rs` and `render.rs`; 9 upstream commits
+  landed the day after our base, three of them in `render.rs`, `panel.rs` and `clipboard.rs`
+  (https://api.github.com/repos/VictorLetirand/inkboard/compare/41e0295d50433faa5d05b2ff48f85eac079a981d...d097526).
+
+#### 19.6.6 The series after the cutover
+
+Once `web/` is gone, `embed.rs` (the JS API of 0002) and the JS docs of 0004 and 0006 have no user. The series is re-cut
+once into: theme fix (0001), host mode without the JS API (target-independent), optional `net`, cards, the egui upgrade,
+the widget, docs. Host mode, `HostEvents` and `embed_cards.rs` stay; the `embed` feature's wasm `main` goes.
+
+### 19.7 The HTML read view
+
+#### 19.7.1 URLs
+
+| Path | Page |
+|---|---|
+| `/read/` | Home: collections, starred items, recently updated |
+| `/read/collection/<slug>-<url_id>` | The collection's tree as nested lists |
+| `/read/doc/<slug>-<url_id>` | A document |
+| `/read/board/<slug>-<url_id>` | A board, page by page |
+| `/read/item/<uuid>` | 303 to the canonical page |
+| `/read/search?q=&collection=` | Full-text search as a GET form |
+| `/login`, `/setup`, `POST /logout` | Server-rendered forms (§19.7.5) |
+
+The app keeps `/doc/…`, `/board/…`, `/collection/…` and `/item/<uuid>`, so stored and pasted links still resolve
+(`item_ref`, `crates/wikanvas-core/src/convert/mod.rs:113-136`); `item_ref` also learns `/read/doc/…` and
+`/read/board/…`, so a pasted reading link becomes an item link. The alternative, reading at `/doc/…` and editing under
+`/edit/…`, is the owner's to choose (§19.15).
+
+#### 19.7.2 Rendering
+
+`wikanvas_core::convert::html_out::render(doc, &lookup, &opts) -> Rendered { html, headings, warnings }`, run in
+`spawn_blocking` under one `doc_work` permit like the Markdown GET
+(`crates/wikanvas-server/src/routes/docs.rs:331-376`): `Stored::load` and `pm::read`
+(`crates/wikanvas-store/src/docs.rs:561-571`), then a direct walker over the normalized JSON with an explicit depth
+bound (as `md_out`'s `MAX_PRINT_DEPTH = 200`, `crates/wikanvas-core/src/convert/md_out.rs:37`), the `Lookup` trait for
+live titles (`convert/mod.rs:162-171`), and one escaper for text and one for attributes. No template crate: the walker
+writes strings, and the page shell is `format!` plus the escaper. Estimate 500-700 lines plus tests for `html_out`,
+400-600 for routes and shell (UNVERIFIED). It never goes through Markdown, which drops table spans, column widths,
+multi-block cells and image widths (§6.4).
+
+Mapping, in short: `doc` → `<article>` after the title `<h1>`; `heading{n}` → `<h{n+1} id="h-<blockId>">` (the item
+title is the only `<h1>`; level 6 stays `<h6>` with `aria-level="7"`; a `blockId` seen twice, as after two concurrent
+rewraps, §19.5.2, gets `-2`, `-3` on its later headings, so ids stay unique; a heading without a `blockId` gets `h-<n>`
+by position); `paragraph` → `<p dir="auto">`; lists, task items as disabled checkboxes, `blockquote`, `pre><code
+class="language-x" translate="no">`, `hr`, `br`; tables with `th scope`, `colspan` and `rowspan` (`colwidth` dropped: it
+would need a `style` attribute); `image` → `<figure><img alt width height loading="lazy">` with the size from the
+`attachments` row; external images never loaded, a link instead; `callout` → `<aside role="note">` with a visually
+hidden "Note:"/"Tip:"/"Warning:"/"Danger:"; `mention` and item links → `/read/…` links with the live title, "Restricted
+item" for what the viewer may not read; `boardEmbed` → a figure with page 0 and a link; marks → `strong`, `em`, `u`,
+`s`, `code`, `mark`, `a rel="noreferrer"` after `link_allowed`; unknown nodes → their text plus a warning. `dir="auto"`
+on every text block lets right-to-left paragraphs display correctly here, which the canvas cannot (§19.10).
+
+#### 19.7.3 Boards
+
+Each page is a `<section>` with the stored page SVG as `<img src="/api/v1/items/<id>/board/pages/<n>?rev=<rev>">`
+(immutable per revision, its own sandbox CSP, rendered within the 16 MiB per page and 48 MiB per board budgets,
+`crates/wikanvas-core/src/board.rs:664-756`), followed by "Text on this page" (from `board::inspect`, `board.rs:363`)
+and the embedded documents as links (`board::embeds`, `board.rs:405`). The SVG is not inlined (D113). Clickable card
+areas over the image are a later option that needs no Inkboard patch.
+
+#### 19.7.4 Headers
+
+`Content-Security-Policy: default-src 'none'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'self';
+frame-ancestors 'none'` (no `script-src`, so no script can run), `X-Frame-Options: DENY`, the HTML headers of §11,
+`Cache-Control: private, no-cache`, an `ETag` of the body's sha256 (titles of linked items change the body, so a
+seq-based tag would be stale) with 304, `X-Robots-Tag: noindex`, and gzip through the compression layer. One stylesheet
+`/read/read-<hash>.css`, light and dark by `prefers-color-scheme`, print rules (navigation hidden, link URLs printed,
+`break-inside: avoid` on figures, tables and code).
+
+#### 19.7.5 Authentication and the forms
+
+- The page handlers take `Auth<Read>` and `authz::require` like the API. A wrapper turns a 401 into `303
+  /login?next=<path>` (a path starting with `/`, never `//`, the rule of P-009), a 409 `setup_required` into `303
+  /setup`, and 403 and 404 into HTML error pages, because `error::envelope` turns every `ApiError` into JSON on any path
+  (`crates/wikanvas-server/src/error.rs:235-237`).
+- `/login` and `/setup` are `<form method="post">` pages with real `autocomplete` attributes, calling the same store
+  functions, limiters and argon2 permits as the API routes. CSRF is the existing middleware: a same-origin form POST
+  carries `Sec-Fetch-Site: same-origin` or a same-origin `Origin` (`csrf.rs:104-112`). `/setup?code=` pre-fills the code
+  for the one-click link `serve` logs (§19.8.3).
+- The read view's lookup is viewer-aware: `DbLookup` resolves any id's title with no viewer check today
+  (`crates/wikanvas-store/src/docs.rs:516-544`), which would leak titles once there is more than one user.
+- Trashed items are 404; archived items render with a banner.
+
+#### 19.7.6 How the app uses it
+
+"Open reading view" and "Copy reading link" in the item menu (`ctx.open_url(OpenUrl::new_tab(…))`; natively through the
+`webbrowser` crate egui-winit already uses); the server-rendered app shell of each app path carries a `<noscript>` and a
+visible "Reading view" link that the app hides once it runs. When JavaScript is off, the `<noscript>` text and the link
+show. When WebAssembly or WebGL2 is missing, the boot loader (D139) shows its error panel with the same link before any
+download; when the download fails twice, or `init()` or `start` fails, it shows the same panel. Phones go to the read
+view by default, decided by the loader before the download (D130). The desktop's "Print" and "Export as HTML" use a
+self-contained render mode (images as `data:` URIs, board pages inline, one board per file so filter ids cannot
+collide), write a file and open it in the system browser. P-112's HTML export becomes this mode.
+
+On the desktop the reading links depend on its listener (§19.8.6). While browser access is on, "Copy reading link" and
+a heading's "Copy link" (P-106) copy `http://127.0.0.1:<port>/read/doc/…` (with `#h-<blockId>` for a heading), and the
+port stays the same across restarts, so the links and browser sessions survive them. While it is off, the menu shows
+"Copy item link" instead, which copies `wikanvas://item/<uuid>` (pasted into any Wikanvas document it becomes an item
+link), and a heading's "Copy link" is hidden. A pasted URL counts as same-instance (P-091) when it is a
+`wikanvas://item/` link or names the desktop's own listener origin.
+
+### 19.8 Wikanvas Server and Wikanvas Desktop
+
+#### 19.8.1 Modes
+
+| | Wikanvas Desktop | Wikanvas Server, native | Wikanvas Server, Docker |
+|---|---|---|---|
+| Command | `wikanvas` | `wikanvas serve [--listen A] [--data-dir D] [--public-url U] [--open]` | the image's `wikanvas serve` (`WIKANVAS_DATA_DIR=/data`, `WIKANVAS_LISTEN=0.0.0.0:8080`) |
+| UI | a native egui window | browsers, through the egui web app and the read view | the same, behind Caddy (D57) |
+| Server | in-process, no listener by default | listener on `127.0.0.1:8080` | listener on the project network |
+| Data | the per-OS app data dir | the same default, or `--data-dir` | `/data` |
+| Owner | first-run dialog: name and workspace name; no password (§19.8.5) | the setup code, logged as a one-click link | as today (D19) |
+
+#### 19.8.2 The server as a library
+
+`app::run` does everything in one function today (`crates/wikanvas-server/src/app.rs:224-257`): open the state, bind,
+log the setup link, spawn jobs, serve, stop the jobs, checkpoint the WAL. It is split into:
+
+```rust
+impl Server {
+    pub async fn start(config: Config) -> Result<Server, StartError>;     // AppState::open + jobs::spawn + app(state)
+    pub fn router(&self) -> Router;                                        // for LocalTransport
+    pub async fn listen(&self, addr: SocketAddr) -> io::Result<Listening>; // optional listener
+    pub async fn shutdown(self);                                           // stop jobs, drain, WAL checkpoint
+}
+```
+
+`serve` is `start`, `listen(config.listen)` and `shutdown` on the signal; the desktop calls `start` and `router` and
+`listen` only when the owner turns on browser or agent access. `Config` gets a builder (data dir, no listen address, the
+public URL set when a listener starts).
+
+#### 19.8.3 `serve` outside Docker (D117)
+
+- Data dir: `--data-dir`, else `WIKANVAS_DATA_DIR`, else the per-OS app data dir from etcetera 0.11 (already a workspace
+  dependency; Linux `$XDG_DATA_HOME/wikanvas`; https://docs.rs/etcetera/0.11.0/etcetera/app_strategy/trait.AppStrategy.html),
+  logged at startup. Today's default is `./data`.
+- A lock: `<data dir>/wikanvas.lock` held with `File::try_lock` (as `crates/wikanvas-store/src/backup.rs:28-46` does) by
+  whichever process serves the directory; a second one stops with "Wikanvas is already serving this data directory".
+  Admin commands do not take it and keep working beside a running server (§7.8).
+- Setup: the code stays (any local user could otherwise claim `/setup` first) and is logged as
+  `http://localhost:8080/setup?code=…`; the access log records paths only (`app.rs:79-86`).
+- `--open` opens that link or the public URL with the `webbrowser` crate, only on a terminal with a display.
+- Cookies: on plain HTTP the name carries the port, `wikanvas_session_<port>`; over HTTPS `__Host-wikanvas_session`
+  with `Secure` (one function, `session_cookie_name`, `crates/wikanvas-server/src/extract.rs:372-380`, plus its
+  readers). Other local services still receive a `localhost` cookie (RFC 6265 §8.5); the desktop opens the browser at
+  `http://127.0.0.1:<port>`, whose host-only cookie is not sent to `localhost:*`.
+- LAN: with a non-loopback listen address and no trusted proxy, `serve` refuses to start unless `WIKANVAS_ALLOW_HTTP=1`.
+  Plain HTTP on a LAN address sends passwords in clear text and is not a secure context
+  (https://w3c.github.io/webappsec-secure-contexts/). Team use goes through Caddy (D57); built-in TLS would reverse D29 and
+  is the owner's call.
+
+#### 19.8.4 Wikanvas Desktop
+
+Startup: take the data-dir lock (a second `wikanvas` shows "Wikanvas is already running" and exits; handing over links
+and files to the running instance is later work: eframe has no single-instance or open-URL support, and macOS needs
+`unsafe` objc2 code, which Inkboard's lints forbid); `Server::start` with 2 tokio workers on a background thread;
+mint the desktop session (D105); open the eframe window with `WikanvasApp` on a `LocalTransport`. On window close,
+flush every pending save (P-024) before the server shuts down and checkpoints the WAL. egui 0.37 closes the window on
+Ctrl+Q by default (`quit_shortcuts`, egui 0.37 `src/memory/mod.rs:264`, `:337`); it goes through the same flush. When
+the root viewport becomes invisible (minimised or occluded), `App::logic` flushes every pending save too; the save
+timers keep running on `Clock` (§19.4.4).
+
+Logs and crashes: a desktop started from a menu has no terminal, and the server logs to stdout only today
+(`crates/wikanvas-server/src/cli.rs:174-183`). In desktop mode the same `tracing` output goes to
+`<state dir>/logs/wikanvas-<start time>.log` (one file per start, the last 5 kept, through `tracing_subscriber`'s
+writer, no new crate; the folder is shown in Settings → About). A panic hook writes `<state dir>/crash-<unix time>.txt`
+(the message, the location, the version; no document content) and lets the process end; what the outbox files already
+hold (§19.4.4, §19.4.5) is what survives; on the next start a dialog says that Wikanvas stopped, names the note, and
+lists what the outbox files restored (documents queued again, board snapshots offered through the restore prompt). A
+handler panic inside the in-process server stays a 500 (the catch-panic layer), not a crash.
+
+Desktop-specific behaviour: exports and the workspace tar through rfd save dialogs (D131); "Back up now" writes to the
+data dir's `backups/` as today; "Open in new tab" (P-008) opens the item in place and pushes in-app history (a second
+window is an owner question); the mouse back and forward buttons and Alt+←/→ walk that history (P-201).
+
+#### 19.8.5 The desktop's identity
+
+- The first-run dialog asks for a name and a workspace name. The owner is created in-process with no password
+  (`password_hash` NULL, `up.sql:33`) and the email placeholder `owner@local.invalid` until the owner sets one
+  (`validate_owner` requires an email, `crates/wikanvas-server/src/admin.rs:95`). `login` refuses an account without a
+  password; a password is set only when browser sign-in is wanted.
+- The desktop session (D105) is minted at every start for the owner, whose user id the desktop keeps in its state
+  file, and lives only in memory. Changing the password (which deletes every other session), "Sign out all other
+  sessions" or `admin reset-password` in a browser (`crates/wikanvas-server/src/routes/auth.rs:346`, `:416`;
+  `docs/AGENTS.md:43`), or the session's own expiry, end it; the next request then gets a 401 and `LocalTransport` mints a
+  new one and retries, so the desktop never shows "Signed out". The sessions list shows it as "This app (Wikanvas
+  Desktop)" by its `user_agent`. Only the process that holds the router can mint one, and it already has the database
+  file, so this grants nothing new.
+- "Open in browser": the desktop puts a 32-byte one-time ticket with a 60 s lifetime into the server state and opens
+  `http://127.0.0.1:<port>/login/once?t=<ticket>&next=/read/doc/…`; the handler consumes it once, creates a browser
+  session and redirects. The ticket is briefly visible on `xdg-open`'s command line to other local users on Linux; one use
+  and 60 s bound that.
+
+#### 19.8.6 Agents and the CLI against the desktop
+
+Off by default. Settings → "Allow agents and the command line" (and "Allow browser access") start one loopback
+listener. Its port is picked free the first time either is turned on and then kept in the state file, so it stays the
+same across restarts (reading links and the port-named cookie, §19.8.3, survive them); a port taken by then shows an
+error and offers a new one. Agent access writes `$XDG_RUNTIME_DIR/wikanvas/desktop.json` (mode 0600, written
+atomically, deleted on clean exit) with the URL, pid, instance id, API version and the path of a token file. The token
+is created per launch as an `api_tokens` row with `created_via = 'admin'` and the scope chosen in Settings, its id kept
+in the `settings` key `desktop.agent_token_id` (D143), and revoked at exit and at the next start. `wikanvas-cli` gets
+a last URL source `desktop` that reads URL and token from the same file, so a token stays bound to its URL (§7.6); it
+refuses a file not owned by the user, not 0600, or whose pid is gone. A later hardening is a Unix socket in the 0700
+runtime directory. `docs/AGENTS.md` gains a section; an MCP server over `wikanvas-client` stays the later step §15
+names.
+
+#### 19.8.7 The Docker image
+
+The image runs the same `wikanvas` binary's `serve` on `distroless/cc-debian13` (glibc, libgcc_s; `docker/Dockerfile:7`).
+The linked native Inkboard test binary in the cache needs only `libgcc_s.so.1`, `libm.so.6`, `libc.so.6` and
+`ld-linux-x86-64.so.2`; X11, Wayland, GL, Vulkan, xkbcommon and fontconfig are loaded at run time (read from its ELF
+header by the platform research). The image build gates this: `readelf -d wikanvas` `NEEDED` must be a subset of those
+four (UNVERIFIED for the full binary until built). The image grows by the GUI code (size UNVERIFIED); if the gate fails or
+the owner prefers it, the image builds `--no-default-features --features server` instead (§19.15).
+
+#### 19.8.8 Release binaries
+
+| Artifact | Build |
+|---|---|
+| `wikanvas`, Linux x86_64 and aarch64 | glibc, dynamic, `cargo zigbuild --target <arch>-unknown-linux-gnu.2.35` (glibc 2.35 = Ubuntu 22.04, the baseline Inkboard's Linux release uses, `vendor/inkboard/.github/workflows/release.yml:36`; https://github.com/rust-cross/cargo-zigbuild) inside the capped toolchain container |
+| `wikanvas-cli`, Linux x86_64 and aarch64 | static musl, as today (`docker/Dockerfile:270-295`) |
+| Packages | `.deb` and `.tar.gz` first; AppImage only after a licence check of its runtime (statically linked libfuse, LGPL per a third-party summary, https://github.com/haampie/appimage_runtime, UNVERIFIED upstream); Windows later with NSIS without its LZMA module (CPL-1.0, https://nsis.sourceforge.io/License) or Installway; never WiX (MS-RL and a maintenance fee, https://docs.firegiant.com/wix/osmf/) |
+
+zig (MIT) and cargo-zigbuild (MIT) are build-only and pinned by checksum like binaryen (`docker/Dockerfile:29-31`), at a
+release at least two weeks old (cargo-zigbuild 0.24.0 came out 2026-10-21, too new on 2026-10-29). A new `dist` target
+writes the binaries with `--output type=local`, as `cli-dist` does. Every archive and package carries, beside the
+binary, `LICENSE`, `THIRD_PARTY.md`, `licenses.txt` (§19.13), Inkboard's `THIRD_PARTY_LICENSES.md` and
+`ICONS-LICENSES.txt`, the font licence texts (OFL-1.1, the Ubuntu Font Licence 1.0, Hack's) and lucide's LICENSE;
+`scripts/dist.sh` fails when one is missing, as `scripts/cli-dist.sh:32-37` does for its files. OFL-1.1 condition 2
+asks that each copy of the fonts contains the licence (https://openfontlicense.org/open-font-license-official-text/).
+
+#### 19.8.9 Portability (before macOS and Windows)
+
+`tokio::signal::unix` in the shutdown signal (`crates/wikanvas-server/src/cli.rs:186-201`), `rustix::fs::statvfs` for
+the free-space floor (`crates/wikanvas-store/src/shared.rs:229-231`), `std::os::unix` file modes
+(`crates/wikanvas-cli/src/config.rs:21`, `crates/wikanvas-cli/src/cmd/admin.rs:8-9`,
+`crates/wikanvas-server/src/admin.rs:214`), the CLI's Linux-only CA bundle search (§7.6) and the `exec` of
+`wikanvas admin` (`cmd/admin.rs:9`). Each gets a `cfg(unix)` branch and a Windows or macOS equivalent before those
+releases; none blocks M2.
+
+#### 19.8.10 Renames and stored identifiers (D127)
+
+The rename to Wikanvas is done (D100, v0.1.0-alpha.1): every name the project owns changed, with no legacy alias, and
+the owner's live wiki was migrated once, at the cut-over of 2026-10-29 (volumes copied, the database file and its
+backups renamed, `.env` and stored links rewritten, the image pinned with `WIKANVAS_IMAGE=wikanvas:484905c` in `.env`).
+It runs as compose project `wikanvas`; the old volumes are kept until the owner confirms the migrated wiki. M2 reads no
+old name.
+
+Renamed in M2:
+- The CLI's binary: `wikanvas` → `wikanvas-cli`, so the one binary can be `wikanvas` (D115); the CLI's crate, its
+  `WIKANVAS_*` variables and its profile path (`crates/wikanvas-cli/src/config.rs:12`, `:243`) stay. The docs,
+  AGENTS.md and the agent harness (`e2e/agent/lib.sh`, which runs `wikanvas` in the container) follow.
+- Product images: `scripts/image.sh` tags `wikanvas:<commit>`, as today, and `wikanvas:latest` only for a clean tree on
+  main; the test scripts default to `wikanvas:latest`. The owner's wiki runs the image that `WIKANVAS_IMAGE` pins in
+  `.env` (`compose.yaml:4`), so no workstream build changes it; the owner switches by setting
+  `WIKANVAS_IMAGE=wikanvas:<commit>` in `.env`.
+- The session cookie's name on plain HTTP gains the port (§19.8.3), which signs browsers on plain HTTP out once; over
+  HTTPS it stays `__Host-wikanvas_session`.
+
+Not renamed:
+- The database file `wikanvas.db`, with its `-wal` and `-shm` and its backups `wikanvas-*.db`.
+- The export tar's entry `wikanvas.db` (D142).
+- `qpat_` tokens and `wikanvas://item/<uuid>` links: accepted for ever, and the only forms M2 writes (new tokens keep
+  the `qpat_` prefix, the editor and the server keep writing `wikanvas://item/`), because the React client's link
+  allow-list (http, https, mailto, wikanvas) and smoke step 14's `^qpat_` check run during the dual run (P-089,
+  `crates/wikanvas-core/src/convert/mod.rs:25`, `e2e/tests/smoke.spec.ts:693`). A new scheme or prefix is a later
+  decision.
+- `compose.yaml`'s project, service, volume and variable names, its container environment keys, and the build
+  infrastructure (D142).
+
+### 19.9 The web entry (`wikanvas-web`)
+
+- The server renders a small `index.html` per app path, `no-cache` (the canvas, the loading bar, the error panel, the
+  `<noscript>` and reading-view link of §19.7.6, and one `<script type="module" src="/app/{build}/boot.js">`), and
+  serves `boot.js`, `wikanvas_web.js`, `wikanvas_web_bg.wasm` and `icons.bin` under `/app/{build}/` as immutable assets
+  with `.br` and `.gz` variants (D141; the static rules of §11); another `{build}` is 404. The wasm is built as
+  Inkboard's is today, without trunk: `cargo build`, `wasm-bindgen --target web`, `wasm-opt` (D14).
+- The boot loader (D139), in this order: if `WebAssembly` or a WebGL2 context is missing, show the error panel ("This
+  browser cannot run the Wikanvas editor") with the reading link, and stop; if the pointer is coarse and the viewport
+  narrower than 768 px and the URL has no `?editor=1`, `location.replace` the item's read view (D130; "Open editor"
+  there links back with `?editor=1`); otherwise `fetch` the wasm, showing the received bytes against `Content-Length` in
+  the loading bar (as Inkboard's `initializer.js:10-20` does, capped at 99 % until start), retry once after 2 s on a
+  network error or a 5xx, and on a second failure show the error panel with the reading link and a "Try again" button;
+  then `await init({ module_or_path: response })` and call the exported `start(canvas)`; a rejected `init()` or a
+  `start` error shows the panel with its message. It is at most 80 lines, has no dependency, and the gate checks the
+  budget (PLAN M2 R15).
+- Shortcuts (D140): a capture-phase `keydown` listener on `window` that reads the shortcut table calls
+  `preventDefault` for the app's chords before the browser acts on them; B15 checks it.
+- Leaving with unsaved work: a `beforeunload` handler (web-sys) calls `preventDefault` while `pending::has_pending()`
+  is true, so the browser asks before a tab close or a navigation away, as the React client does today
+  (`web/src/state/pending.ts:56-67`); it is installed once and reads the registry synchronously. An `online` listener
+  retries `doc_sync` and `board_sync` at once (§19.4.4, §19.4.5).
+- App CSP, starting from today's frame CSP: `default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'
+  'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action
+  'self'; frame-ancestors 'none'; object-src 'none'`. `'unsafe-inline'` for styles is kept until B1 shows eframe's text
+  agent works without it (UNVERIFIED).
+- Routing: eframe has no router (it only tracks the hash, eframe 0.37 `src/web/events.rs:443-447`). About 40 lines of
+  web-sys: read `location.pathname + search` at start, `pushState` on navigation, `replaceState` for canonical slugs
+  (P-004), a `popstate` listener that queues the new path and wakes the context, `document.title` per page. Inkboard's
+  page code treats any URL fragment as a join ticket (`crates/inkboard-app/src/platform_web.rs:183-206`); the hosted
+  build calls only `init_ctx` (0002), so heading anchors keep working.
+- Base path: `/next/` during the port, `/` after (D119). The route parser takes the base path.
+- Clipboard listeners (§19.5.5), file picks through `rfd::AsyncFileDialog` (already used on the web,
+  `platform_web.rs:262-294`), dropped files streamed as `web_sys::File` and uploaded with progress through
+  `XmlHttpRequest` (§19.4.1), visibility and `pagehide` flushes with `fetch(keepalive)` for payloads under 60 KB (P-123)
+  and the board snapshot written (§19.4.5), the IndexedDB outbox, `createImageBitmap` decoding (D134).
+- Update check: on reconnect and on an API version error, compare the build id compiled into the wasm with
+  `GET /api/v1/config`; a difference shows "Wikanvas was updated. Reload" once (P-010). Because the assets' URL carries
+  the build id (D141), "Reload" fetches the new `index.html`, which names the new `/app/{build}/`.
+- Size: every visitor downloads the whole client, because wasm-bindgen cannot split one app into lazy modules. Today's
+  engine alone is 4,034,465 bytes brotli; the full client is estimated at 4.3-5 MB brotli (16-18 MB raw), against
+  475,925 bytes gzip for today's whole React client (UNVERIFIED; S0 G11 measures it). Fonts are about 2.86 MB of the
+  engine's 6.03 MB data section (epaint's defaults 1,407,752, Inkboard's 616,592, STIX Two Math 838,652), so lazy STIX and
+  dropping the emoji fonts on the web are the first savings. The read view serves first visits and shared links without
+  the download.
+
+### 19.10 Fonts, i18n, theming
+
+- **Fonts (D120):** one `FontDefinitions` from `inkboard_fonts::definitions()` (Noto Sans 400/700, Gelasio 400/700,
+  Patrick Hand, Hack Bold: 616,592 bytes, `crates/inkboard-fonts/src/lib.rs:15-33`) plus egui's defaults (Hack for code,
+  the emoji fonts natively). Documents use Noto Sans instead of today's system UI font (§9.6.1): a visible change,
+  recorded in `docs/parity-seed.md` P-113. egui 0.37 draws glyphs no egui font has with the browser's Canvas 2D on the
+  web (CJK, colour emoji; eframe 0.37 `src/web/canvas_glyphs.rs`) and from the OS fonts natively through
+  `egui_system_font_provider` (fontique, Apache-2.0 OR MIT), so CJK displays without shipping a font. Scripts that join
+  across grapheme clusters (Arabic) will not shape on the web (inference from the per-cluster design, UNVERIFIED). Every
+  test harness forces the embedded set. These fonts are under SIL OFL 1.1, the Ubuntu Font Licence 1.0 and, for Hack,
+  MIT with the Bitstream Vera licence; OFL and the Ubuntu licence are not on R6's list; §16 item 25 leaves them open,
+  and M2 widens their use (Wikanvas's own binary, `.deb`, tarball and wasm install them, and documents use Noto Sans),
+  so §19.15 question 13 asks the owner about that wider scope. Until the owner answers, they ship as Inkboard ships
+  them, with their licence texts (§19.8.8, §19.12).
+- **No BiDi:** egui has none (epaint 0.37 `src/text/unicode.rs:15`, `src/text/text_layout.rs:1500`), so Arabic and Hebrew
+  paragraphs display in logical order with a wrong caret. A documented limitation for M2 unless the owner funds it
+  (§19.15); the read view renders them correctly (`dir="auto"`).
+- **i18n (D121):** English strings in one module (`wikanvas_app::i18n`, ready for a second language); dates and relative
+  times as P-075 with the `en` locale; the restore prompt's 24-hour HH:MM (P-131) from the same module; Inkboard set with
+  `i18n::set` to the same language at startup instead of the browser's (P-188). A workspace `language` setting, if the
+  owner wants it, drives this and the read view's `<html lang>`.
+- **Theme (D122):** the 15 colour tokens of §9.6.1 in light and dark as named colours in `wikanvas_app::theme`, mapped
+  onto egui `Visuals` and `Style` (spacing 4-64, radii 4/6/8/12, 120 ms motion as `animation_time`); light, dark or system
+  as today, the server's `users.theme` winning once `/auth/me` loads (P-183). Wikanvas calls Inkboard's
+  `theme::apply` only as a base if it wants Inkboard's palette; the board reads `theme::current(ctx)` and follows. Cards
+  stay paper (D67). Reduced motion sets `animation_time` to 0: on the web from `matchMedia('(prefers-reduced-motion:
+  reduce)')`; natively from a setting, because winit exposes no such query (UNVERIFIED).
+- **Zoom (D122):** egui's built-in keyboard zoom is off; Wikanvas routes Ctrl+=/−/0 to the board while it has focus,
+  otherwise to `ctx.set_zoom_factor` on the desktop and leaves them to the browser on the web (eframe follows
+  `devicePixelRatio`). Page zoom and OS text scaling (P-197) keep working on the web; the desktop gets the UI zoom.
+- **Icons (D133)** and the 12 collection colours as today (P-185).
+
+### 19.11 Testing
+
+| Layer | What | Where | Runs with |
+|---|---|---|---|
+| L1 | Logic without egui: tree model, routes, save loops, outbox, cache, editor model and commands over yrs, input rules, snippet marking | `mod tests` next to the code (R7) | `scripts/dev.sh cargo test --workspace --locked` |
+| L2 | kittest scenarios on a `FakeBackend`: every screen and widget, labels, focus order, menus, dialogs, drag and drop, keyboard, popover placement, layer order | `crates/wikanvas-app/tests/ui/`, `crates/wikanvas-editor/tests/`, `crates/wikanvas-board/tests/` | `cargo test -p <crate>` |
+| L3 | kittest scenarios on a real server: smoke steps 1-17, two clients, restart ("reload"), tokens, exports | `crates/wikanvas/tests/flows/`; every flow on `LocalTransport`, `flows::smoke_sequence` and the cookie and CSRF flows also over `HttpTransport` to `TestServer` on `127.0.0.1:0` (`crates/wikanvas-server/src/testing.rs`) | `cargo test -p wikanvas --test flows` |
+| L4 | 10-20 snapshots rendered on Mesa lavapipe; AccessKit text snapshots (insta) for most layout checks | `crates/wikanvas-app/tests/snapshots/` | `WIKANVAS_SNAPSHOTS=require` |
+| L5 | Browser smoke B1-B16 of the wasm build under production headers (boot and CSP, cookies, typing and IME through the text agent, WebGL2, history and deep links, downloads, visibility and the leave prompt, offline, panic, the read view, clipboard HTML, a phone viewport, no WebGL2 or WebAssembly, a failed download, the browser's shortcut actions suppressed, upload progress; PLAN M2 C9 lists them) | `crates/wikanvas-browser-test` (chromiumoxide, CDP) in the pinned Playwright image's Chromium | `scripts/e2e.sh smoke` |
+| L6 | Desktop launch smoke: the window starts on Xvfb with the in-process server and SQLite, opens a fixture workspace, screenshots, exits within 120 s | `scripts/desktop-smoke.sh` | new script, capped |
+| L7 | The read view: goldens from `fixtures/ydoc/*.bin` (9 web-written) and `fixtures/ydoc/server/*.bin` (10 server-written) to `.html`; headers; escaping proptest; structure over `wikanvas_core::convert::html_dom` (`lang`, one `h1`, no skipped levels, unique ids, every `img` with `alt`, landmarks) | `crates/wikanvas-server/tests/api/read_view.rs` | `cargo test -p wikanvas-server` |
+
+- **The AccessKit contract:** every interactive widget has a role and a label unique in its container; custom widgets
+  (tree rows, cards, editor blocks, the canvas) write their own nodes. kittest builds the tree from each frame and
+  queries by role and label (https://docs.rs/egui_kittest/0.37.0/egui_kittest/struct.Harness.html); kittest 0.37 fails a
+  test when an input has no accessible name and panics on a missing glyph by default (egui_kittest 0.37
+  `src/builder.rs:47-51`). A per-screen label audit walks the tree. On the web eframe discards the AccessKit update
+  (eframe 0.37 `src/web/app_runner.rs:403`); the `test-bridge` feature's plugin keeps it in `output_hook` (egui 0.37
+  `src/plugin.rs:50`) and exposes `window.__wikanvas_test` (`tree`, `state`, `idle`, `frames`, `panics`). The driver sends
+  real CDP mouse, key and IME events (`Input.imeSetComposition`, `Input.insertText`,
+  https://raw.githubusercontent.com/ChromeDevTools/devtools-protocol/master/pdl/domains/Input.pdl). The shipped wasm and
+  glue must not contain `__wikanvas_test`.
+- **Determinism:** embedded fonts, fixed language, theme, OS, scale and size, and a fixed time zone (UTC) for the
+  wall clock; kittest's simulated 0.25 s steps (`builder.rs:47`), with the testkit advancing the `ManualClock` of
+  §19.4.2 by the same step, so the data layer's timers, the undo grouping and the UI's own timers see one time;
+  `run_until_idle` instead of sleeps; snapshots only on lavapipe in the pinned toolchain image, with the Mesa version
+  recorded; `retries: 0`.
+- **Parity** (PLAN M2): the ledger `docs/parity.md`, seeded from `docs/parity-seed.md` (every item, every old test file,
+  every new M2 behaviour and every manual check mapped to a new test or a written reason); a server-state digest that
+  must be equal after the React smoke and `flows::smoke_sequence`; the TipTap-written corpus in `fixtures/ydoc/`, frozen
+  read-only at the cutover after a last run of `pnpm --dir web fixtures`.
+- **Browsers:** the supported matrix is in `docs/parity-seed.md` ("Manual checks"): Chromium is gated (L5), Firefox and
+  Safari are recorded by hand before the cutover.
+- **Toolchain image** (test-only, `toolchain` stage only): `mesa-vulkan-drivers` (Debian trixie 25.0.7,
+  https://packages.debian.org/trixie/mesa-vulkan-drivers), `libvulkan1`, `xvfb`, `libgl1-mesa-dri`,
+  `libxkbcommon-x11-0`; `LP_NUM_THREADS` set beside `RAYON_NUM_THREADS` in `scripts/dev.sh`. `scripts/toolchain.sh`
+  always tags `wikanvas-toolchain:latest`, which every worktree's `scripts/dev.sh` uses (`scripts/toolchain.sh:126`,
+  `scripts/dev.sh:56`), so toolchain changes land on main as their own small commit and the image is built only from
+  main (PLAN M2 R21). After the cutover Node leaves the toolchain (`docker/Dockerfile:23-28` copies it only for pnpm).
+- **Agents** inspect the UI with `scripts/ui-peek.sh <scenario>`: one kittest scenario through `scripts/dev.sh`, writing
+  the AccessKit tree as text and a lavapipe PNG to `.cache/ui-peek/`; no dev server holds the lock.
+
+### 19.12 New dependencies and licences
+
+Every new crate is checked against R6 (MIT, Apache-2.0, BSD, ISC, Zlib, Unicode, CC0; MPL-2.0 only for build-only
+tools) and gets its `THIRD_PARTY.md` row in the commit that adds it. Versions are pinned at a release at least two
+weeks old (§16 item 24's rule); egui 0.37.0 of 2026-10-15 meets it on 2026-10-29.
+
+| Crate or tool | Version | Licence | Used by | Ships? | Source |
+|---|---|---|---|---|---|
+| egui, eframe, epaint, egui-winit, egui-wgpu, egui_glow | 0.37.0 | MIT OR Apache-2.0 | app, editor, board, Inkboard (0007) | yes | https://crates.io/api/v1/crates/egui/versions |
+| epaint_default_fonts (Hack, Ubuntu-Light, NotoEmoji, emoji-icon-font) | 0.37.0 | (MIT OR Apache-2.0) AND OFL-1.1 AND Ubuntu-font-1.0: open, §16 item 25 | every egui build | yes | https://crates.io/api/v1/crates/epaint_default_fonts |
+| inkboard-fonts (Noto Sans, Gelasio, Patrick Hand, Hack Bold) and STIX Two Math | Inkboard's | OFL-1.1; Hack Bold MIT and the Bitstream Vera licence: open, §16 item 25 | board, documents (D120) | yes (already in the engine) | `THIRD_PARTY.md:45-49`, `vendor/inkboard/THIRD_PARTY_LICENSES.md` |
+| wgpu | 30 (through eframe) | MIT OR Apache-2.0 | native renderer | yes | https://crates.io/api/v1/crates/eframe/0.37.0/dependencies |
+| accesskit, accesskit_winit | 0.25, 0.34 | MIT OR Apache-2.0; accesskit_winit Apache-2.0 | desktop accessibility | yes | https://github.com/AccessKit/accesskit |
+| egui_system_font_provider (fontique) | 0.37.0 | MIT OR Apache-2.0 (fontique Apache-2.0 OR MIT) | native glyph fallback | yes, native | https://crates.io/crates/fontique |
+| html5ever | 0.40.1 (or the newest ≥ 2 weeks old) | MIT OR Apache-2.0 | editor, HTML paste | yes | https://docs.rs/html5ever/latest/html5ever/ |
+| resvg (direct) | 0.48.1 (already in Inkboard's lock) | Apache-2.0 OR MIT | icons, board previews | yes (already in the engine) | https://github.com/linebender/resvg |
+| arboard, rfd, image, webbrowser, web-sys, wasm-bindgen, unicode-segmentation | Inkboard's lock versions (3.7.0, 0.17.2, 0.25.10, 1.2.4, 0.3.106, 0.2.129, 1.13.3) | MIT OR Apache-2.0 (rfd MIT) | editor, app, web entry | yes (already in the engine) | `vendor/inkboard/Cargo.lock` |
+| yrs, ureq, rustls, tower, etcetera | as today | as today | client, binary | yes | `Cargo.lock` |
+| chrono (direct, features `clock`, `wasmbind` on wasm32) | 0.4.45 (in both locks) | MIT OR Apache-2.0 | `clock.rs`: wall time and local offset | yes | `Cargo.lock:417`, https://crates.io/crates/chrono |
+| web-time | 1.1.0 (in Inkboard's lock) | MIT OR Apache-2.0 | `clock.rs`: a monotonic `Instant` on wasm32 | yes | `vendor/inkboard/Cargo.lock`, https://crates.io/crates/web-time |
+| lucide icons (SVG files) | the version lucide-react ships today | ISC, and MIT (Feather) for the icons its LICENSE lists; the LICENSE file ships with them | app | yes | https://raw.githubusercontent.com/lucide-icons/lucide/main/LICENSE |
+| egui_kittest | 0.37.0 | MIT OR Apache-2.0 | tests | no | https://crates.io/crates/egui_kittest |
+| insta | 1.49.0 | Apache-2.0 | AccessKit text snapshots | no | https://crates.io/crates/insta |
+| chromiumoxide | 0.9.1 | MIT OR Apache-2.0 | browser smoke | no | https://crates.io/crates/chromiumoxide |
+| Mesa (lavapipe), Xvfb, libvulkan | Debian trixie | MIT, X11 | toolchain image, tests | no | https://packages.debian.org/trixie/mesa-vulkan-drivers |
+| zig, cargo-zigbuild | pinned by checksum, ≥ 2 weeks old | MIT | release builds | no | https://crates.io/crates/cargo-zigbuild |
+
+Not added as a direct dependency: poll-promise (it comes in anyway through egui_system_font_provider 0.37.0, which
+depends on poll-promise ^0.3.0, https://crates.io/api/v1/crates/egui_system_font_provider/0.37.0/dependencies; MIT OR
+Apache-2.0), ehttp, ewebsock (its `tls` feature brings webpki-roots, D54), maud, egui_ltreeview, egui_dnd, an IndexedDB
+crate (web-sys directly), fancy-regex, syntect and two-face (owner question), spellbook (MPL-2.0, owner question),
+axe-core (MPL-2.0, owner question), scraper (its cssparser and selectors are MPL-2.0, D125). Removed at the cutover:
+ts-rs, every npm package of `web/package.json` (33 runtime, 22 of them TipTap, ProseMirror and Yjs), Playwright's npm
+package if chromiumoxide carries the browser smoke.
+
+#### 19.12.1 Non-Rust code in what ships
+
+| Part | Language | Ships in | Why it stays |
+|---|---|---|---|
+| wasm-bindgen's glue `wikanvas_web.js` | JS (generated) | the web app | the only way wasm reaches web APIs; generated, never edited |
+| `boot.js` | JS, hand-written, ≤ 80 lines | the web app | D139: nothing else can start the wasm or check the browser before the download |
+| `index.html` template, the HTML forms, `read.css` | HTML, CSS | server binary | the read view and the forms are HTML by design (D113, D114); no script |
+| SQLite amalgamation (rusqlite `bundled`, `Cargo.toml:38`) | C | server binary, desktop | the database; a pure-Rust SQLite of the same maturity does not exist |
+| ring (C and assembly) | C, asm | `wikanvas-cli` only (D54); the binary links no TLS (D138) | the CLI's TLS |
+| egui-wgpu and egui_glow shaders | WGSL, GLSL | desktop, web app | part of egui's renderers |
+| The React SPA, `frame.js` (568 lines), `theme-init.js` | TS, JS | the image, until the cutover | the dual run (D126); deleted by X |
+| Caddy (Go, D57) and the distroless OS layer (glibc, libgcc_s) | Go, C | Docker deployments | the HTTPS front and the C runtime; listed for the owner in `THIRD_PARTY.md` (§16 item 25) |
+
+Build and test only, never shipped: Node with pnpm (until the cutover), binaryen (C++), zig, Mesa, Xvfb and Chromium.
+
+### 19.13 What the cutover deletes, and what stays
+
+Deleted (PLAN M2 "X"), all in one commit after the conditions of D126:
+- `web/`: 14,712 lines of TS, TSX and JS in 132 files, 2,743 lines of CSS, the 101 generated `api/gen` files, 79 vitest
+  files; `web/inkboard-frame/` (frame page, `frame.js`, `inkboard.d.ts`).
+- `e2e/tests/frame.spec.ts` (26 tests at `9c6e60a`) and the DOM version of `e2e/tests/smoke.spec.ts`; `e2e/package.json`
+  and Node in the toolchain if the Rust browser smoke replaced Playwright; `e2e/serve-static.mjs`.
+- ts-rs: the derives, the `ts` feature, `.cargo/config.toml`'s `TS_RS_*` lines, the contract test of §14.
+- The `node` and `web` Docker stages, the `/inkboard/{build}/` static route, the frame CSP, the SPA CSP, and the
+  `web/dist` and `web/dist-inkboard` embeds of `wikanvas-assets`. The `licenses` stage is `FROM web` and runs a Node
+  script (`docker/Dockerfile:67`, `:74-76`), so F0 already replaces it (below); X only drops its npm input.
+- The gate lines `pnpm --dir web …`, `scripts/e2e.sh frame` and the ts-rs diff.
+- In the Inkboard series, the JS API of 0002 and the JS docs of 0004 and 0006 (the re-cut of §19.6.6).
+
+The licence list (`licenses.txt`, Settings → About, P-167). Today it lists only crates compiled for
+`x86_64-unknown-linux-gnu` (`docker/Dockerfile:224`, `--filter-platform`) and points to `/inkboard/<build>/` for the
+engine's own list (`:198`), a route the cutover deletes. From F0 a stage that does not depend on `web` runs
+`cargo metadata` for `x86_64-unknown-linux-gnu` and for `wasm32-unknown-unknown` (so js-sys, web-sys, wasm-bindgen,
+wasm-bindgen-futures and getrandom's wasm backend, which ship inside `wikanvas_web_bg.wasm`, are listed) and
+`wikanvas-tools licenses` writes the list, adding Inkboard's `THIRD_PARTY_LICENSES.md` and `ICONS-LICENSES.txt` from
+the patched tree `.cache/inkboard-src` (D124), the font licences and lucide's LICENSE, and, until X, the npm list that
+the `web` stage writes as a file. The binary embeds it (About), `/app/{build}/licenses.txt` serves it, and the image and
+every dist archive ship it (§19.8.8). The image smoke checks that it is served and lists web-sys and wasm-bindgen.
+
+Stays: every server, store, core and CLI crate and their 706 tests; the API and its OpenAPI spec; the agent harness and
+its 12 scenarios; the image smoke (frame checks replaced by the app's wasm and CSP); Caddy and the compose files; the
+build scripts, caps, slice and lock; `fixtures/` (the TipTap-written Yjs corpus becomes a frozen golden set); the Inkboard
+host mode, cards and native tests; the stored data, untouched. The React client's IndexedDB entries are adopted by the
+egui web client (§19.4.4, §19.4.5). `compose.yaml` keeps its names and its `WIKANVAS_*` environment keys through the
+cutover (D142), so the same file runs the M1 and the M2 image.
+
+#### Rollback of the live wiki
+
+M2 changes no schema (D143) and renames no database file (D127), so the M1 image can open a database an M2 build has
+served. Steps, for the owner (R16: only the owner runs compose against the live wiki):
+1. Before switching to an M2 image: "Back up now" in Settings (or `admin backup`), and note the running image's tag
+   (`docker compose ps --format '{{.Image}}'`).
+2. Switch: set `WIKANVAS_IMAGE=wikanvas:<commit>` in `.env`, then `docker compose up -d`.
+3. To go back: set `WIKANVAS_IMAGE` to the noted M1 tag and run `docker compose up -d`. Browsers on HTTPS stay signed in
+   (UNVERIFIED, inferred from the cookie names and not tested: both images name the cookie `__Host-wikanvas_session`,
+   and only the plain-HTTP name differs, §19.8.3); documents edited with the egui client are y-tiptap-shaped (G3) and
+   open in the React client; revision previews filled from Y (D118) are ordinary previews.
+4. If the M1 image refuses the database anyway (a schema version above its own,
+   `crates/wikanvas-store/src/migrate.rs:53-60`, which M2 should never cause), stop it, copy the step 1 backup over
+   `/data/wikanvas.db`, delete `-wal` and `-shm` (§13.3), and start it.
+A store test asserts that an M2 run leaves `PRAGMA user_version` at 1.
+
+### 19.14 Risks and mitigations
+
+| Risk | Severity | Mitigation |
+|---|---|---|
+| The rich-text editor is a large new component (about 23,000 lines) whose hard parts (CRDT structure edits without a move, IME, tables, paste) decide the whole port | high | S0 proves each hard case with numbers before the port starts (PLAN M2 G3-G9); the design keeps yrs as the only truth and one code path for local and remote edits |
+| Byte-shape drift from y-tiptap makes documents unreadable to the React client during the port, or to the server's walkers | high | S0 G3: every spike-written `.bin` opens in the headless TipTap writer without repair; the corpus test runs in every gate; editor writes only through the 9 primitives |
+| Browser IME and mobile input through eframe's hidden `<input>` | high | 0.37's fixes (D102); S0 G5 in Chromium through CDP plus a recorded manual matrix; a failing platform gets an eframe patch upstream or a documented limitation the owner accepts |
+| egui breaks APIs every 2-3 months while Inkboard upstream stays on 0.33; a local 0007 must be rebased | high | Offer 0007 upstream first; keep egui-facing code in few modules; budget a recurring upgrade (about 3-5 days each, the platform estimate for 0.33 → 0.37: 1-2 days to compile, 1-3 to fix) |
+| Rebase cost of a series touching Inkboard's hot files against an upstream with ≥ 26 commits in 3 days | high | Small mechanical hunks; upstream the lib target early; `scripts/inkboard.sh check` and `tests_widget` on every rebase; only `wikanvas-board` depends on `inkboard-app` |
+| Every web visitor downloads about 4.3-5 MB brotli before anything renders (today 0.48 MB gzip) | high | The read view for first visits, shared links and phones (D130); fonts out of the data section; S0 G11 budget; owner question |
+| Renaming in M2 breaks held identifiers or moves the live wiki to empty volumes | high | D127 and D142: the rename is done (D100); M2 renames only the CLI's binary (`wikanvas` → `wikanvas-cli`, with the docs, AGENTS.md and the agent harness), and `wikanvas://item/`, `qpat_`, `WIKANVAS_*`, `wikanvas.db`, the compose names and the build-infrastructure names do not change |
+| The cutover cannot be undone on the live wiki | high | No schema change (D143) and no file rename, so the M1 image opens the same data; written rollback steps (§19.13) |
+| The browser runs its own action for an app shortcut (Mod+K, Mod+F, Mod+U, Mod+B) and takes the focus out of the page | high | D140's capture-phase listener from the one shortcut table; B15 |
+| Plain HTTP on a LAN address exposes passwords and breaks secure-context APIs | high | D117's refusal; event-based clipboard writes that need no secure context (D112) |
+| Custom widgets without AccessKit nodes are invisible to tests and screen readers | high | The label audit fails the build; reviews treat a missing label as a bug |
+| Board steals keys, drops or pastes meant for the editor or the shell | medium | Focus gating in 0008 with `tests_widget`; the host consumes its shortcuts first |
+| Blurry or reflowing text in zoomed cards | medium | Zoom-aware layout (D109); S0 G15 |
+| Layout and paint speed for long documents on wasm; a jumping scrollbar | medium | Virtualisation, height index, scroll anchoring; S0 G10 budgets; idle-frame measuring ahead (2 ms a frame) if estimates jump |
+| Galley invalidation when the glyph atlas fills (many CJK glyphs at many sizes) | medium | D108: no galley kept across frames |
+| Rich clipboard on the web fights eframe's own listeners (order, `preventDefault`, Safari's synchronous rule) | medium | S0 G8 in Chromium; Firefox and Safari by hand |
+| egui text gaps: no BiDi, synthetic italics, no spellcheck | medium | Documented limitations; the read view covers reading; owner questions |
+| Snapshot and store cost of large boards on the UI thread | medium | `snapshot_doc` clone and a worker thread natively; the 15 MB warning and 50 MB limit stay |
+| Lockfile drift between Inkboard's tested lock and Wikanvas's | medium | Seed from Inkboard's lock; `check-pins.sh` extended (D124); Inkboard's full test suite in the gate |
+| The full GUI binary in the server image needs a display library, or grows the image too much | medium | The `NEEDED` gate; the `server` feature build as fallback |
+| Cookies on `localhost` reach every local port | medium | Port-suffixed names; the desktop opens `127.0.0.1` |
+| Viewer-blind title lookups leak titles once there is more than one user | medium | The read view's viewer-aware lookup (§19.7.5) |
+| Native and wasm transports drift under `cfg` | medium | Shared request building; B1-B16 cover fetch and XHR uploads, L3 covers native |
+| Debounces written against `Instant::now` make tests slow or flaky, or stall while the window is hidden | medium | The `Clock` rule (§19.4.2), enforced by a grep in the gate; saves on the client's executor, not on egui frames |
+| The test bridge on wasm (S2) is slow or does not work | medium | Inkboard's `mark()` pattern (`crates/inkboard-app/src/web_test.rs:53-56`) for the few nodes the browser smoke needs |
+| Tests miss behaviour no old test describes | medium | The ledger covers all 202 items (42 had no direct test), every vitest file, the new M2 behaviours and the manual checks (`docs/parity-seed.md`); the server-state digest |
+| Text metrics change with the upgrade, so board labels wrap differently than in upstream Inkboard and older builds | medium | Re-pinned font tests; G1's generated corpus of at least 500 labels, at most 5 % changed line counts per font family; stored box sizes do not change |
+| Image decoding freezes the single wasm thread | low | `createImageBitmap` (D134) |
+| The desktop agent token is readable by any same-user process | low | Off by default, revoked at exit, pid check, later a Unix socket |
+| A desktop crash loses the last seconds of work silently | low | Outbox files, the crash note and the next start's restore dialog (§19.8.4) |
+| macOS and Windows releases blocked by Unix-only code | low | §19.8.9; not in M2 |
+
+### 19.15 Questions only the owner can answer
+
+The design takes the default in brackets until the owner answers.
+1. Is a 4.3-5 MB brotli download acceptable for every web visitor of the editing app, with the read view serving first
+   visits, shared links and phones? [yes]
+2. Read view URLs: the `/read/` prefix, or reading at the canonical `/doc/…` with editing under `/edit/…`? [`/read/`]
+3. "Shareable reading links": links for people who can sign in (M2), or anonymous capability links (the `shares`
+   table, later)? [sign-in links]
+4. The Docker image: the full `wikanvas` binary ("same binary"), or a server-only feature build of it? [full binary,
+   if the `NEEDED` gate passes]
+5. LAN use without Caddy: built-in TLS (reverses D29), or always through Caddy? [Caddy]
+6. A desktop owner without a password, with a password only for browser sign-in: acceptable? [yes]
+7. Agent and CLI access to the desktop: off by default, token scope `write`? [off, `write`]
+8. Drop Inkboard's iroh sharing and its MCP live mode inside Wikanvas (teams use Wikanvas Server, agents the CLI)?
+   [drop]
+9. Keep Inkboard's floating board chrome (tools, pages, zoom, style panel, icon library) as today's hosted board shows
+   it, or replace parts with a Wikanvas toolbar? [keep]
+10. Host-drawn card content only on upright cards (a rotated card shows the engine's titled box)? [yes]
+11. Right-to-left text: a documented limitation in M2, or fund BiDi (per-line reordering in Wikanvas, or upstream in
+    epaint)? [limitation]
+12. Spell checking while editing is lost: accept, or allow spellbook (MPL-2.0) in shipped code? [accept]
+13. Fonts (§16 item 25, still open). Today the OFL-1.1 and Ubuntu Font Licence fonts ship only inside the Inkboard
+    wasm, as Inkboard ships them. In M2 Wikanvas's own artifacts install them: the native `wikanvas` binary, the `.deb`
+    and tarball, and `wikanvas_web_bg.wasm`, and documents switch to Noto Sans. Does the open item also cover that
+    wider use (with the licence texts shipped beside every copy, §19.8.8)? And: embedded fonts by default on the
+    desktop; real italic faces; a CJK font, or system and browser fallback only? [ship them as Inkboard does, with the
+    licence texts, until you decide; embedded by default; no new font]
+14. Code highlighting: Inkboard's lexer only, or approve the Sublime grammars' custom notice for syntect? [lexer]
+15. The default `text/plain` flavour of a copy: plain text or Markdown? [plain text]
+16. Typography input rules (smart quotes, dashes, ellipsis) on by default? [off, as today]
+17. Images beyond png, jpeg, gif and webp (avif, heif, jxl, tiff, bmp): an "Open" card, or server-made display copies?
+    [card]
+18. A workspace `language` setting driving `<html lang>`, dates and Inkboard's language? [add it, default `en`]
+19. On the desktop, "open in a new tab" (Mod+Enter, middle-click): a second window, or in place with history? [in place]
+20. The binary names. M2 makes `wikanvas` the desktop-and-server binary (D115) and renames the CLI's binary, `wikanvas`
+    since D100, to a separate static `wikanvas-cli` in F0 (D127), with no alias: a second rename of a published command
+    after v0.1.0-alpha.1. Keep that, keep `wikanvas` for the CLI and give the one binary another name, or also make the
+    API commands `wikanvas` subcommands? [keep the plan: `wikanvas` and a separate static `wikanvas-cli` from F0,
+    announced as a breaking change in the notes of the release that ships it]
+21. axe-core (MPL-2.0) as a test-only accessibility audit of the read view? [no; structural checks over html5ever,
+    since scraper also pulls in MPL-2.0 crates]
+22. Installers: `.deb` and tarball first; AppImage only after its runtime's licence check; Windows NSIS (zlib or bzip2,
+    not LZMA) or Installway? [deb and tarball in M2]
+23. Will the React client stay in use beside the egui client on the live wiki during the port? If yes, any later
+    cursor awareness must match Yjs exactly. [yes, until the cutover; no awareness in M2]
+24. Who carries the recurring egui upgrades while upstream Inkboard stays on 0.33, and is a local 0007 acceptable if
+    upstream does not take it? [Wikanvas carries it]
+25. The cutover sign-off: how long should the owner use the egui client on the live wiki before `web/` is deleted?
+    [5 working days]
+
+Owner steps (not questions, but only the owner may run them, R16): the switch and the rollback of §19.13. The live
+wiki's image is already pinned in `.env`: the v0.1.0-alpha.1 cut-over of 2026-10-29 set
+`WIKANVAS_IMAGE=wikanvas:484905c`, so the `scripts/image.sh` runs of the worktrees, which retag `wikanvas:latest`
+(`scripts/image.sh:33-35`, `compose.yaml:4`), do not change what it runs.
+
+### 19.16 Claims checked against the code (2026-10-29, main `d5d3c94`; re-checked against `9c6e60a` after the review)
+
+| Claim | Verdict and evidence |
+|---|---|
+| `inkboard-app` has only a binary target and pins egui 0.33.3 | Holds: `crates/inkboard-app/Cargo.toml:9-11` (`[[bin]]`), `:36` and `:42` (eframe 0.33.3), `:61` (egui_kittest 0.33.3) |
+| `App::build` changes the whole context | Holds: `crates/inkboard-app/src/app.rs:195` (`fonts::apply`), `:204` (`theme::apply`), `:206` (`zoom_with_keyboard = false`) |
+| The canvas takes whatever rect its `Ui` offers | Holds: `crates/inkboard-app/src/tools.rs:829-834` |
+| `update` requests a repaint every 500 ms | Holds: `crates/inkboard-app/src/app.rs:1192` |
+| The router runs without TCP in tests | Holds: `crates/wikanvas-server/tests/api/common.rs:11-44` (mock transport, `ConnectInfo` from `x-test-peer`) |
+| The server's handlers are 4,504 lines for 70 operations | Holds: `cat crates/wikanvas-server/src/routes/*.rs \| wc -l` = 4,504; `grep -c operationId docs/api/openapi.json` = 70 |
+| `serve` is one inseparable function | Holds: `crates/wikanvas-server/src/app.rs:224-257` |
+| The data dir defaults to `./data` | Holds: `crates/wikanvas-server/src/config.rs:322-324` |
+| The cookie name depends on the scheme only | Holds: `crates/wikanvas-server/src/extract.rs:372-380` |
+| The Host allowlist always admits loopback | Holds: `crates/wikanvas-server/src/csrf.rs:54-62` |
+| `password_hash` is nullable; `NewOwner` requires one | Holds: `crates/wikanvas-store/migrations/0001-init/up.sql:33`; `crates/wikanvas-server/src/admin.rs:39` |
+| `created_via` is a `CHECK` list | Holds: `up.sql:64` (`'web','api','admin'`) |
+| `TestServer` always provisions an owner without the seed | Holds: `crates/wikanvas-server/src/testing.rs:159-174` (`seed: false`) |
+| `pm_json` is only the revision preview | Holds: `crates/wikanvas-store/src/docs.rs:311-316` (`PmJson`), `:451-452`; `crates/wikanvas-store/src/revisions.rs:72-73` ("display only") |
+| yrs exposes an element's identity for `NodeKey` (an UNVERIFIED item of the editor research) | Holds: `Branch::id()` returns `BranchID::Nested(ID)` (`yrs-0.28.0/src/branch.rs:245-250`, `:861-864`, local cargo registry) |
+| yrs's undo has no delete filter | Holds: the call is commented out (`yrs-0.28.0/src/undo.rs:696`); `capture_timeout_millis` and `tracked_origins` exist (`:778`, `:783`) |
+| epaint drops galleys when the atlas fills | Holds: 0.33.3 `src/text/fonts.rs:539-549` (recreates `FontsImpl` and the galley cache above 0.8 fill); 0.37.0 `src/text/fonts.rs:176-184` ("Galleys point into the old atlas") |
+| egui 0.37 has the hooks the test bridge needs | Holds: `Plugin::input_hook` and `output_hook` (egui 0.37 `src/plugin.rs:44`, `:50`); eframe 0.37 web still discards the AccessKit update (`src/web/app_runner.rs:403`) |
+| egui 0.37 has the IME and scroll APIs the editor uses | Holds: `owns_ime_events`, `interrupt_ime` (egui 0.37 `src/memory/mod.rs:1069`, `:1078`); `show_rows`, `show_viewport` (`src/containers/scroll_area.rs:1087`, `:1124`) |
+| kittest 0.37 checks accessible names and missing glyphs by default | Holds: egui_kittest 0.37 `src/builder.rs:47-51` (`step_dt: 1/4`, `MissingGlyphPolicy::Panic`, `check_accessibility: true`) |
+| The React client's outbox lives in IndexedDB `wikanvas.outbox` / `updates` | Holds: `web/src/editor/docSession.ts:58-62`; board snapshots under the key `wikanvas.board.unsaved/<id>` (`web/src/board/unsaved.ts:16-19`) in idb-keyval's default database `keyval-store`, store `keyval` (`unsaved.ts:5`; idb-keyval 6.3.0 `dist/index.js:31`) |
+| 343 or 396 web unit tests | Both at `d5d3c94`: 343 call sites (grep), 396 run (`docs/handoff/E.md:90`). At `9c6e60a` the same grep finds 350 call sites in 79 files; the run count there is UNVERIFIED |
+| `wikanvas-core`'s dependencies all build for wasm32 | Holds for the list in `crates/wikanvas-core/Cargo.toml` (all pure Rust; getrandom needs its wasm backend feature); the build itself is UNVERIFIED until F0 runs wasm clippy |
+| The highest decision number so far is D92 | No longer: main `9c6e60a` defines D93-D99 (`docs/ARCHITECTURE.md:4371-4377`, `:4387-4393` after the rename) and the rename defines D100 (`docs/ARCHITECTURE.md:126`), so §19's decisions start at D101 |
+| A child `Ui` over the canvas hides it from the canvas's `contains_pointer` | Does not hold: egui hides a covered widget only across layers (egui 0.37 `src/hit_test.rs:142-152`), so 0008 adds the editing-card rule of §19.6.3 |
+| `oneshot` is available | Holds: axum 0.8.9 enables tower's `util` (`axum-0.8.9/Cargo.toml:268-271`) |
+| arboard reads HTML back | Holds on Linux (X11, or XWayland unless `wayland-data-control`), macOS and Windows (`arboard-3.7.0/src/platform/linux/mod.rs:180`, `osx.rs:219`, `windows.rs:611`, `Cargo.toml:43`) |
+| eframe's text agent holds no document text | Holds: its only `set_value` is the clear (eframe 0.37 `src/web/text_agent.rs:283`) |
+| egui 0.37's `MouseWheel` lost `modifiers` (a review claim) | Does not hold: it has `unit`, `delta`, `phase`, `source` and `modifiers` (egui 0.37 `src/data/input/event.rs:170-197`); `phase` and `source` are new since 0.33.3 |
+| A fixture has a table span | Holds for colspan only: `fixtures/ydoc/table.pm.json` has a (2, 1) cell; no fixture has a rowspan above 1, so S0 G7 adds one |
+| yrs's undo needs a clock on wasm32 | Holds: `Options`' `Default` is not built for wasm (`yrs-0.28.0/src/undo.rs:802`), and natively it uses `SystemTime` (`src/sync/time.rs:19-33`) |
+| No schema change is needed for the desktop token | Holds: `settings` is key-value (`up.sql:1`); `api_tokens.name` is free text (`up.sql:61`) |

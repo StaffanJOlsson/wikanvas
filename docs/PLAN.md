@@ -13,6 +13,10 @@ parallel agents:
 - **W7** integrates, owns the cross-workstream tests, and runs the end-to-end gate, including the full CLI suite and the
   agent harness.
 
+Later milestones follow M1's sections: "M1.1: board document embeds" (ARCHITECTURE §18, workstreams E1–E3) and "M2: the
+egui client" (ARCHITECTURE §19, D101–D143: the spike S0, the foundations F0, the port C1–C9, the integration I and the
+cutover X), a proposal until the owner accepts §19.
+
 ---
 
 ## Rules for every workstream
@@ -1891,3 +1895,765 @@ On main after the merge stage, in this order, with `WIKANVAS_SHARED_CARGO_HOME=$
 
 A failure is fixed at its cause or reported as a blocker; nothing is skipped, ignored or loosened (§16 item 31 lists
 what only a real browser shows).
+
+---
+
+## M2: the egui client
+
+**Goal.** The owner's decisions of 2026-10-29, as designed in `docs/ARCHITECTURE.md` §19 (normative once accepted;
+D101-D143): one egui app for desktop and browser with boards and documents in one UI, Wikanvas Desktop and Wikanvas
+Server from one binary, and a server-rendered HTML read view. Parity with today's web client is tracked item by item in
+`docs/parity.md` (seeded from `docs/parity-seed.md`: 202 items, P-001-P-202, plus the vitest files, the new M2
+behaviours and the manual checks). Written against main `d5d3c94`, updated after its review against `9c6e60a` (the M1.1
+review's D93-D99) and after the rename to Wikanvas (`484905c`, D100).
+
+Phases, in order:
+- **S0**, the spike: time-boxed, with numbered go/no-go criteria. Nothing of the port starts before its go.
+- **F0**, foundations: lands alone, as its own commits: the binary names (D127; the rename itself came with
+  v0.1.0-alpha.1, D100), the Inkboard patches from S0, the crate scaffold and every frozen contract.
+- **C1-C9**, the port: nine workstreams in parallel worktrees.
+- **I**, integration: merges, and the M2 gate run twice with both clients (dual run).
+- **X**, the cutover: the React client, the frame page and the DOM tests are deleted. Stored data needs no migration.
+- **The M2 release gate.**
+
+A read-view workstream (C7's first half) does not depend on the spike's outcome and may run during S0 (see C7).
+
+---
+
+### Rules for every M2 workstream
+
+R1-R11 (top of this file) apply as written. In particular, and repeated because the port multiplies builds:
+- **Builds only through the capped scripts, one at a time.** Every cargo, rustc, rustfmt, wasm-bindgen, wasm-opt, node,
+  pnpm and npx command runs as `scripts/dev.sh <cmd>`; images only through the buildx scripts, all on the
+  `wikanvas-limited` builder: `scripts/image.sh`, `scripts/toolchain.sh`, `scripts/cli-dist.sh`, the new
+  `scripts/dist.sh` and the S0-only `scripts/spike/image.sh`; browsers only through `scripts/e2e.sh` (and, during S0,
+  `scripts/spike/browser.sh`). The per-user lock lets exactly one build run at a time across every worktree
+  (`scripts/lib/lock.sh`): at most four workstreams are active at once and their builds queue on that one lock (the
+  orchestrator staggers the others); test runs stay filtered to the workstream's own modules, and
+  `WIKANVAS_SHARED_CARGO_HOME=$HOME/.cache/wikanvas-cargo` is set in every `scripts/dev.sh` command. The caps may only
+  be lowered. Never `sudo`; never build in or modify `vendor/inkboard`.
+- **Environment for a container command** goes inside it: `scripts/dev.sh env NAME=value cmd …`. A variable set in front
+  of `scripts/dev.sh` stays on the host, because `scripts/dev.sh` passes only its fixed `-e` list into the container
+  (`scripts/dev.sh:37-43`). Host scripts (`scripts/image-smoke.sh`, `scripts/e2e.sh`) read their own variables on the
+  host as today.
+- **New scripts.** Host scripts take the lock and call `wikanvas_slice` exactly as `scripts/e2e.sh` does (§14) and run
+  their builds through `scripts/dev.sh` or the capped builder: `scripts/desktop-smoke.sh`, `scripts/ui-peek.sh`,
+  `scripts/parity.sh`, `scripts/dist.sh`, `scripts/spike/browser.sh`, `scripts/spike/image.sh`,
+  `scripts/spike/desktop-smoke.sh`, `scripts/spike/collect.sh`. Container scripts run inside `scripts/dev.sh` and take no
+  lock, like `scripts/inkboard.sh`: `scripts/wasm-app.sh` and `scripts/spike/wasm-app.sh` (called as
+  `scripts/dev.sh scripts/wasm-app.sh …`).
+- **A skipped check is a failed check.** A gate line whose tests can skip (Inkboard's visual tests print `SKIPPED` and
+  pass without `INKBOARD_SNAPSHOTS=1`, `crates/inkboard-app/src/tests_visual.rs:48-50`) also fails when its output
+  holds `SKIPPED`. A negated check (`! … | grep …`) first captures its producer's output and fails when the producer
+  failed, and a check over a glob first asserts that the glob matches a file.
+
+M2 specifics:
+- **R12. One egui.** egui, eframe, epaint and egui_kittest are 0.37.0 everywhere (D102); `scripts/check-pins.sh` fails on a
+  second egui version in `Cargo.lock` and on any GUI crate (egui, eframe, epaint, wgpu, resvg, image) whose version
+  differs from `.cache/inkboard-src/Cargo.lock` (D124). That file is a generated copy that only `scripts/inkboard.sh src`
+  writes, so check-pins also fails when `.cache/inkboard-src` is missing or its stamp (`.git/wikanvas-src-stamp`,
+  `scripts/inkboard.sh:26`) does not match the current patch files; the gate runs `scripts/dev.sh scripts/inkboard.sh
+  src` before it.
+- **R13. AccessKit contract.** Every interactive widget has an AccessKit role and a label unique within its container;
+  custom widgets write their own nodes (§19.11). A widget without one is a bug, also because desktop screen readers need
+  it. Tests select by role and label, never by AccessKit node id.
+- **R14. Clock.** No `Instant::now`, `SystemTime::now`, `Date::now`, `performance().now`, `Performance::now`,
+  `Local::now` or `Utc::now` in `wikanvas-client`, `wikanvas-app`, `wikanvas-editor` or `wikanvas-board` outside
+  `wikanvas-client`'s `clock.rs`; every timer that saves runs on the injected `Clock` (D106, §19.4.2), and so does the
+  undo manager's timestamp. No test sleeps for timing: `run_until_idle`, `ManualClock::advance` or a bounded poll.
+- **R15. No hand-written JS or TS** under `crates/`, except the one boot loader `crates/wikanvas-web/boot/boot.js` of at
+  most 80 lines (D139); browser access goes through web-sys; `js_sys::eval` and `js_sys::Function::new` are not used;
+  no `<script` in Rust source except the shell template's one `<script type="module" src="/app/{build}/boot.js">`. The
+  only other JS that ships is wasm-bindgen's output. The browser smoke's CDP expressions are test code and never ship.
+- **R16. The live wiki.** The owner's wiki runs as compose project `wikanvas` from `compose.yaml` on main: never
+  `docker compose up/down/restart/rm` or a writing `exec` against it, never its volumes; only the scripts with their own
+  project names. `compose.yaml`'s project, service, volume, variable and environment-key names do not change in M2
+  (D142). The wiki's image is pinned with `WIKANVAS_IMAGE` in `.env` since the v0.1.0-alpha.1 cut-over of 2026-10-29,
+  which set it to `wikanvas:484905c` (§19.15, owner steps), so the `scripts/image.sh` runs of any worktree, which retag
+  `wikanvas:latest` (`scripts/image.sh:33-35`), do not change it. From F0 on, `scripts/image.sh` tags `wikanvas:latest`
+  only for a clean tree on main; the spike image uses its own tag `wikanvas-spike:<commit>`. The owner switches the live
+  wiki to a new image by its exact tag.
+- **R17. Inkboard.** Only S0-a, F0 (task 2), C6 and X (step 4) edit `patches/inkboard/**`, in that order and never two at
+  once; any other workstream's need is a request in its handoff note. Every rebase reruns `scripts/inkboard.sh check`
+  and Inkboard's full native test suite.
+- **R18. The parity ledger.** `docs/parity.md` is owned by C9. A workstream that ports an item names its new test(s) in
+  its handoff note; C9 sets the row to `ported` only when that test is in the tree and passes. A changed behaviour cites
+  its D-number. Where a row names a test in a file another workstream owns (for example a C2 item tested by a C3 flow),
+  the file's owner writes that test on the item owner's request, and the request and its test name go in both handoff
+  notes.
+- **R19. Names.** New code uses the Wikanvas names, as existing code does since the rename (D100). The build
+  infrastructure keeps its `wikanvas-*` and `WIKANVAS_*` names (the lock, `WIKANVAS_BUILD_*`, `WIKANVAS_LOCK_HELD`,
+  `WIKANVAS_SHARED_CARGO_HOME`, `WIKANVAS_DEV_*`, `wikanvas-toolchain`, `wikanvas-limited`, `wikanvas-buildkit`, the
+  slices), and so does `compose.yaml` (D142); F0 renames only the CLI's binary (D127).
+- **R20. Borrowed and ported code.** Every file that borrows or ports code carries a header naming the source, its
+  version or commit and its licence, gets a row in `THIRD_PARTY.md` "Code ported into Wikanvas" in the same commit, and
+  a line in the handoff note. The known sources: egui's `TextEdit` builder and `accesskit_text` (MIT OR Apache-2.0),
+  Inkboard's `rich_edit.rs` format bar and paste listener and its test input helpers (MIT OR Apache-2.0),
+  prosemirror-schema-list, prosemirror-tables and ProseMirror's `Fitter` (MIT). GPL, AGPL and BSL sources (Zed, Outline,
+  Docmost, Wiki.js) are ideas only. I checks that every such header has its row.
+- **R21. The toolchain image is built only from main.** `scripts/toolchain.sh` always tags `wikanvas-toolchain:latest`,
+  which every worktree's `scripts/dev.sh` uses (`scripts/toolchain.sh:126`, `scripts/dev.sh:56`). So a change to the
+  `toolchain-base` or `toolchain` stage lands on main as its own small commit, the coordinator runs
+  `scripts/toolchain.sh` once from main, and each worktree rebases. Two such commits are planned: S0's (Mesa lavapipe,
+  `libvulkan1`, Xvfb, `libgl1-mesa-dri`, `libxkbcommon-x11-0`, `LP_NUM_THREADS`) before S0 starts, and F0's (zig and
+  cargo-zigbuild) at F0's start.
+- **R10 "done"** additionally needs: wasm clippy for every wasm32 crate the workstream owns (the commands in the gate),
+  the label audit for every screen it owns, and `grep -rnE 'todo!\(|unimplemented!\(|TODO\((S0|F0|C[1-9])' <owned paths>`
+  finding nothing. Handoff notes: `docs/handoff/S0.md`, `F0.md`, `C1.md` … `C9.md`, `M2-merge.md`.
+- **Worktrees** (R11), created on the host from main; the directory names follow the repository's name at the time:
+  `git worktree add ../Wikanvas-C4-editor -b ws/C4-editor main`, then the submodule with `--reference`, as in M1.1.
+
+### Overview
+
+| Id | Workstream | Depends on | Effort, person-days (estimate) |
+|---|---|---|---|
+| S0 | The spike: go/no-go | the owner's acceptance of §19, R21's toolchain commit | time box: 15 working days (G1 alone up to 20), 4 tracks with 5 agents (at most 85) |
+| F0 | Foundations: binary names, Inkboard series 4, scaffold, frozen contracts, scripts, the licence list, ledger | S0 go | 13 |
+| C1 | Data layer: `wikanvas-client`, `LocalTransport` | F0 | 26 parity + 10 new = 36 |
+| C2 | Shell and sidebar: routes, shell, tree, dialogs, menus, toasts, hotkeys, theme, icons, accessibility | F0 | 63 + 5 = 68 |
+| C3 | Pages and settings: auth gate, item header and actions, collections, lists, search, switcher, settings, trash | F0 (C2's shell contract) | 42.5 |
+| C4 | Editor core: model, commands, layout, selection, input, IME, keymap, clipboard, undo, input rules | F0 | 53 parity (P-115 not built; P-084 split, `docs/parity-seed.md`); 71-137 by lines, likely 99 |
+| C5 | Editor blocks and menus: code, links, tasks, tables, images, callouts, mentions, embeds, menus, block handle, Contents, find | F0, C4's block contract (frozen in F0) | 54 parity (P-094 split); 30-59 by lines, likely 41 |
+| C6 | Boards and cards: Inkboard 0008/0009 final, `wikanvas-board` | F0, C4 read-only mode (for static cards), C1 `board_sync` | 45.5 + 10 = 55 |
+| C7 | Server: read view, HTML forms, `doc/html`, standalone `serve`, desktop identity, agents, app shell and `/app/{build}/` | none for the read view; F0 for the rest | 7 + 15 = 22 |
+| C8 | Desktop and web entries, packaging: the `wikanvas` binary's desktop mode, `wikanvas-web` with the boot loader, Docker stages, the licence list, `dist` | F0 | 0.5 + 20 = 20.5 |
+| C9 | Tests and parity: testkit, flows of smoke steps 1-17, browser smoke B1-B16, snapshots, digest, ledger | F0 | 22 |
+| I | Integration, the dual-run gate twice | C1-C9 | 10 |
+| X | Cutover | I, the owner's sign-off | 3 |
+
+"Parity" is the weight of the items each workstream owns in `docs/parity-seed.md` (S 0.5, M 2.5, L 10 days, the
+inventory's weights; P-084 and P-094 are weighed by their sized sub-items, P-115 counts 0 because M2 builds nothing for
+it); "new" is work no parity item describes (transports, patches, packaging, the read view), estimated from reading,
+UNVERIFIED. "By lines" turns the editor research's line ranges (§19.5: C4's components 10,700 / 14,800 / 20,500
+production lines, C5's 4,500 / 6,200 / 8,800) into days at an assumed rate of 300 lines of production code plus its
+tests (about as many again) per person-day: days = lines × 2 ÷ 300. That rate is UNVERIFIED; S0 measures it (lines
+written and passing per track-day in S0-b and S0-c), and F0's handoff note re-derives C4 and C5 from the measured rate.
+The plan uses the larger of the two estimates per workstream: C4 99 (71-137), C5 54. Total after S0: about 420-490
+person-days (likely 445). The critical path is C4 → C5 → C6's editing cards → I → X. With two agents on C4 (the model
+and commands; layout, input and clipboard) and C5 overlapping C4 once F0 freezes the block contract, it is about 90-150
+working days after F0 (UNVERIFIED until the measured rate). These are planning estimates.
+
+```
+S0 (spike) ── go ── F0 ──┬─ C1 data layer ──────────────────────┐
+     │                    ├─ C2 shell and sidebar ───────────────┤
+     │                    ├─ C3 pages and settings ──────────────┤   C3 ⇠ C2 (shell contract from F0)
+     │                    ├─ C4 editor core ─┬───────────────────┤
+     │                    │                  └─ C5 blocks, menus ─┤   C5 ⇠ C4 (block contract from F0)
+     │                    ├─ C6 boards and cards ────────────────┤   C6 ⇠ C4 (read-only mode), C1 (board_sync)
+     │                    ├─ C7 server (rest) ───────────────────┤
+     │                    ├─ C8 desktop, web, packaging ─────────┤
+     │                    └─ C9 tests and parity ────────────────┴─ I (dual-run gate ×2) ─ X (cutover) ─ M2 gate
+     └─ C7a read view and HTML forms (may run during S0, on today's crates)
+```
+
+Declared edges (each consumer builds against F0's minimal working version; the full version arrives on merge):
+
+| Consumer | Needs | From | F0 provides |
+|---|---|---|---|
+| C2, C3, C4, C5, C6 | `Transport`, `Pending<T>`, `Clock`, `ApiError`, the typed calls they use | C1 | the traits, `FakeBackend`, the typed calls for `me`, `config`, `sidebar`, `tree`, `items/{id}` |
+| C3 | the shell: `Route`, page slots, `Platform`, toasts, dialogs, menus | C2 | working minimal shell, routing and one dialog |
+| C5 | `DocView`, the commands, the `BlockView` trait, `EditorHost` | C4 | the S0 model and primitives, the traits, plain paragraphs editable |
+| C6 | the editor in read-only and editing modes inside a rect at a zoom | C4 | `DocEditor::show_in(rect, zoom, mode)` working for paragraphs |
+| C6 | `board_sync` | C1 | the module with the save loop's public API, a no-backoff minimal version |
+| C6 | `BoardView` | F0 (patch 0008 draft) | the S0 draft of 0008 with the frozen API of §19.6.2 |
+| C8 | the app, the server as a library | C2, C7 | `WikanvasApp`, `Server::start` |
+| C9 | every screen's AccessKit labels | C2-C6 | the label naming rules of R13 |
+| C1, C3 | `doc/html`, the forms, the revision preview from Y | C7 | the routes answering 501 until C7 lands (the client hides the entries) |
+
+---
+
+### S0: the spike
+
+**Goal.** Prove with numbers, before the port, that the hard parts work: a board as a widget in a host egui app, the
+editor's hard cases (typing, IME, selection across blocks, undo, tables, HTML paste, live collaboration over yrs
+against the real server), a long document's frame time, the WASM size and startup, and the egui upgrade.
+
+**Before S0.** The owner accepts §19 (the live wiki's image is pinned since the v0.1.0-alpha.1 cut-over, R16); the
+toolchain commit of R21 (lavapipe, Xvfb) lands on main and `scripts/toolchain.sh` runs once from main.
+
+**Time box.** 15 working days, then a hard stop; only G1 may take up to 5 more days, and then only S0-a's G1, G2 and G15
+run on (the other tracks stop at day 15). The result is `docs/handoff/S0.md` with each criterion's measured value, its
+verdict, for every no-go the action taken or the owner's decision, and the measured coding rate (production and test
+lines written and passing per track-day, from `git diff --stat` of each track) that F0 uses to re-derive C4 and C5.
+Four tracks, five agents, each track in its own worktree:
+
+| Track | Worktree, branch | Criteria | Starts | Needs from other tracks |
+|---|---|---|---|---|
+| S0-a engine (two agents) | `../Wikanvas-S0-engine`, `spike/S0-engine` | G1, G2, G15 | day 1: one agent on G1 (the upgrade); the other drafts 0008 on today's 0.33 tree from day 1 and rebases it onto 0007 when G1 passes | G13's `LocalTransport` (S0-d) by day 8 for G2; S0-b's `show_in(rect, zoom, mode)` by day 8 and G12's lavapipe (S0-d) by day 4 for G15 |
+| S0-b editor model | `../Wikanvas-S0-editor`, `spike/S0-editor` | G3, G4, G6, G7, G9, G16 | day 1, on egui 0.37 without Inkboard | G12's kittest setup by day 4 |
+| S0-c input | `../Wikanvas-S0-input`, `spike/S0-input` | G5, G8 | day 1, on egui 0.37 without Inkboard | G12's browser driver (S0-d) by day 5 |
+| S0-d platform | `../Wikanvas-S0-platform`, `spike/S0-platform` | G10, G11, G12, G13, G14 | day 1 (G12 first: G5, G8, G10 and G11 use its browser driver) | G1's 0007 for G11's wasm with the engine; S0-b's editor for G10 |
+
+If G1 needs its extension, G2 and G15 move into it (they need 0007); G11 is measured once without the engine on day 15
+and again with it in the extension.
+
+**Owns.** The four spike branches; throwaway crates `crates/spike-*` on them (never merged); `.cache/inkboard-src` commits
+for 0007 and a draft 0008 (exported to the spike branch's `patches/inkboard/`); spike-only scripts `scripts/spike/*.sh`;
+spike-only test files under `web/src/editor/spike*.test.ts` (never merged): `spikeStream.test.ts` (G9) and
+`spikeWritten.test.ts` (G3 (3)); `docs/handoff/S0.md` (track S0-d writes it, the others send their sections). What
+carries into F0: 0007, the 0008 draft, the measured numbers and rate, and the spike tests turned into goldens.
+
+**How numbers are taken.** Every measurement is printed by a bench binary or a test as one JSON line,
+`{"criterion":"G10","metric":"open_5000_native_ms","value":118.4,"runs":20}`, and `scripts/spike/collect.sh` gathers them
+into the report. Native numbers come from release builds inside the toolchain container under its caps (6 CPUs, 12 GB);
+browser numbers from headless Chromium in the pinned Playwright image (`mcr.microsoft.com/playwright:v1.64.1-noble`, as
+`scripts/e2e.sh` uses) at 4 CPUs and 6 GiB, with WebGL2 on SwiftShader. Since SwiftShader rasterises on the CPU, browser
+frame budgets use egui's CPU time per frame (`Frame::info().cpu_usage`, reported through the test bridge), and the
+painted-frame rate is recorded beside it, not gated. `scripts/spike/browser.sh <scenario>` runs a static musl build of
+the spike server (the spike dist plus `wikanvas_server::testing::TestServer`'s router, under the app CSP of §19.9) and
+the static musl chromiumoxide driver inside that image, through the lock, exactly as `scripts/e2e.sh` runs Playwright.
+
+**Go/no-go criteria.** "Blocking" criteria must pass for a go. A non-blocking criterion may fail if its no-go action is
+taken and recorded.
+
+| # | Proves | Pass when | Command or test | On no-go |
+|---|---|---|---|---|
+| G1 (blocking) | Inkboard on egui 0.37 | 0007 applies after 0001-0006 with `git am --no-3way`; `inkboard.sh check` shows no warning above the baseline in every feature set; `cargo test` of `inkboard-core`, `inkboard-formats` and `inkboard-app` passes (392 `#[test]` in `inkboard-app` at `9c6e60a`: the 388 counted on the patched tree at `d5d3c94` plus the 4 the M1.1 review added to 0005; the 12 ignored ones still ignored, font widths re-pinned); the 11 visual references regenerate on lavapipe (needs G12); `inkboard.sh build` succeeds and `scripts/e2e.sh frame` gives 25 passed, 1 skipped (the 26 tests at `9c6e60a`) with today's React client; over a generated corpus of at least 500 labels (1-40 words each, in every font family, size and box width that `fixtures/boards/*.inkboard` uses), at most 5 % per font family change their line count against 0.33.3 (a spike test printing both layouts; the 11 labels of the 3 fixture boards are reported as well, 9 of them 1-3 words, and `vendor/inkboard` holds no `.inkboard` file); 0007 changes at most 300 non-test lines | `scripts/dev.sh scripts/inkboard.sh src && scripts/dev.sh scripts/inkboard.sh check`; `scripts/dev.sh bash -c 'cd .cache/inkboard-src && CARGO_TARGET_DIR=/work/.cache/inkboard-target cargo test --locked -p inkboard-core -p inkboard-formats -p inkboard-app'`; `scripts/dev.sh scripts/inkboard.sh build && scripts/e2e.sh frame`; `scripts/dev.sh cargo test -p spike-engine --locked metrics::label_line_counts` | Up to 5 more days for G1 alone. If it still fails, stop: the owner chooses between waiting for upstream and M2 on egui 0.33.3 with the editor's IME limited to 0.33's `ImeEvent` (no active preedit range, no `DeleteSurrounding` from the web text agent, no `interrupt_ime`; 0.33's mobile web keyboards; shaping without harfrust). Every other track pauses its Inkboard-dependent parts |
+| G2 (blocking) | A board as a widget beside other egui UI | Draft 0008 and the changed 0003 pass `inkboard.sh check`, including a native build without `net`; `tests_widget` passes: two boards in one context keep separate text fields; every chrome `Area`'s AccessKit bounds lie inside the board rect at 1024 × 700 and 640 × 480; typing "r" into a host `TextEdit` leaves the tool unchanged while a board is on screen; `CardPainter::paint` runs once per visible card in z-order (an arrow above a card is painted after its content); `edit`'s child `Ui` receives typed text; a primary press outside the card ends editing with `EditEnd::Press` and starts no marquee, and a secondary press there ends it with `Press` and opens the board's context menu; a primary press, a drag and a right-click inside the editing card leave the board's selection, the objects' frames, the drag state and the context menu unchanged; a middle-button drag over the card pans and keeps the editing; after a press gives the canvas egui focus, "r" selects the rectangle tool; `snapshot_json` → `load_json` round-trips equal. In `spike-host` (native and wasm), a sidebar, a board and a `TextEdit` share one context; a kittest draws a rectangle (R and a drag) and the board saves through `LocalTransport` (G13): `GET …/board` then holds one more object. 0008 changes at most 1,500 lines without the rename | `scripts/dev.sh bash -c 'cd .cache/inkboard-src && CARGO_TARGET_DIR=/work/.cache/inkboard-target cargo test --locked -p inkboard-app tests_widget'`; `scripts/dev.sh cargo test -p spike-host --locked board::` | Chrome cannot be bounded: `Chrome::Tools` plus Wikanvas-drawn menus. Pastes cannot be isolated on the web: the board's paste listener is installed only while the board has focus. A lib target impossible without the crate split: the owner decides between an upstream refactor request and boards later in M2 |
+| G3 (blocking) | The editor model over yrs (structure edits, exact y-tiptap shape) | (1) `DocView` of all 19 fixtures (`fixtures/ydoc/*.bin`, 9 web-written; `fixtures/ydoc/server/*.bin`, 10 server-written), normalized, equals each `.pm.json`. (2) Every command (typing, Backspace and Delete across blocks, Enter in every block type, Tab and Shift+Tab in lists, mark toggles, set heading, wrap in quote and callout, paste of a JSON slice) on every fixture leaves `schema::validate(pm::normalized(doc))` passing and equals a reviewed golden. (3) Every spike-written `.bin` opens in the headless TipTap writer (`web/src/editor/fixtures/writer`) with no schema repair and the same PM JSON, through the spike test `web/src/editor/spikeWritten.test.ts`, which reads `SPIKE_YDOC_DIR` and fails when the directory is missing or holds a number of `.bin`/`.pm.json` pairs other than the count the spike wrote into `count.txt` beside them (`serverWritten.test.ts` cannot be used: its directory is fixed, `:8`). (4) A proptest of 10,000 random command sequences on random v1 documents never yields an invalid document. (5) Two replicas exchanging updates under random concurrent commands, 1,000 runs, converge; every invalid merged tree is displayed through read-time repair with zero writes, and the next local edit in that region writes a valid tree. (6) One keystroke in a 5,000-block document (transaction, observer, mirror update), release, native: median < 0.2 ms, p99 < 1 ms | `scripts/dev.sh cargo test -p spike-editor --locked model::`; `scripts/dev.sh env SPIKE_YDOC_DIR=/work/.cache/spike/ydoc pnpm --dir web test src/editor/spikeWritten`; `scripts/dev.sh cargo run --release -p spike-editor --bin bench -- keystroke` | (3) fails: copy y-tiptap's exact shape for that structure and rerun (a change, not a kill). (4) or (5) fails without a local fix: structural commands fall back to editing an own subtree and writing it through a `ydiff`-style diff (direct text edits stay), and C4 is re-estimated (+20 days); if that fails too, the design is killed and the owner is asked. (6) > 1 ms: profile; > 5 ms: change the mirror's update granularity |
+| G4 (blocking) | Typing and selection across blocks | 1,000 typed characters equal the stored text; Enter in the middle and at the end of a paragraph, a heading, a list item, a task item, a quote and a code block (a newline there) gives the reviewed goldens; Backspace at a block start joins or lifts as P-084 describes; Shift+arrows and a mouse drag select across three blocks of three kinds, and deleting that selection is one transaction and one undo step; double- and triple-click select a word and a block; ↑ and ↓ keep the goal x across blocks within 1 px | `scripts/dev.sh cargo test -p spike-editor --locked ui::typing ui::selection` | Fixed inside the box. Unreliable hit-testing across block kinds: leave out the gap cursor in M2 and record it |
+| G5 | IME | Native kittest with synthetic `Event::Ime` sequences: preedit then commit, preedit then focus loss, `DeleteSurrounding`, a Korean jamo sequence: the committed text is right; no yrs update exists while composing (the sync queue stays empty); one undo removes the composed word; a remote update applied every 300 ms (simulated) during a composition neither cancels nor corrupts it. In headless Chromium, three `Input.imeSetComposition` calls and an `Input.insertText` into the wasm spike store the committed text, and the published `cursor_rect` (read through the bridge) is within 2 px of the caret. By hand on the owner's Linux desktop: ibus or fcitx5 with Japanese or Pinyin, and a dead key (´ then e), in the native spike and in Chromium and Firefox on the wasm build. Other platforms (macOS, Windows, Android GBoard, iOS Safari) recorded, not gated | `scripts/dev.sh cargo test -p spike-editor --locked ui::ime`; `scripts/spike/browser.sh ime` | Native failure: fixed in the box. CDP IME fails in eframe's text agent: an eframe patch offered upstream, and the case recorded. The manual Linux check fails: the owner decides whether that is acceptable for M2 |
+| G6 (blocking) | Undo | After a scripted session (typing, a split, a mark, a list indent, a table cell edit, a paste), ten Mod+Z restore the stored text to each earlier state in order and Mod+Shift+Z redoes; an update applied with origin `remote` between local edits survives ten undos; after each undo the caret is in the block it was in before the undone step; with the undo manager's timestamp on the `ManualClock`, two typing bursts 600 ms apart in simulated time are two undo steps and two 300 ms apart are one | `scripts/dev.sh cargo test -p spike-editor --locked ui::undo` | Bookmarks through `StackItem` meta fail: keep the selections in a side map keyed by the stack's length, and record it |
+| G7 | Tables | Insert a 3 × 3 table with a header row; Tab through every cell, and past the last one adds a row; Shift+Tab goes back; add and delete a row and a column; toggle the header row; drag across a 2 × 2 rectangle (`Selection::Cells`) and Backspace clears it; every cell selected and Backspace deletes the table; a table with colspan and rowspan displays as its `.pm.json` says, and editing a spanned cell keeps its spans (`fixtures/ydoc/table.pm.json` has a colspan of 2 and no fixture a rowspan above 1, so the spike adds a fixture with a rowspan of 2 and a 2 × 2 merged cell); every result passes `schema::validate` and the Markdown GET prints the expected table | `scripts/dev.sh cargo test -p spike-editor --locked ui::tables` | Spans cannot be edited safely in time: tables with spans edit cell text only (structure commands disabled) in M2, recorded, the owner told |
+| G8 | HTML paste and the rich clipboard | A corpus of at least 8 sources (Wikipedia, a GitHub README, Google Docs, Word Online, Notion, Stack Overflow, MDN, LibreOffice Writer) saved as HTML files parses to golden PM JSON; a Wikanvas-to-Wikanvas copy and paste through `data-wikanvas-slice` round-trips exactly (marks, task states, table spans, `itemId`s); a hostile corpus (`javascript:` and `data:` URLs, `on*` attributes, `<script>`, `<style>`, 10,000-deep nesting, 5 MB of HTML) gives only allow-listed nodes, never panics, and takes < 200 ms per MB natively; in headless Chromium with eframe's own listener present, the HTML our `copy` listener writes is what a `paste` in the same page reads back (`text/html` with `data-wikanvas-slice`), and pasting the corpus HTML into the wasm editor gives the same goldens; arboard writes and reads HTML under Xvfb (X11). Wayland, macOS and Windows recorded by hand. html5ever's added wasm size goes to G11 | `scripts/dev.sh cargo test -p spike-editor --locked clipboard::`; `scripts/spike/browser.sh clipboard` | html5ever adds > 400 KB brotli: a smaller tolerant parser measured against the same corpus. Our listener's write is overwritten: HTML copy only from the menu command (`navigator.clipboard.write`, secure contexts only), recorded. arboard HTML fails on X11: plain text plus an in-process slice cache |
+| G9 (blocking) | Live collaboration over yrs against the real server | `wikanvas_server::testing::TestServer`, two spike editors each with a minimal Rust `doc_sync` (the M1 pull protocol), and a stream of at least 200 TipTap-written updates on the same document (typing, splits, list indents, marks), made once by a spike-only vitest with the headless writer and replayed through `POST …/doc/updates` with a token; 1,000 random edits per editor, pulls every 300 ms (simulated focus) and random POST delays; at the end `GET …/doc/prosemirror` equals both editors' mirrors and passes `schema::validate`; at every remote apply, no caret leaves its block unless that block was deleted; opening a document and closing it without an edit sends no POST (the server's `seq` unchanged); one dropped POST forces a 409 `missing_deps`, which recovers; two editors rewrapping the same block at the same time (both set it as a heading; both wrap it in a quote) converge to a valid tree whose outcome is recorded (the duplicated block of §19.5.2 is expected), and the read view of the result has unique heading ids. 20 seeds, 20 of 20 pass | `scripts/dev.sh pnpm --dir web test src/editor/spikeStream` (once, writes the stream); `scripts/dev.sh cargo test -p spike-editor --locked --test collab` | Divergence is a bug and is fixed; at the CRDT level it kills the design (the owner is asked). A caret jump: fix the sticky-index mapping. The TipTap stream needs schema repair on our side: extend the read-time repair rules and record them |
+| G10 (native part blocking) | A long document's frame time | Generated documents of 1,000, 5,000 and 20,000 blocks (the largest about 1 MiB of Markdown, the API's input limit, with one 2,000-item list, 20 code blocks and 5 tables). Open to first painted frame of 5,000 blocks: < 150 ms native, < 400 ms wasm. Keystroke to presented frame in its middle, CPU time per frame p95: < 4 ms native, < 12 ms wasm. Scrolling the 20,000-block document at 3,000 px/s, CPU time p95: < 8 ms native, < 16 ms wasm, and the scrollbar thumb never jumps more than 2 % of its track in one frame once estimates are replaced. A width change relays out the visible blocks in < 16 ms. Memory for 20,000 blocks < 150 MB native resident and < 150 MB wasm linear memory. A 10,000-row sidebar scrolls at CPU time p95 < 4 ms native | `scripts/dev.sh cargo run --release -p spike-editor --bin bench -- long`; `scripts/spike/browser.sh long` | Within 2× of a budget: optimise in the box (incremental mirror, job reuse). Beyond 2×: measure blocks ahead in idle frames (2 ms a frame), then the own galley cache with atlas invalidation (D108's fallback). Wasm still beyond 2×: the owner decides whether the wasm budgets may be relaxed |
+| G11 | WASM size and startup | `spike-host` with the egui 0.37 shell, the spike editor, the patched Inkboard widget, yrs, `wikanvas-core` (comrak), html5ever and a minimal client, release with `wasm-opt -Os`: ≤ 5.0 MB brotli and ≤ 18 MB raw, of which at most 1.5 MB brotli above the engine's 4,034,465 bytes; cold start (empty cache) from navigation start to the first painted frame ≤ 3.0 s and warm (cached) ≤ 1.5 s, median of 5, in headless Chromium on loopback over HTTP/1.1; the same cold start also under CDP `Network.emulateNetworkConditions` (20 Mbit/s down, 40 ms RTT), reported beside it, not gated (5.0 MB at 20 Mbit/s is 2.0 s of download alone); no CSP violation under §19.9's app CSP | `scripts/dev.sh scripts/spike/wasm-app.sh` (build and sizes, as `inkboard.sh size` does); `scripts/spike/browser.sh startup` | Over 5.0 MB: apply the savings of §19.9 (STIX loaded lazily, emoji fonts out of the web build, `-Oz`, image decoders reviewed) and measure again in the box. Still over 6.0 MB: the owner decides (§19.15 question 1). Cold start over 3 s: a streaming-instantiation check and a loading bar; the owner told |
+| G12 (kittest and flow parts blocking) | The test infrastructure | With `mesa-vulkan-drivers` in the toolchain image (R21's commit on main), kittest 0.37's `.wgpu()` renders 1024 × 700 on lavapipe (`MESA_VK_DEVICE_SELECT=list` shows it; with and without Xvfb recorded); the test bridge's `tree()` returns the AccessKit tree in Chromium for a 500-row sidebar in < 20 ms and < 1 MB of JSON; chromiumoxide starts the image's Chromium with SwiftShader WebGL2 (renderer string recorded) and drives `Input.imeSetComposition`; one kittest flow against `TestServer` with `run_until_idle` passes 50 of 50 runs | `scripts/toolchain.sh` (once, from main, R21); `scripts/dev.sh cargo test -p spike-host --locked snapshot::renders_on_lavapipe`; `scripts/spike/browser.sh bridge`; `scripts/dev.sh bash -c 'for i in $(seq 50); do cargo test -p spike-host --locked flows::one_flow -q \|\| exit 1; done'` | Lavapipe fails: PNG snapshots leave the gate (AccessKit text snapshots stay) and a manual visual check is recorded. The bridge fails: Inkboard's `mark()` pattern. chromiumoxide fails: Playwright with a bridge-only spec (Node stays for tests). A flaky flow: fix the kit, never add retries |
+| G13 (blocking) | The one boundary, in-process | `LocalTransport` over `Router::oneshot` with a desktop session created in-process: `GET /auth/me`, `GET /sidebar`, `POST …/doc/updates`, `PUT …/board` of two 20 MiB envelopes, one image-heavy and one object-heavy (at least 50,000 labelled boxes and arrows, no images: `Page.objects` is a deep-cloned `Vec<Object>`, `crates/inkboard-core/src/model.rs:558-563`, while assets and strokes are `Arc`) (200, through the CSRF layer, the Host allowlist and the body limits), a 412 on a stale rev, an export streamed as a download; the same cookie mutation without `Sec-Fetch-Site` is refused with 403, which shows the CSRF layer is in the path; a 401 after the session is deleted mints a new one and the retried request succeeds; each 20 MiB PUT completes in < 1.5 s native while the UI thread is blocked < 16 ms (the snapshot clone only). Recorded, not gated: the object-heavy clone's time on wasm, and on G10's 20,000-block document at a 250 ms POST cadence the median `POST …/doc/updates` latency and the SQLite writer's hold time (§19.4.4) | `scripts/dev.sh cargo test -p spike-host --locked local_transport::` | A middleware needs a socket: inject what it reads (`ConnectInfo` and the like). Streaming does not work through `oneshot`: collect bodies in M2, recorded. The object-heavy clone blocks > 16 ms: the snapshot is taken only after the 1.5 s quiet (as now) and the cost recorded; structural sharing in `Page` becomes an upstream request |
+| G14 | One binary for desktop and `serve` | A spike `wikanvas` binary that links eframe 0.37 and the server: `readelf -d` lists only `libc.so.6`, `libm.so.6`, `libgcc_s.so.1` and `ld-linux-x86-64.so.2` as `NEEDED`; its `serve` answers `/healthz` 200 inside `gcr.io/distroless/cc-debian13` (a spike image target, built through the capped builder); its desktop mode starts under Xvfb with an in-process server and SQLite in a temporary data dir and writes a screenshot ≥ 800 × 600 with ≥ 50 colours within 120 s; binary size recorded | `scripts/dev.sh bash -c 'readelf -d target/release/wikanvas \| grep NEEDED'`; `scripts/spike/image.sh` (a spike variant of `scripts/image.sh`, tag `wikanvas-spike:<commit>`, never `:latest`); `scripts/spike/desktop-smoke.sh` | A display library in `NEEDED`: the image builds `--no-default-features --features server` (D115's fallback), the owner told. The Xvfb launch fails: record the driver error and fix in F0 |
+| G15 | Zoomed board cards stay sharp and stable | On `fixtures/boards/embed.inkboard` plus generated cards, one editing card and 24 static cards at the bucket zooms 0.25, 0.5, 1, 2 and 4 and at the off-bucket zooms 0.53, 1.37, 2.97 and 3.9 (D109's buckets are powers of 2^(1/16)): at each zoom a card's text differs from the same text laid out natively at the bucket's font size by < 0.5 % of pixels (lavapipe), and its bounding box lies inside the card's inner rect; line breaks equal zoom 1's for ≥ 99 % of lines over the fixture documents at every tested zoom; a pinch (zoom changing every frame) costs CPU time p95 < 8 ms native and < 16 ms wasm with 24 static cards, and every card reaches the resting zoom's bucket within 4 frames; at zoom 3 and at 2.97 a click on the centre of each of 100 random characters puts the caret before that character, 100 of 100 | `scripts/dev.sh cargo test -p spike-host --locked cards::`; `scripts/dev.sh cargo run --release -p spike-host --bin bench -- pinch` | Line breaks differ: static cards use Inkboard's per-line method (`render.rs:671-718`); the editing card relays out per bucket. A pinch too slow: fewer static cards move to the new bucket per frame (down to 2), recorded; no scaled drawing (rejected in D109) |
+| G16 (blocking part) | The editor is visible to tests and screen readers | Blocking: kittest finds paragraphs, headings with their level, list items, table cells, images with their alt text and links in the spike editor by role and label, and the label audit passes on `spike-host`. Recorded, not gated: what NVDA, Orca and VoiceOver read | `scripts/dev.sh cargo test -p spike-editor --locked a11y::` | Without these nodes no L2 or L3 test can see the editor: fix before go |
+
+**Go rule.** S0 is a go when G1, G2, G3, G4, G6, G9, G10 (native), G12 (kittest and flows), G13 and G16 (blocking part)
+pass, and every other criterion passes or has its no-go action taken and recorded in `docs/handoff/S0.md`, with the
+owner's decision where the table says so. The whole design is killed only by G3 (4) or (5) failing together with its
+fallback, by a CRDT-level divergence in G9, or by a G1 failure after which the owner chooses to wait for upstream.
+
+---
+
+### F0: foundations (lands first, alone)
+
+**Goal.** Everything the parallel workstreams build on, working and frozen, so nobody waits on a `todo!()`.
+
+**Tasks, in order.**
+1. **Binary names** (§19.8.10, D127, D142; the rename to Wikanvas itself was done for v0.1.0-alpha.1, D100, with no
+   fallback): the server's binary `wikanvas-server` → `wikanvas` (the new crate's) and the CLI's binary `wikanvas` →
+   `wikanvas-cli`, with no alias; `scripts/image.sh` tags `wikanvas:latest` only for a clean tree on main (today every
+   run tags `wikanvas:<commit>` and `wikanvas:latest`), and the test scripts default to `wikanvas:latest`; the port in
+   the plain-HTTP cookie name (§19.8.3); docs, AGENTS.md and the agent harness. Not renamed (D142, R19): `compose.yaml`
+   (project, service, volumes, variables, environment keys), the export's `wikanvas.db` entry, and the build
+   infrastructure (the lock, `WIKANVAS_BUILD_*`, `WIKANVAS_LOCK_HELD`, `WIKANVAS_SHARED_CARGO_HOME`, `WIKANVAS_DEV_*`,
+   `wikanvas-toolchain`, `wikanvas-limited`, `wikanvas-buildkit`, the slices).
+2. **Inkboard series 4** from S0-a: the changed 0003, 0007, the 0008 draft with the frozen `widget` API of §19.6.2, 0009;
+   `patches/inkboard/README.md` (patchset 4, rows, sizes); the root manifest takes `inkboard-core` from
+   `.cache/inkboard-src/crates/inkboard-core`; `scripts/dev.sh` runs `scripts/inkboard.sh src` when stale;
+   `scripts/check-pins.sh` gets R12's checks; D59 reworded in ARCHITECTURE (D124).
+3. **Server as a library**: `Server::{start, router, listen, shutdown}` (§19.8.2); `TestServer::start_unprovisioned(code)`
+   and `seed: true`; `wikanvas-api` with features `openapi` and `ts`; `wikanvas-core` building for wasm32 (getrandom's
+   wasm backend).
+4. **Scaffold**, each crate compiling natively and, where §19.3 says so, for wasm32, with one test: `wikanvas-client`
+   (the traits, `Pending`, `Clock`, `ApiError`, `FetchTransport`, `HttpTransport` under `http`, the calls listed under
+   "Declared edges", `FakeBackend`), `wikanvas-editor` (S0's `DocView` and primitives, `EditorHost`, `BlockView`, plain
+   paragraphs editable, `show_in(rect, zoom, mode)`), `wikanvas-board` (a `BoardSurface` showing a board), `wikanvas-app`
+   (`WikanvasApp`, `Route`, `Platform`, the shell skeleton, theme tokens, the i18n module, fonts installed once),
+   `wikanvas-web` (`WebRunner` start under `/next/`), `wikanvas` (desktop and `serve` modes, `LocalTransport`, the data-dir
+   lock), `wikanvas-testkit` (the harness wrapper, `run_until_idle`, the label audit), `wikanvas-browser-test` (B1
+   only).
+5. **Docker and scripts**: zig and cargo-zigbuild (pinned by checksum) join the toolchain stage through R21's commit on
+   main at F0's start (the Mesa packages came before S0); the `licenses` stage is replaced by one that does not depend on
+   `web`: `cargo metadata` for `x86_64-unknown-linux-gnu` and `wasm32-unknown-unknown`, then `wikanvas-tools licenses`
+   with Inkboard's lists from `.cache/inkboard-src`, the font licences, lucide's LICENSE and the `web` stage's npm list
+   as a file (§19.13); a `web-app` stage builds `wikanvas-web`'s dist, ordered after the Inkboard wasm stage so two
+   rustc builds never overlap; the runtime image runs `wikanvas serve` and embeds both clients (React at `/`, egui at
+   `/next/`); the `NEEDED` gate; the new scripts of the Rules with the lock pattern; `scripts/e2e.sh` gains
+   `smoke-react` (today's Playwright smoke, renamed), `smoke` (the Rust browser smoke, run with the static musl driver
+   inside the same pinned Playwright image and caps), `--only B1,B5,…` and `--startup` (G11's start-up scenario against
+   the image, cold and warm); `scripts/image-smoke.sh` gains the app's checks (the test bridge absent from the served
+   wasm and glue, `/app/{other build}` 404, the licence list); `THIRD_PARTY.md` rows for every new crate and build
+   tool.
+6. **Ledger**: `docs/parity.md` from `docs/parity-seed.md`, every row `missing` except those S0's goldens already cover;
+   the vitest section expanded from one row per file to one row per `it`/`test` call site (350 at `9c6e60a`), each
+   naming a new test `path::name` or `gone: <reason>`; `scripts/parity.sh` checks every named Rust test exists
+   (`scripts/dev.sh cargo test --workspace --locked -- --list`) and fails on a `missing` row in any section.
+7. **Tests of the new M2 behaviours** that F0 itself builds (`docs/parity-seed.md`, "New behaviour"): the
+   second-instance refusal and `PRAGMA user_version` staying 1.
+
+**Owns.** Everything the tasks touch, until F0 merges; afterwards each file belongs to the workstream the C-sections name.
+
+**Produces (frozen contracts, R3).** `Transport`, `Pending<T>`, `Clock`, `ApiError` and the typed-call naming
+(`wikanvas-client`); `EditorHost`, `BlockView`, `DocEditor::show_in` and the command API (`wikanvas-editor`); the
+`widget` API of §19.6.2 (patch 0008); `Route`, `Platform`, the page-slot API and the toast and dialog API
+(`wikanvas-app`); the testkit API (`App::test`, `run_until_idle`, `by_label`, `by_role`, `tree_rows`, `restart`, input
+helpers, `FakeBackend` scripting); the flows binary `crates/wikanvas/tests/flows/main.rs` with one module per workstream
+(R7); the AccessKit naming rules (R13).
+
+**Acceptance.**
+
+```sh
+scripts/dev.sh scripts/inkboard.sh src && scripts/check-pins.sh       # check-pins needs the fresh patched lock (R12)
+scripts/fmt.sh --check
+scripts/dev.sh cargo clippy --workspace --all-targets --locked -- -D warnings
+scripts/dev.sh cargo clippy --locked --target wasm32-unknown-unknown -p wikanvas-api -p wikanvas-core -p wikanvas-client -p wikanvas-editor -p wikanvas-board -p wikanvas-app -p wikanvas-web -- -D warnings
+scripts/dev.sh cargo test --workspace --locked                 # the 706 server-side tests plus the scaffold's
+scripts/dev.sh cargo test -p wikanvas-store --locked -- schema::user_version_stays_1
+scripts/dev.sh cargo test -p wikanvas-server --locked --test api -- openapi:: && git diff --exit-code docs/api/openapi.json
+scripts/dev.sh scripts/inkboard.sh check
+scripts/dev.sh bash -c 'cd .cache/inkboard-src && CARGO_TARGET_DIR=/work/.cache/inkboard-target cargo test --locked -p inkboard-core -p inkboard-formats -p inkboard-app'
+scripts/dev.sh pnpm --dir web typecheck && scripts/dev.sh pnpm --dir web test   # the React client still works
+scripts/dev.sh scripts/inkboard.sh build && scripts/e2e.sh frame
+scripts/image.sh && WIKANVAS_SMOKE_LEVEL=full scripts/image-smoke.sh && scripts/e2e.sh smoke-react && scripts/agent-test.sh   # image-smoke now also requires web-sys and wasm-bindgen in /app/{build}/licenses.txt (§19.13)
+scripts/e2e.sh smoke --only B1                                 # the egui app boots at /next/ under its CSP
+scripts/desktop-smoke.sh
+scripts/dev.sh cargo test -p wikanvas --locked --test flows -- desktop::second_instance_refused
+git -C vendor/inkboard status --porcelain | wc -l | grep -qx 0
+```
+
+---
+
+### C1: the data layer (`wikanvas-client`, `LocalTransport`)
+
+**Goal.** §19.4: the three transports, the typed API for every operation, the query cache with optimistic updates,
+`doc_sync`, `board_sync`, the outbox, the pending registry.
+
+**Owns.** `crates/wikanvas-client/**`; `crates/wikanvas/src/local.rs`; `crates/wikanvas/tests/flows/client.rs`;
+`docs/handoff/C1.md`.
+
+**Parity items** (`docs/parity-seed.md`): P-016, P-018, P-116-P-124, P-128, P-129, P-131, P-169-P-171.
+
+**Key behaviours.** Debounces and back-offs exactly as §9.4 and D32, the desktop included (§19.4.4); every timer on the
+injected `Clock` (monotonic, wall with the local offset, sleep on the client's executor), so saves fire while the window
+is minimised or the tab hidden; an immediate retry on `online`; the desktop flushes when its window becomes invisible;
+no `pm_json`; the React outbox adopted and its entry deleted after the POST that carried it, the React board snapshots
+read from `keyval-store`/`keyval` and deleted after Restore or Discard (§19.4.4, §19.4.5); the board snapshot also on
+hide, `pagehide`, 401 and every 2 s for boards up to 2 MiB; `upload` with progress (§19.4.1); `LocalTransport` mints a
+new desktop session on a 401 and retries once (D105); retries only for network and 5xx, at most twice; ETag 304 keeps
+the cache; optimistic updates roll back on error.
+
+**Acceptance.**
+
+```sh
+scripts/dev.sh cargo test -p wikanvas-client --locked                     # L1: every case of docSession, saveLoop, unsaved, pending, client and the cache tests, ported
+scripts/dev.sh cargo test -p wikanvas --locked --test flows -- client::   # L3 on LocalTransport, and over HttpTransport to TestServer; client::minimised_window_still_saves, client::desktop_session_survives_password_change
+scripts/dev.sh cargo clippy --locked --target wasm32-unknown-unknown -p wikanvas-client -- -D warnings
+out="$(scripts/dev.sh cargo tree --locked -p wikanvas -e normal --prefix none)" && ! grep -qE '^(rustls|ureq|native-tls|openssl) ' <<<"$out"
+```
+
+### C2: shell and sidebar (`wikanvas-app`: shell, routes, tree, dialogs, theme)
+
+**Goal.** The app's frame: routing (web History through C8's `Platform`, desktop in-app history), the shell and its
+breakpoints, the sidebar tree with drag and drop and keyboard, dialogs, menus, toasts, global keys, theme tokens,
+icons, fonts, i18n, zoom, and the AccessKit roles of all of them.
+
+**Owns.** `crates/wikanvas-app/src/{app,route,shell,sidebar,tree,dialogs,menus,toasts,hotkeys,theme,icons,i18n,zoom,a11y,prefs}*`,
+`crates/wikanvas-app/assets/icons/**`, `crates/wikanvas-app/tests/ui/{routing,shell,sidebar,dialogs,menus,toasts,hotkeys,theme,a11y,zoom}.rs`,
+`crates/wikanvas-app/tests/snapshots/{sidebar,focus}*`, `docs/handoff/C2.md`.
+
+**Parity items:** groups A, C, D, Q, R, S, T, U, V (except P-193), and P-197, P-198.
+
+**Key behaviours.** The tree model ports test for test (buildTree 7 cases, hitZones 10, positions 10, keyboard 11,
+visibleRows 6, invalidTargets 4, nonManualDrop 4) with `fixtures/tree/title-order.json` shared; the sort key from
+`wikanvas_core::tree::title_key`; menus and dialogs paint in `Order::Foreground` over the board (P-139); the hidden
+sidebar is absent from the AccessKit tree; `localStorage` keys become eframe storage keys, read once from the React
+client's `wikanvas.ui`, `wikanvas.theme` and `wikanvas.sidebar.expanded` (§19.4.4); `hotkeys::TABLE` is the one source
+of the global shortcuts and of the chords whose browser action `wikanvas-web` suppresses (D140); Mod+P opens the read
+view (web) or "Print" (desktop).
+
+**Acceptance.**
+
+```sh
+scripts/dev.sh cargo test -p wikanvas-app --locked -- route:: tree:: theme:: icons:: i18n:: prefs::   # L1
+scripts/dev.sh cargo test -p wikanvas-app --locked --test ui -- routing:: shell:: sidebar:: dialogs:: menus:: toasts:: hotkeys:: theme:: a11y:: zoom::
+scripts/dev.sh env WIKANVAS_SNAPSHOTS=require cargo test -p wikanvas-app --locked snapshot::sidebar snapshot::focus
+scripts/dev.sh cargo clippy --locked --target wasm32-unknown-unknown -p wikanvas-app -- -D warnings
+```
+
+### C3: pages and settings (`wikanvas-app`: pages)
+
+**Goal.** Every page except the document body and the board surface: the auth gate (web 401 → `/login?next`, D114),
+the item header and title autosave, item actions and the item menu (with "Open reading view" and "Copy reading link"),
+collections, Home, Starred, Archive, Search, the quick switcher, Settings (account, appearance, workspace, tokens, data,
+about), Trash, the document page around the editor (read-only banner, nested list, exports).
+
+**Owns.** `crates/wikanvas-app/src/pages/**`, `crates/wikanvas-app/tests/ui/{auth,items,topbar,collections,lists,search,switcher,settings,trash,docs,pages}.rs`,
+`crates/wikanvas/tests/flows/{auth,items,lists,search,settings,trash}.rs`, `docs/handoff/C3.md`.
+
+**Parity items:** groups B (except P-013, P-014, P-016, P-018, P-019), E, F, G, H, M, N, O, and P-110-P-112.
+
+**Acceptance.**
+
+```sh
+scripts/dev.sh cargo test -p wikanvas-app --locked -- time:: search::
+scripts/dev.sh cargo test -p wikanvas-app --locked --test ui -- auth:: items:: topbar:: collections:: lists:: search:: switcher:: settings:: trash:: docs:: pages::
+scripts/dev.sh cargo test -p wikanvas --locked --test flows -- auth:: items:: lists:: search:: settings:: trash::
+```
+
+### C4: the editor core (`wikanvas-editor`)
+
+**Goal.** §19.5.1-§19.5.6 and §19.5.8: the mirror, positions, primitives, the text and structure commands, layout,
+virtualisation, painting, selection, input and IME, the keymap, the clipboard with HTML import and export, undo, the
+input rules, the placeholder, the title link, read-only mode, the AccessKit nodes; the editor inside a rect at a zoom
+(for C6).
+
+**Owns.** `crates/wikanvas-editor/src/{model,pos,prim,commands,layout,paint,select,input,ime,keymap,clipboard,html_import,undo,input_rules,a11y,host}*`,
+`crates/wikanvas-editor/tests/{corpus,typing,selection,delete,ime,undo,clipboard,keymap,a11y}.rs`,
+`crates/wikanvas-editor/examples/bench.rs`, `crates/wikanvas-core/src/convert/html_dom.rs` (the html5ever
+tree C7's tests also use), `fixtures/ydoc/egui/**` (the corpus the egui editor writes, with its `count.txt`),
+`fixtures/html/**` (the paste corpus), one additive change to `web/src/editor/serverWritten.test.ts` (also read
+`fixtures/ydoc/egui/*.bin`, and fail when that directory holds fewer pairs than its `count.txt`), `docs/handoff/C4.md`.
+
+**Parity items:** P-080-P-086, P-088, P-103, P-104, P-107, P-108, P-113, P-115 (owner; nothing built in M2, weight 0),
+P-200.
+
+**Key behaviours.** Only the nine primitives write yrs (§19.5.2); opening never writes; no galley kept across frames;
+an empty fragment is a virtual paragraph; preedit never enters yrs; undo tracks only `wikanvas.local` and groups on the
+injected `Clock`; the later of two blocks sharing a `blockId` gets a new one when edited; a paste of
+`__inkboard_objects__` is ignored. The gate checks deterministic proxies for G10's budgets (opening a 5,000-block
+document lays out at most 120 blocks; a keystroke in it re-lays out at most 3 blocks; a scroll frame lays out at most
+the blocks of one screen plus one), and the bench with a guard band of 2× S0's budgets.
+
+**Acceptance.**
+
+```sh
+scripts/dev.sh cargo test -p wikanvas-editor --locked                    # L1 (proptests: 10,000 sequences, 1,000 convergence runs) and L2
+scripts/dev.sh cargo test -p wikanvas-editor --locked --test corpus      # every fixtures/ydoc .bin read; open-and-close writes nothing; goldens written
+scripts/dev.sh pnpm --dir web test src/editor/serverWritten              # TipTap opens every egui-written .bin without repair (during the port); fails on a short corpus
+scripts/dev.sh cargo clippy --locked --target wasm32-unknown-unknown -p wikanvas-editor -- -D warnings
+scripts/dev.sh cargo run --release -p wikanvas-editor --example bench -- long --json /work/.cache/bench/long.json && jq -e '.open_5000_native_ms < 300 and .keystroke_p95_native_ms < 8 and .scroll_p95_native_ms < 16' .cache/bench/long.json   # 2× G10's native budgets; numbers into docs/handoff/C4.md
+```
+
+### C5: editor blocks and menus (`wikanvas-editor`)
+
+**Goal.** §19.5.7: code blocks with the language picker and Inkboard's highlighter (D136), links (allow-list, follow,
+popup, autolink, item URL paste, the context menu), task lists, tables, images (load, upload with progress, width, alt,
+caption, external card), callouts, mentions, board embeds (the resvg preview, D123), the slash and mention menus, the
+bubble and table menus, the block handle with drag reorder, Contents and scroll spy, find (D135).
+
+**Owns.** `crates/wikanvas-editor/src/{blocks,links,tables,images,mentions,embeds,menus,slash,contents,find}/**`,
+`crates/wikanvas-editor/tests/{blocks,links,tables,images,mentions,menus,find}.rs`,
+`crates/wikanvas/tests/flows/{docs,links}.rs` (`links` holds smoke step 16's item links, Back and the low row menu, and
+the desktop's own-URL paste), `docs/handoff/C5.md`.
+
+**Parity items:** P-087, P-089-P-102, P-105, P-106, P-109, P-195, P-199.
+
+**Acceptance.**
+
+```sh
+scripts/dev.sh cargo test -p wikanvas-editor --locked --test blocks --test links --test tables --test images --test mentions --test menus --test find
+scripts/dev.sh cargo test -p wikanvas --locked --test flows -- docs:: links::
+```
+
+### C6: boards and cards (Inkboard 0008/0009 final, `wikanvas-board`)
+
+**Goal.** §19.6: the finished widget patch and its tests, the board page (top bar, exports, nested pages, Focus,
+read-only, theme), board switching with the previous save awaited, the conflict banner and its two choices, the unsaved
+restore prompt, the large-board warning, the card painter (static cards with the read-only editor, the editing card),
+Text doc, Embed page…, the sidebar drop, the title map, the Text doc clean-up, board previews for documents (resvg),
+including the on-demand preview of a board whose `preview_rev` is null (the seeded Welcome board, smoke step 16).
+0008's final form keeps main's card rules (§18.14's D93-D98: the middle button pans while a card is edited, a secondary
+press ends the editing, the cards on the clipboard are kept, a refused save ends the editing, no style panel while
+editing, drops titled from the item's own detail) in their in-process form (§19.6.3).
+
+**Owns.** `patches/inkboard/**` (R17), `scripts/inkboard.sh` (if a change is needed), `crates/wikanvas-board/**`,
+`crates/wikanvas/tests/flows/{boards,board_embeds}.rs`, `fixtures/boards/**` (additive), `fixtures/snapshots/inkboard/**`,
+`docs/handoff/C6.md`.
+
+**Parity items:** P-125-P-127, P-130, P-132-P-154, P-193.
+
+**Acceptance.**
+
+```sh
+scripts/dev.sh scripts/inkboard.sh src && scripts/dev.sh scripts/inkboard.sh check
+scripts/dev.sh bash -c 'cd .cache/inkboard-src && CARGO_TARGET_DIR=/work/.cache/inkboard-target cargo test --locked -p inkboard-core -p inkboard-formats -p inkboard-app'
+scripts/dev.sh env INKBOARD_SNAPSHOTS=1 INKBOARD_SNAPSHOT_DIR=/work/fixtures/snapshots/inkboard bash -c 'set -o pipefail; cd .cache/inkboard-src && CARGO_TARGET_DIR=/work/.cache/inkboard-target cargo test --locked -p inkboard-app tests_visual -- --nocapture 2>&1 | tee /work/.cache/tests_visual.log' && ! grep -q SKIPPED .cache/tests_visual.log
+scripts/dev.sh scripts/inkboard.sh export --upstream && ! grep -rq 'Changed for' .cache/inkboard-upstream
+scripts/dev.sh cargo test -p wikanvas-board --locked
+scripts/dev.sh cargo test -p wikanvas --locked --test flows -- boards:: board_embeds::
+scripts/dev.sh cargo clippy --locked --target wasm32-unknown-unknown -p wikanvas-board -- -D warnings
+```
+
+### C7: the server (read view, forms, `serve`, desktop identity, agents)
+
+**Goal.** §19.7 and the server half of §19.8: `convert::html_out` and the `/read/*` pages with `read.css`; `/login`,
+`/setup`, `POST /logout`, `/login/once`; `GET …/doc/html`; `item_ref` for `/read/` paths; the revision preview from Y;
+`serve`'s flags, defaults, data-dir lock, cookie names and LAN refusal and the setup link; the owner without a
+password; no schema change (D143); the server half of the desktop's agent
+access (the token with `created_via = 'admin'` and the `settings` key, its revocation; C8 writes the discovery file);
+the CLI's `desktop` URL source and `doc get --format html`; the app shell per path (`/next/` during the
+port) with the app CSP and the assets under `/app/{build}/` (D141).
+
+**C7a may start during S0** on today's crates (`crates/wikanvas-core`, `crates/wikanvas-server`), limited to the read
+view, the forms and `doc/html`, because they serve the React client too and do not depend on the spike. It then rebases
+onto F0. The rest of C7 starts after F0.
+
+**Owns.** `crates/wikanvas-core/src/convert/html_out.rs` and its tests; `crates/wikanvas-server/src/{read,pages,serve,desktop}*`,
+the `routes/docs.rs` additions, `config.rs`, `extract.rs`'s cookie function, `static_files.rs`, `headers.rs`;
+`crates/wikanvas-store/src/{docs,users,tokens,revisions,db}.rs` additions (no new migration, D143);
+`crates/wikanvas-cli/**` (the two additions and the discovery-file tests); `fixtures/ydoc/**/*.html` (goldens);
+`crates/wikanvas-server/tests/api/{read_view,pages,serve,desktop}.rs`;
+`docs/AGENTS.md`; `e2e/agent/scenarios/13-*.sh`; `docs/handoff/C7.md`.
+
+**Parity items:** P-013, P-014, P-019, P-114, P-196, P-202.
+
+**Acceptance.**
+
+```sh
+scripts/dev.sh cargo test -p wikanvas-core --locked -- convert::html_out::      # goldens for 19 fixtures, the well-formedness proptest
+scripts/dev.sh cargo test -p wikanvas-server --locked --test api -- read_view:: pages:: serve::   # 303s, CSP exactly, no "<script", ETag/304, trashed 404, html_dom structure and unique ids, forms and CSRF, cookie names, LAN refusal, the lock, /app/{other build} 404
+scripts/dev.sh cargo test -p wikanvas-server --locked --test api -- pages::login_once_single_use_and_expiry desktop::agent_token_revoked_at_exit_and_next_start
+scripts/dev.sh cargo test -p wikanvas-store --locked                             # an M1 database used by M2 keeps user_version 1; owner without password
+scripts/dev.sh cargo test -p wikanvas-server --locked --test api -- openapi:: && git diff --exit-code docs/api/openapi.json
+scripts/dev.sh cargo test -p wikanvas-cli --locked                              # discovery_file_refusals (not owned, not 0600, dead pid)
+scripts/image.sh && scripts/agent-test.sh                                        # scenarios 01-12 unchanged, 13: doc get --format html
+```
+
+### C8: desktop and web entries, packaging
+
+**Goal.** The `wikanvas` binary's desktop mode (first-run dialog, window close flush, Ctrl+Q through the flush, rfd save
+dialogs, "Open in browser" through `/login/once`, the opt-in agent listener and discovery file, the second-instance
+refusal, the minimise flush, the log file, the panic hook and the restore dialog, the stable listener port, the
+desktop's link rules, `--screenshot`); `wikanvas-web` (the boot loader, History router under the base path, the
+shortcut listener, `beforeunload` and `online`, clipboard listeners, file picks and drops streamed as `web_sys::File`,
+XHR uploads with progress, the IndexedDB store glue, visibility and `pagehide` flushes with keepalive, the update check,
+`test-bridge`); the Docker stages; `scripts/dist.sh` with cargo-zigbuild for x86_64 and aarch64 (glibc 2.35), `.deb`
+and `.tar.gz`, each with its licence files (§19.8.8); `wikanvas-tools licenses` and the licence list for About (P-167,
+§19.13); `scripts/desktop-smoke.sh`.
+
+**Owns.** `crates/wikanvas/src/{main,desktop,single,agents,dialogs,logs}*`, `crates/wikanvas/tests/flows/{setup,desktop}.rs`
+(the desktop first run, smoke step 1's desktop half, the second instance, the crash note), `crates/wikanvas-web/**`,
+`crates/wikanvas-tools/**`, `docker/Dockerfile`'s `web-app`, `runtime`, `licenses` and `dist` stages,
+`scripts/{dist,desktop-smoke,wasm-app}.sh`, `docs/handoff/C8.md`.
+
+**Parity items:** P-201 (and the platform halves of P-008, P-024, P-122, P-123, P-166, P-167 that their owners request).
+
+**Acceptance.**
+
+```sh
+scripts/dev.sh cargo clippy --locked --target wasm32-unknown-unknown -p wikanvas-web --features test-bridge -- -D warnings
+scripts/dev.sh scripts/wasm-app.sh size && jq -e '.br <= 5000000' .cache/wasm-app/sizes.json   # the budget agreed at S0 (G11)
+scripts/image.sh && WIKANVAS_SMOKE_LEVEL=full scripts/image-smoke.sh
+scripts/desktop-smoke.sh
+scripts/dev.sh cargo test -p wikanvas --locked --test flows -- setup:: desktop::
+test "$(wc -l < crates/wikanvas-web/boot/boot.js)" -le 80                       # D139's budget
+scripts/dist.sh && scripts/dev.sh bash -c 'set -o pipefail; readelf -d dist/wikanvas-x86_64-unknown-linux-gnu | sed -n "s/.*Shared library: \[\(.*\)\]/\1/p" | sort > /work/.cache/needed.txt' && test -s .cache/needed.txt && test -z "$(comm -23 <(sort -u .cache/needed.txt) <(printf '%s\n' ld-linux-x86-64.so.2 libc.so.6 libgcc_s.so.1 libm.so.6 | sort))" && scripts/dev.sh dist/wikanvas-x86_64-unknown-linux-gnu --version
+scripts/e2e.sh smoke --only B1,B5,B6,B8,B12,B13,B14,B15,B16
+```
+
+### C9: tests and parity
+
+**Goal.** §19.11 and the parity proof: `wikanvas-testkit`; `flows::smoke_sequence` and one flow per smoke step
+(`docs/parity-seed.md`, "Old tests"); the browser smoke B1-B16 in `wikanvas-browser-test` run by `scripts/e2e.sh smoke`;
+the snapshot set; `scripts/ui-peek.sh`; the server-state digest (`wikanvas-testkit`'s `digest` binary over the CLI's
+JSON) and `scripts/parity.sh` (every section: items, vitest call sites, new behaviours, manual checks; each named Rust
+test must exist in `cargo test -- --list`); the React smoke's digest hook (`scripts/e2e.sh smoke-react --digest`); the
+ledger.
+
+**Owns.** `crates/wikanvas-testkit/**`, `crates/wikanvas-browser-test/**`, `crates/wikanvas/tests/flows/{main,smoke}.rs`,
+`crates/wikanvas-app/tests/snapshots/` (the harness; screens' references belong to their owners), `scripts/{e2e,ui-peek,parity}.sh`,
+`e2e/tests/smoke.spec.ts` (the digest hook only), `docs/parity.md`, `docs/handoff/C9.md`.
+
+The browser smoke's checks (each reads the bridge, never sleeps; CDP `Runtime.evaluate` expressions are test code):
+
+| Id | Check |
+|---|---|
+| B1 | `/` (and `/next/` during the port) boots the wasm under the app CSP with no violation; a WebGL2 context, renderer string recorded; `/setup` is the HTML form; setup typed with real key events → the app's Home; the session cookie is HttpOnly |
+| B2 | Sign out through the form; sign in with "Keep me signed in": the cookie's `Max-Age` holds more than 24 h |
+| B3 | A new document; "# Plan", Enter, "quokka" typed by CDP keys and one IME composition committed; `idle()`; a real reload; the text is still there (bridge tree and `GET …/text`) |
+| B4 | A new board; R and a real mouse drag; `PUT …/board` 200; idle for 2 s with `frames()` flat |
+| B5 | A deep-link reload on `/doc/<slug>-<id>`; Ctrl+click on an item link opens it; browser Back returns |
+| B6 | Emulated `visibilityState = hidden` flushes the pending save; a board opened while hidden paints once visible; a board edited 0.5 s before a navigation away fires the leave prompt (CDP `Page.javascriptDialogOpening`, type `beforeunload`); after accepting it, the next open of the board offers "Restore unsaved changes" with that edit |
+| B7 | Export Markdown is a real download whose first heading is `# Plan`; the page's own `fetch('/api/v1/export')` is a tar with `manifest.json`; the same GET without fetch metadata is `csrf_rejected` |
+| B8 | The bridge's `panic()` shows the "stopped" screen, the outbox is kept, a reload restores the edit; a React `wikanvas.outbox` entry put into IndexedDB before boot is adopted and deleted after its POST; a React snapshot `wikanvas.board.unsaved/<id>` put into `keyval-store`/`keyval` leads to the restore prompt and is deleted after it |
+| B9 | CDP offline: status "Offline", an edit queued; online: flushed at once (before the next back-off step) |
+| B10 | The read view of the document: `h1` "Plan" and "quokka" in `document.body.innerText`, no script element, its CSP, print CSS present |
+| B11 | Copy in the editor puts `text/html` with `data-wikanvas-slice` on the clipboard; pasting HTML from the corpus gives its golden |
+| B12 | A phone viewport (coarse pointer, 390 × 844) opens the read view with "Open editor", and no request for the wasm is made |
+| B13 | Chromium started with WebGL disabled (`--disable-webgl`), and once with WebAssembly disabled (`--js-flags=--noexpose_wasm`): the error panel and the reading link show, and no request for the wasm is made |
+| B14 | The first request for the wasm answers 500 (CDP `Fetch.fulfillRequest`): the loader retries once and boots; when both answer 500, the error panel shows the reading link and "Try again" |
+| B15 | In the editor and on a board: Mod+K opens the switcher, Mod+F opens find, Mod+B makes the selection bold, Mod+U and Mod+E and Mod+Shift+B run their app actions; for each, the `keydown` is `defaultPrevented` (a bubble-phase probe added through CDP) and `document.hasFocus()` stays true |
+| B16 | An image upload through a CDP file drop shows the progress placeholder with a value between 0 and 1 before the image appears (the upload throttled with `Network.emulateNetworkConditions`) |
+
+**Acceptance.**
+
+```sh
+scripts/dev.sh cargo test -p wikanvas-testkit --locked
+scripts/dev.sh cargo test -p wikanvas --locked --test flows                    # every module, smoke_sequence included
+scripts/image.sh && scripts/e2e.sh smoke                                       # B1-B16
+scripts/e2e.sh smoke-react --digest out/react.json && scripts/parity.sh       # digests equal, no `missing` row
+scripts/dev.sh bash -c 'for i in $(seq 20); do cargo test -p wikanvas --locked --test flows -q || exit 1; done'   # a new suite passes 20 times in a row when it lands
+```
+
+---
+
+### I: integration (dual run)
+
+On main, by the orchestrator or one integrating agent, after C1-C9 are done (R10):
+1. Merge the branches in the order they finish (`git merge --no-ff`), lockfile branches one at a time (R6); after each
+   merge, rerun that workstream's acceptance on main.
+2. Apply the handoff notes' requests; fold their deviations into ARCHITECTURE §19 (a decision row each) and this
+   section.
+3. Run the M2 release gate (below) with the dual-run lines, twice in a row, both clean. A failure is fixed at its
+   cause or reported as a blocker; nothing is skipped, ignored or loosened.
+4. Hand the owner an image to run on the live wiki, named by its exact tag `wikanvas:<commit>` (R16: the owner sets
+   `WIKANVAS_IMAGE` to it in `.env` and switches, after the backup of §19.13's rollback steps), with the egui client at
+   `/next/` and the desktop binary.
+5. Check R20: every file with a "ported from" or "borrowed from" header has its `THIRD_PARTY.md` row.
+
+**Owns.** `docs/ARCHITECTURE.md`, `docs/PLAN.md`, `README.md`, `THIRD_PARTY.md`, `CLAUDE.md`, `docs/handoff/M2-merge.md`,
+and fixes found by the gate in any file, each as its own commit with a test.
+
+### X: the cutover
+
+**When.** All of: two consecutive clean dual-run gates; `docs/parity.md` without a `missing` row; equal server-state
+digests; every manual check of `docs/parity.md` recorded in `docs/handoff/M2-merge.md`; and the owner's sign-off after using the egui client on the live wiki (default: 5 working days, §19.15
+question 25).
+
+**Steps, in one branch, merged alone.**
+1. Run `scripts/dev.sh pnpm --dir web fixtures` one last time; its outputs in `fixtures/ydoc/` stay committed as frozen,
+   read-only goldens (the corpus test reads them for ever).
+2. Delete what §19.13 lists: `web/`, `web/inkboard-frame/`, `e2e/tests/frame.spec.ts`, the DOM smoke spec, `e2e/package.json`
+   and Node in the toolchain (if B1-B16 run on chromiumoxide), ts-rs and its feature and env lines, the `node` and `web`
+   Docker stages (the `licenses` stage loses its npm input), the `/inkboard/{build}/` route, the frame and SPA CSPs, the
+   two old embeds of `wikanvas-assets`.
+3. Move the egui app from `/next/` to `/`; `/next/*` answers 308 to the path without the prefix.
+4. Re-cut the Inkboard series (§19.6.6, C6's owner or the cutover agent): patchset 5, the JS API and its docs gone.
+5. Remove the dual-run gate lines.
+6. Docs: ARCHITECTURE §9, §10, §11, §14 and §18 rewritten or marked as replaced by §19; AGENTS.md; README.
+7. The live wiki: no data migration and no schema change (D143); the database file keeps its name `wikanvas.db`
+   (§19.8.10); `compose.yaml` keeps its names and environment keys (D142); browsers on HTTPS stay signed in (UNVERIFIED,
+   inferred from the cookie names and not tested: the name does not change there, §19.8.3); the web client adopts the
+   React outbox and board snapshots (§19.4.4, §19.4.5). The owner keeps the rollback steps of §19.13 at hand.
+
+**Acceptance.** The M2 release gate below without the dual-run lines, on the cutover branch and again on main after the
+merge.
+
+### Acceptance (the M2 release gate)
+
+On main, in this order, every `scripts/dev.sh` command with `WIKANVAS_SHARED_CARGO_HOME` set (the name stays, R19). Each
+negated check captures its producer first or asserts its paths exist, so a failing producer fails the line (Rules, "A
+skipped check is a failed check"):
+
+```sh
+scripts/install-build-slice.sh --check
+scripts/dev.sh scripts/inkboard.sh src && scripts/check-pins.sh     # R12: one egui; GUI crates equal to the fresh patched lock
+docker compose -f compose.yaml config --format json | jq -e '.name == "wikanvas" and (.services | has("wikanvas")) and ((.services.wikanvas.ports // []) == [])'   # D142: names unchanged, no published app port
+! grep -qE '^\s*(encode|header)\b' docker/Caddyfile
+scripts/fmt.sh --check
+scripts/dev.sh cargo clippy --workspace --all-targets --locked -- -D warnings
+scripts/dev.sh cargo clippy --locked --target wasm32-unknown-unknown -p wikanvas-api -p wikanvas-core -p wikanvas-client -p wikanvas-editor -p wikanvas-board -p wikanvas-app -p wikanvas-web -- -D warnings
+scripts/dev.sh cargo clippy --locked --target wasm32-unknown-unknown -p wikanvas-web --features test-bridge -- -D warnings
+scripts/dev.sh cargo tree --locked -e normal -i libsqlite3-sys
+scripts/dev.sh cargo test --workspace --locked                      # L1, L2, L3, L7, the server, store, core and CLI tests
+scripts/dev.sh env WIKANVAS_SNAPSHOTS=require cargo test -p wikanvas-app --locked snapshot::   # with `require`, a snapshot that cannot render fails instead of skipping
+scripts/dev.sh cargo test -p wikanvas-editor --locked --test corpus
+scripts/dev.sh env WRITE_FIXTURES=1 cargo test -p wikanvas-core --locked -- convert::tests::write_server_fixtures && git diff --exit-code fixtures/ydoc/server
+scripts/dev.sh cargo test -p wikanvas-server --locked --test api -- openapi:: && git diff --exit-code docs/api/openapi.json
+scripts/dev.sh cargo test -p wikanvas-cli --locked
+out="$(scripts/dev.sh cargo tree --locked -p wikanvas -e normal --prefix none)" && ! grep -qE '^(rustls|ureq|reqwest|native-tls|openssl|iroh) ' <<<"$out"      # D29, D129, D138
+out="$(scripts/dev.sh cargo tree --locked -p wikanvas-cli -e normal --prefix none)" && ! grep -qE '^(openssl|openssl-sys|native-tls|rusqlite|yrs|inkboard-core|comrak|webpki-roots|egui) ' <<<"$out"
+out="$(scripts/dev.sh cargo tree --locked -p wikanvas-app -e normal --prefix none)" && ! grep -qE '^egui_kittest ' <<<"$out"
+test -d crates/wikanvas-server/src/routes && ! grep -rn '\.route(' crates/wikanvas-server/src/routes
+test -d crates/wikanvas-server/src && ! grep -rn '\.route("/api' crates/wikanvas-server/src
+d="crates/wikanvas-client/src crates/wikanvas-app/src crates/wikanvas-editor/src crates/wikanvas-board/src"; for x in $d; do test -d "$x" || exit 1; done; ! grep -rnE 'Instant::now|SystemTime::now|Date::now|performance\(\)\.now|Performance::now|Local::now|Utc::now' $d | grep -v '/clock.rs:'   # R14
+test -d crates && ! find crates \( -name '*.js' -o -name '*.ts' -o -name '*.mjs' \) -not -path crates/wikanvas-web/boot/boot.js | grep -q .   # R15
+test "$(wc -l < crates/wikanvas-web/boot/boot.js)" -le 80                                                                             # D139
+test -d crates && ! grep -rn '<script' crates --include='*.rs' | grep -v 'type="module" src="/app/{build}/boot.js"'                                    # R15: no other script in Rust strings
+scripts/dev.sh scripts/inkboard.sh check
+scripts/dev.sh bash -c 'cd .cache/inkboard-src && CARGO_TARGET_DIR=/work/.cache/inkboard-target cargo test --locked -p inkboard-core -p inkboard-formats -p inkboard-app'   # all of them, not only embed and i18n
+scripts/dev.sh env INKBOARD_SNAPSHOTS=1 INKBOARD_SNAPSHOT_DIR=/work/fixtures/snapshots/inkboard bash -c 'set -o pipefail; cd .cache/inkboard-src && CARGO_TARGET_DIR=/work/.cache/inkboard-target cargo test --locked -p inkboard-app tests_visual -- --nocapture 2>&1 | tee /work/.cache/tests_visual.log' && ! grep -q SKIPPED .cache/tests_visual.log
+scripts/dev.sh scripts/inkboard.sh export --upstream && ! grep -rq 'Changed for' .cache/inkboard-upstream
+scripts/dev.sh cargo run --release -p wikanvas-editor --example bench -- long --json /work/.cache/bench/long.json && jq -e '.open_5000_native_ms < 300 and .keystroke_p95_native_ms < 8 and .scroll_p95_native_ms < 16' .cache/bench/long.json   # 2× G10's native budgets
+scripts/dev.sh scripts/wasm-app.sh size && jq -e '.br <= 5000000' .cache/wasm-app/sizes.json
+compgen -G '.cache/wasm-app/dist/*.wasm' >/dev/null && compgen -G '.cache/wasm-app/dist/*.js' >/dev/null && ! grep -lq __wikanvas_test .cache/wasm-app/dist/*.wasm .cache/wasm-app/dist/*.js   # the test bridge never ships (local dist)
+scripts/image.sh
+WIKANVAS_SMOKE_LEVEL=full scripts/image-smoke.sh                       # app caps, Caddy, the app wasm as br byte for byte, the app CSP, the read view's CSP, /app/{other build} 404; the identity wasm and glue served by the image contain no __wikanvas_test; /app/{build}/licenses.txt lists web-sys and wasm-bindgen
+scripts/e2e.sh smoke                                                # B1-B16 against the image
+scripts/e2e.sh smoke --startup                                      # G11's cold and warm start, ≤ 2× S0's budgets (6.0 s, 3.0 s)
+scripts/desktop-smoke.sh                                            # L6
+scripts/agent-test.sh                                               # scenarios 01-13, against the image just built
+scripts/cli-dist.sh && scripts/dev.sh dist/cli/wikanvas-cli-x86_64-unknown-linux-musl --version
+scripts/dist.sh && scripts/dev.sh bash -c 'set -o pipefail; readelf -d dist/wikanvas-x86_64-unknown-linux-gnu | sed -n "s/.*Shared library: \[\(.*\)\]/\1/p" | sort > /work/.cache/needed.txt' && test -s .cache/needed.txt && test -z "$(comm -23 <(sort -u .cache/needed.txt) <(printf '%s\n' ld-linux-x86-64.so.2 libc.so.6 libgcc_s.so.1 libm.so.6 | sort))" && scripts/dev.sh dist/wikanvas-x86_64-unknown-linux-gnu --version   # NEEDED ⊆ the four (D115)
+test -d crates && test -d scripts && test -d e2e/agent && ! grep -rnE 'todo!\(|unimplemented!\(|TODO\((W|E|S0|F0|C[1-9])|not implemented' crates scripts e2e/agent
+git -C vendor/inkboard status --porcelain | wc -l | grep -qx 0
+```
+
+During the dual run only (removed by X):
+
+```sh
+scripts/dev.sh pnpm --dir web install --frozen-lockfile
+scripts/dev.sh pnpm --dir web fixtures && git diff --exit-code fixtures
+scripts/dev.sh pnpm --dir web typecheck && scripts/dev.sh pnpm --dir web test && scripts/dev.sh pnpm --dir web build
+scripts/dev.sh pnpm --dir web test src/editor/serverWritten        # TipTap opens every egui-written .bin
+scripts/dev.sh cargo test -p wikanvas-api --locked --features ts export_bindings && git diff --exit-code web/src/api/gen
+scripts/dev.sh scripts/inkboard.sh build && scripts/e2e.sh frame
+scripts/e2e.sh smoke-react --digest out/react.json
+scripts/parity.sh                                                   # no `missing` row; out/react.json equals out/egui.json
+```
+
+Today's whole gate took 14 minutes (`docs/handoff/E.md:7-8`); S0's G12 timings (spike S5 of the testing research) set
+the budget for the new suites. A budget of 20 minutes for the M2 gate is the target; a slower gate is reported, not
+trimmed.
+
+---
+
+### Review log (2026-10-29)
+
+Each finding of the review of §19, this plan and `docs/parity-seed.md` was checked against the code, the crate sources
+(egui, eframe, yrs, arboard, axum, idb-keyval) and crates.io before it was fixed or rejected. While the review ran, the
+other workflow landed the M1.1 review on main (`d5d3c94` → `9c6e60a`: §18.14's D93-D99, 0005 at 2,014 lines, 26 frame
+tests), so the three drafts were also re-cited against `9c6e60a`. 51 findings: 51 fixed (one of them with a wrong piece
+of evidence corrected), 0 rejected.
+
+| # | Finding | Lens | Severity | Disposition | Why, and where |
+|---|---|---|---|---|---|
+| 1 | The editing card's child `Ui` shares the canvas's layer, so presses inside it reach the board | feasibility | high | fixed | Holds: egui hides a covered widget only across layers (0.37 `src/hit_test.rs:142-152`) and `canvas_pointer` uses `contains_pointer` (`tools.rs:750-766`). 0008 adds `pointer_in_editing_card` for presses, drags, the context menu and the laser (§19.6.3, §19.6.5); G2 and `tests_widget` test a press, a drag and a right-click inside the card |
+| 2 | Timers on egui's input time stall while the window is minimised or the tab hidden | feasibility | medium | fixed | Holds (egui 0.37 `src/context.rs:1148-1174`). `Clock` now has a monotonic time, the wall time and a sleep on the client's executor (D106, §19.4.2); the desktop flushes when its viewport becomes invisible (§19.4.4, §19.8.4); flow `client::minimised_window_still_saves` |
+| 3 | G3 (3) re-runs the server-fixture test and never opens a spike `.bin` | feasibility | medium | fixed | Holds (`serverWritten.test.ts:8`). New spike test `spikeWritten.test.ts` reads `SPIKE_YDOC_DIR` and checks the exact count; G3's command changed; S0 owns it; C4's change to `serverWritten` also fails on a short corpus |
+| 4 | G15 tests only zooms that are multiples of 1/16; the pinch rule contradicts D108 and D109 | feasibility | medium | fixed | Holds. Buckets are now powers of 2^(1/16), floor, painted unscaled, never wider than the frame; during a pinch at most 6 static cards per frame move bucket and the rest reuse egui's cache, so no galley is kept (D109, §19.6.3); G15 adds zooms 0.53, 1.37, 2.97, 3.9 |
+| 5 | The editor estimate implies 270-425 tested lines a day and hides the hardest work in two L items | feasibility | medium | fixed | Holds. The rate (300 lines plus tests per person-day, UNVERIFIED) is stated; C4 71-137 (likely 99) and C5 30-59 by lines; P-115 counts 0; P-084 and P-094 split into sized sub-items (13.5 and 16.5 days); S0 measures the real rate and F0 re-derives C4 and C5 (Overview, `docs/parity-seed.md` Totals) |
+| 6 | yrs's undo timestamp is the wall clock natively and missing on wasm | feasibility | low | fixed | Holds (`yrs-0.28.0/src/undo.rs:239`, `:788-813`). `timestamp` is a closure over `Clock` (§19.5.6); G6 adds the 600 ms and 300 ms cases; R14 covers it |
+| 7 | Inkboard's shortcut guard is true whenever any widget has focus, the canvas included | feasibility | low | fixed | Holds (`app.rs:809`; egui 0.37 `src/context.rs:3485-3487`). 0008 changes the guard to "a focused widget that is not the canvas" and the canvas requests focus on a press (§19.6.2, §19.6.5); G2 checks "r" after the canvas has focus |
+| 8 | G1's label corpus is 11 short labels; Inkboard has no `.inkboard` fixtures | feasibility | low | fixed | Holds (3 boards, 11 labels; `find` gives 0). G1 uses a generated corpus of at least 500 labels with a 5 % limit per font family |
+| 9 | The 0007 estimate ignores what 0001-0006 add, and 0005 changed on main | feasibility | low | fixed (evidence corrected) | Holds in substance: 6 sites in the patches' added lines need 0.37 changes (0001's two `ctx.style()`, 0005's `wants_keyboard_input`, `raw_scroll_delta` and the test's `MouseWheel` literal). The claim that 0.37 removed `MouseWheel::modifiers` is wrong: the field stays (egui 0.37 `src/data/input/event.rs:196-197`); the literal breaks on the new `phase` and `source`. 0007's size and contents updated (§19.6.5); main's secondary-press and middle-button rules folded into 0008 (§19.6.3); 0005 citations re-cut to `9c6e60a` |
+| 10 | D102 overstates what egui 0.33 lacks | feasibility | low | fixed | Holds: `owns_ime_events` is `has_focus` (0.37 `src/memory/mod.rs:1068-1074`), which 0.33.3 has. D102 and G1's no-go now name the preedit range, `DeleteSurrounding`, `interrupt_ime`, the mobile fixes and harfrust |
+| 11 | The desktop's 250 ms debounce assumes a save is cheap, but each POST rewrites derived data | feasibility | low | fixed | Holds (`crates/wikanvas-store/src/docs.rs:339-420`, `:269-284`). The desktop keeps D32's 1 s / 5 s; G13 records POST latency and writer hold time on a 20,000-block document (§19.4.4, P-118) |
+| 12 | G13's envelope is unspecified (an image-heavy one passes trivially); G11 measures loopback only | feasibility | low | fixed | Holds (`model.rs:558-563`: `objects` is a deep-cloned `Vec`). G13 has an image-heavy and an object-heavy envelope with a no-go action; G11 adds a 20 Mbit/s, 40 ms run, reported |
+| 13 | React board snapshots live in idb-keyval's default store, not `wikanvas.outbox` | feasibility | low | fixed | Holds (`unsaved.ts:5`; idb-keyval `dist/index.js:31`). §19.4.5 names `keyval-store`/`keyval`; B8 seeds a snapshot |
+| 14 | Two concurrent rewraps of one block duplicate it with one `blockId` | feasibility | low | fixed | Accepted as an inference (not run). Named in §19.5.2; G9 records the case; the read view de-duplicates heading ids (§19.7.2); the editor renews the later id on edit (§19.5.1, N-19, N-20) |
+| 15 | Four UNVERIFIED items can be settled from source | feasibility | low | fixed | All four hold: tower `util` (`axum-0.8.9/Cargo.toml:268-271`), arboard HTML read on three platforms, only a colspan in the fixtures, the text agent's only `set_value("")`. Marked verified (§19.4.1, §19.5.4, §19.5.5, §19.16); G7 adds a rowspan fixture |
+| 16 | S0-a is one long chain with unlisted cross-track inputs | feasibility | low | fixed | Holds. The S0 table lists each track's inputs and days; S0-a gets two agents (one drafts 0008 from day 1); what moves if G1 takes its extension is stated |
+| 17 | The web boot needs a hand-written loader that the design forbids | completeness | high | fixed | Holds. D139: one `boot.js` of at most 80 lines with feature checks, the phone check, progress, one retry and the error panel; goal 6 and R15 allow exactly it; B12-B14 test it (§19.7.6, §19.9) |
+| 18 | App shortcuts also trigger the browser's own action (Mod+K, Mod+F, Mod+U, Mod+B) | completeness | high | fixed | Holds (eframe 0.37 `src/web/events.rs:237-279`). D140: a capture-phase listener from the one shortcut table; Mod+P bound; B15 (§19.5.4, §19.9, P-172, P-195) |
+| 19 | Unsaved web work can be lost: no leave prompt, no `online` retry, the board snapshot only before a PUT | completeness | high | fixed | Holds (`pending.ts:56-67`, `saveLoop.ts:85-89`). `beforeunload` while pending, an immediate retry on `online`, the board snapshot also on hide, `pagehide`, 401 and every 2 s up to 2 MiB (§19.4.4, §19.4.5, §19.9); B6 and B9 extended |
+| 20 | No rollback plan; the migration and a rename of the database file make going back harmful | completeness | high | fixed | Holds (`migrate.rs:53-60`, `db.rs:107`). No schema change in M2 (D143: the desktop token uses `created_via = 'admin'` and a `settings` key); M2 renames no database file (D127, §19.8.10: D100 renamed it once, at v0.1.0-alpha.1); the export entry stays `wikanvas.db` (D142); a rollback subsection with owner steps (§19.13, X step 7) |
+| 21 | A revoked or expired desktop session cannot recover | completeness | medium | fixed | Holds (`routes/auth.rs:346`, `:416`). The session is minted at every start, in memory only, and again on a 401 (D105, §19.8.5); flow `client::desktop_session_survives_password_change` |
+| 22 | Immutable app assets without a build id break the update banner | completeness | medium | fixed | Holds (§11 today relies on hashed paths). D141: `/app/{build}/`, `no-cache` shells, another build 404 (§19.9, P-010, N-14) |
+| 23 | Upload progress cannot work through `fetch` | completeness | medium | fixed | Holds (`upload.ts:3`). `Transport::upload` with progress, `XmlHttpRequest` on the web (§19.4.1); B16 |
+| 24 | No source of wall-clock time or the local time zone | completeness | medium | fixed | Holds. `Clock::wall` with the local offset from chrono 0.4.45 (`wasmbind` on wasm32) and `web-time`, both in a lock already; tests in a fixed zone (§19.4.2, §19.11, §19.12, P-075) |
+| 25 | `flows::setup` and `flows::links` have no owner; four L2 tests sit in another owner's files | completeness | medium | fixed | Holds. `setup.rs` to C8, `links.rs` to C5, with their acceptance filters; P-007, P-180, P-181 and P-185 moved into C2's files; R18 says who writes a cross-owned test |
+| 26 | The vitest mapping is folder-level wildcards | completeness | medium | fixed | Holds. `docs/parity-seed.md` has one row per vitest file (79, 350 call sites at `9c6e60a`); F0 expands it per call site; `scripts/parity.sh` checks every named test exists through `cargo test -- --list` |
+| 27 | The new M2 behaviours have no named tests | completeness | medium | fixed | Holds. `docs/parity-seed.md` "New behaviour" (N-01-N-21) with named tests, in the F0, C1, C7 and C8 acceptance; `parity.sh` fails on a `missing` row there |
+| 28 | The rename list misses the CLI profile path and says nothing of what new code writes | completeness | medium | fixed | Holds (`crates/wikanvas-cli/src/config.rs:12`, `:243`). The profile path moved with the rename (D100, no fallback) and stays in M2; M2 keeps writing `wikanvas://item/` and `qpat_` (§19.8.10, D127) |
+| 29 | §16's manual checks are not carried over; no supported-browser statement | completeness | low | fixed | Holds. `docs/parity-seed.md` "Manual checks" maps each §16 item 26 and 31 check to a kittest or a recorded manual check before X, and states the supported browsers |
+| 30 | The desktop has no logging or crash policy | completeness | low | fixed | Holds (`cli.rs:174-183`: stdout only). Per-start log files, a panic hook with a crash note, the restore dialog on the next start (§19.8.4, N-15) |
+| 31 | Desktop links and ports are undefined | completeness | low | fixed | Holds. One listener with a port kept across restarts; reading links only while it runs, "Copy item link" otherwise; same-instance paste defined (§19.7.6, §19.8.6, P-091, P-106, N-16, N-17) |
+| 32 | Adoption of the React client's local state is incomplete | completeness | low | fixed | Holds. The three `localStorage` keys are read once; the adopted outbox entry is deleted after its POST and the adopted snapshot after Restore or Discard (§19.4.4, §19.4.5, P-020, P-032, P-116, P-131); B8 extended |
+| 33 | Smoke step 16's on-demand preview of the seeded board has no test | completeness | low | fixed | Holds (`smoke.spec.ts:770-782`). `flows::boards::seeded_board_preview_on_demand` in P-100 and the step-16 row |
+| 34 | P-196 narrows autofill to sign-in and setup | completeness | low | fixed | Holds (`Account.tsx:85-93`, `ApiTokens.tsx:155`). Recorded as `changed: D114` for the password change and the admin token's prompt |
+| 35 | Variables set in front of `scripts/dev.sh` never reach the container, so the visual tests skip | rules | high | fixed | Holds (`scripts/dev.sh:37-43`; `tests_visual.rs:48-50`). Every such line now uses `scripts/dev.sh env …`, runs with `--nocapture` and fails on `SKIPPED`; a rule says so |
+| 36 | The `licenses` stage is `FROM web`; the list misses wasm32 crates and points at a deleted route | rules | high | fixed | Holds (`docker/Dockerfile:67`, `:198`, `:224`). F0 replaces it with `wikanvas-tools licenses` over both targets plus Inkboard's lists, fonts and icons from the patched tree; shipped in the image and every dist archive; the image smoke checks web-sys and wasm-bindgen (§19.13, §19.8.8) |
+| 37 | scraper pulls in MPL-2.0 crates and is too new | rules | medium | fixed | Holds (crates.io: cssparser 0.38 and selectors 0.41 MPL-2.0; scraper 0.29.0 of 2026-10-21). Dropped; the read view's structure tests use `wikanvas_core::convert::html_dom` over html5ever (D125, §19.11, §19.12) |
+| 38 | "No hand-written JS" cannot hold, and no inventory of non-Rust code exists | rules | medium | fixed | Holds. D139's loader is the one exception with a line budget; R15 and the gate allow exactly its path and grep Rust strings for `<script`; §19.12.1 lists every non-Rust part that ships |
+| 39 | The font licences are missing from §19.12, and M2 widens their use | rules | medium | fixed | Holds (crates.io: `epaint_default_fonts` is `(MIT OR Apache-2.0) AND OFL-1.1 AND Ubuntu-font-1.0`). Font rows added; question 13 asks about the wider scope; dist archives ship the licence texts and `dist.sh` checks them; the current state kept as CLAUDE.md asks |
+| 40 | Negated pipelines pass when the producer fails or a glob matches nothing | rules | medium | fixed | Holds. Every such gate line now captures the producer or asserts its paths; the test-bridge check also runs on the image's served wasm (Rules, the M2 gate, C1) |
+| 41 | Renaming compose names would move the live wiki to empty volumes; the jq check can pass vacuously | rules | medium | fixed | Holds (`compose.yaml:1`, `:3`, `:30`). `compose.yaml` keeps every name and environment key in M2 (D142, R16); the jq check asserts the project and the `wikanvas` service exist |
+| 42 | Every image build retags `wikanvas:latest`, which the live wiki runs | rules | medium | fixed | Held until the v0.1.0-alpha.1 cut-over (`image.sh:33-35`), which pinned the live wiki's image with `WIKANVAS_IMAGE` in `.env`; from F0 `:latest` comes only from main; the spike image has its own tag; I names the exact tag (R16, §19.15 owner steps) |
+| 43 | The spike's toolchain build replaces everyone's toolchain image | rules | medium | fixed | Holds (`toolchain.sh:126`, `dev.sh:56`). R21: toolchain changes land on main first and the image is built only from main (before S0 and at F0's start) |
+| 44 | The build identifiers' rename is unspecified and could split the lock | rules | medium | fixed | Holds (`lock.sh:21`, `install-build-slice.sh`). The lock, build variables, images, builder and slices keep their names in M2 (R19, D142); the rename (D100) renamed them once, before M2, with the slice re-install through the owner's askpass |
+| 45 | D93-D99 already exist on main | rules | medium | fixed | Holds (`docs/ARCHITECTURE.md:4371-4377` at `9c6e60a`). §19's decisions renumbered D101-D138 and every reference updated in all three files; new decisions D139-D143 |
+| 46 | Only one port gets attribution; other borrowed code has no rule | rules | low | fixed | Holds (R9 covers GetPaper only). R20 requires a header, a `THIRD_PARTY.md` row and a handoff line for each, names the sources, and I checks it (§19.5.7) |
+| 47 | Some gate lines measure nothing; R14's grep misses web clocks | rules | low | fixed | Holds. The bench runs in the gate at 2× G10's budgets beside deterministic proxies; start-up runs at 2× G11's; NEEDED is compared with the allowed set; R14's pattern covers `Date::now`, `performance().now`, `Local::now`, `Utc::now` |
+| 48 | Rule texts contradict each other and CLAUDE.md | rules | low | fixed | Holds. One build at a time on the lock; every buildx script listed; host and container scripts told apart (`wasm-app.sh` is a container script); R17 adds F0 and X |
+| 49 | The notice-line rule cannot cover PNGs and `Cargo.lock` | rules | low | fixed | Holds. The README's patch table is their notice; 0007 adds that exception (§19.6.5) |
+| 50 | Lucide also carries Feather's MIT licence; poll-promise comes in anyway | rules | low | fixed | Holds (lucide's LICENSE; `egui_system_font_provider` 0.37.0 depends on poll-promise ^0.3.0). D133 and §19.12 corrected; lucide's LICENSE ships |
+| 51 | check-pins reads a generated, possibly stale copy of Inkboard's lock | rules | low | fixed | Holds (`check-pins.sh:2-3`). check-pins fails when the copy is missing or its stamp does not match the patches, and the gate runs `inkboard.sh src` first (R12) |
