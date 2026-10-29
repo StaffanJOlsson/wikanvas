@@ -1572,7 +1572,7 @@ in its handoff note; anything else through the orchestrator):
 | E1 | Engine: patches 0005 and 0006, `frame.js`, the frame tests | `/home/staffan/Projects/Wikanvas-E1-engine`, `ws/E1-engine` | the frozen contracts |
 | E2 | Server, core, store, `docs/AGENTS.md`, agent scenario 12 | `/home/staffan/Projects/Wikanvas-E2-server`, `ws/E2-server` | §18.2 and the fixture |
 | E3 | Web: the host overlay, "Text doc", "Embed page…", the sidebar drag and the drop, the fake frame, unit tests | `/home/staffan/Projects/Wikanvas-E3-web`, `ws/E3-web` | the bridge types (fake frame until E1 merges) |
-| M | Merge, smoke step 17, docs, the M1.1 gate | main, `/home/staffan/Projects/Quire` | E1, E2, E3 |
+| M | Merge, smoke step 17, docs, the M1.1 gate | main, the main checkout | E1, E2, E3 |
 
 ```
 main (contracts) ──┬─ E1 ─┐

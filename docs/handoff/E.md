@@ -81,7 +81,7 @@ before the commits).
 
 ## The gate (pass 3, HEAD `9c6e60a`)
 
-Every command ran from `/home/staffan/Projects/Quire` with
+Every command ran from the main checkout with
 `WIKANVAS_SHARED_CARGO_HOME=/home/staffan/.cache/wikanvas-cargo` in its environment, verbatim from `docs/PLAN.md`
 ("Acceptance (the M1.1 gate)" and, as its step 4, "Acceptance (the M1 release gate)"), each in its own `bash -c`, by one
 runner that records every exit code and does not stop on a failure (the same runner as passes 1 and 2). Images:
