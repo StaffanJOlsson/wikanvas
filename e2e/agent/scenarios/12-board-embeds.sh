@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 12: board document embeds (ARCHITECTURE §18, PLAN M1.1 E2): cards kept byte for byte through the CLI, malformed
-# embeds accepted and kept, the title snapshots in the text, search and preview, duplicate and the tree leaving the
+# embeds accepted and kept, the title snapshots in the preview but not in the text or search (D154), duplicate and the tree leaving the
 # cards alone, AGENTS.md's jq recipe run as it is written, and an embedded empty document never discarded.
 . "$AGENT_ROOT/e2e/agent/lib.sh"
 
@@ -56,14 +56,17 @@ cmp -s "$work/got.json" "$work/want.json" || _fail "board get differs from the b
 etag="$(val .etag)"
 ok "board get keeps both cards' kind.embed.item and the plain box without one; document.name is the title"
 
-# 4. The title snapshots are the board's text.
+# 4. The title snapshots are not the board's text (D154): a card's document is its own search hit, the board is not.
 q item text "$board"
 expect_rc 0
-expect '(.body | contains("First page")) and (.body | contains("Second page"))'
+expect '(.body | contains("Plain box")) and (.body | contains("First page") | not) and (.body | contains("Second page") | not)'
 q search "Second page" --collection "$SCRATCH"
 expect_rc 0
-expect "any(.items[]; .item.id == \"$board\")"
-ok "item text of the board holds both title snapshots, and search \"Second page\" finds the board"
+expect "all(.items[]; .item.id != \"$board\")"
+q search "Shared page" --collection "$SCRATCH"
+expect_rc 0
+expect "any(.items[]; .item.id == \"$shared\") and all(.items[]; .item.id != \"$board\")"
+ok "item text of the board leaves the cards out, and search finds the documents, not the board"
 
 # 5. No value of embed is refused, and every one is kept as it was sent.
 malformed="$work/malformed.inkboard"

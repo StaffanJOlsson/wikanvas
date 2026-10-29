@@ -1140,8 +1140,8 @@ test('smoke: setup to export (PLAN W7 steps 1-15, the review fixes, M1.1 board e
     await page.setViewportSize(viewport);
   });
 
+  const MEMBER = { name: 'Smoke Member', email: 'member@example.com', password: 'member-password-123' };
   await test.step('20. Members: the owner invites a member, who reads and edits C but cannot empty the trash; disabled, their session ends (D148)', async () => {
-    const MEMBER = { name: 'Smoke Member', email: 'member@example.com', password: 'member-password-123' };
     await page.goto('/settings/account');
     await page.getByRole('navigation', { name: 'Settings' }).getByRole('link', { name: 'Members' }).click();
     await page.waitForURL('**/settings/members');
@@ -1242,6 +1242,103 @@ test('smoke: setup to export (PLAN W7 steps 1-15, the review fixes, M1.1 board e
     await member.getByLabel('Password').fill(MEMBER.password);
     await member.getByRole('button', { name: 'Sign in' }).click();
     expect((await login).status()).toBe(401);
+    await memberContext.close();
+  });
+
+  await test.step('21. Access per collection: a private collection the member cannot see, then reads, then edits (D152)', async () => {
+    // The owner enables the member of step 20 again.
+    await page.goto('/settings/members');
+    const memberRow = page.locator('.members-table tbody tr', { hasText: MEMBER.email });
+    const enabled = page.waitForResponse((r) => r.request().method() === 'PATCH' && /\/api\/v1\/users\/[^/]+$/.test(new URL(r.url()).pathname));
+    await memberRow.getByRole('button', { name: `Enable ${MEMBER.name}` }).click();
+    expect((await enabled).status()).toBe(200);
+
+    // A collection only its members see, with a document in it.
+    await sidebar(page).getByRole('button', { name: 'New collection…' }).click();
+    const create = page.getByRole('dialog', { name: 'New collection' });
+    await create.getByLabel('Name').fill('Private');
+    await create.getByLabel('Default access').selectOption({ label: 'Only members' });
+    const made = page.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname === '/api/v1/collections');
+    await create.getByRole('button', { name: 'Create', exact: true }).click();
+    const created = await made;
+    expect(created.status()).toBe(201);
+    const privateCollection = await created.json();
+    expect(privateCollection).toMatchObject({ default_access: 'none', my_access: 'manage' });
+    await page.waitForURL('**/collection/private-*');
+    const priv = treeItem(page, 'Private');
+    await priv.hover();
+    await pick(page, priv.getByRole('button', { name: 'New in Private' }), 'Document');
+    await waitForNewItem(page, 'doc', null);
+    await setTitle(page, page.locator('#item-title'), 'Secret plan');
+    await editor(page).click();
+    const saved = page.waitForResponse((r) => isDocUpdate(r) && r.ok(), { timeout: SAVE_TIMEOUT });
+    await page.keyboard.type('A wombat budget.');
+    await saved;
+    await expect(saveStatus(page)).toHaveText('Saved', { timeout: SAVE_TIMEOUT });
+    const secretUrl = page.url();
+    const secretId = (await detail(page, urlIdOf(page))).item.id as string;
+
+    // The member signs in again and finds the collection nowhere: not in the sidebar, search or its URL.
+    const origin = new URL(page.url()).origin;
+    const memberContext = await browser.newContext({ baseURL: origin });
+    memberContext.on('console', (m) => {
+      if (/Content Security Policy/i.test(m.text())) cspViolations.push(`${m.location().url}: ${m.text()}`);
+    });
+    const member = await memberContext.newPage();
+    member.on('pageerror', (e) => pageErrors.push(`member: ${e.message}`));
+    await member.goto('/login');
+    await member.getByLabel('Email').fill(MEMBER.email);
+    await member.getByLabel('Password').fill(MEMBER.password);
+    const login = member.waitForResponse((r) => r.request().method() === 'POST' && new URL(r.url()).pathname === '/api/v1/auth/login');
+    await member.getByRole('button', { name: 'Sign in' }).click();
+    expect((await login).status()).toBe(200);
+    await member.waitForURL('**/home');
+    await expect(treeItem(member, 'Eng')).toBeVisible();
+    await expect(treeItem(member, 'Private')).toHaveCount(0);
+    expect((await member.request.get(`/api/v1/collections/${privateCollection.id}`)).status()).toBe(404);
+    expect((await member.request.get(`/api/v1/items/${secretId}`)).status()).toBe(404);
+    const found = await (await member.request.get('/api/v1/search?q=wombat')).json();
+    expect(found.items).toEqual([]);
+    await member.goto(secretUrl);
+    await expect(member.getByRole('heading', { name: 'Page not found' })).toBeVisible();
+
+    // The owner adds the member with Read, in the collection's settings.
+    await page.goto(secretUrl);
+    await treeItem(page, 'Private').hover();
+    await pick(page, treeItem(page, 'Private').getByRole('button', { name: 'Private menu' }), 'Edit…');
+    const edit = page.getByRole('dialog', { name: 'Edit collection' });
+    await expect(edit.getByLabel('Default access')).toHaveValue('none');
+    await edit.getByLabel('Person to add').selectOption({ label: `${MEMBER.name} (Member)` });
+    await edit.getByLabel('Access to give').selectOption('read');
+    const added = page.waitForResponse((r) => r.request().method() === 'PUT' && /\/api\/v1\/collections\/[^/]+\/members\/[^/]+$/.test(new URL(r.url()).pathname));
+    await edit.getByRole('button', { name: 'Add', exact: true }).click();
+    expect((await added).status()).toBe(200);
+    await expect(edit.getByLabel(`Access of ${MEMBER.name}`)).toHaveValue('read');
+
+    // The member sees it now, read-only: the banner, no editing, no title input to change.
+    await member.goto('/home');
+    await expect(treeItem(member, 'Private')).toBeVisible();
+    await member.goto(secretUrl);
+    await expect(member.getByText('You can read this collection but not change it.')).toBeVisible();
+    await expect(editor(member).locator('p', { hasText: 'A wombat budget.' })).toHaveCount(1);
+    await expect(member.locator('.wikanvas-editor [contenteditable="true"]')).toHaveCount(0);
+    expect((await member.request.patch(`/api/v1/items/${secretId}`, { data: { title: 'Taken' } })).status()).toBe(403);
+
+    // With Write, the member edits.
+    const changed = page.waitForResponse((r) => r.request().method() === 'PUT' && /\/members\/[^/]+$/.test(new URL(r.url()).pathname));
+    await edit.getByLabel(`Access of ${MEMBER.name}`).selectOption('write');
+    expect((await changed).status()).toBe(200);
+    await member.reload();
+    await expect(member.getByText('You can read this collection but not change it.')).toHaveCount(0);
+    await editor(member).locator('p', { hasText: 'A wombat budget.' }).click();
+    await settle(member);
+    await member.keyboard.press('End');
+    const edited = member.waitForResponse((r) => isDocUpdate(r) && r.ok(), { timeout: SAVE_TIMEOUT });
+    await member.keyboard.type(' Approved.');
+    await edited;
+    await expect(saveStatus(member)).toHaveText('Saved', { timeout: SAVE_TIMEOUT });
+    const text = await (await page.request.get(`/api/v1/items/${secretId}/text`)).json();
+    expect(text.body).toContain('A wombat budget. Approved.');
     await memberContext.close();
   });
 
