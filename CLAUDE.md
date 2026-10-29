@@ -46,9 +46,17 @@ The owner's machine has been brought to 100% by Rust builds before; caps are a h
   green, land it as a fast-forward of `main` (`git push origin <branch>:main`), which keeps the commits, and the image
   tags built from them, unchanged.
 - Pushing branches and landing green pull requests need no approval from the owner. Stable releases (a tag and a
-  GitHub release) come now and then, not per change. Deploying an image to the owner's live wiki is the owner's step.
-- CI runs on GitHub's 4-CPU runners with `WIKANVAS_BUILD_CPUS=4`. Pin every action by commit SHA, with its release
-  tag in a comment.
+  GitHub release) come now and then, not per change. Deploying an image to the owner's live wiki needs the owner's
+  go-ahead in chat.
+- `main` is protected by the repository ruleset "main": no deletion, no force push, linear history, and the three CI
+  jobs ("Rust and web", "Image, smoke, agents, e2e", "Board frame") must have passed on the exact commit before it can
+  be pushed, so a branch head reaches `main` only after its pull request's CI is green. The ruleset "release tags" keeps
+  `v*` tags from moving or being deleted, and releases are immutable once published: attach every asset while the
+  release is a draft.
+- Dependabot opens security-update pull requests (any ecosystem) and a weekly grouped one for the actions. Treat them
+  like any pull request: a lockfile change still updates `THIRD_PARTY.md`.
+- CI runs on GitHub's 4-CPU runners with `WIKANVAS_BUILD_CPUS=4`. Only GitHub-owned actions are allowed; pin every
+  action by commit SHA, with its release tag in a comment.
 
 ## Hosting
 
