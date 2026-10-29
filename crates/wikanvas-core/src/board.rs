@@ -136,8 +136,9 @@ pub struct Meta {
 pub struct Inspect {
     /// The search text (`item_text.body`): per page, its name, then the text of its objects in drawing order (box
     /// labels, connector labels, table rows with cells separated by `\t`, image LaTeX), one entry per line, empty
-    /// entries left out. A card's label is its title snapshot (§18.2), so a board is found by the titles of the
-    /// documents it shows, never by their bodies.
+    /// entries left out. Cards (§18.2) are left out: a card's label is the title snapshot of a document that someone
+    /// who may read the board may not be allowed to read (D152), so a board is found by its own text, never by the
+    /// titles or bodies of the documents it shows (each document is its own search hit).
     pub text: String,
     pub meta: Meta,
     /// The targets of the board's cards that are canonical UUIDs ([`embeds`]): what `item_links` records.
@@ -363,7 +364,7 @@ pub fn splice(
 pub fn inspect(full: &str) -> Result<Inspect, BoardError> {
     let doc = serial::from_json(full)?;
     check_shapes(&doc)?;
-    let text = text_of(&doc);
+    let lines = text_lines(&doc);
     let meta = Meta {
         pages: doc
             .pages
@@ -376,12 +377,142 @@ pub fn inspect(full: &str) -> Result<Inspect, BoardError> {
         objects: doc.pages.iter().map(|p| p.objects.len() as u64).sum(),
         background: doc.background.preset.hex(),
         bytes: full.len() as u64,
-        text_excerpt: excerpt(&text).to_owned(),
+        text_excerpt: String::new(),
     };
     // The scan's lists are never held beside the typed document (a 50 MB board's peak, D25).
     drop(doc);
-    let embeds = embeds(full)?;
-    Ok(Inspect { text, meta, embeds })
+    let scan = scan(full)?;
+    let text = join_lines(lines, &scan.card_ids());
+    let mut meta = meta;
+    meta.text_excerpt = excerpt(&text).to_owned();
+    Ok(Inspect {
+        text,
+        meta,
+        embeds: scan.embeds(),
+    })
+}
+
+/// The search text of a stored board (stripped or full; the asset bytes do not matter) as [`inspect`] derives it,
+/// when the board holds a card: for migration 0003, which takes the cards' labels out of the text that earlier builds
+/// derived (D152). `None` for a board without cards (its text is unchanged) or one this build cannot read.
+pub fn text_without_cards(body: &str) -> Option<String> {
+    let scan = scan(body).ok()?;
+    let cards = scan.card_ids();
+    if cards.is_empty() {
+        return None;
+    }
+    let doc = serial::from_json(body).ok()?;
+    let lines = text_lines(&doc);
+    drop(doc);
+    Some(join_lines(lines, &cards))
+}
+
+/// The label a card gets in place of its title snapshot when the reader may not open its target (D152, §18.12):
+/// the words the host shows for a card whose target is missing, styled as the engine writes a new card's label.
+pub const REDACTED_LABEL: &str = "Page not found";
+
+/// The envelope with the label of every card whose `embed.item` fails `keep` replaced by a label that reads
+/// [`REDACTED_LABEL`] (D152, §18.12): the board GET, its download and its previews for a reader who may not open
+/// some of the documents the board shows. Every card is checked, also an object whose id repeats on its page (the
+/// engine drops it, but the JSON still holds it). Only the label values change; every other byte stays (D9). Refuses
+/// a body the card scan cannot read (422 `invalid_board`): a stored board always passes it.
+pub fn redact_cards(full: &str, keep: impl Fn(&str) -> bool) -> Result<String, BoardError> {
+    let input = serial::strip_bom(full);
+    let env = serde_json::from_str::<ScanEnvelope<'_>>(input).map_err(BoardError::invalid)?;
+    let label = format!(
+        r##"{{"text":[{{"text":{},"bold":true,"color":"#1d2430"}}],"family":"sans","size":24.0,"align":"center"}}"##,
+        serde_json::to_string(REDACTED_LABEL).map_err(BoardError::invalid)?
+    );
+    let mut edits = Vec::new();
+    for page in &env.document.pages {
+        for o in &page.objects {
+            let Some(item) = o.kind.card.as_deref() else {
+                continue;
+            };
+            if keep(item) {
+                continue;
+            }
+            for raw in &o.kind.labels {
+                let (start, end) = span(input, raw.get());
+                edits.push(Edit {
+                    start,
+                    end,
+                    with: label.clone(),
+                });
+            }
+        }
+    }
+    Ok(apply(input, edits))
+}
+
+/// What the card scan found: every card (§18.2) of every page, in drawing order, with whether it is the first
+/// object of its id on its page (the engine's `serial::sanitize` drops the later ones).
+struct Scan<'a> {
+    cards: Vec<ScanCard<'a>>,
+}
+
+struct ScanCard<'a> {
+    page: usize,
+    id: Cow<'a, str>,
+    item: Cow<'a, str>,
+    first: bool,
+}
+
+impl Scan<'_> {
+    /// The targets [`embeds`] returns: of the first objects of their ids, canonical UUIDs, distinct, at most
+    /// [`EMBED_LINKS_MAX`].
+    fn embeds(&self) -> Vec<String> {
+        let mut targets: Vec<String> = Vec::new();
+        let mut taken: HashSet<&str> = HashSet::new();
+        for c in self.cards.iter().filter(|c| c.first) {
+            if targets.len() < EMBED_LINKS_MAX
+                && is_canonical_uuid(&c.item)
+                && taken.insert(c.item.as_ref())
+            {
+                targets.push(c.item.to_string());
+            }
+        }
+        targets
+    }
+
+    /// `(page, object id)` of every card that the engine keeps (the first object of its id).
+    fn card_ids(&self) -> HashSet<(usize, String)> {
+        self.cards
+            .iter()
+            .filter(|c| c.first)
+            .map(|c| (c.page, c.id.to_string()))
+            .collect()
+    }
+}
+
+/// The card scan of [`embeds`]. A body it cannot read gives no cards; a box kind with the key `embed` twice is
+/// refused (422 `invalid_board`).
+fn scan(full: &str) -> Result<Scan<'_>, BoardError> {
+    let Ok(env) = serde_json::from_str::<ScanEnvelope<'_>>(serial::strip_bom(full)) else {
+        return Ok(Scan { cards: Vec::new() });
+    };
+    let mut cards = Vec::new();
+    for (index, page) in env.document.pages.into_iter().enumerate() {
+        let mut ids: HashSet<Cow<'_, str>> = HashSet::with_capacity(page.objects.len());
+        for o in page.objects {
+            if o.kind.is_box && o.kind.embed_keys > 1 {
+                return Err(BoardError::invalid(format!(
+                    "page {index}: the object {}: duplicate field `embed` (a card holds one embed)",
+                    o.id
+                )));
+            }
+            let first = ids.insert(o.id.clone());
+            if let Some(item) = o.kind.card {
+                cards.push(ScanCard {
+                    page: index,
+                    id: o.id,
+                    item,
+                    first,
+                });
+            }
+        }
+    }
+    Ok(Scan { cards })
 }
 
 /// The targets of a board's cards (§18.2, §18.8): the `item` of every object whose `kind` has `type` `"box"`, `geom`
@@ -403,33 +534,7 @@ pub fn inspect(full: &str) -> Result<Inspect, BoardError> {
 /// engine does; a kind by position is never a card (`from_json` refuses one long enough to hold `embed`). A body the
 /// pass cannot read (one that `from_json` refuses) gives no targets, never an error.
 pub fn embeds(full: &str) -> Result<Vec<String>, BoardError> {
-    let Ok(env) = serde_json::from_str::<ScanEnvelope<'_>>(serial::strip_bom(full)) else {
-        return Ok(Vec::new());
-    };
-    let mut targets: Vec<String> = Vec::new();
-    let mut taken: HashSet<&str> = HashSet::new();
-    for (index, page) in env.document.pages.iter().enumerate() {
-        let mut ids: HashSet<&str> = HashSet::with_capacity(page.objects.len());
-        for o in &page.objects {
-            if o.kind.is_box && o.kind.embed_keys > 1 {
-                return Err(BoardError::invalid(format!(
-                    "page {index}: the object {}: duplicate field `embed` (a card holds one embed)",
-                    o.id
-                )));
-            }
-            if !ids.insert(&o.id) {
-                continue;
-            }
-            if let Some(item) = o.kind.card.as_deref()
-                && targets.len() < EMBED_LINKS_MAX
-                && is_canonical_uuid(item)
-                && taken.insert(item)
-            {
-                targets.push(item.to_owned());
-            }
-        }
-    }
-    Ok(targets)
+    Ok(scan(full)?.embeds())
 }
 
 /// Whether `s` is a UUID in canonical form: 36 characters, lowercase hexadecimal digits with hyphens at 8, 13, 18 and
@@ -513,6 +618,8 @@ struct ScanKind<'a> {
     card: Option<Cow<'a, str>>,
     /// How many `embed` keys the kind holds.
     embed_keys: usize,
+    /// Every `label` value of a card's kind, as raw JSON (one in any board an engine wrote), for [`redact_cards`].
+    labels: Vec<&'a RawValue>,
 }
 
 impl<'de: 'a, 'a> Deserialize<'de> for ScanKind<'a> {
@@ -527,6 +634,7 @@ impl<'de: 'a, 'a> Deserialize<'de> for ScanKind<'a> {
 
             fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<ScanKind<'a>, A::Error> {
                 let (mut ty, mut geom, mut embed, mut embed_keys) = (None, None, None, 0);
+                let mut labels = Vec::new();
                 while let Some(Text(key)) = map.next_key::<Text<'a>>()? {
                     match &*key {
                         "type" => ty = text(map.next_value::<&'a RawValue>()?),
@@ -536,6 +644,7 @@ impl<'de: 'a, 'a> Deserialize<'de> for ScanKind<'a> {
                             embed_keys += 1;
                             embed.get_or_insert(value);
                         }
+                        "label" => labels.push(map.next_value::<&'a RawValue>()?),
                         _ => {
                             map.next_value::<IgnoredAny>()?;
                         }
@@ -547,10 +656,14 @@ impl<'de: 'a, 'a> Deserialize<'de> for ScanKind<'a> {
                 } else {
                     None
                 };
+                if card.is_none() {
+                    labels.clear();
+                }
                 Ok(ScanKind {
                     is_box,
                     card,
                     embed_keys,
+                    labels,
                 })
             }
 
@@ -560,6 +673,7 @@ impl<'de: 'a, 'a> Deserialize<'de> for ScanKind<'a> {
                     is_box: false,
                     card: None,
                     embed_keys: 0,
+                    labels: Vec::new(),
                 })
             }
         }
@@ -1023,21 +1137,26 @@ pub fn excerpt(text: &str) -> &str {
     &text[..end]
 }
 
-fn text_of(doc: &Document) -> String {
-    let mut lines: Vec<String> = Vec::new();
-    let mut push = |s: String| {
-        if !s.trim().is_empty() {
-            lines.push(s);
-        }
-    };
-    for page in &doc.pages {
-        push(page.name.clone());
+/// One line of the search text: its page, the object it comes from (`None` for the page name) and the text.
+type TextLine = (usize, Option<String>, String);
+
+/// The search text's lines, before the cards are taken out ([`join_lines`]).
+fn text_lines(doc: &Document) -> Vec<TextLine> {
+    let mut lines: Vec<TextLine> = Vec::new();
+    for (index, page) in doc.pages.iter().enumerate() {
+        let mut push = |object: Option<&str>, s: String| {
+            if !s.trim().is_empty() {
+                lines.push((index, object.map(str::to_owned), s));
+            }
+        };
+        push(None, page.name.clone());
         for o in &page.objects {
+            let id = Some(o.id.as_str());
             match &o.kind {
-                Kind::Box(b) => push(b.label.text.to_plain()),
+                Kind::Box(b) => push(id, b.label.text.to_plain()),
                 Kind::Connector(c) => {
                     if let Some(l) = &c.label {
-                        push(l.text.to_plain());
+                        push(id, l.text.to_plain());
                     }
                 }
                 Kind::Table(t) => {
@@ -1045,19 +1164,33 @@ fn text_of(doc: &Document) -> String {
                         let cells: Vec<String> = (0..t.cols())
                             .map(|c| t.cell(r, c).map(|x| x.to_plain()).unwrap_or_default())
                             .collect();
-                        push(cells.join("\t"));
+                        push(id, cells.join("\t"));
                     }
                 }
                 Kind::Image(i) => {
                     if let Some(latex) = &i.latex {
-                        push(latex.clone());
+                        push(id, latex.clone());
                     }
                 }
                 Kind::Pen(_) => {}
             }
         }
     }
-    lines.join("\n")
+    lines
+}
+
+/// The search text: the lines but those of the cards (`(page, object id)`), one per line.
+fn join_lines(lines: Vec<TextLine>, cards: &HashSet<(usize, String)>) -> String {
+    let kept: Vec<String> = lines
+        .into_iter()
+        .filter(|(page, object, _)| {
+            object
+                .as_ref()
+                .is_none_or(|id| !cards.contains(&(*page, id.clone())))
+        })
+        .map(|(_, _, line)| line)
+        .collect();
+    kept.join("\n")
 }
 
 #[cfg(test)]
@@ -1819,15 +1952,80 @@ mod tests {
 
     #[test]
     fn embed_fixture_text_and_preview() {
+        // The cards' title snapshots are not the board's text (D152); the plain box's label is.
         let i = inspect(EMBED_FIXTURE).unwrap();
-        assert_eq!(i.text, "Page 1\nFirst page\nSecond page\nPlain box");
+        assert_eq!(i.text, "Page 1\nPlain box");
         assert_eq!(i.meta.text_excerpt, i.text);
+        assert_eq!(
+            text_without_cards(EMBED_FIXTURE).as_deref(),
+            Some("Page 1\nPlain box")
+        );
+        let plain = with_objects(|o| {
+            o.drain(0..2);
+        });
+        assert_eq!(text_without_cards(&plain), None, "no card: the text stays");
+        assert_eq!(inspect(&plain).unwrap().text, "Page 1\nPlain box");
+        // A box that only looks like a card (another geometry) keeps its label in the text.
+        let ellipse = with_objects(|o| o[0]["kind"]["geom"] = Value::from("ellipse"));
+        assert_eq!(
+            inspect(&ellipse).unwrap().text,
+            "Page 1\nFirst page\nPlain box"
+        );
         let svg = preview(EMBED_FIXTURE, 0).unwrap().unwrap();
         for label in ["First page", "Second page", "Plain box"] {
             assert!(svg.contains(label), "{label} in {svg}");
         }
         // The card's title snapshot keeps its colour, on the card's white fill.
         assert!(svg.contains("#1d2430"), "{svg}");
+    }
+
+    #[test]
+    fn redact_cards_replaces_only_the_labels_of_cards_not_kept() {
+        // Keeping every card changes nothing, byte for byte.
+        assert_eq!(
+            redact_cards(EMBED_FIXTURE, |_| true).unwrap(),
+            EMBED_FIXTURE
+        );
+        let redacted = redact_cards(EMBED_FIXTURE, |item| item == P2).unwrap();
+        assert!(!redacted.contains("First page"), "{redacted}");
+        assert!(redacted.contains("Second page") && redacted.contains("Plain box"));
+        assert_eq!(redacted.matches(REDACTED_LABEL).count(), 1);
+        // The engine still reads it, with the same objects and the card's target kept.
+        let doc = serial::from_json(&redacted).unwrap();
+        assert_eq!(doc.pages[0].objects.len(), 3);
+        assert_eq!(embeds(&redacted).unwrap(), [P1, P2]);
+        let svg = preview(&redacted, 0).unwrap().unwrap();
+        assert!(
+            svg.contains(REDACTED_LABEL) && !svg.contains("First page"),
+            "{svg}"
+        );
+        // Only the label changed: the rest of the card is as it was.
+        let (a, b): (Value, Value) = (
+            serde_json::from_str(EMBED_FIXTURE).unwrap(),
+            serde_json::from_str(&redacted).unwrap(),
+        );
+        let (ka, kb) = (
+            &a["document"]["pages"][0]["objects"][0]["kind"],
+            &b["document"]["pages"][0]["objects"][0]["kind"],
+        );
+        for field in ["type", "geom", "frame", "embed"] {
+            assert_eq!(ka[field], kb[field], "{field}");
+        }
+        assert_eq!(kb["label"]["text"][0]["text"], REDACTED_LABEL);
+        // Nothing kept: both cards, and a repeated object id (which the engine drops) too.
+        let twice = with_objects(|o| {
+            let first = o[0].clone();
+            o.push(first);
+        });
+        let all = redact_cards(&twice, |_| false).unwrap();
+        assert!(
+            !all.contains("First page") && !all.contains("Second page"),
+            "{all}"
+        );
+        assert_eq!(all.matches(REDACTED_LABEL).count(), 3);
+        assert!(all.contains("Plain box"));
+        // A body that is no board is refused.
+        assert!(redact_cards("[]", |_| true).is_err());
     }
 
     #[test]

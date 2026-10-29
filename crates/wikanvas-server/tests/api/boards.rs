@@ -16,7 +16,7 @@ use wikanvas_api::{BoardPutResult, ErrorCode, ItemKind, NewCollection, NewItem, 
 
 use crate::common::{TestApp, assert_error};
 
-const PNG: &[u8] =
+pub const PNG: &[u8] =
     b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\0\x02\0\0\0\x02\x08\x06\0\0\0\x72\xb6\x0d\x24";
 
 /// A collection and a board item titled `title`, made through the store; returns the board's id.
@@ -26,9 +26,13 @@ async fn new_item(app: &TestApp, kind: ItemKind, title: &str) -> String {
     app.state
         .db
         .write(move |tx| {
+            let by = wikanvas_store::Viewer {
+                user_id: owner.clone(),
+                role: wikanvas_api::Role::Owner,
+            };
             let c = wikanvas_store::collections::create(
                 tx,
-                &owner,
+                &by,
                 &NewCollection {
                     name: "Boards".into(),
                     ..Default::default()
@@ -978,10 +982,8 @@ async fn put_with_embeds_keeps_them_byte_for_byte() {
     for (client, body) in [(&app.server, embed_fixture()), (&agent, swapped)] {
         let saved = put_ok(client, &id, &body, "*").await;
         assert_eq!(saved.meta.objects, 3);
-        assert_eq!(
-            saved.meta.text_excerpt,
-            "Page 1\nFirst page\nSecond page\nPlain box"
-        );
+        // The cards' title snapshots are not the board's text (D152).
+        assert_eq!(saved.meta.text_excerpt, "Page 1\nPlain box");
         let res = client.get(&board_url(&id)).await;
         res.assert_status_ok();
         assert_eq!(res.text(), body, "every byte of the cards survives");
