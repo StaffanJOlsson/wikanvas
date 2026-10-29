@@ -50,7 +50,7 @@ recreate should not need a full rebuild.
 | `CLAUDE.md` | Task 9: the `docker/Dockerfile` toolchain target, and the agent-harness / `docs/AGENTS.md` line. |
 | `docs/ARCHITECTURE.md` | §16 item 24 only (W0b pin checks). No other line changed. |
 
-Docker state: `quire-toolchain:latest` rebuilt (`8011426db92e`); `quire:884bcbf-dirty` = `quire:latest`
+Docker state: `quire-toolchain:latest` rebuilt (`8011426db92e`); `quire:1b59aa0-dirty` = `quire:latest`
 (`0285cc1c739b`, built from the final tree); `mcr.microsoft.com/playwright:v1.64.1-noble` pulled. No smoke or e2e
 container, network or volume is left. Git-ignored output left on disk: `web/dist-inkboard/` (the stub), the
 `node_modules` of `web/` and `e2e/`, `e2e/test-results/` and `e2e/playwright-report/`. `web/dist` was removed.

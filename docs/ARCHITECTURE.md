@@ -4376,7 +4376,7 @@ written into the section it amends:
 | D98 | A drop places only a live document, titled from its own `ItemDetail` (fetched when not cached), never from the drag data; every title snapshot is at most 200 characters (§18.6 (c), §18.12) | The drag data's title when the cache is cold (any page can start such a drag and choose the stored label); refusing uncached targets (a drop from a sidebar whose rows were never opened would fail) |
 | D99 | The review's changes to 0005 and 0006 keep patchset `3` (`0.2.0-beta.3+embed.quire.3`) | Patchset 4, as M1's review fixes bumped 1 to 2 (patchset 3 never shipped: the owner's wiki runs the M1 engine, patchset 2, and only M1.1's test images carried 3; PLAN M1.1 names `3` as the series M1.1 ships and its gate checks it, and every build is still told apart by its content-hashed build id) |
 
-### 18.15 Design inputs checked against the code (2026-10-28, main `d9cdef1`)
+### 18.15 Design inputs checked against the code (2026-10-28, main `02f79a9`)
 
 Paths under `inkboard-core/`, `inkboard-app/` and `svg.rs` are in `crates/` of Inkboard; line numbers of `inkboard-app`
 files are those of the applied series (`.cache/inkboard-src`, patches 0001–0004), which leaves `tools.rs`,
@@ -4399,7 +4399,7 @@ files are those of the applied series (`.cache/inkboard-src`, patches 0001–000
 | The sidebar tree can feed a drop into the iframe | Holds: rows are pragmatic-dnd `draggable`s (`TreeRow.tsx:91-96`) and pragmatic-dnd 4.0.0 writes `getInitialDataForExternal` into the native `dataTransfer` (`element-adapter.js:167-175`) |
 | Trash, restore and purge of children follow the subtree; duplicate copies no children | Holds: §5 "Trash", "Purge"; §7.2 duplicate; `quire-store/src/items.rs:257-293` |
 
-Added by the independent review of the same day (main `5ad7a7d`; each fixed in place above):
+Added by the independent review of the same day (main `ae0ed61`; each fixed in place above):
 
 | Claim checked | Finding and evidence |
 |---|---|

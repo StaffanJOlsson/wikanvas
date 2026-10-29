@@ -1,6 +1,6 @@
 # Merge of W1–W6 and W8 into main (2026-10-28)
 
-W7 reads this next. Main started clean at `47c3c67` (W0b). The seven workstream branches were merged one at a time with
+W7 reads this next. Main started clean at `52cf9aa` (W0b). The seven workstream branches were merged one at a time with
 `git merge --no-ff`, in the order W1, W2, W4, W6, W5, W3, W8. Every check below ran after each merge. Nothing was
 pushed. `vendor/inkboard` and the worktrees `../Quire-W*` were not touched.
 
@@ -8,13 +8,13 @@ pushed. `vendor/inkboard` and the worktrees `../Quire-W*` were not touched.
 
 | # | Branch (tip) | Merge commit | Conflicts and how they were resolved |
 |---|---|---|---|
-| 1 | `ws/W1-tree` (`1a122a2`) | `4182111` Merge W1 | None. W1's `Cargo.lock` change (unicode-normalization in quire-core) came in cleanly; `scripts/check-pins.sh` passes. |
-| 2 | `ws/W2-platform` (`e76a030`) | `8535715` Merge W2 | `docs/api/openapi.json`: took main's side, then regenerated it (R4). The result has 47 paths and 59 operations: W1's 43 plus W2's 23, less W0b's 7 shared ones. |
-| 3 | `ws/W4-documents` (`b560aab`) | `879cc02` Merge W4 | `docs/api/openapi.json`: the same steps. Result: 52 paths, 66 operations (59 + 14 − 7). |
-| 4 | `ws/W6-boards` (`99e4043`) | `cc67803` Merge W6 | `docs/api/openapi.json`: the same steps. Result: 55 paths, 70 operations (66 + 11 − 7). |
-| 5 | `ws/W5-inkboard` (`2bf58a8`) | `ab29987` Merge W5 | None. |
-| 6 | `ws/W3-web-shell` (`fd42c4b`) | `43263e6` Merge W3 | None. |
-| 7 | `ws/W8-cli` (`2837654`) | `706c4a1` Merge W8 | None. |
+| 1 | `ws/W1-tree` (`a538398`) | `be99303` Merge W1 | None. W1's `Cargo.lock` change (unicode-normalization in quire-core) came in cleanly; `scripts/check-pins.sh` passes. |
+| 2 | `ws/W2-platform` (`22fd02f`) | `0d6632a` Merge W2 | `docs/api/openapi.json`: took main's side, then regenerated it (R4). The result has 47 paths and 59 operations: W1's 43 plus W2's 23, less W0b's 7 shared ones. |
+| 3 | `ws/W4-documents` (`9721321`) | `107219f` Merge W4 | `docs/api/openapi.json`: the same steps. Result: 52 paths, 66 operations (59 + 14 − 7). |
+| 4 | `ws/W6-boards` (`8e5d751`) | `6f96ae7` Merge W6 | `docs/api/openapi.json`: the same steps. Result: 55 paths, 70 operations (66 + 11 − 7). |
+| 5 | `ws/W5-inkboard` (`770e54f`) | `70ac958` Merge W5 | None. |
+| 6 | `ws/W3-web-shell` (`05dc975`) | `0a3af1e` Merge W3 | None. |
+| 7 | `ws/W8-cli` (`67d98ac`) | `fb9115c` Merge W8 | None. |
 
 To regenerate the spec, the command was
 `scripts/dev.sh env UPDATE_OPENAPI=1 cargo test -p quire-server --locked --test api -- openapi::`. Each time, the
@@ -31,7 +31,7 @@ The bindings drift check passes on main.
 
 | Commit | After | What and why |
 |---|---|---|
-| `fba0612` | W8 | **Fix after merging W8: stale-ETag flows tests send a changed body.** Two tests failed once W4's and W6's routes were present: `flows::doc_markdown_roundtrip_and_stale_etag_exit_9` and `flows::board_put_get_preserves_unknown_fields`. Both sent the already-stored content again with a stale `If-Match` and expected exit 9. The server answers 200 with no change. That is the documented rule: for documents, ARCHITECTURE D50 says a stale base whose target equals the current state is `changed: false`; for boards, §6.2 step 4 runs the no-op hash before `If-Match`. Each stale PUT now sends a body that differs from the stored state, so the 412 and exit 9 are still checked. The board test also checks that `--force` stores the change. All 11 `flows::` tests pass. This changes W8-owned test code, and W8 should review it. |
+| `d28ff5b` | W8 | **Fix after merging W8: stale-ETag flows tests send a changed body.** Two tests failed once W4's and W6's routes were present: `flows::doc_markdown_roundtrip_and_stale_etag_exit_9` and `flows::board_put_get_preserves_unknown_fields`. Both sent the already-stored content again with a stale `If-Match` and expected exit 9. The server answers 200 with no change. That is the documented rule: for documents, ARCHITECTURE D50 says a stale base whose target equals the current state is `changed: false`; for boards, §6.2 step 4 runs the no-op hash before `If-Match`. Each stale PUT now sends a body that differs from the stored state, so the 412 and exit 9 are still checked. The board test also checks that `--force` stores the change. All 11 `flows::` tests pass. This changes W8-owned test code, and W8 should review it. |
 
 No schema request was outstanding: every report had `schema_requests: []`. No cross-owner request was needed to get
 main green, so none was applied. The open ones are listed below.
@@ -58,8 +58,8 @@ Every command ran with `QUIRE_SHARED_CARGO_HOME=/home/staffan/.cache/quire-cargo
 | W6 | all pass | 123 · 10 + 6 · 68 · 58 + 178 · 22 + 112 | 30 / 143 |
 | W5 | all pass | same as W6 | 30 / 143 |
 | W3 | all pass | same as W6 | 59 / 280 |
-| W8 | **test failed**: 2 of the 68 `tests/cli` tests (see `fba0612`); everything else passed | 123 · 43 + 66 (cargo stopped at the failing binary) | 59 / 280 |
-| `fba0612` | all pass | 123 · 43 + 68 · 68 · 58 + 178 · 22 + 112 | 59 / 280 |
+| W8 | **test failed**: 2 of the 68 `tests/cli` tests (see `d28ff5b`); everything else passed | 123 · 43 + 66 (cargo stopped at the failing binary) | 59 / 280 |
+| `d28ff5b` | all pass | 123 · 43 + 68 · 68 · 58 + 178 · 22 + 112 | 59 / 280 |
 
 The store's unit test count dropping from 20 to 19 after W4 is expected. `quire-store/src/docs.rs` has 2 unit tests
 on W4's branch, against W0b's 3, which matches the per-branch counts in the W1, W2 and W4 reports.
@@ -99,7 +99,7 @@ or a design decision.
    response is immutable and identity-encoded.
 2. **Scenario `e2e/agent/scenarios/04-boards.sh` will fail at "a stale --if-match exits 9".** Lines 32–36 send the
    unchanged `future.inkboard` with `--if-match r1`, which hits the no-op rule (§6.2 step 4) and returns 0. This is the
-   same problem as `fba0612`. A suggested fix (W8 owns the file):
+   same problem as `d28ff5b`. A suggested fix (W8 owns the file):
    ```sh
    changed="$AGENT_RESULTS/changed.inkboard"
    jq -c '.document.x_future.note = "changed"' "$board" >"$changed"
@@ -189,7 +189,7 @@ None was needed for green (see above). They are listed by target, with the sourc
 **W8 (from W1, W6, and this merge):**
 - W1 D23: `item move` sends the current parent (item 9).
 - Scenario 04 (item 2).
-- Review `fba0612`.
+- Review `d28ff5b`.
 - W6's notes (`board get` never 304; 429 `busy` with `Retry-After`; no `rev` on `board preview`) are information only.
 
 **W7 (docs, gate and integration), collected from the handoff notes:**
@@ -250,7 +250,7 @@ None was needed for green (see above). They are listed by target, with the sourc
 
 ## W7 merge
 
-Main started clean at `aa644c0`. The three W7 branches were merged with `git merge --no-ff`, in the order fixes,
+Main started clean at `b470373`. The three W7 branches were merged with `git merge --no-ff`, in the order fixes,
 integration tests, docs, and every check of "Checks after each merge" above ran after each one. Nothing was pushed.
 `vendor/inkboard` and the worktrees `../Quire-W7-*` were not touched.
 
@@ -258,19 +258,19 @@ integration tests, docs, and every check of "Checks after each merge" above ran 
 
 | # | Branch (tip) | Merge commit | Conflicts and how they were resolved |
 |---|---|---|---|
-| 1 | `ws/W7-fixes` (`6c58d41`) | `718998a` Merge W7 fixes | None. Its `Cargo.lock` change (oas3 without default features: serde_json loses its `indexmap`/`foldhash` edges, no version changes, still 366 + 6 packages) came in cleanly; `scripts/check-pins.sh` passes. Its `openapi.json` and `ItemDetail.ts` changes match a regeneration. |
-| 2 | `ws/W7-integration-tests` (`da477f6`) | `00889fd` Merge W7 integration tests | `crates/quire-store/src/seed.rs`: both branches fixed "Writing in Quire" (W7 fixes `487096f`, W7 tests `b6b08ec`, which says so and asks to take the other side). Kept the fixes branch's version, the better fix: it stores "Writing in Quire" from its fixture too, and also maps the welcome document's placeholder ids with `docs::init_seed` (merge item 6). Both branches' seed tests pass on it: the store seed test and `integration::seeded_getting_started_is_published_and_searchable`. |
-| 3 | `ws/W7-docs` (`1664e0e`) | `8979f64` Merge W7 docs | None. `docs/AGENTS.md` merged on its own: the fixes changed the `item` row and added an example, the docs the `admin` row. |
+| 1 | `ws/W7-fixes` (`d73176e`) | `a049f70` Merge W7 fixes | None. Its `Cargo.lock` change (oas3 without default features: serde_json loses its `indexmap`/`foldhash` edges, no version changes, still 366 + 6 packages) came in cleanly; `scripts/check-pins.sh` passes. Its `openapi.json` and `ItemDetail.ts` changes match a regeneration. |
+| 2 | `ws/W7-integration-tests` (`9bf2186`) | `c442278` Merge W7 integration tests | `crates/quire-store/src/seed.rs`: both branches fixed "Writing in Quire" (W7 fixes `8818447`, W7 tests `2cc03c4`, which says so and asks to take the other side). Kept the fixes branch's version, the better fix: it stores "Writing in Quire" from its fixture too, and also maps the welcome document's placeholder ids with `docs::init_seed` (merge item 6). Both branches' seed tests pass on it: the store seed test and `integration::seeded_getting_started_is_published_and_searchable`. |
+| 3 | `ws/W7-docs` (`d1fd006`) | `093f991` Merge W7 docs | None. `docs/AGENTS.md` merged on its own: the fixes changed the `item` row and added an example, the docs the `admin` row. |
 
 No lockfile conflicted, no `docs/api/openapi.json` or `web/src/api/gen/*` file conflicted, and only W7 fixes changed
-them. The integration-tests branch's other fix, the export's second `VACUUM INTO` (`9a614d6`), touches nothing the
+them. The integration-tests branch's other fix, the export's second `VACUUM INTO` (`6ee14d3`), touches nothing the
 fixes branch changed, and its test (`integration::export_after_api_writes_has_no_tokens_or_sessions`) passes.
 
 ### Fix commits
 
 | Commit | After | What and why |
 |---|---|---|
-| `8c49b8d` | W7 docs | **Fix after merging W7 docs: ARCHITECTURE follows the merged code.** The docs branch was written next to the other two, from the handoff notes, and four of its §17.4 decisions contradicted the code on main: it made `/inkboard/{build}/manifest.json` immutable with the frame CSP (the code sends `no-cache` + ETag, identity, `application/json`, `nosniff`, because the build id does not hash the manifest's `patchset`); kept the board-page route's own gzip (the code gzips once, in the compression layer, over 1 KiB); kept two title orders (the code has one key on both sides); and read Full width through `useFullWidthOf` (removed by the fixes). The text now states what main does, the four §17.4 rows say "Revised at the W7 merge" and keep the first wording as a rejected alternative, and the fixes agent's other doc requests are applied: §3 `fixtures/tree/`, §4.1 and §6.4 oas3, §5 sibling order and ties, §6.2 step 3 `boards::prepare_with`, §7.2 `ItemDetail`, §7.6 `item move`, §8 and §9.6.7 the seed, §9.5 the warm-up and the one update banner, §9.6.4 `data-full-width`, §14 the image smoke's manifest check. From the integration-tests agent: D34 and §12 describe the second `VACUUM INTO` and that `/data/tmp` briefly holds two copies of the database (the D33 floor does not scale with it). Two §17.4 rows were added (`item move` without `--parent`, and the export scrub), §16 item 27 now says the eleven merge items are fixed, and item 28 records the docs agent's point against the layer gzip (up to 16 MiB of SVG on an async worker) as a follow-up. Documentation only; no test reads `ARCHITECTURE.md`. |
+| `5f1ec93` | W7 docs | **Fix after merging W7 docs: ARCHITECTURE follows the merged code.** The docs branch was written next to the other two, from the handoff notes, and four of its §17.4 decisions contradicted the code on main: it made `/inkboard/{build}/manifest.json` immutable with the frame CSP (the code sends `no-cache` + ETag, identity, `application/json`, `nosniff`, because the build id does not hash the manifest's `patchset`); kept the board-page route's own gzip (the code gzips once, in the compression layer, over 1 KiB); kept two title orders (the code has one key on both sides); and read Full width through `useFullWidthOf` (removed by the fixes). The text now states what main does, the four §17.4 rows say "Revised at the W7 merge" and keep the first wording as a rejected alternative, and the fixes agent's other doc requests are applied: §3 `fixtures/tree/`, §4.1 and §6.4 oas3, §5 sibling order and ties, §6.2 step 3 `boards::prepare_with`, §7.2 `ItemDetail`, §7.6 `item move`, §8 and §9.6.7 the seed, §9.5 the warm-up and the one update banner, §9.6.4 `data-full-width`, §14 the image smoke's manifest check. From the integration-tests agent: D34 and §12 describe the second `VACUUM INTO` and that `/data/tmp` briefly holds two copies of the database (the D33 floor does not scale with it). Two §17.4 rows were added (`item move` without `--parent`, and the export scrub), §16 item 27 now says the eleven merge items are fixed, and item 28 records the docs agent's point against the layer gzip (up to 16 MiB of SVG on an async worker) as a follow-up. Documentation only; no test reads `ARCHITECTURE.md`. |
 
 The remaining doc requests of the fixes report were already in the docs branch: §9.1 (both update paths call
 `checkForUpdate()`), §5 "Previews" (`preview_rev` is the newest rev, `svg_len` that rev's), and `ItemDetail.full_width`
@@ -286,7 +286,7 @@ The same commands as above, all with `QUIRE_SHARED_CARGO_HOME=/home/staffan/.cac
 | W7 fixes | all pass | 123 · 43 + 69 · 69 · 58 + 182 · 21 + 113 | 63 / 300 |
 | W7 integration tests | all pass | 123 · 43 + 69 · 69 · 58 + 190 · 21 + 113 | 63 / 300 |
 | W7 docs | all pass | same as above | 64 / 304 |
-| `8c49b8d` | all pass (the final run, on the merge notes commit) | same as above | 64 / 304 |
+| `5f1ec93` | all pass (the final run, on the merge notes commit) | same as above | 64 / 304 |
 
 `tests/api` grew by 8: the integration tests (`integration::` now has 9, W0b's one included). The store's lib count of
 21 (22 before) is the removed `previews::gzip` test. The web suite grew by W7 fixes' 4 files / 20 tests and the
@@ -299,7 +299,7 @@ Each needs an image or a browser, and none was part of this merge step:
 - `scripts/image.sh` with the real `inkboard-web` stage (the first full build, now also with the docs branch's
   `licenses` stage), then `QUIRE_SMOKE_LEVEL=full scripts/image-smoke.sh`: the only check of the manifest fix
   (merge item 1) in the real image. Note: `quire:latest` is currently the docs agent's stub image
-  (`quire:aa644c0-dirty`, built with `INKBOARD_BUILD=stub` from the docs worktree), so rebuild before any image test;
+  (`quire:b470373-dirty`, built with `INKBOARD_BUILD=stub` from the docs worktree), so rebuild before any image test;
 - `scripts/agent-test.sh` with all eleven scenarios, including the fixed scenario 04 (merge item 2);
 - `scripts/e2e.sh smoke` and, after `scripts/dev.sh scripts/inkboard.sh build`, `scripts/e2e.sh frame`;
 - `scripts/cli-dist.sh`;
@@ -321,5 +321,5 @@ Each needs an image or a browser, and none was part of this merge step:
   a CLI-only `licenses.txt`; `compose.yaml` sets `QUIRE_TRUSTED_PROXIES` from `QUIRE_PROXY_IP`, so the variable has no
   effect in `.env` (the README says to set it in `compose.override.yaml`).
 - W8 should review the fixes branch's changes to its files (`crates/quire-cli/src/{args.rs,cmd/item.rs}`,
-  `tests/cli/{flows,mocked}.rs`, `e2e/agent/scenarios/04-boards.sh`), as for `fba0612`, which the fixes agent reviewed
+  `tests/cli/{flows,mocked}.rs`, `e2e/agent/scenarios/04-boards.sh`), as for `d28ff5b`, which the fixes agent reviewed
   and found correct (D50, §6.2 step 4).

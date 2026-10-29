@@ -9,16 +9,16 @@ text called it `merge-E.md`. The PLAN is the normative document, so the note kee
 
 ## What was merged
 
-From main `bf826c4` (the M1.1 spec and contracts), one branch at a time, `git merge --no-ff`, in the order E2, E1, E3.
+From main `ec62389` (the M1.1 spec and contracts), one branch at a time, `git merge --no-ff`, in the order E2, E1, E3.
 No file is shared between the three branches (checked with `git diff --stat main...<branch>` before merging), so
 there was no conflict, no lockfile in any branch and nothing to regenerate (`docs/api/openapi.json` and
 `web/src/api/gen` unchanged).
 
 | Merge | Branch | What it brings | Checks on main right after it |
 |---|---|---|---|
-| `01b6902` | `ws/E2-server` (7 commits) | `quire-core::board` embed scan, `item_links` kind `embed` for boards, the repeated-`embed` 422, `discard_empty` keeps embedded items, AGENTS.md §8 "Embedded pages", agent scenario 12 | `scripts/fmt.sh --check` PASS; clippy `--workspace --all-targets -D warnings` PASS; core `board::` 24 PASS; store `boards::` 18 PASS; API `boards::` 24 PASS |
-| `168d54a` | `ws/E1-engine` (6 commits) | Patches 0005 and 0006 (patchset 3), `frame.js` embeds and drag and drop, 11 new frame tests | `inkboard.sh src`, `check`; `inkboard-core` tests (153 unit + integration); `inkboard-app embed` 28; `i18n` 7; `inkboard-formats mermaid`; `build` (patchset `3`, `0.2.0-beta.3+embed.quire.3`, build id `085b5dbedb2d`, the same as E1's); `export --upstream` notice-free; 7 notice lines in 0005; `vendor/inkboard` clean: all PASS |
-| `05eb2be` | `ws/E3-web` (12 commits) | The overlay, static and editing cards, "Text doc", "Embed page…", the sidebar drag source and the drop paths, the fake frame's embed members | `pnpm typecheck` PASS; `pnpm test` 79 files, 396 tests PASS (after b0ce12a); `pnpm build` PASS; `scripts/e2e.sh frame` 24 passed, 1 skipped (W5's designed "background page" skip in headless Chromium) |
+| `40b3faf` | `ws/E2-server` (7 commits) | `quire-core::board` embed scan, `item_links` kind `embed` for boards, the repeated-`embed` 422, `discard_empty` keeps embedded items, AGENTS.md §8 "Embedded pages", agent scenario 12 | `scripts/fmt.sh --check` PASS; clippy `--workspace --all-targets -D warnings` PASS; core `board::` 24 PASS; store `boards::` 18 PASS; API `boards::` 24 PASS |
+| `0be0d3f` | `ws/E1-engine` (6 commits) | Patches 0005 and 0006 (patchset 3), `frame.js` embeds and drag and drop, 11 new frame tests | `inkboard.sh src`, `check`; `inkboard-core` tests (153 unit + integration); `inkboard-app embed` 28; `i18n` 7; `inkboard-formats mermaid`; `build` (patchset `3`, `0.2.0-beta.3+embed.quire.3`, build id `085b5dbedb2d`, the same as E1's); `export --upstream` notice-free; 7 notice lines in 0005; `vendor/inkboard` clean: all PASS |
+| `871975a` | `ws/E3-web` (12 commits) | The overlay, static and editing cards, "Text doc", "Embed page…", the sidebar drag source and the drop paths, the fake frame's embed members | `pnpm typecheck` PASS; `pnpm test` 79 files, 396 tests PASS (after 98f29b5); `pnpm build` PASS; `scripts/e2e.sh frame` 24 passed, 1 skipped (W5's designed "background page" skip in headless Chromium) |
 
 ## Requests applied
 
@@ -36,7 +36,7 @@ there was no conflict, no lockfile in any branch and nothing to regenerate (`doc
 | E2 M-3 | PLAN E2 step 10b, 13 TAP steps | PLAN M1.1 E2 scenario list |
 | E3 1 | Smoke step 17 with the §18.5 selectors | `e2e/tests/smoke.spec.ts` step 17 |
 | E3 2 | Fold E3-D1–D15 into §18.5/§18.6/§18.14 | In place, tagged E3-Dn; rows D86–D91 |
-| E3 3 | `layers.test.ts`: `.board-embed-popups` in `OVERLAYS` | `b0ce12a` |
+| E3 3 | `layers.test.ts`: `.board-embed-popups` in `OVERLAYS` | `98f29b5` |
 | E3 4 | The host's assumptions about the engine, checked once both are merged | All four hold, below |
 | E3 5 | §16 item 31: the real-browser checks | §16 item 31 |
 
@@ -53,7 +53,7 @@ Checked by reading both sides and by smoke step 17 against the real image (engin
      `ed.insert` before returning, and `set_embed_editing` checks `is_visible_card` on the current page. Holds; smoke
      step 17 item 2 (a "Text doc" card editing at once) is the real-browser proof.
    - `setEmbedEditing(null)` sends no `onEmbedEditEnd`: `set_embed_editing(None)` only clears the field. Holds.
-2. **"Text doc" left the new page out of view (fixed, `2bde02c`, D92).** The tree expands only the current item's
+2. **"Text doc" left the new page out of view (fixed, `3b6ebda`, D92).** The tree expands only the current item's
    ancestors (§9.6.2), so the board's own row stayed closed and its new child was invisible, while smoke step 17 (PLAN,
    item 2) expects the sidebar to show the "Untitled" child right after the POST. Expanding it by hand would end the
    editing (a pointerdown outside the card). The button now expands the board's row once the card is placed; textDoc
@@ -67,7 +67,7 @@ Checked by reading both sides and by smoke step 17 against the real image (engin
 
 ## Found by the gate
 
-5. **A full image could embed an earlier build's engine or web app (fixed, `2886079`).** Gate pass 1 (HEAD `437089b`)
+5. **A full image could embed an earlier build's engine or web app (fixed, `e1f6928`).** Gate pass 1 (HEAD `22fb45c`)
    built the E2 block's stub image and then, at the same commit, the full image of gate step 3: that image served
    the stub engine ("Whiteboard engine not installed"), so smoke step 9 and the full image smoke failed (gate lines
    32, 55 and 56; the other 58 lines passed). The server stage compiles into a cache mount that every image build
