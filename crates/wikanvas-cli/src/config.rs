@@ -191,9 +191,9 @@ fn strip_prefix_ci<'a>(s: &'a str, prefix: &str) -> Option<&'a str> {
 /// The default URL inside the server container: `WIKANVAS_LISTEN`'s port on 127.0.0.1 when it listens on every
 /// address (`0.0.0.0` in the image), otherwise the address itself (the rule of `wikanvas-server healthcheck`).
 fn listen_origin(listen: &str) -> Result<Origin, String> {
-    let addr: SocketAddr = listen
-        .parse()
-        .map_err(|_| format!("WIKANVAS_LISTEN={listen:?} is not an address such as 0.0.0.0:8080"))?;
+    let addr: SocketAddr = listen.parse().map_err(|_| {
+        format!("WIKANVAS_LISTEN={listen:?} is not an address such as 0.0.0.0:8080")
+    })?;
     let ip = match addr.ip() {
         ip if ip.is_unspecified() => IpAddr::V4(Ipv4Addr::LOCALHOST),
         ip => ip,
@@ -847,7 +847,10 @@ mod tests {
         )
         .unwrap();
         assert!(r.url.is_none() && r.token.is_none());
-        let env = Env::from_pairs(&[("WIKANVAS_CONFIG", &cfg), ("WIKANVAS_LISTEN", "0.0.0.0:8080")]);
+        let env = Env::from_pairs(&[
+            ("WIKANVAS_CONFIG", &cfg),
+            ("WIKANVAS_LISTEN", "0.0.0.0:8080"),
+        ]);
         let r = resolve(&g(&[]), &env, no_stdin).unwrap();
         assert_eq!(r.url.unwrap().base(), "http://127.0.0.1:8080");
         assert_eq!(r.url_source, Some("WIKANVAS_LISTEN"));

@@ -14,15 +14,15 @@ use axum::Json;
 use axum::extract::{Query, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
+use rusqlite::Connection;
+use utoipa_axum::router::OpenApiRouter;
+use utoipa_axum::routes;
 use wikanvas_api::{
     AuthMethodKind, ErrorBody, ErrorCode, LoginRequest, Me, MeAuth, MePatch, PasswordChange,
     RateLimitReason, SessionInfo, SessionRevokeQuery, User, UserEnvelope, Workspace,
 };
 use wikanvas_store::sessions::NewSession;
 use wikanvas_store::users::ProfilePatch;
-use rusqlite::Connection;
-use utoipa_axum::router::OpenApiRouter;
-use utoipa_axum::routes;
 
 use crate::error::ApiError;
 use crate::extract::{
@@ -413,7 +413,9 @@ async fn revoke_sessions(
     let keep = actor.session_id().map(str::to_owned);
     state
         .db
-        .write(move |tx| wikanvas_store::sessions::delete_others(tx, &actor.user_id, keep.as_deref()))
+        .write(move |tx| {
+            wikanvas_store::sessions::delete_others(tx, &actor.user_id, keep.as_deref())
+        })
         .await?;
     Ok(StatusCode::NO_CONTENT)
 }

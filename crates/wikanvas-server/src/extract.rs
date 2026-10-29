@@ -28,9 +28,9 @@ use std::sync::{Arc, Mutex, OnceLock};
 use axum::extract::{ConnectInfo, FromRequestParts, Path};
 use axum::http::request::Parts;
 use axum::http::{HeaderMap, HeaderValue, header};
+use uuid::Uuid;
 use wikanvas_api::{ErrorCode, RateLimitReason, Role, Scope};
 use wikanvas_store::tokens::TokenLookup;
-use uuid::Uuid;
 
 use crate::config::{Config, canonical_ip};
 use crate::csrf::bearer_token;
@@ -333,7 +333,9 @@ async fn authenticate_token(
         );
         tokio::spawn(async move {
             let written = db
-                .write(move |tx| wikanvas_store::tokens::touch_last_used(tx, &id, now, ip.as_deref()))
+                .write(move |tx| {
+                    wikanvas_store::tokens::touch_last_used(tx, &id, now, ip.as_deref())
+                })
                 .await;
             if let Err(e) = written {
                 tracing::warn!(error = %e, "cannot record a token's last use");
@@ -418,7 +420,9 @@ async fn authenticate_cookie(
         let (id, ip) = (row.id.clone(), client.ip.map(|ip| ip.to_string()));
         state
             .db
-            .write(move |tx| wikanvas_store::sessions::refresh(tx, &id, renewed, now, ip.as_deref()))
+            .write(move |tx| {
+                wikanvas_store::sessions::refresh(tx, &id, renewed, now, ip.as_deref())
+            })
             .await?;
         if let Some(expires_at) = renewed
             && row.persistent

@@ -35,6 +35,9 @@ use axum::response::{IntoResponse, Response};
 use bytes::Bytes;
 use futures_util::StreamExt;
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
+use tokio::sync::{Semaphore, SemaphorePermit, mpsc};
+use utoipa_axum::router::OpenApiRouter;
+use utoipa_axum::routes;
 use wikanvas_api::common::header::ENGINE;
 use wikanvas_api::{
     BoardPreviewQuery, BoardPutResult, ErrorBody, ErrorCode, RateLimitDetails, RateLimitReason,
@@ -43,9 +46,6 @@ use wikanvas_api::{
 use wikanvas_core::board;
 use wikanvas_store::boards::{self, IfMatch};
 use wikanvas_store::previews::{self, PageState, Preview};
-use tokio::sync::{Semaphore, SemaphorePermit, mpsc};
-use utoipa_axum::router::OpenApiRouter;
-use utoipa_axum::routes;
 
 use crate::authz::{self, Action, Resource};
 use crate::board_previews;

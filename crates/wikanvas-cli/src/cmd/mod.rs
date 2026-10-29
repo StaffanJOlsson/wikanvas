@@ -24,10 +24,10 @@ use std::cell::RefCell;
 use std::io::Read;
 use std::rc::Rc;
 
-use wikanvas_api::cli::ExitCode;
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use serde_json::{Value, json};
+use wikanvas_api::cli::ExitCode;
 
 use crate::args::{Cli, Command, GlobalArgs, ListArgs, PositionArgs};
 use crate::config::{self, Env, Resolved};

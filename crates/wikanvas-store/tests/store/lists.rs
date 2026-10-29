@@ -1,10 +1,10 @@
 //! List tests: visible_items, cursor pages and the lists (owner: W1).
 
+use rusqlite::params;
+use uuid::Uuid;
 use wikanvas_core::api::{ErrorCode, ItemKind, Position, Role};
 use wikanvas_store::lists::{self, PageRequest};
 use wikanvas_store::{Viewer, items, shared, stars, views};
-use rusqlite::params;
-use uuid::Uuid;
 
 use crate::common::{MINUTE, NOW, TestDb, viewer};
 

@@ -6,14 +6,14 @@
 //! bumps `tree_version` on each affected collection (the `/tree` ETag); every change to an item row other than a
 //! content save bumps its `meta_version` (the `"m{n}"` ETag of `GET /items/{id}`).
 
+use rusqlite::{Connection, OptionalExtension, Transaction, params};
+use uuid::Uuid;
 use wikanvas_core::api::{
     BoardMeta, ErrorCode, ItemDetail, ItemKind, ItemPatch, ItemSummary, ItemText, MoveItem,
     NewItem, Position, RestoredItem, RevMismatchDetails, Timestamp,
 };
 use wikanvas_core::time::{DISCARD_WINDOW_MS, purge_at};
 use wikanvas_core::tree::{ParentState, check_move, check_new_parent, keeps_parent};
-use rusqlite::{Connection, OptionalExtension, Transaction, params};
-use uuid::Uuid;
 
 use crate::error::{Error, Result};
 use crate::shared::{ItemRow, Viewer, item_row, json_ids, new_id, new_url_id};

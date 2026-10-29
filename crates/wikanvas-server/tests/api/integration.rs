@@ -23,6 +23,9 @@ use inkboard_core::geom::Frame;
 use inkboard_core::model::{BoxGeom, Document, ImageObj, Kind, Label, Object, Page};
 use inkboard_core::serial;
 use inkboard_core::style::{Align, Style};
+use serde_json::{Value, json};
+use sha2::Digest as _;
+use uuid::Uuid;
 use wikanvas_api::{
     Attachment, BoardPutResult, Collection, CollectionTree, CreatedToken, DocState,
     DocUpdateResult, DocWriteResult, ErrorCode, ItemDetail, ItemKind, ItemSummary, ItemText,
@@ -30,9 +33,6 @@ use wikanvas_api::{
 };
 use wikanvas_core::convert::yrs;
 use wikanvas_server::jobs::{self, PurgeReport};
-use serde_json::{Value, json};
-use sha2::Digest as _;
-use uuid::Uuid;
 use yrs::updates::decoder::Decode;
 use yrs::updates::encoder::Encode;
 use yrs::{
@@ -551,7 +551,8 @@ async fn seeded_getting_started_is_published_and_searchable() {
         }))
         .await;
     res.assert_status(StatusCode::CREATED);
-    let owner = app.cookie_client(&cookie_from(&res, "wikanvas_session").expect("a session cookie"));
+    let owner =
+        app.cookie_client(&cookie_from(&res, "wikanvas_session").expect("a session cookie"));
 
     let res = owner.get("/api/v1/sidebar").await;
     res.assert_status_ok();
@@ -1035,7 +1036,10 @@ async fn export_after_api_writes_has_no_tokens_or_sessions() {
     for token in [&admin_token, &write_token] {
         assert!(!contains(token.as_bytes()), "a token secret");
         assert!(!contains(&token.as_bytes()[..12]), "a token prefix");
-        assert!(!contains(&wikanvas_store::tokens::hash(token)), "a token hash");
+        assert!(
+            !contains(&wikanvas_store::tokens::hash(token)),
+            "a token hash"
+        );
     }
     assert!(!contains(b"$argon2id$"), "a password hash");
     let session = wikanvas_store::sessions::token_hash(app.session.as_deref().unwrap()).unwrap();

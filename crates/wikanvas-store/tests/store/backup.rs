@@ -68,7 +68,9 @@ async fn vacuum_into_through_db_passes_quick_check() {
     let path = backup::create(&t.db, t.data_dir(), 7, NOW).unwrap();
     assert_eq!(
         path,
-        t.data_dir().join("backups").join("wikanvas-20261028T0930Z.db")
+        t.data_dir()
+            .join("backups")
+            .join("wikanvas-20261028T0930Z.db")
     );
     backup::quick_check(&path).unwrap();
     let copy =

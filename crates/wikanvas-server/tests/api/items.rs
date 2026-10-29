@@ -5,12 +5,12 @@
 //! `lists`, `search`).
 
 use axum::http::StatusCode;
+use serde_json::{Value, json};
+use uuid::Uuid;
 use wikanvas_api::{
     Collection, ErrorCode, ItemDetail, ItemSummary, ItemText, ListedItem, Page, RestoredItem,
     Scope, Sidebar,
 };
-use serde_json::{Value, json};
-use uuid::Uuid;
 
 use crate::common::{TestApp, assert_error};
 

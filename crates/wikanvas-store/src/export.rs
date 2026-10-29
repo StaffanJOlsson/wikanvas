@@ -17,9 +17,9 @@ use std::fs::File;
 use std::io::{BufReader, Write};
 use std::path::{Path, PathBuf};
 
-use wikanvas_core::api::{ErrorCode, Timestamp};
 use rusqlite::{Connection, OpenFlags};
 use serde::Serialize;
+use wikanvas_core::api::{ErrorCode, Timestamp};
 
 use crate::backup::vacuum_into;
 use crate::db::Db;

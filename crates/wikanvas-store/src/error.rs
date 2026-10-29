@@ -6,9 +6,9 @@
 
 use std::fmt;
 
-use wikanvas_core::api::{ErrorCode, LimitDetails, ValidationDetails};
 use serde::Serialize;
 use serde_json::Value;
+use wikanvas_core::api::{ErrorCode, LimitDetails, ValidationDetails};
 
 /// The store's result type.
 pub type Result<T, E = Error> = std::result::Result<T, E>;

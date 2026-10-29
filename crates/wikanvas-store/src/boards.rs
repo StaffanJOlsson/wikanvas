@@ -26,10 +26,10 @@ use flate2::read::DeflateDecoder;
 use flate2::write::DeflateEncoder;
 use inkboard_core::model::{BgPreset, Document};
 use inkboard_core::serial;
-use wikanvas_core::api::{BoardMeta, BoardPageMeta, ErrorCode, ItemKind, RevMismatchDetails};
-use wikanvas_core::board::{self, BoardError, Inspect, Split};
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use sha2::{Digest, Sha256 as Sha256Hasher};
+use wikanvas_core::api::{BoardMeta, BoardPageMeta, ErrorCode, ItemKind, RevMismatchDetails};
+use wikanvas_core::board::{self, BoardError, Inspect, Split};
 
 use crate::blobs::{BlobStore, Sha256, Staged};
 use crate::error::{Error, Result};

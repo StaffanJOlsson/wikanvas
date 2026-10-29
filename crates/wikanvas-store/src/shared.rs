@@ -5,9 +5,9 @@
 
 use std::path::Path;
 
-use wikanvas_core::api::{ErrorCode, ItemKind, ItemSummary, Role, Timestamp};
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use uuid::Uuid;
+use wikanvas_core::api::{ErrorCode, ItemKind, ItemSummary, Role, Timestamp};
 
 use crate::error::{Error, Result};
 

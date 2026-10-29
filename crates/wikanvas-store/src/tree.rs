@@ -8,8 +8,8 @@
 
 use std::collections::{HashMap, HashSet};
 
-use wikanvas_core::api::{ChildOrder, CollectionTree, Crumb, ItemSummary, Position};
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
+use wikanvas_core::api::{ChildOrder, CollectionTree, Crumb, ItemSummary, Position};
 
 use crate::error::{Error, Result};
 use crate::shared::{ItemRow, Viewer, item_row, parse_uuid, place_rebalancing, visible_items};

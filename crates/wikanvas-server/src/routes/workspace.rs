@@ -5,10 +5,10 @@
 
 use axum::Json;
 use axum::extract::State;
-use wikanvas_api::{ErrorBody, Workspace, WorkspacePatch};
 use serde_json::Value;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
+use wikanvas_api::{ErrorBody, Workspace, WorkspacePatch};
 
 use crate::authz::{self, Action, Resource};
 use crate::error::ApiError;
@@ -50,7 +50,9 @@ async fn get_workspace(
     State(state): State<AppState>,
 ) -> Result<Json<Workspace>, ApiError> {
     authz::require(&auth, Action::Read, Resource::Workspace)?;
-    Ok(Json(state.db.read(wikanvas_store::settings::workspace).await?))
+    Ok(Json(
+        state.db.read(wikanvas_store::settings::workspace).await?,
+    ))
 }
 
 /// Renames the workspace or sets its logo (`logo_attachment_id: null` removes it).

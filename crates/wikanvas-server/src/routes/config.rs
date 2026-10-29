@@ -5,9 +5,9 @@
 
 use axum::Json;
 use axum::extract::State;
-use wikanvas_api::Config;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
+use wikanvas_api::Config;
 
 use crate::error::ApiError;
 use crate::state::AppState;

@@ -27,10 +27,10 @@ use std::sync::Arc;
 use axum::body::Body;
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
-use wikanvas_api::{InkboardInfo, WasmBytes};
-use wikanvas_assets::Asset;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
+use wikanvas_api::{InkboardInfo, WasmBytes};
+use wikanvas_assets::Asset;
 
 use crate::headers::{FRAME_CSP, SPA_CSP, html};
 

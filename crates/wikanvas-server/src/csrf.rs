@@ -206,7 +206,10 @@ mod tests {
             "authorization",
             "Basic cXBhdF94Og=="
         )])));
-        assert!(!is_wikanvas_bearer(&headers(&[("authorization", "qpat_abc")])));
+        assert!(!is_wikanvas_bearer(&headers(&[(
+            "authorization",
+            "qpat_abc"
+        )])));
         assert!(!is_wikanvas_bearer(&headers(&[])));
         assert_eq!(
             bearer_token(&headers(&[("authorization", token)])),

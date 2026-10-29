@@ -6,9 +6,9 @@
 
 use axum::Json;
 use axum::extract::{Query, State};
-use wikanvas_api::{ErrorBody, Page, SearchHit, SearchQuery, TitleHit, TitleSearchQuery};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
+use wikanvas_api::{ErrorBody, Page, SearchHit, SearchQuery, TitleHit, TitleSearchQuery};
 
 use crate::error::ApiError;
 use crate::extract::{Auth, Read};

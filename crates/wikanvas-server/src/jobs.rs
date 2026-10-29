@@ -18,9 +18,9 @@ use std::future::Future;
 use std::path::PathBuf;
 use std::time::{Duration, UNIX_EPOCH};
 
+use tokio::task::JoinHandle;
 use wikanvas_api::ErrorCode;
 use wikanvas_store::gc::BlobGc;
-use tokio::task::JoinHandle;
 
 use crate::config::Config;
 use crate::error::ApiError;
@@ -142,12 +142,12 @@ pub async fn backup_now(state: &AppState) -> Result<(PathBuf, u64), ApiError> {
         let path =
             wikanvas_store::backup::create(&worker.db, &config.data_dir, config.backup_keep, now)
                 .map_err(|e| {
-                    if e.is(ErrorCode::RateLimited) {
-                        ApiError::busy()
-                    } else {
-                        ApiError::from(e)
-                    }
-                })?;
+                if e.is(ErrorCode::RateLimited) {
+                    ApiError::busy()
+                } else {
+                    ApiError::from(e)
+                }
+            })?;
         let size = std::fs::metadata(&path).map_err(ApiError::internal)?.len();
         Ok((path, size))
     })

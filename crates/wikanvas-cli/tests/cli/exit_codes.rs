@@ -1,7 +1,7 @@
 //! The exit-code contract of §7.7 (owner: W8)
 
-use wikanvas_api::cli::ExitCode;
 use serde_json::{Value, json};
+use wikanvas_api::cli::ExitCode;
 
 use crate::common::{Mock, Reply, Sandbox, fake_token, last_error, run_json};
 

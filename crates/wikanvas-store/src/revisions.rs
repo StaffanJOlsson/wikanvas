@@ -8,8 +8,8 @@
 
 use std::collections::BTreeMap;
 
-use wikanvas_core::api::{ErrorCode, ItemKind};
 use rusqlite::{OptionalExtension, Transaction, params};
+use wikanvas_core::api::{ErrorCode, ItemKind};
 use yrs::updates::decoder::Decode;
 use yrs::{Doc, ReadTxn, StateVector, Transact, Update};
 

@@ -17,10 +17,10 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use argon2::{Algorithm, Argon2, Params, PasswordHasher, PasswordVerifier, Version};
+use tokio::sync::Semaphore;
 use wikanvas_api::ErrorCode;
 use wikanvas_store::blobs::BlobStore;
 use wikanvas_store::db::{Db, DbOptions};
-use tokio::sync::Semaphore;
 
 use crate::board_previews::{self, PreviewQueue};
 use crate::config::{Config, SyncMode};

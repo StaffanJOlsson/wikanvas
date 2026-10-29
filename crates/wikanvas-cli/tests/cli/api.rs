@@ -1,7 +1,7 @@
 //! `wikanvas api`: the path and header guards, and calls through it (owner: W8)
 
-use wikanvas_api::Scope;
 use serde_json::{Value, json};
+use wikanvas_api::Scope;
 
 use crate::common::{Harness, Mock, Reply, Sandbox, fake_token, last_error, run_json};
 
@@ -83,12 +83,12 @@ fn api_against_the_server() {
     assert_eq!(code, 7, "{err}");
     assert_eq!(last_error(&err)["error"]["code"], "not_found");
     // A public route works without any token.
-    let (code, v, err) = run_json(h.sandbox.wikanvas().env("WIKANVAS_URL", &h.server.url).args([
-        "--json",
-        "api",
-        "GET",
-        "/api/v1/openapi.json",
-    ]));
+    let (code, v, err) = run_json(
+        h.sandbox
+            .wikanvas()
+            .env("WIKANVAS_URL", &h.server.url)
+            .args(["--json", "api", "GET", "/api/v1/openapi.json"]),
+    );
     assert_eq!(code, 0, "{err}");
     assert_eq!(v["info"]["title"], "Wikanvas API");
 }

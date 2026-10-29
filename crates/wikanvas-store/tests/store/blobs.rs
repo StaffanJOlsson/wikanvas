@@ -307,7 +307,10 @@ async fn gc_between_stage_and_commit_never_leaves_row_without_file() {
     assert_eq!(staged.sha256(), &sha);
     // GC runs between stage and commit: the row and the file go, the staged file stays.
     assert_eq!(
-        wikanvas_store::gc::blobs(&t.db, &t.blobs).await.unwrap().blobs,
+        wikanvas_store::gc::blobs(&t.db, &t.blobs)
+            .await
+            .unwrap()
+            .blobs,
         1
     );
     assert!(!t.blobs.path(&sha).exists());
@@ -340,7 +343,10 @@ async fn gc_between_stage_and_commit_never_leaves_row_without_file() {
     .await
     .unwrap();
     assert_eq!(
-        wikanvas_store::gc::blobs(&t.db, &t.blobs).await.unwrap().blobs,
+        wikanvas_store::gc::blobs(&t.db, &t.blobs)
+            .await
+            .unwrap()
+            .blobs,
         0
     );
     for row in blob_rows(&t).await {
@@ -406,7 +412,10 @@ async fn attachment_gc_respects_refs_and_24h_grace() {
     assert_eq!(left, ["in-doc", "in-revision", "logo", "young"]);
     // The blob stays while any attachment refers to it.
     assert_eq!(
-        wikanvas_store::gc::blobs(&t.db, &t.blobs).await.unwrap().blobs,
+        wikanvas_store::gc::blobs(&t.db, &t.blobs)
+            .await
+            .unwrap()
+            .blobs,
         0
     );
     t.db.write(|tx| {
@@ -416,7 +425,10 @@ async fn attachment_gc_respects_refs_and_24h_grace() {
     .await
     .unwrap();
     assert_eq!(
-        wikanvas_store::gc::blobs(&t.db, &t.blobs).await.unwrap().blobs,
+        wikanvas_store::gc::blobs(&t.db, &t.blobs)
+            .await
+            .unwrap()
+            .blobs,
         1
     );
 }

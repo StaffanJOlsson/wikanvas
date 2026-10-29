@@ -11,8 +11,8 @@ use inkboard_core::geom::Frame;
 use inkboard_core::model::{BoxGeom, Document, ImageObj, Kind, Label, Object, Page};
 use inkboard_core::serial;
 use inkboard_core::style::{Align, Style};
-use wikanvas_api::{BoardPutResult, ErrorCode, ItemKind, NewCollection, NewItem, Scope};
 use serde_json::{Value, json};
+use wikanvas_api::{BoardPutResult, ErrorCode, ItemKind, NewCollection, NewItem, Scope};
 
 use crate::common::{TestApp, assert_error};
 
@@ -333,7 +333,10 @@ async fn put_validates_media_type_engine_and_body() {
         .content_type("application/json")
         .await;
     let body = assert_error(&res, 422, ErrorCode::Validation);
-    assert_eq!(body.error.details, Some(json!({"field": "X-Wikanvas-Engine"})));
+    assert_eq!(
+        body.error.details,
+        Some(json!({"field": "X-Wikanvas-Engine"}))
+    );
     // A document's board, a trashed board.
     let doc = new_item(&app, ItemKind::Doc, "D").await;
     let body = assert_error(

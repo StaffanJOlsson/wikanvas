@@ -7,9 +7,9 @@ use axum::Json;
 use axum::extract::State;
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use wikanvas_api::{CollectionTree, ErrorBody, ItemSummary, Sidebar};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
+use wikanvas_api::{CollectionTree, ErrorBody, ItemSummary, Sidebar};
 
 use crate::error::ApiError;
 use crate::extract::{Auth, IdPath, Read};

@@ -9,10 +9,10 @@ use std::time::Duration;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use bytes::Bytes;
-use wikanvas_api::{Attachment, ErrorCode, Scope};
 use serde_json::json;
 use tokio::sync::mpsc;
 use tower::ServiceExt as _;
+use wikanvas_api::{Attachment, ErrorCode, Scope};
 
 use crate::common::{TestApp, assert_error, router};
 

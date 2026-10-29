@@ -4,9 +4,9 @@
 //! (string, an attachment id), `instance.id` (string) and `instance.created_at` (number, unix ms). Values are JSON so a
 //! later setting can be any shape without a migration.
 
-use wikanvas_core::api::Workspace;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::Value;
+use wikanvas_core::api::Workspace;
 
 use crate::error::Result;
 use crate::shared::new_id;

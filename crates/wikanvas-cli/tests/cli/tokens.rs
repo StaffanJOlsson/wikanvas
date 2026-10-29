@@ -2,8 +2,8 @@
 
 use std::os::unix::fs::PermissionsExt;
 
-use wikanvas_api::Scope;
 use serde_json::Value;
+use wikanvas_api::Scope;
 
 use crate::common::{Harness, last_error, run_json};
 

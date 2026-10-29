@@ -18,10 +18,10 @@ use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::Response;
 use futures_util::StreamExt;
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
-use wikanvas_api::{Attachment, ErrorBody, ErrorCode, UploadQuery};
-use wikanvas_store::Sha256;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
+use wikanvas_api::{Attachment, ErrorBody, ErrorCode, UploadQuery};
+use wikanvas_store::Sha256;
 
 use crate::authz::{self, Action, Resource};
 use crate::error::ApiError;

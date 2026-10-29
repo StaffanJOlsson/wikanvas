@@ -22,14 +22,14 @@ use axum::middleware::Next;
 use axum::response::Response;
 use axum_test::TestServer;
 use base64::Engine as _;
+use sha2::{Digest, Sha256};
+use tempfile::TempDir;
 use wikanvas_api::tokens::NewToken;
 use wikanvas_api::{ErrorBody, ErrorCode, Scope};
 use wikanvas_server::AppState;
 use wikanvas_server::config::Config;
 use wikanvas_server::static_files::AssetSource;
 use wikanvas_store::tokens::CreatedVia;
-use sha2::{Digest, Sha256};
-use tempfile::TempDir;
 
 /// The header the test routers read the peer address from.
 pub const PEER: &str = "x-test-peer";

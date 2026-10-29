@@ -3,11 +3,11 @@
 //! Creation (format, stored hash and prefix, expanded scopes, parent caps, the 100 limit), lookup with
 //! classification (live, expired, rejected), list, revoke with children, the last-use write, and the 30-day purge.
 
+use rusqlite::params;
+use sha2::{Digest, Sha256};
 use wikanvas_core::api::token;
 use wikanvas_core::api::{ApiToken, CreatedToken, ErrorCode, NewToken, Role, Scope};
 use wikanvas_store::tokens::{self, CreatedVia, TokenLookup, TokenRow};
-use rusqlite::params;
-use sha2::{Digest, Sha256};
 
 use crate::common::{DAY, NOW, TestDb};
 

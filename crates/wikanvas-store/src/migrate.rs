@@ -9,8 +9,8 @@ use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
 use include_dir::{Dir, include_dir};
-use wikanvas_core::api::ErrorCode;
 use rusqlite_migration::Migrations;
+use wikanvas_core::api::ErrorCode;
 
 use crate::db::Db;
 use crate::error::{Error, Result};

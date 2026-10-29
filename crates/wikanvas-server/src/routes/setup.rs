@@ -9,9 +9,11 @@ use axum::Json;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use wikanvas_api::{ErrorBody, ErrorCode, RateLimitReason, SetupRequest, SetupStatus, UserEnvelope};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
+use wikanvas_api::{
+    ErrorBody, ErrorCode, RateLimitReason, SetupRequest, SetupStatus, UserEnvelope,
+};
 
 use crate::admin::{NewOwner, create_owner};
 use crate::error::ApiError;

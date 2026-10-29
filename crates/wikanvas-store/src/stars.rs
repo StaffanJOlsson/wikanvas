@@ -4,8 +4,8 @@
 //! keys as siblings (D6), rebalanced past 64 characters. The lists show starred items that are visible and
 //! unarchived; a star on a trashed or archived item stays and shows again once it is restored or unarchived.
 
-use wikanvas_core::api::{ErrorCode, ItemSummary, Position};
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
+use wikanvas_core::api::{ErrorCode, ItemSummary, Position};
 
 use crate::error::{Error, Result};
 use crate::shared::{ItemRow, Viewer, item_row, place_rebalancing, visible_items};

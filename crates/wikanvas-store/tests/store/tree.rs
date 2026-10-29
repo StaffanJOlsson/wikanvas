@@ -1,11 +1,11 @@
 //! Tree tests: CTEs, triggers, cycles, cross-collection moves, deep purges, tree order, and the store against the
 //! reference model of `wikanvas_core::tree` (owner: W1).
 
+use rusqlite::{OptionalExtension, params};
+use uuid::Uuid;
 use wikanvas_core::api::{ChildOrder, CollectionPatch, ErrorCode, ItemKind, MoveItem, Position};
 use wikanvas_core::tree::{Model, TrashRoot, TreeError};
 use wikanvas_store::{collections, items, tree};
-use rusqlite::{OptionalExtension, params};
-use uuid::Uuid;
 
 use crate::common::{DAY, MINUTE, NOW, TestDb, count, viewer};
 

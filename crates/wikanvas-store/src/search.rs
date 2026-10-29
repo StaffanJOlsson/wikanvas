@@ -5,11 +5,11 @@
 //! [`build_match`] quotes every term (§5 "Search query"). Snippets mark hits with U+E000 … U+E001, which
 //! [`parse_snippet`] splits into text parts; clients render them as text nodes, never as HTML.
 
+use rusqlite::types::Value;
+use rusqlite::{Connection, params_from_iter};
 use wikanvas_core::api::page::{MAX_LIMIT, MAX_OFFSET_RESULTS};
 use wikanvas_core::api::{Page, SearchHit, SearchQuery, SearchSort, SnippetPart, TitleHit};
 use wikanvas_core::cursor::{Cursor, SortValue};
-use rusqlite::types::Value;
-use rusqlite::{Connection, params_from_iter};
 
 use crate::error::{Error, Result};
 use crate::lists::{PageRequest, page_limit};

@@ -17,6 +17,9 @@
 use std::collections::BTreeSet;
 
 use base64::Engine as _;
+use rusqlite::{Connection, OptionalExtension, Transaction, params};
+use serde_json::Value;
+use sha2::{Digest, Sha256};
 use wikanvas_core::api::{
     ConversionWarning, DocJson, DocState, DocWriteResult, ErrorCode, InvalidDocumentDetails,
     ItemKind, LimitDetails, MissingDepsDetails, RevMismatchDetails, SCHEMA_VERSION, Timestamp,
@@ -27,9 +30,6 @@ use wikanvas_core::convert::{
 };
 use wikanvas_core::schema::{self, Invalid};
 use wikanvas_core::ytext;
-use rusqlite::{Connection, OptionalExtension, Transaction, params};
-use serde_json::Value;
-use sha2::{Digest, Sha256};
 use yrs::updates::decoder::Decode;
 use yrs::{Doc, ReadTxn, StateVector, Transact, Update, Xml, XmlFragment, XmlOut};
 

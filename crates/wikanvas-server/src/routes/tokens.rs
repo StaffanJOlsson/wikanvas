@@ -8,11 +8,11 @@
 use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
+use utoipa_axum::router::OpenApiRouter;
+use utoipa_axum::routes;
 use wikanvas_api::tokens::{MAX_EXPIRY_DAYS, NewToken};
 use wikanvas_api::{ApiToken, CreatedToken, ErrorBody, ErrorCode, Scope};
 use wikanvas_store::tokens::{CreatedVia, TokenRow};
-use utoipa_axum::router::OpenApiRouter;
-use utoipa_axum::routes;
 
 use crate::error::ApiError;
 use crate::extract::{Actor, Admin, AnyToken, Auth, AuthMethod, IdPath};
@@ -130,7 +130,9 @@ async fn create_token(
     let user_id = actor.user_id.clone();
     let created = state
         .db
-        .write(move |tx| wikanvas_store::tokens::create(tx, &user_id, &new, via, parent.as_ref(), now))
+        .write(move |tx| {
+            wikanvas_store::tokens::create(tx, &user_id, &new, via, parent.as_ref(), now)
+        })
         .await?;
     Ok((StatusCode::CREATED, Json(created)))
 }

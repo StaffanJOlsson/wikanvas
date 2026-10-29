@@ -13,11 +13,11 @@ use axum::http::StatusCode;
 use axum::http::header::{self, HeaderMap, HeaderName, HeaderValue};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
+use serde::Serialize;
 use wikanvas_api::{
     ErrorBody, ErrorCode, ErrorInfo, InsufficientScopeDetails, InvalidTokenDetails,
     InvalidTokenReason, LimitDetails, RateLimitDetails, RateLimitReason, Scope, ValidationDetails,
 };
-use serde::Serialize;
 
 use crate::state::AppState;
 

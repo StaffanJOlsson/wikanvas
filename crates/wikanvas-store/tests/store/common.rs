@@ -6,9 +6,9 @@
 
 use std::path::Path;
 
+use uuid::Uuid;
 use wikanvas_core::api::{Collection, ItemKind, ItemSummary, NewCollection, NewItem, Role};
 use wikanvas_store::{BlobStore, Db, DbOptions, ItemRow, Viewer, migrate};
-use uuid::Uuid;
 
 /// A fixed "now": 2026-10-28T09:30:00Z.
 pub const NOW: i64 = 1_793_179_800_000;
@@ -222,7 +222,10 @@ mod tests {
         let e =
             t.db.write(|tx| {
                 tx.execute("INSERT INTO settings (key, value) VALUES ('x', '1')", [])?;
-                Err::<(), _>(wikanvas_store::Error::validation("x", "fail after the insert"))
+                Err::<(), _>(wikanvas_store::Error::validation(
+                    "x",
+                    "fail after the insert",
+                ))
             })
             .await
             .unwrap_err();

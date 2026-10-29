@@ -8,8 +8,8 @@
 //! items' ids by `docs::init_seed`), `fixtures/ydoc/writing-in-wikanvas.bin` ("Writing in Wikanvas") and
 //! `fixtures/boards/getting-started.inkboard` (the board envelope).
 
-use wikanvas_core::api::{Collection, ItemKind, NewCollection, NewItem};
 use rusqlite::Transaction;
+use wikanvas_core::api::{Collection, ItemKind, NewCollection, NewItem};
 
 use crate::blobs::BlobStore;
 use crate::error::Result;

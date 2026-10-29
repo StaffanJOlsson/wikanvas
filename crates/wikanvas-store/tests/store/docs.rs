@@ -4,11 +4,11 @@
 //! derived text, links, attachments, `doc_clients`, read-only items, the D53 recovery points), and the content
 //! writes of §6.4 (one update through the save path, strict and merging `If-Match`, retries, `schema_too_new`).
 
+use rusqlite::params;
+use serde_json::{Value, json};
 use wikanvas_core::api::{ErrorCode, ItemKind, YFIELD};
 use wikanvas_store::docs::{self, ContentInput, ContentWrite, IfMatch, PmJson};
 use wikanvas_store::shared::WriteBy;
-use rusqlite::params;
-use serde_json::{Value, json};
 use yrs::updates::decoder::Decode;
 use yrs::{
     Doc, GetString, Options, ReadTxn, StateVector, Text, Transact, Update, Xml, XmlElementPrelim,
@@ -162,7 +162,11 @@ impl Fixture {
         .await
     }
 
-    async fn post(&self, update: Vec<u8>, token: Option<&str>) -> wikanvas_store::Result<docs::Saved> {
+    async fn post(
+        &self,
+        update: Vec<u8>,
+        token: Option<&str>,
+    ) -> wikanvas_store::Result<docs::Saved> {
         self.post_at(update, token, NOW).await
     }
 

@@ -369,7 +369,9 @@ mod tests {
             ])
             .is_err()
         );
-        assert!(Cli::try_parse_from(["wikanvas-server", "admin", "revoke-token", "--all"]).is_err());
+        assert!(
+            Cli::try_parse_from(["wikanvas-server", "admin", "revoke-token", "--all"]).is_err()
+        );
         assert!(
             Cli::try_parse_from(["wikanvas-server", "admin", "revoke-token", "--all", "--yes"])
                 .is_ok()

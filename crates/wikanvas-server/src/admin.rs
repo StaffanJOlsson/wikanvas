@@ -17,11 +17,11 @@
 use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
 
+use serde::Serialize;
 use wikanvas_api::cli::ExitCode;
 use wikanvas_api::tokens::{MAX_EXPIRY_DAYS, NewToken};
 use wikanvas_api::{ApiToken, BackupResult, CreatedToken, ErrorCode, Scope, User, Workspace};
 use wikanvas_store::tokens::CreatedVia;
-use serde::Serialize;
 
 use crate::cli::{AdminArgs, AdminCommand, CreateOwnerArgs, CreateTokenArgs};
 use crate::config::Config;
@@ -585,7 +585,9 @@ pub fn check_database(
         .collect::<rusqlite::Result<_>>()?;
     let missing_blobs: Vec<String> = shas
         .into_iter()
-        .filter(|s| wikanvas_store::Sha256::parse(s).map_or(true, |sha| !blobs.path(&sha).is_file()))
+        .filter(|s| {
+            wikanvas_store::Sha256::parse(s).map_or(true, |sha| !blobs.path(&sha).is_file())
+        })
         .collect();
     let ok = quick_check == ["ok"]
         && foreign_key_violations == 0

@@ -62,7 +62,11 @@ async fn spa_fallback_vs_api_json_404() {
     for path in ["/", "/c/notes-abc", "/settings/tokens", "/index.html"] {
         let res = app.server.get(path).await;
         res.assert_status_ok();
-        assert_eq!(res.text(), "<!doctype html><title>Wikanvas</title>", "{path}");
+        assert_eq!(
+            res.text(),
+            "<!doctype html><title>Wikanvas</title>",
+            "{path}"
+        );
         assert_eq!(res.header("content-type"), "text/html; charset=utf-8");
         assert_eq!(res.header("cache-control"), "no-cache");
     }

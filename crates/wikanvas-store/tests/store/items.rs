@@ -1,13 +1,13 @@
 //! Item tests: create, rename, trash, restore, archive, collection delete, publication, duplicate, discard,
 //! rebalance, and the revision rules (auto, pre-api, prune) (owner: W1).
 
+use rusqlite::params;
+use uuid::Uuid;
 use wikanvas_core::api::{
     ErrorCode, ItemKind, ItemPatch, NewCollection, NewItem, Position, SearchQuery,
 };
 use wikanvas_store::revisions::{self, RevisionDraft};
 use wikanvas_store::{WriteBy, collections, items, lists, search, shared};
-use rusqlite::params;
-use uuid::Uuid;
 
 use crate::common::{DAY, MINUTE, NOW, TestDb, count, viewer};
 

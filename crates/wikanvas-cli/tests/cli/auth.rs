@@ -1,7 +1,7 @@
 //! `wikanvas auth` against a running TestServer (owner: W8)
 
-use wikanvas_api::Scope;
 use serde_json::Value;
+use wikanvas_api::Scope;
 
 use crate::common::{Harness, fake_token, last_error, run_json};
 

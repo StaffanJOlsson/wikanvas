@@ -7,10 +7,10 @@
 use axum::Json;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
-use wikanvas_api::{ErrorBody, ListedItem, Page, PageQuery, TrashList};
-use wikanvas_store::lists::PageRequest;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
+use wikanvas_api::{ErrorBody, ListedItem, Page, PageQuery, TrashList};
+use wikanvas_store::lists::PageRequest;
 
 use crate::error::ApiError;
 use crate::extract::{Admin, Auth, IdPath, Read};

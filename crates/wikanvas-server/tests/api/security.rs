@@ -12,10 +12,10 @@ use axum::Router;
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
 use axum::routing::get;
-use wikanvas_api::{ErrorBody, ErrorCode, Me, Scope};
-use wikanvas_server::extract::{AnyToken, Auth, IdPath, ItemRef, Session, Write};
 use serde_json::{Value, json};
 use tower::ServiceExt as _;
+use wikanvas_api::{ErrorBody, ErrorCode, Me, Scope};
+use wikanvas_server::extract::{AnyToken, Auth, IdPath, ItemRef, Session, Write};
 
 use crate::common::{OWNER_PASSWORD, PEER, TestApp, assert_error, router, set_cookies};
 
@@ -399,7 +399,8 @@ async fn host_allowlist_accepts_wikanvas_domain_any_port() {
         .add_header("x-forwarded-host", "wikanvas.lan")
         .await;
     assert_error(&res, 421, ErrorCode::HostNotAllowed);
-    let allowed = TestApp::from_vars(&[("WIKANVAS_ALLOWED_HOSTS", "wikanvas, wiki.lan:8443")]).await;
+    let allowed =
+        TestApp::from_vars(&[("WIKANVAS_ALLOWED_HOSTS", "wikanvas, wiki.lan:8443")]).await;
     for (host, ok) in [
         ("wikanvas:8080", true),
         ("wiki.lan:8443", true),
@@ -554,8 +555,11 @@ fn setup_post(app: &TestApp, host: &str, origin: &str) -> axum_test::TestRequest
 
 #[tokio::test]
 async fn public_url_derived_from_domain() {
-    let app =
-        TestApp::from_vars(&[("WIKANVAS_DOMAIN", "wikanvas.lan"), ("WIKANVAS_HTTPS_PORT", "8443")]).await;
+    let app = TestApp::from_vars(&[
+        ("WIKANVAS_DOMAIN", "wikanvas.lan"),
+        ("WIKANVAS_HTTPS_PORT", "8443"),
+    ])
+    .await;
     assert_eq!(
         app.state.config.public_url.to_string(),
         "https://wikanvas.lan:8443"
@@ -1109,7 +1113,10 @@ async fn timeout_408_envelope() {
     let res = router(&app.state).oneshot(req).await.unwrap();
     assert_eq!(res.status(), 408);
     let id = res.headers()["x-request-id"].to_str().unwrap().to_owned();
-    assert_eq!(res.headers()["wikanvas-api-version"], wikanvas_api::API_VERSION);
+    assert_eq!(
+        res.headers()["wikanvas-api-version"],
+        wikanvas_api::API_VERSION
+    );
     let body = axum::body::to_bytes(res.into_body(), 1 << 20)
         .await
         .unwrap();

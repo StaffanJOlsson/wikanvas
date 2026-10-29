@@ -3,8 +3,8 @@
 use std::fmt::Write;
 
 use clap::CommandFactory;
-use wikanvas_api::cli::ExitCode;
 use serde_json::{Value, json};
+use wikanvas_api::cli::ExitCode;
 
 use super::{Ctx, Res};
 use crate::args::{Cli, HelpArgs};

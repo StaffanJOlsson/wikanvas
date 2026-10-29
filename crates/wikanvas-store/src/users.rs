@@ -4,8 +4,8 @@
 //! so two concurrent setups cannot both succeed (the unique index backs it up). Passwords are argon2id PHC strings
 //! hashed by the server (D17); the store never sees a plain password.
 
-use wikanvas_core::api::{ErrorCode, Role, Theme, User};
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
+use wikanvas_core::api::{ErrorCode, Role, Theme, User};
 
 use crate::error::{Error, Result};
 use crate::shared::{new_id, parse_uuid};

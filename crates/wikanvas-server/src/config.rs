@@ -616,7 +616,11 @@ mod tests {
     fn public_url_derived_from_domain_and_port() {
         let c = config(&[("WIKANVAS_DOMAIN", "Wikanvas.LAN")]).unwrap();
         assert_eq!(c.public_url.to_string(), "https://wikanvas.lan");
-        let c = config(&[("WIKANVAS_DOMAIN", "wikanvas.lan"), ("WIKANVAS_HTTPS_PORT", "8443")]).unwrap();
+        let c = config(&[
+            ("WIKANVAS_DOMAIN", "wikanvas.lan"),
+            ("WIKANVAS_HTTPS_PORT", "8443"),
+        ])
+        .unwrap();
         assert_eq!(c.public_url.to_string(), "https://wikanvas.lan:8443");
         let c = config(&[
             ("WIKANVAS_DOMAIN", "wikanvas.lan"),
@@ -635,7 +639,10 @@ mod tests {
 
     #[test]
     fn tls_and_sync_values() {
-        assert_eq!(config(&[("WIKANVAS_TLS", "acme")]).unwrap().tls, TlsMode::Acme);
+        assert_eq!(
+            config(&[("WIKANVAS_TLS", "acme")]).unwrap().tls,
+            TlsMode::Acme
+        );
         let err = config(&[("WIKANVAS_TLS", "off")]).unwrap_err();
         assert_eq!(err.var, "WIKANVAS_TLS");
         assert_eq!(

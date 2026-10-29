@@ -6,9 +6,9 @@
 //! request moves `expires_at` to `now + window` ([`renewal`]). `last_seen_at` is touched at most every 5 minutes.
 
 use base64::Engine as _;
-use wikanvas_core::api::{ErrorCode, Role, SessionInfo, Timestamp};
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use sha2::{Digest, Sha256};
+use wikanvas_core::api::{ErrorCode, Role, SessionInfo, Timestamp};
 
 use crate::error::{Error, Result};
 use crate::shared::{new_id, parse_uuid};

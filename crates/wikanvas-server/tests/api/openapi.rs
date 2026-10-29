@@ -77,5 +77,8 @@ async fn served_no_cache_with_etag() {
         .await;
     assert_eq!(again.status_code(), 304);
     assert_eq!(again.header("etag"), etag);
-    assert_eq!(again.header("wikanvas-api-version"), wikanvas_api::API_VERSION);
+    assert_eq!(
+        again.header("wikanvas-api-version"),
+        wikanvas_api::API_VERSION
+    );
 }

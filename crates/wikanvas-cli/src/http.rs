@@ -462,7 +462,8 @@ impl Client {
             match result {
                 Ok(resp) => {
                     let status = resp.status().as_u16();
-                    let request_id = header(resp.headers(), wikanvas_api::common::header::REQUEST_ID);
+                    let request_id =
+                        header(resp.headers(), wikanvas_api::common::header::REQUEST_ID);
                     output::debug(json!({
                         "method": req.method.as_str(), "url": url, "status": status,
                         "duration_ms": elapsed, "request_id": request_id, "attempt": *attempt + 1,

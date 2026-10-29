@@ -7,11 +7,11 @@
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
+use utoipa_axum::router::OpenApiRouter;
+use utoipa_axum::routes;
 use wikanvas_api::{
     Collection, CollectionDeleted, CollectionPatch, ErrorBody, MoveCollection, NewCollection,
 };
-use utoipa_axum::router::OpenApiRouter;
-use utoipa_axum::routes;
 
 use crate::error::ApiError;
 use crate::extract::{Auth, IdPath, Read, Write};
@@ -152,7 +152,9 @@ async fn patch_collection(
     let now = now_ms();
     let collection = state
         .db
-        .write(move |tx| wikanvas_store::collections::update(tx, &id.to_string(), &patch, &actor, now))
+        .write(move |tx| {
+            wikanvas_store::collections::update(tx, &id.to_string(), &patch, &actor, now)
+        })
         .await?;
     Ok(Json(collection))
 }

@@ -8,10 +8,10 @@ use std::future::IntoFuture;
 use std::time::Duration;
 
 use axum::http::StatusCode;
+use serde_json::json;
 use wikanvas_api::{
     Config as ApiConfig, ErrorCode, Me, Scope, SessionInfo, SetupStatus, UserEnvelope,
 };
-use serde_json::json;
 
 use crate::common::{
     OWNER_EMAIL, OWNER_PASSWORD, PEER, TestApp, admin, assert_error, cookie_from, set_cookies,
@@ -932,7 +932,10 @@ async fn config_reports_limits_and_api_version() {
             "token_bytes_per_hour": 1024 * 1024 * 1024u64,
         })
     );
-    assert_eq!(res.header("wikanvas-api-version"), wikanvas_api::API_VERSION);
+    assert_eq!(
+        res.header("wikanvas-api-version"),
+        wikanvas_api::API_VERSION
+    );
 }
 
 #[tokio::test]

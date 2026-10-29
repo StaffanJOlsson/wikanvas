@@ -1,7 +1,7 @@
 //! Search routes: snippets, filters, the offset cap, title search (owner: W1).
 
-use wikanvas_api::{ErrorCode, Page, SearchHit, TitleHit};
 use serde_json::Value;
+use wikanvas_api::{ErrorCode, Page, SearchHit, TitleHit};
 
 use crate::common::{TestApp, assert_error};
 use crate::items::{collection, item};
@@ -22,7 +22,11 @@ async fn snippet_markers_and_draft_filter() {
     app.state
         .db
         .write(move |tx| {
-            wikanvas_store::shared::set_body_text(tx, &id, "Early morning: a quokka crossed the path.")
+            wikanvas_store::shared::set_body_text(
+                tx,
+                &id,
+                "Early morning: a quokka crossed the path.",
+            )
         })
         .await
         .unwrap();

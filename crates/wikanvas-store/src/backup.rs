@@ -13,8 +13,8 @@
 
 use std::path::{Path, PathBuf};
 
-use wikanvas_core::api::{ErrorCode, Timestamp};
 use rusqlite::{Connection, OpenFlags};
+use wikanvas_core::api::{ErrorCode, Timestamp};
 
 use crate::db::Db;
 use crate::error::{Error, Result};

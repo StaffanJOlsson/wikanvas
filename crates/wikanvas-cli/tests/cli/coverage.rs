@@ -3,8 +3,8 @@
 
 use std::collections::BTreeSet;
 
-use wikanvas_cli::{API_ONLY, OPERATIONS};
 use serde_json::Value;
+use wikanvas_cli::{API_ONLY, OPERATIONS};
 
 fn repo_file(rel: &str) -> String {
     let path = format!("{}/../../{rel}", env!("CARGO_MANIFEST_DIR"));

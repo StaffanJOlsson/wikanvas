@@ -12,9 +12,9 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 use std::thread::JoinHandle;
 
+use tokio::sync::oneshot;
 use wikanvas_api::Scope;
 use wikanvas_api::tokens::NewToken;
-use tokio::sync::oneshot;
 
 use crate::admin::{self, NewOwner};
 use crate::config::{Config, Origin, Scheme};

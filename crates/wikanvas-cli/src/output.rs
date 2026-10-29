@@ -12,9 +12,9 @@ use std::io::Write;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use wikanvas_api::cli::ExitCode;
 use serde::Serialize;
 use serde_json::{Value, json};
+use wikanvas_api::cli::ExitCode;
 
 use crate::error::Failure;
 use crate::human;

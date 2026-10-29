@@ -7,13 +7,13 @@
 use std::time::{Duration, UNIX_EPOCH};
 
 use axum::http::StatusCode;
+use serde_json::json;
+use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use wikanvas_api::{Attachment, ErrorCode, Me, Scope};
 use wikanvas_core::api::{ItemKind, NewCollection, NewItem};
 use wikanvas_server::AppState;
 use wikanvas_server::config::Config;
 use wikanvas_server::jobs::{self, BACKUP_STARTUP_DELAY};
-use serde_json::json;
-use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
 use crate::common::{OWNER_EMAIL, TestApp, admin, assert_error, stdout_json};
 
@@ -43,8 +43,11 @@ fn error_line(out: &std::process::Output) -> serde_json::Value {
 }
 
 async fn collections(dir: &std::path::Path) -> i64 {
-    let db =
-        wikanvas_store::Db::open(dir.join("wikanvas.db"), wikanvas_store::DbOptions::default()).unwrap();
+    let db = wikanvas_store::Db::open(
+        dir.join("wikanvas.db"),
+        wikanvas_store::DbOptions::default(),
+    )
+    .unwrap();
     db.read(|c| Ok(c.query_row("SELECT count(*) FROM collections", [], |r| r.get(0))?))
         .await
         .unwrap()
@@ -254,7 +257,12 @@ async fn create_token_prints_once_and_authenticates_over_http() {
     assert_eq!(status, 200, "{body}");
     let me: Me = serde_json::from_str(&body).unwrap();
     assert_eq!(me.auth.token.unwrap().name, "ci");
-    let (status, _) = http_get(addr, "/api/v1/auth/me", &wikanvas_api::token::encode(&[1; 32])).await;
+    let (status, _) = http_get(
+        addr,
+        "/api/v1/auth/me",
+        &wikanvas_api::token::encode(&[1; 32]),
+    )
+    .await;
     assert_eq!(status, 401);
     // The token is listed, never with its secret.
     let out = admin(dir.path(), &["--json", "list-tokens"], None);

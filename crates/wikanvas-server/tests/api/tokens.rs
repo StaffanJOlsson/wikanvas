@@ -6,10 +6,10 @@
 
 use std::time::Duration;
 
+use serde_json::json;
 use wikanvas_api::tokens::NewToken;
 use wikanvas_api::{ApiToken, CreatedToken, ErrorBody, ErrorCode, Me, Scope};
 use wikanvas_store::tokens::{CreatedVia, TokenLookup};
-use serde_json::json;
 
 use crate::common::{OWNER_PASSWORD, TestApp, assert_error};
 

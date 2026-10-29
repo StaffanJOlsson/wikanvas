@@ -4,8 +4,8 @@ use std::collections::BTreeSet;
 use std::time::Duration;
 
 use clap::CommandFactory;
-use wikanvas_cli::args::Cli;
 use serde_json::{Value, json};
+use wikanvas_cli::args::Cli;
 
 use crate::common::{ID, Mock, Recorded, Reply, Sandbox, fake_token, last_error, run_json};
 
@@ -750,11 +750,11 @@ fn api_version_older_warns_once() {
     // The same version, or a newer one: no warning.
     for version in [wikanvas_api::API_VERSION, "1.9"] {
         let mock = Mock::always(Reply::json(200, &json!([])).with("Wikanvas-Api-Version", version));
-        let (code, _, err) =
-            run_json(
-                s.wikanvas_at(&mock.url, &fake_token(1))
-                    .args(["--json", "collection", "list"]),
-            );
+        let (code, _, err) = run_json(s.wikanvas_at(&mock.url, &fake_token(1)).args([
+            "--json",
+            "collection",
+            "list",
+        ]));
         assert_eq!((code, err.as_str()), (0, ""), "{version}");
     }
 }

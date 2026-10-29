@@ -27,13 +27,13 @@ use axum::http::{HeaderMap, Method, StatusCode, Uri, header};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
-use wikanvas_api::{ErrorCode, Health};
 use tower_http::catch_panic::CatchPanicLayer;
 use tower_http::compression::predicate::{Predicate as _, SizeAbove};
 use tower_http::compression::{CompressionLayer, CompressionLevel};
 use tower_http::sensitive_headers::SetSensitiveHeadersLayer;
 use tower_http::trace::TraceLayer;
 use tracing::Span;
+use wikanvas_api::{ErrorCode, Health};
 
 use crate::config::{Config, MAX_BODY_BYTES};
 use crate::error::{self, ApiError};

@@ -85,7 +85,10 @@ fn url_and_token_resolve_as_a_pair() {
     assert_eq!(
         row(
             &[],
-            &[("WIKANVAS_URL", "https://env.example"), ("WIKANVAS_TOKEN", &b)],
+            &[
+                ("WIKANVAS_URL", "https://env.example"),
+                ("WIKANVAS_TOKEN", &b)
+            ],
             None
         ),
         (
@@ -100,7 +103,10 @@ fn url_and_token_resolve_as_a_pair() {
     assert_eq!(
         row(
             &["--url", "https://flag.example", "--token-file", tf],
-            &[("WIKANVAS_URL", "https://env.example"), ("WIKANVAS_TOKEN", &b)],
+            &[
+                ("WIKANVAS_URL", "https://env.example"),
+                ("WIKANVAS_TOKEN", &b)
+            ],
             None
         ),
         (
@@ -140,7 +146,10 @@ fn url_and_token_resolve_as_a_pair() {
     assert_eq!(
         row(
             &["--token-stdin"],
-            &[("WIKANVAS_URL", "https://env.example"), ("WIKANVAS_TOKEN", &b)],
+            &[
+                ("WIKANVAS_URL", "https://env.example"),
+                ("WIKANVAS_TOKEN", &b)
+            ],
             Some(&format!("{d}\n"))
         ),
         (
@@ -354,10 +363,11 @@ fn group_readable_profile_with_token_exit_3() {
     assert_eq!(mock.connections(), 0);
     // Without a token in it, a readable profile file is fine.
     s.write_config(&format!("[profiles.m]\nurl = \"{}\"\n", mock.url), 0o644);
-    let (code, _, err) = run_json(
-        s.wikanvas()
-            .args(["--json", "--profile", "m", "config", "show"]),
-    );
+    let (code, _, err) =
+        run_json(
+            s.wikanvas()
+                .args(["--json", "--profile", "m", "config", "show"]),
+        );
     assert_eq!(code, 0, "{err}");
     // And 0600 with the token works.
     s.write_config(&text, 0o600);

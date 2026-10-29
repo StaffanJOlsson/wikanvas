@@ -104,12 +104,11 @@ fn missing_wikanvas_server_exit_3() {
     std::fs::create_dir_all(&dir).unwrap();
     let wikanvas = dir.join("wikanvas");
     std::fs::copy(env!("CARGO_BIN_EXE_wikanvas"), &wikanvas).unwrap();
-    let (code, out, err) =
-        run_json(
-            s.wikanvas_bin(&wikanvas)
-                .env("PATH", "")
-                .args(["--json", "admin", "list-tokens"]),
-        );
+    let (code, out, err) = run_json(s.wikanvas_bin(&wikanvas).env("PATH", "").args([
+        "--json",
+        "admin",
+        "list-tokens",
+    ]));
     assert_eq!(code, 3, "{err}");
     assert_eq!(out, Value::Null);
     let e = last_error(&err);

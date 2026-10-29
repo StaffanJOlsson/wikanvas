@@ -16,6 +16,12 @@ use axum::http::header::{self, HeaderMap, HeaderValue};
 use axum::http::{HeaderName, StatusCode};
 use axum::response::{IntoResponse, Response};
 use base64::Engine as _;
+use serde::Deserialize;
+use serde_json::value::RawValue;
+use sha2::{Digest, Sha256};
+use tokio::sync::SemaphorePermit;
+use utoipa_axum::router::OpenApiRouter;
+use utoipa_axum::routes;
 use wikanvas_api::{
     DocJson, DocJsonPut, DocQuery, DocSchema, DocState, DocUpdate, DocUpdateResult, DocWriteResult,
     ErrorBody, ErrorCode, InvalidDocumentDetails, LimitDetails, MarkdownGetQuery, MarkdownPutQuery,
@@ -23,12 +29,6 @@ use wikanvas_api::{
 };
 use wikanvas_store::docs::{self, Author, ContentInput, ContentWrite, IfMatch, PmJson};
 use wikanvas_store::shared::WriteBy;
-use serde::Deserialize;
-use serde_json::value::RawValue;
-use sha2::{Digest, Sha256};
-use tokio::sync::SemaphorePermit;
-use utoipa_axum::router::OpenApiRouter;
-use utoipa_axum::routes;
 
 use crate::authz::{self, Action, Resource};
 use crate::config::{MAX_JSON_BYTES, MAX_MARKDOWN_BYTES, MAX_UPDATE_BYTES};

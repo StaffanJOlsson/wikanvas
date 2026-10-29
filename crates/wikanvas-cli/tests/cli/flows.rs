@@ -3,8 +3,8 @@
 
 use std::os::unix::fs::symlink;
 
-use wikanvas_api::Scope;
 use serde_json::{Value, json};
+use wikanvas_api::Scope;
 
 use crate::common::{Harness, last_error, run_json};
 

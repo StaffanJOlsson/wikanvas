@@ -10,8 +10,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use deadpool_sqlite::{Config, Hook, HookError, Pool, Runtime};
-use wikanvas_core::api::ErrorCode;
 use rusqlite::{Connection, Transaction, TransactionBehavior};
+use wikanvas_core::api::ErrorCode;
 
 use crate::error::{Error, Result};
 

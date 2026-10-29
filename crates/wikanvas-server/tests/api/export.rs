@@ -10,8 +10,8 @@ use std::time::Duration;
 
 use axum::body::Body;
 use axum::http::{Method, Request};
-use wikanvas_api::{Attachment, ErrorBody, ErrorCode, Scope};
 use tower::ServiceExt as _;
+use wikanvas_api::{Attachment, ErrorBody, ErrorCode, Scope};
 
 use crate::common::{OWNER_PASSWORD, TestApp, assert_error, router};
 
@@ -82,7 +82,10 @@ async fn tar_has_manifest_db_and_files() {
     assert_eq!(manifest["format"], "wikanvas-export");
     assert_eq!(manifest["format_version"], 1);
     assert_eq!(manifest["api_version"], wikanvas_api::API_VERSION);
-    assert_eq!(manifest["schema_version"], wikanvas_store::migrate::latest());
+    assert_eq!(
+        manifest["schema_version"],
+        wikanvas_store::migrate::latest()
+    );
     assert_eq!(entries[2].1, b"hello, export\n");
     assert!(entries[1].1.starts_with(b"SQLite format 3\0"));
     // The copy in /data/tmp is gone once the stream ended.

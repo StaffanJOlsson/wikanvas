@@ -20,10 +20,10 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use assert_cmd::Command;
-use wikanvas_api::Scope;
-use wikanvas_server::testing::TestServer;
 use serde_json::Value;
 use tempfile::TempDir;
+use wikanvas_api::Scope;
+use wikanvas_server::testing::TestServer;
 
 /// Variables outside `WIKANVAS_*` that the CLI reads for its config directory, its CA bundle or logging; a test sets
 /// them explicitly when it needs them.
