@@ -1,11 +1,16 @@
-//! The `wikanvas collection` commands (owner: W8)
+//! The `wikanvas collection` commands (owner: W8; access and members: D152)
+//!
+//! `--access` on `create` and `update` is the collection's default access; `collection member` lists, sets and
+//! removes memberships, which take a person by id, by email (through `GET /users`, the owner and admins) or by their
+//! name in `GET /directory`.
 
 use serde_json::{Map, Value, json};
 
-use super::{Ctx, Res};
-use crate::args::CollectionCmd;
+use super::{Ctx, Res, print_json_text};
+use crate::args::{CollectionCmd, MemberCmd};
 use crate::error::Failure;
 use crate::http::Req;
+use crate::output;
 use crate::refs::{self, Ref};
 
 pub fn run(ctx: &Ctx, cmd: CollectionCmd) -> Res {
@@ -25,6 +30,7 @@ pub fn run(ctx: &Ctx, cmd: CollectionCmd) -> Res {
                 ("description", a.description),
                 ("icon", a.icon),
                 ("color", a.color),
+                ("default_access", a.access),
             ] {
                 if let Some(v) = v {
                     body.insert(k.into(), v.into());
@@ -46,6 +52,7 @@ pub fn run(ctx: &Ctx, cmd: CollectionCmd) -> Res {
                 ("icon", a.icon),
                 ("color", a.color),
                 ("child_order", a.sort),
+                ("default_access", a.access),
             ] {
                 if let Some(v) = v {
                     body.insert(k.into(), v.into());
@@ -53,7 +60,7 @@ pub fn run(ctx: &Ctx, cmd: CollectionCmd) -> Res {
             }
             if body.is_empty() {
                 return Err(Failure::usage(
-                    "collection update: pass --name, --description, --icon, --color or --sort",
+                    "collection update: pass --name, --description, --icon, --color, --sort or --access",
                 ));
             }
             let id = ctx.collection_id(&a.collection)?;
@@ -89,6 +96,59 @@ pub fn run(ctx: &Ctx, cmd: CollectionCmd) -> Res {
             ctx.list(
                 Req::get(format!("/api/v1/collections/{id}/updated")),
                 &a.list,
+            )
+        }
+        CollectionCmd::Member(m) => member(ctx, m),
+    }
+}
+
+fn member(ctx: &Ctx, cmd: MemberCmd) -> Res {
+    match cmd {
+        MemberCmd::List(a) => {
+            let id = ctx.collection_id(&a.collection)?;
+            let text = ctx
+                .client()?
+                .send_text(&Req::get(format!("/api/v1/collections/{id}/members")))?
+                .text;
+            if output::json() {
+                return print_json_text(&text);
+            }
+            let v: Value = serde_json::from_str(&text)
+                .map_err(|e| Failure::bad_response(format!("GET …/members: not JSON: {e}")))?;
+            let mut out = String::new();
+            for m in v.as_array().into_iter().flatten() {
+                let u = &m["user"];
+                out.push_str(&format!(
+                    "{}  {:<6}  {:<6}  {:<6}  {}{}\n",
+                    u["id"].as_str().unwrap_or("-"),
+                    m["access"].as_str().unwrap_or("-"),
+                    m["effective_access"].as_str().unwrap_or("-"),
+                    u["role"].as_str().unwrap_or("-"),
+                    crate::human::clean(u["name"].as_str().unwrap_or("-")),
+                    if m["disabled"] == true {
+                        "  (disabled)"
+                    } else {
+                        ""
+                    }
+                ));
+            }
+            output::print_text(&out)
+        }
+        MemberCmd::Set(a) => {
+            let id = ctx.collection_id(&a.collection)?;
+            let user = super::user::person_id(ctx, &a.user)?;
+            ctx.call(
+                Req::put(format!("/api/v1/collections/{id}/members/{user}"))
+                    .json(&json!({ "access": a.access })),
+                None,
+            )
+        }
+        MemberCmd::Remove(a) => {
+            let id = ctx.collection_id(&a.collection)?;
+            let user = super::user::person_id(ctx, &a.user)?;
+            ctx.call(
+                Req::delete(format!("/api/v1/collections/{id}/members/{user}")),
+                Some(&user),
             )
         }
     }

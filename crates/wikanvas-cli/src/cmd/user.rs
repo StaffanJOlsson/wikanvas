@@ -21,6 +21,66 @@ pub fn run(ctx: &Ctx, cmd: UserCmd) -> Res {
         UserCmd::SetRole(a) => patch(ctx, &a.user, json!({ "role": a.role })),
         UserCmd::Disable(a) => patch(ctx, &a.user, json!({ "disabled": true })),
         UserCmd::Enable(a) => patch(ctx, &a.user, json!({ "disabled": false })),
+        UserCmd::Directory => directory(ctx),
+    }
+}
+
+/// `user directory`: `GET /directory` (every role), as `id  role  name`.
+fn directory(ctx: &Ctx) -> Res {
+    let text = ctx
+        .client()?
+        .send_text(&Req::get("/api/v1/directory"))?
+        .text;
+    if output::json() {
+        return print_json_text(&text);
+    }
+    let v: Value = serde_json::from_str(&text)
+        .map_err(|e| Failure::bad_response(format!("GET /directory: not JSON: {e}")))?;
+    let mut out = String::new();
+    for u in v.as_array().into_iter().flatten() {
+        out.push_str(&format!(
+            "{}  {:<6}  {}\n",
+            u["id"].as_str().unwrap_or("-"),
+            u["role"].as_str().unwrap_or("-"),
+            crate::human::clean(u["name"].as_str().unwrap_or("-")),
+        ));
+    }
+    output::print_text(&out)
+}
+
+/// A person for a membership (D152): a UUID as it is, an email through `GET /users` (the owner and admins), or a
+/// name that exactly one account in `GET /directory` has, ignoring case (exit 7 for none, 2 for several).
+pub fn person_id(ctx: &Ctx, input: &str) -> Result<String, Failure> {
+    let input = input.trim();
+    if input.contains('@') || refs::uuid(input, "user").is_ok() {
+        return user_id(ctx, input);
+    }
+    let people = ctx.get_value(Req::get("/api/v1/directory"))?;
+    let found: Vec<&str> = people
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|u| {
+            u["name"]
+                .as_str()
+                .is_some_and(|n| n.trim().eq_ignore_ascii_case(input))
+        })
+        .filter_map(|u| u["id"].as_str())
+        .collect();
+    match found.as_slice() {
+        [one] => Ok((*one).to_owned()),
+        [] => Err(Failure::with_exit(
+            ExitCode::NotFound,
+            None,
+            "not_found",
+            format!("nobody in the directory is called {input:?}"),
+            None,
+            None,
+        )),
+        _ => Err(Failure::usage(format!(
+            "{} people are called {input:?}: pass the id (`wikanvas user directory`)",
+            found.len()
+        ))),
     }
 }
 

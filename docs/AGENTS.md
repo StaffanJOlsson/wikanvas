@@ -27,11 +27,11 @@ create; `item unpublish` makes a draft (D23).
 | auth | `auth login --url U (--token-stdin \| --token-file F) [--profile P]`, `auth logout [--revoke]`, `auth whoami` | `Me` (with `auth.token`: prefix, scopes, expiry); logout: the ok object |
 | me, session | `me update [--name N] [--email E] [--theme light\|dark\|system]`, `session list`, `session revoke (ID \| --others)` | `{user}`; the list; ok |
 | token | `token list`, `token create --name N --scope read\|write\|admin [--expires 30d\|never] [--token-out F]`, `token revoke ID` | `[ApiToken]`; `{token, api_token}` or `{token_file, api_token}`; ok |
-| user | `user list`, `user set-role USER --role admin\|member\|viewer`, `user disable USER`, `user enable USER` (`USER`: an id or an email) | `[UserInfo]` `{id, email, name, role, created_at, disabled_at}`; `UserInfo` |
+| user | `user list`, `user set-role USER --role admin\|member\|viewer`, `user disable USER`, `user enable USER` (`USER`: an id or an email), `user directory` (any role) | `[UserInfo]` `{id, email, name, role, created_at, disabled_at}`; `UserInfo`; `[DirectoryUser]` `{id, name, role}` |
 | invite | `invite create --role admin\|member\|viewer [--expires 7d] [--note T] [--url-out F]`, `invite list`, `invite revoke ID` | `{invite, url}` or `{url_file, invite}`; `[Invite]` (pending, never a link); ok |
 | config | `config show`, `config path` (local) | `{profile, url, url_source, token_source, token_prefix}`; `{path}` |
 | workspace | `workspace get`, `workspace set [--name N] [--logo ATT \| --no-logo]`, `sidebar` | the body |
-| collection | `collection list \| get COLL \| create --name N [--description D] [--icon I] [--color '#RRGGBB'] \| update COLL [--sort manual\|title\|updated\|created] \| move COLL \| delete COLL \| restore COLL \| updated COLL` | the body |
+| collection | `collection list \| get COLL \| create --name N [--description D] [--icon I] [--color '#RRGGBB'] [--access none\|read\|write] \| update COLL [--sort manual\|title\|updated\|created] [--access none\|read\|write] \| move COLL \| delete COLL \| restore COLL \| updated COLL`, `collection member list COLL \| set COLL USER --access read\|write\|manage \| remove COLL USER` (`USER`: an id, an email for the owner and admins, or a name from `user directory`) | the body (`Collection` with `default_access` and `my_access`); `[CollectionMember]` `{user, access, effective_access, disabled, updated_at}`; `CollectionMember`; ok |
 | item | `item get ITEM`, `item create --collection COLL --kind doc\|board [--parent ITEM] [--title T] [--md F\|- [--title-h1]]`, `item update ITEM [--title T] [--full-width true\|false] [--if-match E]`, `item move ITEM [--parent ITEM \| --top] [--collection COLL] [--after REF \| --before REF]` (neither `--parent` nor `--top`: the item keeps its parent, a reorder; `--collection` needs one of them), `item duplicate\|publish [--with-ancestors]\|unpublish\|archive\|unarchive\|trash [--discard-empty]\|restore\|children\|text ITEM` | `ItemSummary` (`item get`: `ItemDetail`; `create --md`: `{item, doc}`) |
 | tree | `tree COLL` | `{collection, items}` (flat; `parent_id` links them) |
 | list, trash | `list recent\|updated\|drafts\|starred\|archive`, `trash list`, `trash purge (ITEM \| --collection COLL \| --all) --yes` | a `Page` `{items, next_cursor}`; the trash; ok |
@@ -59,6 +59,9 @@ wikanvas --json api GET /api/v1/sidebar
 wikanvas --json user list
 wikanvas --json user set-role bea@example.org --role viewer
 wikanvas --json invite create --role member --expires 7d --url-out invite.url
+wikanvas --json collection create --name "Board only" --access none
+wikanvas --json collection member set "$C" bea@example.org --access write
+wikanvas --json user directory
 wikanvas --json version
 wikanvas exit-codes --json
 wikanvas help --json doc put
@@ -72,8 +75,15 @@ Accounts join only through invite links (there is no sign-up). `invite create` p
 once: send it to the person, or write it to a 0600 file with `--url-out`, and never log it. `user` and `invite` need an
 `admin` token of the owner or of an admin; only the owner invites or makes an admin, nobody changes the owner's role
 or their own, and disabling an account ends its sessions, tokens and pending invites at once. Accepting an invite is
-web-only (the invite page signs the new person in). Until per-collection permissions arrive (docs/multi-user.md phase
-3), every member and viewer can read every collection, and members can change them.
+web-only (the invite page signs the new person in).
+
+Access is per collection (D152). Every collection has a default access for members and viewers (`none`, `read` or
+`write`; `write`, members edit and viewers read, unless someone changed it), and memberships give a person more:
+`read`, `write` or `manage`. The owner and admins manage every collection; everyone else has the greater of the two,
+and a viewer never more than `read`. A collection's `my_access` is yours. Whoever creates a collection manages it;
+changing its settings, `--access`, members, place, trashing and restoring it need `manage`; purging stays the owner's
+and admins'. A collection, item or attachment you may not read answers exit 7 (`not_found`) exactly as a missing one
+does, and lists, search and title lookups leave it out; one you may read but not change is exit 6 (`forbidden`).
 
 ## 3. Getting a token
 
@@ -251,10 +261,12 @@ this field order):
   id shows "Page not found" too. `embed` holds only `item`: other fields in it are dropped by the engine.
 - **The label is a title snapshot**: one bold span coloured `#1d2430` (sans, size 24, centred) holding the document's
   title without leading and trailing spaces, `"Untitled"` when nothing else is left (as the web client writes it; it
-  also cuts a title longer than 200 characters to its first 200). Previews (`board preview`), the board's search text
-  (`item text`, `search`) and engines without Wikanvas's patch show it; the web client shows the live title and
-  refreshes the snapshot when it next saves the board. Searching for a document's title also finds the boards it is on;
-  a board's text never holds the documents' bodies (each document is its own search hit).
+  also cuts a title longer than 200 characters to its first 200). Previews (`board preview`) and engines without
+  Wikanvas's patch show it; the web client shows the live title and refreshes the snapshot when it next saves the
+  board. A board's search text (`item text`, `search`) leaves cards out: searching for a document's title finds the
+  document, not the boards it is on (D152), and a board's text never holds the documents' bodies. Someone who may not
+  read a card's document gets the board (`board get`, `board preview`) with that card's label replaced by "Page not
+  found"; if they save the board, the card keeps that label until someone who may read the document saves it again.
 - **Keep `embed`** when you rewrite a board through your own model of Inkboard's JSON: a model without the field drops
   it, and the card becomes a plain box. Edit the JSON (as with `jq` below) rather than rebuild it.
 - **Object ids** must be unique on their page: the engine keeps the first object with a given id and drops the rest.

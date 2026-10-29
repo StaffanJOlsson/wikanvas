@@ -149,6 +149,7 @@ fn every_command_accepts_json() {
         ),
         ("user disable", vec![ID.into()]),
         ("user enable", vec![ID.into()]),
+        ("user directory", vec![]),
         ("invite create", vec!["--role".into(), "member".into()]),
         ("invite list", vec![]),
         ("invite revoke", vec![ID.into()]),
@@ -168,6 +169,12 @@ fn every_command_accepts_json() {
         ("collection delete", vec![ID.into()]),
         ("collection restore", vec![ID.into()]),
         ("collection updated", vec![ID.into()]),
+        ("collection member list", vec![ID.into()]),
+        (
+            "collection member set",
+            vec![ID.into(), ID.into(), "--access".into(), "read".into()],
+        ),
+        ("collection member remove", vec![ID.into(), ID.into()]),
         ("item get", vec![ID.into()]),
         (
             "item create",

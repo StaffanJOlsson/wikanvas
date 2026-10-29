@@ -199,3 +199,124 @@ fn accounts_are_listed_and_changed_by_id_or_email() {
         "{text}"
     );
 }
+
+/// D152: a collection's default access on create and update, its members by id, email or directory name, and the
+/// directory.
+#[test]
+fn collection_access_and_members() {
+    let h = Harness::start();
+    let (code, v, err) = h.json(Scope::Admin, &["invite", "create", "--role", "member"]);
+    assert_eq!(code, 0, "{err}");
+    let bea = accept(&h, v["url"].as_str().unwrap(), "bea@wikanvas.invalid");
+    let (code, c, err) = h.json(
+        Scope::Write,
+        &[
+            "collection",
+            "create",
+            "--name",
+            "Private",
+            "--access",
+            "none",
+        ],
+    );
+    assert_eq!(code, 0, "{err}");
+    assert_eq!(
+        (c["default_access"].clone(), c["my_access"].clone()),
+        (json!("none"), json!("manage"))
+    );
+    let id = c["id"].as_str().unwrap().to_owned();
+    let (code, c, err) = h.json(
+        Scope::Write,
+        &["collection", "update", &id, "--access", "read"],
+    );
+    assert_eq!(code, 0, "{err}");
+    assert_eq!(c["default_access"], "read");
+    // The directory: everyone who can sign in, by name, without emails.
+    let (code, people, err) = h.json(Scope::Read, &["user", "directory"]);
+    assert_eq!(code, 0, "{err}");
+    assert_eq!(people.as_array().unwrap().len(), 2);
+    assert!(!people.to_string().contains('@'), "{people}");
+    // A member by name, then by email, then by id; the list shows what it gives them.
+    let (code, m, err) = h.json(
+        Scope::Write,
+        &[
+            "collection",
+            "member",
+            "set",
+            &id,
+            "new person",
+            "--access",
+            "write",
+        ],
+    );
+    assert_eq!(code, 0, "{err}");
+    assert_eq!(
+        (m["user"]["id"].clone(), m["effective_access"].clone()),
+        (json!(bea), json!("write"))
+    );
+    let (code, m, err) = h.json(
+        Scope::Admin,
+        &[
+            "collection",
+            "member",
+            "set",
+            &id,
+            "BEA@wikanvas.invalid",
+            "--access",
+            "manage",
+        ],
+    );
+    assert_eq!(code, 0, "{err}");
+    assert_eq!(m["access"], "manage");
+    let (code, list, err) = h.json(Scope::Read, &["collection", "member", "list", &id]);
+    assert_eq!(code, 0, "{err}");
+    let list = list.as_array().unwrap();
+    assert_eq!(list.len(), 2, "the owner (its creator) and Bea: {list:?}");
+    assert!(
+        list.iter()
+            .any(|m| m["user"]["id"] == bea.as_str() && m["access"] == "manage")
+    );
+    let out = h
+        .wikanvas_as(Scope::Read)
+        .args(["collection", "member", "list", &id])
+        .assert()
+        .success();
+    let text = String::from_utf8_lossy(&out.get_output().stdout).into_owned();
+    assert!(
+        text.contains(&bea) && text.contains("manage") && text.contains("New Person"),
+        "{text}"
+    );
+    let (code, v, err) = h.json(Scope::Write, &["collection", "member", "remove", &id, &bea]);
+    assert_eq!(code, 0, "{err}");
+    assert_eq!(v["ok"], true);
+    let (code, list, err) = h.json(Scope::Read, &["collection", "member", "list", &id]);
+    assert_eq!(code, 0, "{err}");
+    assert_eq!(list.as_array().unwrap().len(), 1);
+    // Usage errors before any request; an unknown name is exit 7; a read token cannot set (exit 6).
+    for args in [
+        &["collection", "member", "set", &id, &bea, "--access", "none"][..],
+        &["collection", "create", "--name", "X", "--access", "manage"][..],
+    ] {
+        let (code, _, err) = h.json(Scope::Write, args);
+        assert_eq!(code, 2, "{args:?}: {err}");
+    }
+    let (code, _, err) = h.json(
+        Scope::Write,
+        &[
+            "collection",
+            "member",
+            "set",
+            &id,
+            "Nobody Here",
+            "--access",
+            "read",
+        ],
+    );
+    assert_eq!(code, 7, "{err}");
+    let (code, _, err) = h.json(
+        Scope::Read,
+        &["collection", "member", "set", &id, &bea, "--access", "read"],
+    );
+    assert_eq!(code, 6, "{err}");
+    assert_eq!(last_error(&err)["error"]["code"], "insufficient_scope");
+}

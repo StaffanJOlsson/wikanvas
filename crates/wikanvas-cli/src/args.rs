@@ -278,6 +278,8 @@ pub enum UserCmd {
     Disable(UserArg),
     /// Enable a disabled account again
     Enable(UserArg),
+    /// The people of the workspace, for any role: id, role and name (never an email), to pick members
+    Directory,
 }
 
 #[derive(Debug, Args)]
@@ -372,6 +374,39 @@ pub enum CollectionCmd {
     Restore(CollectionArg),
     /// The collection's items, newest change first
     Updated(CollectionUpdated),
+    /// The people with a membership of the collection, and what it gives them (manage)
+    #[command(subcommand)]
+    Member(MemberCmd),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum MemberCmd {
+    /// List the memberships: each person's access and what they may do (their role caps it)
+    List(CollectionArg),
+    /// Add a person, or change their access
+    Set(MemberSet),
+    /// Remove a person: they keep the collection's default access
+    Remove(MemberRemove),
+}
+
+#[derive(Debug, Args)]
+pub struct MemberSet {
+    #[arg(value_name = "COLLECTION")]
+    pub collection: String,
+    /// The person: their id, their email (the owner and admins), or their name as `user directory` shows it
+    #[arg(value_name = "USER")]
+    pub user: String,
+    #[arg(long, value_parser = ["read", "write", "manage"])]
+    pub access: String,
+}
+
+#[derive(Debug, Args)]
+pub struct MemberRemove {
+    #[arg(value_name = "COLLECTION")]
+    pub collection: String,
+    /// The person: their id, their email (the owner and admins), or their name as `user directory` shows it
+    #[arg(value_name = "USER")]
+    pub user: String,
 }
 
 #[derive(Debug, Args)]
@@ -393,6 +428,9 @@ pub struct CollectionCreate {
     /// #RRGGBB
     #[arg(long, value_name = "#RRGGBB")]
     pub color: Option<String>,
+    /// What every member and viewer without a membership may do [default: write]
+    #[arg(long, value_parser = ["none", "read", "write"])]
+    pub access: Option<String>,
     #[command(flatten)]
     pub position: PositionArgs,
 }
@@ -412,6 +450,9 @@ pub struct CollectionUpdate {
     /// How the tree orders the items
     #[arg(long, value_parser = ["manual", "title", "updated", "created"])]
     pub sort: Option<String>,
+    /// What every member and viewer without a membership may do
+    #[arg(long, value_parser = ["none", "read", "write"])]
+    pub access: Option<String>,
 }
 
 #[derive(Debug, Args)]
