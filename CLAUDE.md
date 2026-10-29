@@ -39,6 +39,17 @@ The owner's machine has been brought to 100% by Rust builds before; caps are a h
 - `scripts/e2e.sh frame` needs the real engine: run `scripts/dev.sh scripts/inkboard.sh build` first (against the stub
   dist its `beforeAll` fails on purpose).
 
+## Git and CI
+
+- Wikanvas is live, so changes reach `main` only through pull requests with CI (`.github/workflows/ci.yml`,
+  docs/ARCHITECTURE.md §14.2, D146): branch from `origin/main`, push often, open a pull request. When every job is
+  green, land it as a fast-forward of `main` (`git push origin <branch>:main`), which keeps the commits, and the image
+  tags built from them, unchanged.
+- Pushing branches and landing green pull requests need no approval from the owner. Stable releases (a tag and a
+  GitHub release) come now and then, not per change. Deploying an image to the owner's live wiki is the owner's step.
+- CI runs on GitHub's 4-CPU runners with `WIKANVAS_BUILD_CPUS=4`. Pin every action by commit SHA, with its release
+  tag in a comment.
+
 ## Hosting
 
 The app is hosted as a Docker container behind Caddy, its HTTPS front (`docker/Caddyfile`), in one compose project. Both

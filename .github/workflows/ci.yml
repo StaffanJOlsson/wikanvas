@@ -1,0 +1,124 @@
+# CI for pull requests and main (owner, 2026-10-29: Wikanvas is live, so changes reach main through pull requests with
+# CI; docs/ARCHITECTURE.md §14.2). It runs the local gate's scripts in the same pinned images on GitHub's runners. A
+# runner has 4 CPUs, so the caps are lowered to 4 (the scripts refuse higher values); without wikanvas-build.slice the
+# per-container caps hold after a warning. Left to the local gate: scripts/inkboard.sh check (ten cargo runs of the
+# engine against its warning baseline, for changes to patches/inkboard) and scripts/cli-dist.sh.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  WIKANVAS_BUILD_CPUS: '4'
+  WIKANVAS_BUILD_MEM: 12g
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  checks:
+    name: Rust and web
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: true
+          persist-credentials: false
+      - uses: ./.github/actions/toolchain
+      - name: Cargo cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .cache/cargo/registry
+            .cache/cargo/git
+            target
+          key: cargo-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+      - name: Pins
+        run: scripts/check-pins.sh
+      # `bash -e` does not stop at a `! cmd` that fails unless it is the last command, so each guard exits itself.
+      - name: Compose and Caddy rules
+        run: |
+          docker compose --env-file /dev/null -f compose.yaml config --format json | jq -e '(.services.wikanvas.ports // []) == []'
+          if grep -nE '^\s*(encode|header)\b' docker/Caddyfile; then echo 'docker/Caddyfile: an encode or header directive (docs/PLAN.md gate)' >&2; exit 1; fi
+          if grep -rn '\.route(' crates/wikanvas-server/src/routes; then echo 'a .route( call in the server routes (docs/PLAN.md gate)' >&2; exit 1; fi
+          if grep -rn '\.route("/api' crates/wikanvas-server/src; then echo 'a .route("/api call in the server (docs/PLAN.md gate)' >&2; exit 1; fi
+      - name: Format
+        run: scripts/fmt.sh --check
+      - name: Clippy
+        run: scripts/dev.sh cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Dependency graph
+        run: |
+          scripts/dev.sh cargo tree --locked -e normal -i libsqlite3-sys
+          server=$(scripts/dev.sh cargo tree --locked -p wikanvas-server -e normal --prefix none)
+          if grep -E '^(rustls|ureq|reqwest|native-tls|openssl) ' <<<"$server"; then echo 'the server links a TLS stack (D29)' >&2; exit 1; fi
+          cli=$(scripts/dev.sh cargo tree --locked -p wikanvas-cli -e normal --prefix none)
+          if grep -E '^(openssl|openssl-sys|native-tls|rusqlite|yrs|inkboard-core|comrak|webpki-roots) ' <<<"$cli"; then
+            echo 'the CLI links a crate it must not (D29, D40, D54)' >&2; exit 1
+          fi
+      - name: Rust tests
+        run: scripts/dev.sh cargo test --workspace --locked
+      - name: Contract and OpenAPI are committed
+        run: |
+          scripts/dev.sh cargo test -p wikanvas-api --locked export_bindings
+          git diff --exit-code web/src/api/gen
+          scripts/dev.sh cargo test -p wikanvas-server --locked --test api -- openapi::
+          git diff --exit-code docs/api/openapi.json
+      - name: Web install
+        run: scripts/dev.sh pnpm --dir web install --frozen-lockfile
+      - name: Fixtures are committed
+        run: |
+          scripts/dev.sh pnpm --dir web fixtures
+          git diff --exit-code fixtures
+          scripts/dev.sh env WRITE_FIXTURES=1 cargo test -p wikanvas-core --locked -- convert::tests::write_server_fixtures
+          git diff --exit-code fixtures/ydoc/server
+      - name: Web typecheck, tests and build
+        run: |
+          scripts/dev.sh pnpm --dir web typecheck
+          scripts/dev.sh pnpm --dir web test
+          scripts/dev.sh pnpm --dir web build
+
+  image:
+    name: Image, smoke, agents, e2e
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: true
+          persist-credentials: false
+      - uses: ./.github/actions/toolchain
+      - name: Image (the real engine)
+        run: scripts/image.sh
+      - name: Image smoke
+        run: WIKANVAS_SMOKE_LEVEL=full scripts/image-smoke.sh
+      - name: Agent scenarios
+        run: scripts/agent-test.sh
+      - name: E2E smoke
+        run: scripts/e2e.sh smoke
+
+  frame:
+    name: Board frame
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: true
+          persist-credentials: false
+      - uses: ./.github/actions/toolchain
+      - name: Engine build
+        run: scripts/dev.sh scripts/inkboard.sh build
+      - name: Frame tests
+        run: scripts/e2e.sh frame

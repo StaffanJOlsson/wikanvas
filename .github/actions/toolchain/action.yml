@@ -1,0 +1,44 @@
+# The wikanvas-toolchain image for scripts/dev.sh on a GitHub runner: restored from the Actions cache when the files it
+# is built from are unchanged, otherwise built with scripts/toolchain.sh (the capped builder) and saved at once, so a
+# job that fails later still leaves it for the next run. It also frees disk space first: the runner image ships SDKs
+# Wikanvas never uses, and the build caches need the room.
+name: Toolchain image
+description: Free disk space, then restore or build wikanvas-toolchain:latest
+runs:
+  using: composite
+  steps:
+    - name: Free disk space
+      shell: bash
+      # sudo on GitHub's throwaway runner, never on the owner's machine (CLAUDE.md).
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        df -h /
+    - name: Cache key
+      id: key
+      shell: bash
+      run: |
+        sum=$(cat docker/Dockerfile docker/buildkitd.toml scripts/toolchain.sh scripts/lib/slice.sh | sha256sum | cut -c1-16)
+        echo "key=toolchain-$sum" >> "$GITHUB_OUTPUT"
+    - name: Restore
+      id: restore
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/toolchain.tar.zst
+        key: ${{ steps.key.outputs.key }}
+    - name: Load or build
+      shell: bash
+      env:
+        HIT: ${{ steps.restore.outputs.cache-hit }}
+      run: |
+        if [ "$HIT" = true ]; then
+          zstd -dc "$RUNNER_TEMP/toolchain.tar.zst" | docker load
+        else
+          scripts/toolchain.sh
+          docker save wikanvas-toolchain:latest | zstd -T0 -3 -q -o "$RUNNER_TEMP/toolchain.tar.zst"
+        fi
+    - name: Save
+      if: steps.restore.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/toolchain.tar.zst
+        key: ${{ steps.key.outputs.key }}
