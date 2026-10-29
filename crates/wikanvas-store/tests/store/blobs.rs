@@ -1,7 +1,7 @@
 //! Blob store and garbage collection tests (owner: W2)
 //!
 //! Staging and commit (D26), streamed staging with its limit, dedupe, sniffing, the free-space floor (D33), and the
-//! attachment and blob GC with the orphan sweep (§5, D26, D36).
+//! attachment and blob GC with the orphan sweep (§5, D26, D36), which waits for an owner (D144).
 
 use bytes::Bytes;
 use wikanvas_core::api::ErrorCode;
@@ -296,6 +296,35 @@ async fn gc_keeps_referenced_blobs_including_revision_assets() {
             .stale_tmp,
         1
     );
+}
+
+#[tokio::test]
+async fn orphan_sweep_runs_only_with_an_owner() {
+    let t = TestDb::new();
+    // Files of another database (D144): a blob file and a stray name, both without a row and older than an hour.
+    let stray = t.blobs.path(&Sha256::of(b"from another database"));
+    std::fs::create_dir_all(stray.parent().unwrap()).unwrap();
+    std::fs::write(&stray, b"from another database").unwrap();
+    let odd = stray.with_file_name("not-a-sha256");
+    std::fs::write(&odd, b"x").unwrap();
+    age(&stray, 7200);
+    age(&odd, 7200);
+    // No owner: the sweep does not run.
+    assert_eq!(
+        wikanvas_store::gc::blobs(&t.db, &t.blobs).await.unwrap(),
+        wikanvas_store::gc::BlobGc::default()
+    );
+    assert!(stray.exists() && odd.exists());
+    // With an owner it sweeps both, as before.
+    t.owner().await;
+    assert_eq!(
+        wikanvas_store::gc::blobs(&t.db, &t.blobs)
+            .await
+            .unwrap()
+            .orphan_files,
+        2
+    );
+    assert!(!stray.exists() && !odd.exists());
 }
 
 #[tokio::test]

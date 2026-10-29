@@ -4,7 +4,7 @@
 //! the admin commands call the job bodies directly):
 //! - **purge and GC**, at startup and every 6 h: Trash roots older than 30 days
 //!   ([`wikanvas_store::items::purge_expired`], leaves first), then attachment GC, then blob GC with the orphan sweep
-//!   ([`purge_and_gc`]);
+//!   ([`purge_and_gc`]); the sweep removes nothing while no owner exists (D144, [`wikanvas_store::gc::blobs`]);
 //! - **revision prune**, daily ([`wikanvas_store::revisions::prune`]);
 //! - **backup**, every `WIKANVAS_BACKUP_INTERVAL` while `WIKANVAS_BACKUP_KEEP` is not 0, single-flight with on-demand
 //!   backups and after the free-space check ([`backup_now`]). The first run is due one interval after the newest
@@ -60,7 +60,7 @@ pub struct PurgeReport {
     pub blobs: BlobGc,
 }
 
-/// Purge, attachment GC, blob GC and the sweep, in that order.
+/// Purge, attachment GC, blob GC and the sweep, in that order (the `files/` sweep only while an owner exists, D144).
 pub async fn purge_and_gc(state: &AppState) -> Result<PurgeReport, ApiError> {
     let now = state.now();
     let items_purged = state

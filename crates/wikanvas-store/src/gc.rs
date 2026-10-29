@@ -8,6 +8,10 @@
 //!    concurrent save (whose commit renames into `files/` inside the writer) can never end with a row whose file is
 //!    gone. Then the sweep, still under the writer: files under `files/` without a row and older than 1 h, and
 //!    staging files under `tmp/` older than 24 h (left by a crash).
+//!
+//! The `files/` sweep runs only while an owner exists (D144). Without one the database is new and empty, or not the
+//! wiki's own (missing, misplaced or not restored), and every file under `files/` would look orphaned: without an
+//! owner nothing writes there (uploads need a signed-in user, and the seed runs in the owner's transaction).
 
 use std::path::Path;
 use std::time::{Duration, SystemTime};
@@ -31,7 +35,7 @@ pub const STALE_TMP_AGE: Duration = Duration::from_secs(24 * 3600);
 pub struct BlobGc {
     /// Unreferenced blob rows deleted (their files unlinked).
     pub blobs: u64,
-    /// Files under `files/` without a row, older than 1 h.
+    /// Files under `files/` without a row, older than 1 h (0 while no owner exists: the sweep does not run).
     pub orphan_files: u64,
     /// Staging files under `tmp/` older than 24 h.
     pub stale_tmp: u64,
@@ -58,7 +62,8 @@ const UNREFERENCED: &str = "SELECT sha256 FROM blobs
        AND sha256 NOT IN (SELECT avatar_sha256 FROM users WHERE avatar_sha256 IS NOT NULL)
        AND sha256 NOT IN (SELECT j.value FROM revisions r, json_each(r.assets) j WHERE r.assets IS NOT NULL)";
 
-/// Blob GC and the sweep (see the module docs), in one closure on the writer.
+/// Blob GC and the sweep (see the module docs), in one closure on the writer. The `files/` sweep is skipped while no
+/// owner exists (D144).
 pub async fn blobs(db: &Db, store: &BlobStore) -> Result<BlobGc> {
     let store = store.clone();
     db.with_writer(move |conn| {
@@ -85,13 +90,16 @@ pub async fn blobs(db: &Db, store: &BlobStore) -> Result<BlobGc> {
             }
             report.blobs += 1;
         }
-        // Still holding the writer: no commit can rename a file into files/ while the sweep runs.
-        let known = |sha: &str| -> Result<bool> {
-            Ok(conn
-                .prepare_cached("SELECT EXISTS (SELECT 1 FROM blobs WHERE sha256 = ?1)")?
-                .query_row([sha], |r| r.get(0))?)
-        };
-        report.orphan_files = sweep_files(&store.files_dir(), ORPHAN_FILE_AGE, &known)?;
+        // Still holding the writer: no commit can rename a file into files/ while the sweep runs. Only with an owner
+        // (D144, the module docs).
+        if crate::users::owner_exists(conn)? {
+            let known = |sha: &str| -> Result<bool> {
+                Ok(conn
+                    .prepare_cached("SELECT EXISTS (SELECT 1 FROM blobs WHERE sha256 = ?1)")?
+                    .query_row([sha], |r| r.get(0))?)
+            };
+            report.orphan_files = sweep_files(&store.files_dir(), ORPHAN_FILE_AGE, &known)?;
+        }
         report.stale_tmp = sweep_tmp(&store.tmp_dir(), STALE_TMP_AGE);
         Ok(report)
     })
