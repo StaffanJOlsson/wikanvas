@@ -1,6 +1,8 @@
 //! Routes /api/v1/items: metadata, moves, publication, archive, trash, stars and views (owner: W1)
 //!
-//! §7.2. Every handler takes `Auth<S>` first (D44) with the scope its `#[utoipa::path]` declares. `GET /items/{id}`
+//! §7.2. Every handler takes `Auth<S>` first (D44) with the scope its `#[utoipa::path]` declares, then calls
+//! `authz::require` (§8): Read for the GETs and for the caller's own stars and views, Write for everything else
+//! (trashing and `?discard_empty` included; purging is `routes::lists`). `GET /items/{id}`
 //! accepts a `url_id` too and sends `ETag: "m{meta_version}"`, never 304 (D45); `PATCH /items/{id}` takes an optional
 //! `If-Match: "m{n}"` (a `W/` prefix ignored, `*` any), 412 `rev_mismatch` when stale.
 
@@ -17,6 +19,7 @@ use wikanvas_api::{
     ItemsArchived, MoveItem, NewItem, PublishRequest, RestoredItem, StarRequest,
 };
 
+use crate::authz::{self, Action, Resource};
 use crate::error::ApiError;
 use crate::extract::{Auth, IdPath, ItemRef, Read, Write};
 use crate::state::{AppState, now_ms};
@@ -127,7 +130,8 @@ async fn dark_theme(state: &AppState, user_id: &str) -> bool {
     responses(
         (status = 201, description = "The new item", body = ItemSummary),
         (status = 401, description = "`unauthenticated`, `invalid_token`", body = ErrorBody),
-        (status = 403, description = "`insufficient_scope`, `csrf_rejected`", body = ErrorBody),
+        (status = 403, description = "`insufficient_scope`, `forbidden` (a `viewer`), `csrf_rejected`",
+            body = ErrorBody),
         (status = 409, description = "`parent_invalid` (collection or parent missing, trashed, archived or foreign), `setup_required`", body = ErrorBody),
         (status = 413, description = "`payload_too_large`", body = ErrorBody),
         (status = 415, description = "`unsupported_media_type`", body = ErrorBody),
@@ -139,6 +143,11 @@ async fn create_item(
     State(state): State<AppState>,
     Json(new): Json<NewItem>,
 ) -> Result<(StatusCode, Json<ItemSummary>), ApiError> {
+    authz::require(
+        &auth,
+        Action::Write,
+        Resource::Collection(&new.collection_id.to_string()),
+    )?;
     let actor = auth.into_actor().user_id;
     let dark = dark_theme(&state, &actor).await;
     let now = now_ms();
@@ -172,6 +181,7 @@ async fn get_item(
     State(state): State<AppState>,
     item: ItemRef,
 ) -> Result<Response, ApiError> {
+    authz::require(&auth, Action::Read, Resource::Item(&item.value()))?;
     let viewer = auth.viewer();
     let detail = state
         .db
@@ -204,7 +214,8 @@ async fn get_item(
         (status = 200, description = "The item", body = ItemSummary,
             headers(("ETag" = String, description = "The new `\"m{meta_version}\"`"))),
         (status = 401, description = "`unauthenticated`, `invalid_token`", body = ErrorBody),
-        (status = 403, description = "`insufficient_scope`, `csrf_rejected`", body = ErrorBody),
+        (status = 403, description = "`insufficient_scope`, `forbidden` (a `viewer`), `csrf_rejected`",
+            body = ErrorBody),
         (status = 404, description = "`not_found`", body = ErrorBody),
         (status = 409, description = "`read_only` (trashed or archived), `setup_required`", body = ErrorBody),
         (status = 412, description = "`rev_mismatch` (`details.etag` is the current tag)", body = ErrorBody),
@@ -219,6 +230,7 @@ async fn patch_item(
     headers: HeaderMap,
     Json(patch): Json<ItemPatch>,
 ) -> Result<Response, ApiError> {
+    authz::require(&auth, Action::Write, Resource::Item(&id.to_string()))?;
     let actor = auth.into_actor().user_id;
     let if_match = if_match_meta(&headers);
     let now = now_ms();
@@ -253,7 +265,8 @@ async fn patch_item(
     responses(
         (status = 200, description = "How many items were trashed (or deleted)", body = ItemTrashed),
         (status = 401, description = "`unauthenticated`, `invalid_token`", body = ErrorBody),
-        (status = 403, description = "`insufficient_scope`, `csrf_rejected`", body = ErrorBody),
+        (status = 403, description = "`insufficient_scope`, `forbidden` (a `viewer`), `csrf_rejected`",
+            body = ErrorBody),
         (status = 404, description = "`not_found`", body = ErrorBody),
         (status = 409, description = "`not_empty`, `read_only` (already in the trash), `setup_required`", body = ErrorBody),
         (status = 422, description = "`validation` (`field`: `query`)", body = ErrorBody),
@@ -265,6 +278,7 @@ async fn delete_item(
     IdPath(id): IdPath,
     Query(q): Query<DeleteItemQuery>,
 ) -> Result<Json<ItemTrashed>, ApiError> {
+    authz::require(&auth, Action::Write, Resource::Item(&id.to_string()))?;
     let actor = auth.into_actor().user_id;
     let now = now_ms();
     let trashed = state
@@ -298,10 +312,11 @@ async fn delete_item(
     )
 )]
 async fn item_text(
-    _auth: Auth<Read>,
+    auth: Auth<Read>,
     State(state): State<AppState>,
     IdPath(id): IdPath,
 ) -> Result<Json<ItemText>, ApiError> {
+    authz::require(&auth, Action::Read, Resource::Item(&id.to_string()))?;
     let text = state
         .db
         .read(move |conn| wikanvas_store::items::text(conn, &id.to_string()))
@@ -322,7 +337,8 @@ async fn item_text(
     responses(
         (status = 200, description = "The moved item", body = ItemSummary),
         (status = 401, description = "`unauthenticated`, `invalid_token`", body = ErrorBody),
-        (status = 403, description = "`insufficient_scope`, `csrf_rejected`", body = ErrorBody),
+        (status = 403, description = "`insufficient_scope`, `forbidden` (a `viewer`), `csrf_rejected`",
+            body = ErrorBody),
         (status = 404, description = "`not_found`", body = ErrorBody),
         (status = 409, description = "`cycle`, `parent_invalid`, `read_only`, `setup_required`", body = ErrorBody),
         (status = 415, description = "`unsupported_media_type`", body = ErrorBody),
@@ -335,6 +351,14 @@ async fn move_item(
     IdPath(id): IdPath,
     Json(mv): Json<MoveItem>,
 ) -> Result<Json<ItemSummary>, ApiError> {
+    authz::require(&auth, Action::Write, Resource::Item(&id.to_string()))?;
+    if let Some(collection) = mv.collection_id {
+        authz::require(
+            &auth,
+            Action::Write,
+            Resource::Collection(&collection.to_string()),
+        )?;
+    }
     let actor = auth.into_actor().user_id;
     let now = now_ms();
     let item = state
@@ -356,7 +380,8 @@ async fn move_item(
     responses(
         (status = 201, description = "The copy", body = ItemSummary),
         (status = 401, description = "`unauthenticated`, `invalid_token`", body = ErrorBody),
-        (status = 403, description = "`insufficient_scope`, `csrf_rejected`", body = ErrorBody),
+        (status = 403, description = "`insufficient_scope`, `forbidden` (a `viewer`), `csrf_rejected`",
+            body = ErrorBody),
         (status = 404, description = "`not_found`", body = ErrorBody),
         (status = 409, description = "`read_only` (trashed or archived), `setup_required`", body = ErrorBody),
     )
@@ -366,6 +391,7 @@ async fn duplicate_item(
     State(state): State<AppState>,
     IdPath(id): IdPath,
 ) -> Result<(StatusCode, Json<ItemSummary>), ApiError> {
+    authz::require(&auth, Action::Write, Resource::Item(&id.to_string()))?;
     let actor = auth.into_actor().user_id;
     let now = now_ms();
     let item = state
@@ -388,7 +414,8 @@ async fn duplicate_item(
     responses(
         (status = 200, description = "The item", body = ItemSummary),
         (status = 401, description = "`unauthenticated`, `invalid_token`", body = ErrorBody),
-        (status = 403, description = "`insufficient_scope`, `csrf_rejected`", body = ErrorBody),
+        (status = 403, description = "`insufficient_scope`, `forbidden` (a `viewer`), `csrf_rejected`",
+            body = ErrorBody),
         (status = 404, description = "`not_found`", body = ErrorBody),
         (status = 409, description = "`read_only` (trashed or archived), `setup_required`", body = ErrorBody),
         (status = 415, description = "`unsupported_media_type`", body = ErrorBody),
@@ -401,6 +428,7 @@ async fn publish_item(
     IdPath(id): IdPath,
     OptionalJson(req): OptionalJson<PublishRequest>,
 ) -> Result<Json<ItemSummary>, ApiError> {
+    authz::require(&auth, Action::Write, Resource::Item(&id.to_string()))?;
     let actor = auth.into_actor().user_id;
     let now = now_ms();
     let item = state
@@ -424,7 +452,8 @@ async fn publish_item(
     responses(
         (status = 200, description = "The item", body = ItemSummary),
         (status = 401, description = "`unauthenticated`, `invalid_token`", body = ErrorBody),
-        (status = 403, description = "`insufficient_scope`, `csrf_rejected`", body = ErrorBody),
+        (status = 403, description = "`insufficient_scope`, `forbidden` (a `viewer`), `csrf_rejected`",
+            body = ErrorBody),
         (status = 404, description = "`not_found`", body = ErrorBody),
         (status = 409, description = "`read_only` (trashed or archived), `setup_required`", body = ErrorBody),
     )
@@ -434,6 +463,7 @@ async fn unpublish_item(
     State(state): State<AppState>,
     IdPath(id): IdPath,
 ) -> Result<Json<ItemSummary>, ApiError> {
+    authz::require(&auth, Action::Write, Resource::Item(&id.to_string()))?;
     let actor = auth.into_actor().user_id;
     let now = now_ms();
     let item = state
@@ -454,16 +484,18 @@ async fn unpublish_item(
     responses(
         (status = 200, description = "How many items were archived", body = ItemsArchived),
         (status = 401, description = "`unauthenticated`, `invalid_token`", body = ErrorBody),
-        (status = 403, description = "`insufficient_scope`, `csrf_rejected`", body = ErrorBody),
+        (status = 403, description = "`insufficient_scope`, `forbidden` (a `viewer`), `csrf_rejected`",
+            body = ErrorBody),
         (status = 404, description = "`not_found`", body = ErrorBody),
         (status = 409, description = "`read_only` (trashed or already archived), `setup_required`", body = ErrorBody),
     )
 )]
 async fn archive_item(
-    _auth: Auth<Write>,
+    auth: Auth<Write>,
     State(state): State<AppState>,
     IdPath(id): IdPath,
 ) -> Result<Json<ItemsArchived>, ApiError> {
+    authz::require(&auth, Action::Write, Resource::Item(&id.to_string()))?;
     let now = now_ms();
     let archived = state
         .db
@@ -484,16 +516,18 @@ async fn archive_item(
     responses(
         (status = 200, description = "The unarchived root", body = RestoredItem),
         (status = 401, description = "`unauthenticated`, `invalid_token`", body = ErrorBody),
-        (status = 403, description = "`insufficient_scope`, `csrf_rejected`", body = ErrorBody),
+        (status = 403, description = "`insufficient_scope`, `forbidden` (a `viewer`), `csrf_rejected`",
+            body = ErrorBody),
         (status = 404, description = "`not_found`", body = ErrorBody),
         (status = 409, description = "`conflict` (not archived), `read_only` (in the trash), `setup_required`", body = ErrorBody),
     )
 )]
 async fn unarchive_item(
-    _auth: Auth<Write>,
+    auth: Auth<Write>,
     State(state): State<AppState>,
     IdPath(id): IdPath,
 ) -> Result<Json<RestoredItem>, ApiError> {
+    authz::require(&auth, Action::Write, Resource::Item(&id.to_string()))?;
     let item = state
         .db
         .write(move |tx| wikanvas_store::items::unarchive(tx, &id.to_string()))
@@ -513,16 +547,18 @@ async fn unarchive_item(
     responses(
         (status = 200, description = "The restored root", body = RestoredItem),
         (status = 401, description = "`unauthenticated`, `invalid_token`", body = ErrorBody),
-        (status = 403, description = "`insufficient_scope`, `csrf_rejected`", body = ErrorBody),
+        (status = 403, description = "`insufficient_scope`, `forbidden` (a `viewer`), `csrf_rejected`",
+            body = ErrorBody),
         (status = 404, description = "`not_found`", body = ErrorBody),
         (status = 409, description = "`parent_invalid` (the collection is in the trash: restore it first), `conflict` (not in the trash), `setup_required`", body = ErrorBody),
     )
 )]
 async fn restore_item(
-    _auth: Auth<Write>,
+    auth: Auth<Write>,
     State(state): State<AppState>,
     IdPath(id): IdPath,
 ) -> Result<Json<RestoredItem>, ApiError> {
+    authz::require(&auth, Action::Write, Resource::Item(&id.to_string()))?;
     let item = state
         .db
         .write(move |tx| wikanvas_store::items::restore(tx, &id.to_string()))
@@ -556,6 +592,8 @@ async fn star_item(
     IdPath(id): IdPath,
     OptionalJson(req): OptionalJson<StarRequest>,
 ) -> Result<StatusCode, ApiError> {
+    // The caller's own star: reading the item is enough (§8).
+    authz::require(&auth, Action::Read, Resource::Item(&id.to_string()))?;
     let actor = auth.into_actor().user_id;
     let now = now_ms();
     state
@@ -588,6 +626,7 @@ async fn unstar_item(
     State(state): State<AppState>,
     IdPath(id): IdPath,
 ) -> Result<StatusCode, ApiError> {
+    authz::require(&auth, Action::Read, Resource::Item(&id.to_string()))?;
     let actor = auth.into_actor().user_id;
     state
         .db
@@ -618,6 +657,8 @@ async fn view_item(
     State(state): State<AppState>,
     IdPath(id): IdPath,
 ) -> Result<StatusCode, ApiError> {
+    // The caller's own view: reading the item is enough (§8).
+    authz::require(&auth, Action::Read, Resource::Item(&id.to_string()))?;
     let actor = auth.into_actor().user_id;
     let now = now_ms();
     state

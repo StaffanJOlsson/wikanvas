@@ -4,7 +4,9 @@
 //! - [`TestApp::with_owner`]: plus the owner and a session inserted with plain SQL; `server` sends the session
 //!   cookie, `Host: localhost` and `Sec-Fetch-Site: same-origin` with every request;
 //! - [`TestApp::with_token`]: plus the owner and a token of one scope; `server` sends `Authorization: Bearer` and
-//!   no cookie.
+//!   no cookie;
+//! - [`TestApp::insert_user`]: an `admin`, `member` or `viewer` beside the owner (there is no user-management API
+//!   yet), for [`TestApp::insert_session`] or [`TestApp::mint_token`].
 //!
 //! [`TestApp::client`] builds another client on the same state (no default headers), so one test can mix a cookie
 //! client, token clients and anonymous requests. Every client's router injects the peer address from an
@@ -25,7 +27,7 @@ use base64::Engine as _;
 use sha2::{Digest, Sha256};
 use tempfile::TempDir;
 use wikanvas_api::tokens::NewToken;
-use wikanvas_api::{ErrorBody, ErrorCode, Scope};
+use wikanvas_api::{ErrorBody, ErrorCode, Role, Scope};
 use wikanvas_server::AppState;
 use wikanvas_server::config::Config;
 use wikanvas_server::static_files::AssetSource;
@@ -55,6 +57,8 @@ pub fn router(state: &AppState) -> Router {
 pub const OWNER_EMAIL: &str = "owner@wikanvas.invalid";
 /// The owner's password in every TestApp.
 pub const OWNER_PASSWORD: &str = "test-owner-password";
+/// The password of every user [`TestApp::insert_user`] inserts.
+pub const USER_PASSWORD: &str = "test-user-password";
 
 /// A test application.
 pub struct TestApp {
@@ -222,6 +226,38 @@ impl TestApp {
             })
             .await
             .expect("insert the owner");
+        id
+    }
+
+    /// Inserts a user of `role` (not the owner: [`insert_owner`](Self::insert_owner)) with plain SQL, as
+    /// `<role>@wikanvas.invalid` with [`USER_PASSWORD`]; returns its id. One user per role.
+    pub async fn insert_user(&self, role: Role) -> String {
+        assert_ne!(role, Role::Owner, "insert_owner inserts the owner");
+        let id = uuid::Uuid::now_v7().to_string();
+        let hash = wikanvas_server::state::hash_password(true, USER_PASSWORD.into())
+            .await
+            .expect("hash");
+        let now = wikanvas_server::state::now_ms();
+        let user = id.clone();
+        self.state
+            .db
+            .write(move |tx| {
+                tx.execute(
+                    "INSERT INTO users (id, email, name, password_hash, role, created_at, updated_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
+                    rusqlite::params![
+                        user,
+                        format!("{role}@wikanvas.invalid"),
+                        format!("A {role}"),
+                        hash,
+                        role.as_str(),
+                        now
+                    ],
+                )?;
+                Ok(())
+            })
+            .await
+            .expect("insert a user");
         id
     }
 

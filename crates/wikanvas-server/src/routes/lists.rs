@@ -2,7 +2,8 @@
 //!
 //! D46: every paginated list takes `?cursor&limit` and returns `Page<ListedItem>` (`{items, next_cursor}`,
 //! `next_cursor = null` on the last page); a cursor reused with other parameters is 422 `validation`
-//! (`field: "cursor"`). `GET /trash` lists roots only and is unpaginated; purging needs `admin`.
+//! (`field: "cursor"`). `GET /trash` lists roots only and is unpaginated; purging needs the `admin` scope and, through
+//! `authz::require` (§8), Admin (the owner or an `admin`); every list here is Read.
 
 use axum::Json;
 use axum::extract::{Query, State};
@@ -12,6 +13,7 @@ use utoipa_axum::routes;
 use wikanvas_api::{ErrorBody, ListedItem, Page, PageQuery, TrashList};
 use wikanvas_store::lists::PageRequest;
 
+use crate::authz::{self, Action, Resource};
 use crate::error::ApiError;
 use crate::extract::{Admin, Auth, IdPath, Read};
 use crate::state::AppState;
@@ -56,6 +58,7 @@ async fn list_archive(
     State(state): State<AppState>,
     Query(q): Query<PageQuery>,
 ) -> Result<Json<Page<ListedItem>>, ApiError> {
+    authz::require(&auth, Action::Read, Resource::Workspace)?;
     let viewer = auth.viewer();
     let req = request("archive", q);
     Ok(Json(
@@ -87,6 +90,7 @@ async fn list_drafts(
     State(state): State<AppState>,
     Query(q): Query<PageQuery>,
 ) -> Result<Json<Page<ListedItem>>, ApiError> {
+    authz::require(&auth, Action::Read, Resource::Workspace)?;
     let viewer = auth.viewer();
     let req = request("drafts", q);
     Ok(Json(
@@ -118,6 +122,7 @@ async fn list_starred(
     State(state): State<AppState>,
     Query(q): Query<PageQuery>,
 ) -> Result<Json<Page<ListedItem>>, ApiError> {
+    authz::require(&auth, Action::Read, Resource::Workspace)?;
     let viewer = auth.viewer();
     let req = request("starred", q);
     Ok(Json(
@@ -149,6 +154,7 @@ async fn list_recent(
     State(state): State<AppState>,
     Query(q): Query<PageQuery>,
 ) -> Result<Json<Page<ListedItem>>, ApiError> {
+    authz::require(&auth, Action::Read, Resource::Workspace)?;
     let viewer = auth.viewer();
     let req = request("recent", q);
     Ok(Json(
@@ -180,6 +186,7 @@ async fn list_updated(
     State(state): State<AppState>,
     Query(q): Query<PageQuery>,
 ) -> Result<Json<Page<ListedItem>>, ApiError> {
+    authz::require(&auth, Action::Read, Resource::Workspace)?;
     let viewer = auth.viewer();
     let req = request("updated", q);
     Ok(Json(
@@ -213,8 +220,9 @@ async fn list_collection_updated(
     IdPath(id): IdPath,
     Query(q): Query<PageQuery>,
 ) -> Result<Json<Page<ListedItem>>, ApiError> {
-    let viewer = auth.viewer();
     let id = id.to_string();
+    authz::require(&auth, Action::Read, Resource::Collection(&id))?;
+    let viewer = auth.viewer();
     let req = request("collection_updated", q).param("collection_id", &id);
     Ok(Json(
         state
@@ -246,6 +254,7 @@ async fn get_trash(
     auth: Auth<Read>,
     State(state): State<AppState>,
 ) -> Result<Json<TrashList>, ApiError> {
+    authz::require(&auth, Action::Read, Resource::Workspace)?;
     let viewer = auth.viewer();
     Ok(Json(
         state
@@ -266,16 +275,18 @@ async fn get_trash(
     responses(
         (status = 204, description = "Purged"),
         (status = 401, description = "`unauthenticated`, `invalid_token`", body = ErrorBody),
-        (status = 403, description = "`insufficient_scope`, `csrf_rejected`", body = ErrorBody),
+        (status = 403, description = "`insufficient_scope`, `forbidden` (a `member` or `viewer`), `csrf_rejected`",
+            body = ErrorBody),
         (status = 404, description = "`not_found`", body = ErrorBody),
         (status = 409, description = "`conflict` (not in the trash), `setup_required`", body = ErrorBody),
     )
 )]
 async fn purge_trash_item(
-    _auth: Auth<Admin>,
+    auth: Auth<Admin>,
     State(state): State<AppState>,
     IdPath(id): IdPath,
 ) -> Result<StatusCode, ApiError> {
+    authz::require(&auth, Action::Admin, Resource::Item(&id.to_string()))?;
     state
         .db
         .write(move |tx| wikanvas_store::items::purge(tx, &id.to_string()))
@@ -294,16 +305,18 @@ async fn purge_trash_item(
     responses(
         (status = 204, description = "Purged"),
         (status = 401, description = "`unauthenticated`, `invalid_token`", body = ErrorBody),
-        (status = 403, description = "`insufficient_scope`, `csrf_rejected`", body = ErrorBody),
+        (status = 403, description = "`insufficient_scope`, `forbidden` (a `member` or `viewer`), `csrf_rejected`",
+            body = ErrorBody),
         (status = 404, description = "`not_found`", body = ErrorBody),
         (status = 409, description = "`conflict` (not in the trash), `setup_required`", body = ErrorBody),
     )
 )]
 async fn purge_trash_collection(
-    _auth: Auth<Admin>,
+    auth: Auth<Admin>,
     State(state): State<AppState>,
     IdPath(id): IdPath,
 ) -> Result<StatusCode, ApiError> {
+    authz::require(&auth, Action::Admin, Resource::Collection(&id.to_string()))?;
     state
         .db
         .write(move |tx| wikanvas_store::collections::purge(tx, &id.to_string()))
@@ -321,14 +334,16 @@ async fn purge_trash_collection(
     responses(
         (status = 204, description = "The trash is empty"),
         (status = 401, description = "`unauthenticated`, `invalid_token`", body = ErrorBody),
-        (status = 403, description = "`insufficient_scope`, `csrf_rejected`", body = ErrorBody),
+        (status = 403, description = "`insufficient_scope`, `forbidden` (a `member` or `viewer`), `csrf_rejected`",
+            body = ErrorBody),
         (status = 409, description = "`setup_required`", body = ErrorBody),
     )
 )]
 async fn empty_trash(
-    _auth: Auth<Admin>,
+    auth: Auth<Admin>,
     State(state): State<AppState>,
 ) -> Result<StatusCode, ApiError> {
+    authz::require(&auth, Action::Admin, Resource::Workspace)?;
     state.db.write(wikanvas_store::items::purge_all).await?;
     Ok(StatusCode::NO_CONTENT)
 }

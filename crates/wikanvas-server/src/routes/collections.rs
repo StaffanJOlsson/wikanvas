@@ -1,8 +1,9 @@
 //! Routes /api/v1/collections (owner: W1)
 //!
 //! §7.2: list, create, get (by id or `url_id`), edit, reorder, soft-delete and restore. A deleted collection exists
-//! only in Trash: every route here but restore answers 404 for it. The tree and the per-collection `updated` list
-//! live in `routes::tree` and `routes::lists`.
+//! only in Trash: every route here but restore answers 404 for it. The tree lives in `routes::tree`; the
+//! per-collection `updated` list and purging live in `routes::lists`. `authz::require` (§8): Read for the GETs, Write
+//! for the rest (moving it to the trash and restoring it included).
 
 use axum::Json;
 use axum::extract::{Path, State};
@@ -13,6 +14,7 @@ use wikanvas_api::{
     Collection, CollectionDeleted, CollectionPatch, ErrorBody, MoveCollection, NewCollection,
 };
 
+use crate::authz::{self, Action, Resource};
 use crate::error::ApiError;
 use crate::extract::{Auth, IdPath, Read, Write};
 use crate::state::{AppState, now_ms};
@@ -47,6 +49,7 @@ async fn list_collections(
     auth: Auth<Read>,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<Collection>>, ApiError> {
+    authz::require(&auth, Action::Read, Resource::Workspace)?;
     let viewer = auth.viewer();
     let list = state
         .db
@@ -66,7 +69,8 @@ async fn list_collections(
     responses(
         (status = 201, description = "The new collection", body = Collection),
         (status = 401, description = "`unauthenticated`, `invalid_token`", body = ErrorBody),
-        (status = 403, description = "`insufficient_scope`, `csrf_rejected`", body = ErrorBody),
+        (status = 403, description = "`insufficient_scope`, `forbidden` (a `viewer`), `csrf_rejected`",
+            body = ErrorBody),
         (status = 409, description = "`setup_required`", body = ErrorBody),
         (status = 413, description = "`payload_too_large`", body = ErrorBody),
         (status = 415, description = "`unsupported_media_type`", body = ErrorBody),
@@ -79,6 +83,7 @@ async fn create_collection(
     State(state): State<AppState>,
     Json(new): Json<NewCollection>,
 ) -> Result<(StatusCode, Json<Collection>), ApiError> {
+    authz::require(&auth, Action::Write, Resource::Workspace)?;
     let actor_id = auth.into_actor().user_id;
     let now = now_ms();
     let collection = state
@@ -105,10 +110,11 @@ async fn create_collection(
     )
 )]
 async fn get_collection(
-    _auth: Auth<Read>,
+    auth: Auth<Read>,
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<Collection>, ApiError> {
+    authz::require(&auth, Action::Read, Resource::Collection(&id))?;
     if uuid::Uuid::parse_str(&id).is_err() && !wikanvas_core::ids::is_url_id(&id) {
         return Err(ApiError::not_found("no such collection"));
     }
@@ -134,7 +140,8 @@ async fn get_collection(
     responses(
         (status = 200, description = "The collection", body = Collection),
         (status = 401, description = "`unauthenticated`, `invalid_token`", body = ErrorBody),
-        (status = 403, description = "`insufficient_scope`, `csrf_rejected`", body = ErrorBody),
+        (status = 403, description = "`insufficient_scope`, `forbidden` (a `viewer`), `csrf_rejected`",
+            body = ErrorBody),
         (status = 404, description = "`not_found` (also while it is in the trash)", body = ErrorBody),
         (status = 409, description = "`setup_required`", body = ErrorBody),
         (status = 415, description = "`unsupported_media_type`", body = ErrorBody),
@@ -148,6 +155,7 @@ async fn patch_collection(
     IdPath(id): IdPath,
     Json(patch): Json<CollectionPatch>,
 ) -> Result<Json<Collection>, ApiError> {
+    authz::require(&auth, Action::Write, Resource::Collection(&id.to_string()))?;
     let actor = auth.into_actor().user_id;
     let now = now_ms();
     let collection = state
@@ -171,7 +179,8 @@ async fn patch_collection(
     responses(
         (status = 200, description = "The collection", body = Collection),
         (status = 401, description = "`unauthenticated`, `invalid_token`", body = ErrorBody),
-        (status = 403, description = "`insufficient_scope`, `csrf_rejected`", body = ErrorBody),
+        (status = 403, description = "`insufficient_scope`, `forbidden` (a `viewer`), `csrf_rejected`",
+            body = ErrorBody),
         (status = 404, description = "`not_found` (also while it is in the trash)", body = ErrorBody),
         (status = 409, description = "`setup_required`", body = ErrorBody),
         (status = 415, description = "`unsupported_media_type`", body = ErrorBody),
@@ -184,6 +193,7 @@ async fn move_collection(
     IdPath(id): IdPath,
     Json(mv): Json<MoveCollection>,
 ) -> Result<Json<Collection>, ApiError> {
+    authz::require(&auth, Action::Write, Resource::Collection(&id.to_string()))?;
     let actor = auth.into_actor().user_id;
     let now = now_ms();
     let collection = state
@@ -207,7 +217,8 @@ async fn move_collection(
     responses(
         (status = 200, description = "How many items went to the trash with it", body = CollectionDeleted),
         (status = 401, description = "`unauthenticated`, `invalid_token`", body = ErrorBody),
-        (status = 403, description = "`insufficient_scope`, `csrf_rejected`", body = ErrorBody),
+        (status = 403, description = "`insufficient_scope`, `forbidden` (a `viewer`), `csrf_rejected`",
+            body = ErrorBody),
         (status = 404, description = "`not_found` (also when it is already in the trash)", body = ErrorBody),
         (status = 409, description = "`setup_required`", body = ErrorBody),
     )
@@ -217,6 +228,7 @@ async fn delete_collection(
     State(state): State<AppState>,
     IdPath(id): IdPath,
 ) -> Result<Json<CollectionDeleted>, ApiError> {
+    authz::require(&auth, Action::Write, Resource::Collection(&id.to_string()))?;
     let actor = auth.into_actor().user_id;
     let now = now_ms();
     let trashed_items = state
@@ -237,7 +249,8 @@ async fn delete_collection(
     responses(
         (status = 200, description = "The collection", body = Collection),
         (status = 401, description = "`unauthenticated`, `invalid_token`", body = ErrorBody),
-        (status = 403, description = "`insufficient_scope`, `csrf_rejected`", body = ErrorBody),
+        (status = 403, description = "`insufficient_scope`, `forbidden` (a `viewer`), `csrf_rejected`",
+            body = ErrorBody),
         (status = 404, description = "`not_found`", body = ErrorBody),
         (status = 409, description = "`conflict` (not in the trash), `setup_required`", body = ErrorBody),
     )
@@ -247,6 +260,7 @@ async fn restore_collection(
     State(state): State<AppState>,
     IdPath(id): IdPath,
 ) -> Result<Json<Collection>, ApiError> {
+    authz::require(&auth, Action::Write, Resource::Collection(&id.to_string()))?;
     let actor = auth.into_actor().user_id;
     let now = now_ms();
     let collection = state

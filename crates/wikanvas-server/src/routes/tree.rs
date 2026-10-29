@@ -1,7 +1,8 @@
 //! Routes /api/v1/sidebar, /collections/{id}/tree and /items/{id}/children (owner: W1)
 //!
 //! D21: the sidebar loads a whole collection's visible, unarchived tree as one flat list, with
-//! `ETag: "t{tree_version}.{viewer_epoch}"` (`viewer_epoch` is 0 in M1) and 304 on a matching `If-None-Match`.
+//! `ETag: "t{tree_version}.{viewer_epoch}"` (`viewer_epoch` is 0 in M1) and 304 on a matching `If-None-Match`. All
+//! three are Read (`authz::require`, §8): on the workspace, the collection and the item.
 
 use axum::Json;
 use axum::extract::State;
@@ -11,6 +12,7 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 use wikanvas_api::{CollectionTree, ErrorBody, ItemSummary, Sidebar};
 
+use crate::authz::{self, Action, Resource};
 use crate::error::ApiError;
 use crate::extract::{Auth, IdPath, Read};
 use crate::openapi::if_none_match;
@@ -50,6 +52,7 @@ async fn get_sidebar(
     auth: Auth<Read>,
     State(state): State<AppState>,
 ) -> Result<Json<Sidebar>, ApiError> {
+    authz::require(&auth, Action::Read, Resource::Workspace)?;
     let viewer = auth.viewer();
     let sidebar = state
         .db
@@ -86,6 +89,7 @@ async fn get_tree(
     IdPath(id): IdPath,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
+    authz::require(&auth, Action::Read, Resource::Collection(&id.to_string()))?;
     let viewer = auth.viewer();
     let (version, tree) = state
         .db
@@ -135,6 +139,7 @@ async fn get_children(
     State(state): State<AppState>,
     IdPath(id): IdPath,
 ) -> Result<Json<Vec<ItemSummary>>, ApiError> {
+    authz::require(&auth, Action::Read, Resource::Item(&id.to_string()))?;
     let viewer = auth.viewer();
     let children = state
         .db

@@ -12,6 +12,7 @@ mod integration;
 mod items;
 mod lists;
 mod openapi;
+mod roles;
 mod search;
 mod security;
 mod static_files;

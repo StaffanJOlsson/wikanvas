@@ -118,7 +118,8 @@ pub fn content_disposition(inline: bool, filename: &str) -> String {
     responses(
         (status = 201, description = "The attachment", body = Attachment),
         (status = 401, description = "`unauthenticated`, `invalid_token`", body = ErrorBody),
-        (status = 403, description = "`insufficient_scope`, `csrf_rejected`", body = ErrorBody),
+        (status = 403, description = "`insufficient_scope`, `forbidden` (a `viewer`), `csrf_rejected`",
+            body = ErrorBody),
         (status = 404, description = "`not_found` (`item_id`)", body = ErrorBody),
         (status = 409, description = "`setup_required`", body = ErrorBody),
         (status = 413, description = "`payload_too_large`", body = ErrorBody),
@@ -136,7 +137,11 @@ async fn upload(
     body: Body,
 ) -> Result<(StatusCode, Json<Attachment>), ApiError> {
     let actor = auth.into_actor();
-    authz::require(&actor, Action::Write, Resource::Workspace)?;
+    let item_id = query.item_id.map(|id| id.to_string());
+    let resource = item_id
+        .as_deref()
+        .map_or(Resource::Workspace, Resource::Item);
+    authz::require(&actor, Action::Write, resource)?;
     if is_form_type(&headers) {
         return Err(ApiError::new(
             ErrorCode::UnsupportedMediaType,
@@ -172,7 +177,6 @@ async fn upload(
     }
     let now = state.now();
     let blobs = state.blobs.clone();
-    let item_id = query.item_id.map(|id| id.to_string());
     let filename = query.filename.unwrap_or_default();
     let row = state
         .db
