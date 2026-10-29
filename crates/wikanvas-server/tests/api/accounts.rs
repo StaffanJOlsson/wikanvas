@@ -89,7 +89,7 @@ async fn an_invite_is_made_looked_up_and_accepted_once() {
     res.assert_status_ok();
     assert!(!res.text().contains(&t));
     let listed: Vec<Invite> = res.json();
-    assert_eq!(listed, [created.invite.clone()]);
+    assert_eq!(listed, std::slice::from_ref(&created.invite));
     // The public lookup: valid, the workspace and the role, never who made it.
     let res = lookup(&app, &t).await;
     res.assert_status_ok();
