@@ -2,7 +2,9 @@
 //!
 //! `wikanvas-server admin …` runs as the real binary on a temporary data directory, also while an in-process server
 //! has the same database open (WAL, a second process). The background jobs of §12 are called directly: the hourly
-//! run, purge and GC in their order, the backup schedule, and backups that never overlap across processes.
+//! run, purge and GC in their order, the backup schedule, and backups that never overlap across processes. The
+//! data-safety guard of D144 runs both ways: purge and GC sweep no orphan file while no owner exists, and a real
+//! `wikanvas-server serve` refuses to start, and `admin create-owner` to create the owner, over files without an owner.
 
 use std::time::{Duration, UNIX_EPOCH};
 
@@ -651,6 +653,264 @@ async fn purge_and_gc_runs_purge_then_attachment_gc_then_blob_gc() {
     assert_eq!(report.attachments_deleted, 1);
     assert_eq!(report.blobs.blobs, 1);
     assert!(!file.exists(), "the blob file is unlinked");
+}
+
+/// Writes `bytes` as `files/aa/bb/<sha256>` under `dir` with no row, as a volume whose database is missing holds them,
+/// with its mtime `age` in the past; returns the path.
+fn put_file(dir: &std::path::Path, bytes: &[u8], age: Duration) -> std::path::PathBuf {
+    let path =
+        wikanvas_store::BlobStore::new(dir.to_path_buf()).path(&wikanvas_store::Sha256::of(bytes));
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, bytes).unwrap();
+    let file = std::fs::File::options().append(true).open(&path).unwrap();
+    file.set_modified(std::time::SystemTime::now() - age)
+        .unwrap();
+    path
+}
+
+#[tokio::test]
+async fn purge_and_gc_sweeps_orphan_files_only_with_an_owner() {
+    let app = TestApp::new().await;
+    let old = wikanvas_store::gc::ORPHAN_FILE_AGE + Duration::from_secs(3600);
+    let file = put_file(app.dir.path(), b"an image of another database", old);
+    // No owner (D144): the database is not the files' own, so purge and GC sweep nothing, however old the file.
+    assert_eq!(
+        jobs::purge_and_gc(&app.state).await.unwrap(),
+        jobs::PurgeReport::default()
+    );
+    assert!(file.exists());
+    // With an owner, a file without a row that is older than the age is swept as before.
+    app.insert_owner().await;
+    let report = jobs::purge_and_gc(&app.state).await.unwrap();
+    assert_eq!(report.blobs.orphan_files, 1);
+    assert!(!file.exists());
+}
+
+/// `wikanvas-server serve` on `dir`, on a free loopback port, with its output piped.
+fn spawn_serve(dir: &std::path::Path) -> (std::process::Child, std::net::SocketAddr) {
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+    let child = std::process::Command::new(env!("CARGO_BIN_EXE_wikanvas-server"))
+        .arg("serve")
+        .env_clear()
+        .env("WIKANVAS_DATA_DIR", dir)
+        .env("WIKANVAS_LISTEN", addr.to_string())
+        .env("WIKANVAS_TEST_ARGON2", "1")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("run wikanvas-server serve");
+    (child, addr)
+}
+
+/// Both output streams of a finished server.
+fn output_text(out: &std::process::Output) -> String {
+    format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    )
+}
+
+/// Serves `dir` until `/healthz` answers 200, then kills the server; returns its log.
+fn serve_until_healthy(dir: &std::path::Path) -> String {
+    let (mut child, addr) = spawn_serve(dir);
+    let mut up = false;
+    for _ in 0..400 {
+        if wikanvas_server::cli::probe(&format!("http://{addr}"), Duration::from_millis(200))
+            == Ok(200)
+        {
+            up = true;
+            break;
+        }
+        if child.try_wait().unwrap().is_some() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    let _ = child.kill();
+    let log = output_text(&child.wait_with_output().unwrap());
+    assert!(up, "the server did not come up: {log}");
+    log
+}
+
+/// Runs `serve` on `dir`, which must stop by itself within 30 s (it is killed otherwise, and the code is `None`);
+/// returns the exit code and the log.
+fn serve_until_exit(dir: &std::path::Path) -> (Option<i32>, String) {
+    let (mut child, _) = spawn_serve(dir);
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    while child.try_wait().unwrap().is_none() && std::time::Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    let _ = child.kill();
+    let out = child.wait_with_output().unwrap();
+    (out.status.code(), output_text(&out))
+}
+
+/// The refusal of D144 on `dir`: `action` is "start" (`serve`) or "create the owner" (`admin create-owner`),
+/// `database` "does not exist" or "has no owner", `files` the count with its noun.
+fn refusal(dir: &std::path::Path, action: &str, database: &str, files: &str) -> String {
+    let (db, files_dir) = (dir.join("wikanvas.db"), dir.join("files"));
+    format!(
+        "refusing to {action}: the database {} {database}, but {} holds {files} (attachments and board images of an \
+         existing wiki); put that wiki's database in place as {} (see \"Backups and restore\" in README.md), or move \
+         {} away to start a new wiki",
+        db.display(),
+        files_dir.display(),
+        db.display(),
+        files_dir.display()
+    )
+}
+
+/// Asserts `serve`'s refusal of D144: exit 1 with the database path, the number of files and both ways out, and
+/// nothing of a serving server (no listener, no setup code).
+fn assert_refused(
+    code: Option<i32>,
+    log: &str,
+    dir: &std::path::Path,
+    database: &str,
+    files: &str,
+) {
+    assert_eq!(code, Some(1), "{log}");
+    let expected = refusal(dir, "start", database, files);
+    assert!(log.contains(&expected), "want {expected:?} in {log}");
+    assert!(!log.contains("First-run setup"), "no setup code: {log}");
+    assert!(!log.contains("is serving"), "{log}");
+}
+
+#[test]
+fn serve_starts_on_an_empty_data_dir() {
+    let dir = tempfile::tempdir().unwrap();
+    let log = serve_until_healthy(dir.path());
+    assert!(log.contains("First-run setup: http://localhost:"), "{log}");
+    assert!(dir.path().join("wikanvas.db").exists());
+}
+
+#[test]
+fn serve_refuses_files_without_a_database() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = put_file(dir.path(), b"an attachment", Duration::from_secs(7200));
+    let (code, log) = serve_until_exit(dir.path());
+    assert_refused(code, &log, dir.path(), "does not exist", "1 file");
+    assert!(file.exists());
+    assert!(
+        !dir.path().join("wikanvas.db").exists(),
+        "a refused start creates no database"
+    );
+}
+
+#[test]
+fn serve_refuses_files_with_an_ownerless_database() {
+    let dir = tempfile::tempdir().unwrap();
+    // An earlier start made the empty database; then files arrive (any regular file counts, at any depth).
+    serve_until_healthy(dir.path());
+    let file = put_file(dir.path(), b"a board image", Duration::from_secs(7200));
+    std::fs::write(dir.path().join("files").join("stray"), b"x").unwrap();
+    let (code, log) = serve_until_exit(dir.path());
+    assert_refused(code, &log, dir.path(), "has no owner", "2 files");
+    assert!(file.exists());
+}
+
+#[test]
+fn serve_starts_with_files_and_an_owner() {
+    let dir = tempfile::tempdir().unwrap();
+    ok(&admin(dir.path(), &OWNER, None));
+    let file = put_file(dir.path(), b"a young file without a row", Duration::ZERO);
+    let log = serve_until_healthy(dir.path());
+    assert!(
+        !log.contains("refusing") && !log.contains("First-run setup"),
+        "{log}"
+    );
+    assert!(file.exists(), "younger than the orphan age");
+}
+
+async fn owners(dir: &std::path::Path) -> i64 {
+    let db = wikanvas_store::Db::open(
+        dir.join("wikanvas.db"),
+        wikanvas_store::DbOptions::default(),
+    )
+    .unwrap();
+    db.read(|c| {
+        Ok(
+            c.query_row("SELECT count(*) FROM users WHERE role = 'owner'", [], |r| {
+                r.get(0)
+            })?,
+        )
+    })
+    .await
+    .unwrap()
+}
+
+#[test]
+fn create_owner_refuses_files_without_a_database() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = put_file(dir.path(), b"an attachment", Duration::from_secs(7200));
+    let mut args = OWNER.to_vec();
+    args.push("--json");
+    let out = admin(dir.path(), &args, None);
+    assert_eq!(out.status.code(), Some(3), "{}", output_text(&out));
+    let err = error_line(&out);
+    assert_eq!(err["error"]["code"], "conflict");
+    assert_eq!(err["exit_code"], 3);
+    assert_eq!(
+        err["error"]["message"],
+        refusal(dir.path(), "create the owner", "does not exist", "1 file")
+    );
+    assert!(out.stdout.is_empty(), "no owner and no password printed");
+    assert!(
+        !dir.path().join("wikanvas.db").exists(),
+        "a refused create-owner creates no database"
+    );
+    assert!(file.exists());
+    // serve still refuses: nothing changed.
+    let (code, log) = serve_until_exit(dir.path());
+    assert_refused(code, &log, dir.path(), "does not exist", "1 file");
+}
+
+#[tokio::test]
+async fn create_owner_refuses_files_with_an_ownerless_database() {
+    let dir = tempfile::tempdir().unwrap();
+    serve_until_healthy(dir.path());
+    let file = put_file(dir.path(), b"a board image", Duration::from_secs(7200));
+    let out = admin(dir.path(), &OWNER, None);
+    assert_eq!(out.status.code(), Some(3), "{}", output_text(&out));
+    let expected = format!(
+        "wikanvas-server admin: {}",
+        refusal(dir.path(), "create the owner", "has no owner", "1 file")
+    );
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains(&expected),
+        "want {expected:?} in {}",
+        output_text(&out)
+    );
+    assert!(out.stdout.is_empty());
+    assert_eq!(owners(dir.path()).await, 0, "no owner row");
+    assert!(file.exists());
+    let (code, log) = serve_until_exit(dir.path());
+    assert_refused(code, &log, dir.path(), "has no owner", "1 file");
+}
+
+#[tokio::test]
+async fn create_owner_on_an_empty_data_dir_still_works() {
+    // An empty data directory, files/ with directories only: create-owner works as before, and serve then starts.
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("files").join("aa").join("bb")).unwrap();
+    let mut args = OWNER.to_vec();
+    args.push("--json");
+    let out = admin(dir.path(), &args, None);
+    ok(&out);
+    assert_eq!(stdout_json(&out)["user"]["role"], "owner");
+    assert_eq!(owners(dir.path()).await, 1);
+    let log = serve_until_healthy(dir.path());
+    assert!(
+        !log.contains("refusing") && !log.contains("First-run setup"),
+        "{log}"
+    );
 }
 
 #[test]

@@ -57,7 +57,7 @@ pub struct AdminArgs {
 #[derive(Debug, Subcommand)]
 pub enum AdminCommand {
     /// Create the owner and the workspace (the POST /setup transaction without the setup code). Exit 8 when an owner
-    /// exists.
+    /// exists; exit 3, creating nothing, while no owner exists and WIKANVAS_DATA_DIR/files holds any file.
     CreateOwner(CreateOwnerArgs),
     /// Create a personal access token for the owner (or for --email) and print it once.
     CreateToken(CreateTokenArgs),

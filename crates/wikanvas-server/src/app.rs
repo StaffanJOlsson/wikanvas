@@ -221,15 +221,26 @@ async fn fallback(
     res
 }
 
-/// `wikanvas-server serve`: opens the state, logs the setup link while no owner exists, starts the background jobs,
-/// listens on `WIKANVAS_LISTEN`, serves until `shutdown`, drains, and checkpoints the WAL (§5).
+/// `wikanvas-server serve`: opens the state, refuses files without an owner (D144, `refuse_files_without_owner`), logs
+/// the setup link while no owner exists, starts the background jobs, listens on `WIKANVAS_LISTEN`, serves until
+/// `shutdown`, drains, and checkpoints the WAL (§5).
 pub async fn run(
     config: Config,
     shutdown: impl Future<Output = ()> + Send + 'static,
 ) -> Result<(), String> {
+    // Without a database, before one is created, so a refused start writes nothing.
+    refuse_files_without_database(&config, "start")?;
     let state = AppState::open(config)
         .await
         .map_err(|e| format!("cannot start: {e}"))?;
+    // A database without an owner: the one just created, or an empty one that an earlier start left behind.
+    if !state
+        .owner_exists()
+        .await
+        .map_err(|e| format!("cannot start: {e}"))?
+    {
+        refuse_files_without_owner(&state.config, "start", "has no owner")?;
+    }
     let listener = tokio::net::TcpListener::bind(state.config.listen)
         .await
         .map_err(|e| format!("cannot listen on {}: {e}", state.config.listen))?;
@@ -254,6 +265,61 @@ pub async fn run(
         .map_err(|e| format!("WAL checkpoint: {e}"))?;
     tracing::info!("stopped");
     Ok(())
+}
+
+/// The refusal of D144: while no owner exists (`database` says why: it "does not exist" or "has no owner"), a `files/`
+/// that holds any regular file stops `serve` before it listens, starts the jobs or logs the setup code, and stops
+/// `admin create-owner` before it creates the owner (`action`: "start" or "create the owner"). Those files are an
+/// existing wiki's attachments and board images whose database is missing, misplaced or not restored: an empty wiki
+/// would show the setup screen over them, and once it has an owner its orphan sweep would delete them
+/// ([`wikanvas_store::gc::blobs`] skips the sweep only while no owner exists).
+pub(crate) fn refuse_files_without_owner(
+    config: &Config,
+    action: &str,
+    database: &str,
+) -> Result<(), String> {
+    let (db, dir) = (config.db_path(), config.files_dir());
+    let files = count_files(&dir);
+    if files == 0 {
+        return Ok(());
+    }
+    let noun = if files == 1 { "file" } else { "files" };
+    Err(format!(
+        "refusing to {action}: the database {db} {database}, but {dir} holds {files} {noun} (attachments and board \
+         images of an existing wiki); put that wiki's database in place as {db} (see \"Backups and restore\" in \
+         README.md), or move {dir} away to start a new wiki",
+        db = db.display(),
+        dir = dir.display(),
+    ))
+}
+
+/// [`refuse_files_without_owner`] when `wikanvas.db` does not exist: called before the database is opened, so a refusal
+/// creates nothing.
+pub(crate) fn refuse_files_without_database(config: &Config, action: &str) -> Result<(), String> {
+    match config.db_path().try_exists() {
+        Ok(false) => refuse_files_without_owner(config, action, "does not exist"),
+        _ => Ok(()),
+    }
+}
+
+/// The regular files under `dir` at any depth, without following symlinks; 0 when it does not exist. A directory that
+/// cannot be read is skipped, as the orphan sweep skips it.
+fn count_files(dir: &std::path::Path) -> u64 {
+    let mut files = 0;
+    let mut dirs = vec![dir.to_path_buf()];
+    while let Some(d) = dirs.pop() {
+        let Ok(entries) = std::fs::read_dir(&d) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            match entry.file_type() {
+                Ok(t) if t.is_dir() => dirs.push(entry.path()),
+                Ok(t) if t.is_file() => files += 1,
+                _ => {}
+            }
+        }
+    }
+    files
 }
 
 /// Serves `app(state)` on `listener` until `shutdown` resolves, then drains open requests. The peer address reaches
@@ -286,6 +352,31 @@ mod tests {
         assert_eq!(at(Method::POST, "/api/v1/admin/backup"), None);
         assert_eq!(at(Method::POST, "/api/v1/export"), short);
         assert_eq!(at(Method::GET, "/api/v1/admin/backup"), short);
+    }
+
+    #[test]
+    fn files_are_counted_at_any_depth_without_symlinks() {
+        let dir = tempfile::tempdir().unwrap();
+        let files = dir.path().join("files");
+        assert_eq!(count_files(&files), 0, "missing");
+        std::fs::create_dir_all(files.join("aa/bb")).unwrap();
+        assert_eq!(count_files(&files), 0, "directories only");
+        std::fs::write(files.join("aa/bb/one"), b"1").unwrap();
+        std::fs::write(files.join("aa/two"), b"2").unwrap();
+        std::fs::write(files.join("three"), b"3").unwrap();
+        std::fs::write(dir.path().join("outside"), b"4").unwrap();
+        std::os::unix::fs::symlink(dir.path().join("outside"), files.join("link")).unwrap();
+        std::os::unix::fs::symlink(dir.path(), files.join("aa/up")).unwrap();
+        assert_eq!(count_files(&files), 3);
+        let config = Config::for_tests(dir.path());
+        let refused = refuse_files_without_database(&config, "start").unwrap_err();
+        assert!(
+            refused.starts_with("refusing to start: the database ")
+                && refused.contains(" holds 3 files "),
+            "{refused}"
+        );
+        std::fs::remove_dir_all(&files).unwrap();
+        assert_eq!(refuse_files_without_database(&config, "start"), Ok(()));
     }
 
     #[test]
