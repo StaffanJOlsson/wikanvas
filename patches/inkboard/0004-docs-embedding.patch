@@ -15,7 +15,7 @@ Kept apart so that the code patches review on their own.
  3 files changed, 127 insertions(+)
 
 diff --git a/CHANGELOG.md b/CHANGELOG.md
-index 969ad2c..30b35ce 100644
+index 969ad2c..5fad3d5 100644
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
 @@ -1,3 +1,4 @@
@@ -45,7 +45,7 @@ index 969ad2c..30b35ce 100644
  
  **Pre-release.** Four of the most requested whiteboard features, and live sharing moves to protocol v4: update every app that hosts or joins a session.
 diff --git a/docs/WEB.md b/docs/WEB.md
-index 711c35c..52498be 100644
+index 711c35c..faea279 100644
 --- a/docs/WEB.md
 +++ b/docs/WEB.md
 @@ -1,3 +1,4 @@
@@ -115,7 +115,7 @@ index 711c35c..52498be 100644
  
  Two scripts, both by hand (never `cargo test`): `page.mjs` (the local page) and `e2e.mjs` (**a real native host and browser guests through the public relay;
 diff --git a/docs/fr/WEB.md b/docs/fr/WEB.md
-index fbb6fef..86fcba3 100644
+index fbb6fef..8f979aa 100644
 --- a/docs/fr/WEB.md
 +++ b/docs/fr/WEB.md
 @@ -1,3 +1,4 @@

@@ -34,7 +34,7 @@ Trunk.toml. So does the browser bench (`web-test` implies `net`).
  create mode 100644 crates/inkboard-app/src/session_net_off.rs
 
 diff --git a/crates/inkboard-app/Cargo.toml b/crates/inkboard-app/Cargo.toml
-index df30aa4..9454e40 100644
+index 3ace658..541e434 100644
 --- a/crates/inkboard-app/Cargo.toml
 +++ b/crates/inkboard-app/Cargo.toml
 @@ -12,11 +12,15 @@ name = "inkboard"
@@ -64,7 +64,7 @@ index df30aa4..9454e40 100644
  # Desktop only: system clipboard, window handle, MCP server (live mode, data folder), system language, the embedded icon pack (the web
  # build fetches it on demand).
 diff --git a/crates/inkboard-app/src/chrome.rs b/crates/inkboard-app/src/chrome.rs
-index 9d4d5f4..4432dc2 100644
+index 74165bc..549e72f 100644
 --- a/crates/inkboard-app/src/chrome.rs
 +++ b/crates/inkboard-app/src/chrome.rs
 @@ -441,7 +441,8 @@ fn main_menu(app: &mut App, ui: &mut Ui) {
@@ -78,7 +78,7 @@ index 9d4d5f4..4432dc2 100644
              }
          }
 diff --git a/crates/inkboard-app/src/main.rs b/crates/inkboard-app/src/main.rs
-index f1d2f87..b97b5b9 100644
+index 02be507..2a75d9d 100644
 --- a/crates/inkboard-app/src/main.rs
 +++ b/crates/inkboard-app/src/main.rs
 @@ -64,9 +64,12 @@ mod rich_edit;
@@ -106,7 +106,7 @@ index f1d2f87..b97b5b9 100644
  use std::path::PathBuf;
  
 diff --git a/crates/inkboard-app/src/platform_web.rs b/crates/inkboard-app/src/platform_web.rs
-index de5822b..193ff8e 100644
+index b18d49d..9cc5627 100644
 --- a/crates/inkboard-app/src/platform_web.rs
 +++ b/crates/inkboard-app/src/platform_web.rs
 @@ -357,8 +357,39 @@ pub fn set_fullscreen(_ctx: &egui::Context, _on: bool) {}
@@ -151,7 +151,7 @@ index de5822b..193ff8e 100644
      let mut bytes = [0u8; 8];
 diff --git a/crates/inkboard-app/src/session_net_off.rs b/crates/inkboard-app/src/session_net_off.rs
 new file mode 100644
-index 0000000..a6a5d7b
+index 0000000..412e7f6
 --- /dev/null
 +++ b/crates/inkboard-app/src/session_net_off.rs
 @@ -0,0 +1,33 @@
@@ -189,7 +189,7 @@ index 0000000..a6a5d7b
 +/// There are no background closings to wait for.
 +pub fn wait_background_closes(_max: Duration) {}
 diff --git a/crates/inkboard-app/src/web.rs b/crates/inkboard-app/src/web.rs
-index b2b734b..208ee92 100644
+index fb6f6ec..804efe0 100644
 --- a/crates/inkboard-app/src/web.rs
 +++ b/crates/inkboard-app/src/web.rs
 @@ -69,8 +69,13 @@ pub fn start() {
@@ -208,7 +208,7 @@ index b2b734b..208ee92 100644
                      crate::web_test::install(&cc.egui_ctx);
                      Ok(Box::new(app))
 diff --git a/crates/inkboard-app/web/Trunk.toml b/crates/inkboard-app/web/Trunk.toml
-index 6f39927..2c5aef5 100644
+index 6f39927..c4a64f0 100644
 --- a/crates/inkboard-app/web/Trunk.toml
 +++ b/crates/inkboard-app/web/Trunk.toml
 @@ -1,3 +1,4 @@
@@ -230,7 +230,7 @@ index 6f39927..2c5aef5 100644
  [serve]
  addresses = ["127.0.0.1"]
 diff --git a/scripts/build_web.ps1 b/scripts/build_web.ps1
-index 0b5a466..8254f1b 100644
+index 0b5a466..14fb078 100644
 --- a/scripts/build_web.ps1
 +++ b/scripts/build_web.ps1
 @@ -1,3 +1,4 @@
@@ -249,7 +249,7 @@ index 0b5a466..8254f1b 100644
      trunk @trunkArgs
      if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 diff --git a/scripts/build_web.sh b/scripts/build_web.sh
-index b2d641d..831f132 100755
+index b2d641d..f2254c4 100755
 --- a/scripts/build_web.sh
 +++ b/scripts/build_web.sh
 @@ -1,4 +1,5 @@

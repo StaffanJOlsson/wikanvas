@@ -56,7 +56,7 @@ translation is added. Native tests in src/tests_embed.rs.
  create mode 100644 crates/inkboard-app/src/tests_embed.rs
 
 diff --git a/crates/inkboard-app/src/app.rs b/crates/inkboard-app/src/app.rs
-index e54512d..e098d4d 100644
+index 2ac4a6a..fb67a81 100644
 --- a/crates/inkboard-app/src/app.rs
 +++ b/crates/inkboard-app/src/app.rs
 @@ -68,6 +68,12 @@ pub trait HostEvents {
@@ -152,7 +152,7 @@ index e54512d..e098d4d 100644
          self.screenshot_step(ctx);
          if ctx.input(|i| i.viewport().close_requested()) && self.screenshot.is_none() {
 diff --git a/crates/inkboard-app/src/embed.rs b/crates/inkboard-app/src/embed.rs
-index cea5dc4..9fc70a3 100644
+index d7b7256..9438254 100644
 --- a/crates/inkboard-app/src/embed.rs
 +++ b/crates/inkboard-app/src/embed.rs
 @@ -7,12 +7,15 @@
@@ -365,7 +365,7 @@ index cea5dc4..9fc70a3 100644
  }
 diff --git a/crates/inkboard-app/src/embed_cards.rs b/crates/inkboard-app/src/embed_cards.rs
 new file mode 100644
-index 0000000..bbc1746
+index 0000000..ad6246f
 --- /dev/null
 +++ b/crates/inkboard-app/src/embed_cards.rs
 @@ -0,0 +1,513 @@
@@ -883,7 +883,7 @@ index 0000000..bbc1746
 +    }
 +}
 diff --git a/crates/inkboard-app/src/main.rs b/crates/inkboard-app/src/main.rs
-index b97b5b9..ce800fc 100644
+index 2a75d9d..0a7b90a 100644
 --- a/crates/inkboard-app/src/main.rs
 +++ b/crates/inkboard-app/src/main.rs
 @@ -85,6 +85,7 @@ mod web;
@@ -904,7 +904,7 @@ index b97b5b9..ce800fc 100644
  #[cfg(test)]
  mod tests_session_e2e;
 diff --git a/crates/inkboard-app/src/panel.rs b/crates/inkboard-app/src/panel.rs
-index ceb01e6..db4c984 100644
+index ceb01e6..943fe96 100644
 --- a/crates/inkboard-app/src/panel.rs
 +++ b/crates/inkboard-app/src/panel.rs
 @@ -1,3 +1,4 @@
@@ -942,7 +942,7 @@ index ceb01e6..db4c984 100644
      }
  
 diff --git a/crates/inkboard-app/src/rich_edit.rs b/crates/inkboard-app/src/rich_edit.rs
-index 3daf83d..53feaa3 100644
+index 3daf83d..803396b 100644
 --- a/crates/inkboard-app/src/rich_edit.rs
 +++ b/crates/inkboard-app/src/rich_edit.rs
 @@ -1,3 +1,4 @@
@@ -977,7 +977,7 @@ index 3daf83d..53feaa3 100644
          }
 diff --git a/crates/inkboard-app/src/tests_embed.rs b/crates/inkboard-app/src/tests_embed.rs
 new file mode 100644
-index 0000000..ca563ea
+index 0000000..d46fb8e
 --- /dev/null
 +++ b/crates/inkboard-app/src/tests_embed.rs
 @@ -0,0 +1,717 @@
@@ -1699,7 +1699,7 @@ index 0000000..ca563ea
 +    assert_eq!(host.layouts().last().map(|l| l.clipboard.clone()), Some(vec![]));
 +}
 diff --git a/crates/inkboard-app/src/tools.rs b/crates/inkboard-app/src/tools.rs
-index b6a5542..6774d27 100644
+index b6a5542..0a23bea 100644
 --- a/crates/inkboard-app/src/tools.rs
 +++ b/crates/inkboard-app/src/tools.rs
 @@ -1,3 +1,4 @@
@@ -1792,7 +1792,7 @@ index b6a5542..6774d27 100644
              Kind::Table(t) => {
                  let cell = t.cell_at(w);
 diff --git a/crates/inkboard-core/src/model.rs b/crates/inkboard-core/src/model.rs
-index a0329e1..67719e0 100644
+index a0329e1..5674f29 100644
 --- a/crates/inkboard-core/src/model.rs
 +++ b/crates/inkboard-core/src/model.rs
 @@ -1,3 +1,4 @@
@@ -1968,7 +1968,7 @@ index a0329e1..67719e0 100644
      fn pen_is_copy_on_write() {
          let mut a = Object::new_pen(vec![Pt::ZERO, Pt::new(1.0, 1.0)], false, Style::default());
 diff --git a/crates/inkboard-core/tests/properties.rs b/crates/inkboard-core/tests/properties.rs
-index b3cae00..cc979c0 100644
+index b3cae00..1f1ade8 100644
 --- a/crates/inkboard-core/tests/properties.rs
 +++ b/crates/inkboard-core/tests/properties.rs
 @@ -1,3 +1,4 @@
@@ -1995,7 +1995,7 @@ index b3cae00..cc979c0 100644
              None => Kind::Table(Table::new(Pt::new(cx - 70.0, cy - 22.0 * num::f64_of(c.rows)), c.rows, 1)),
          };
 diff --git a/crates/inkboard-formats/src/mermaid.rs b/crates/inkboard-formats/src/mermaid.rs
-index f0ac749..f644f30 100644
+index f0ac749..95608c9 100644
 --- a/crates/inkboard-formats/src/mermaid.rs
 +++ b/crates/inkboard-formats/src/mermaid.rs
 @@ -1,3 +1,4 @@
