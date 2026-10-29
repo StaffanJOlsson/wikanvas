@@ -4,7 +4,7 @@
 //! has the same database open (WAL, a second process). The background jobs of §12 are called directly: the hourly
 //! run, purge and GC in their order, the backup schedule, and backups that never overlap across processes. The
 //! data-safety guard of D144 runs both ways: purge and GC sweep no orphan file while no owner exists, and a real
-//! `wikanvas-server serve` refuses to start over files without an owner.
+//! `wikanvas-server serve` refuses to start, and `admin create-owner` to create the owner, over files without an owner.
 
 use std::time::{Duration, UNIX_EPOCH};
 
@@ -752,8 +752,23 @@ fn serve_until_exit(dir: &std::path::Path) -> (Option<i32>, String) {
     (out.status.code(), output_text(&out))
 }
 
-/// Asserts the refusal of D144: exit 1 with the database path, the number of files and both ways out, and nothing of a
-/// serving server (no listener, no setup code).
+/// The refusal of D144 on `dir`: `action` is "start" (`serve`) or "create the owner" (`admin create-owner`),
+/// `database` "does not exist" or "has no owner", `files` the count with its noun.
+fn refusal(dir: &std::path::Path, action: &str, database: &str, files: &str) -> String {
+    let (db, files_dir) = (dir.join("wikanvas.db"), dir.join("files"));
+    format!(
+        "refusing to {action}: the database {} {database}, but {} holds {files} (attachments and board images of an \
+         existing wiki); put that wiki's database in place as {} (see \"Backups and restore\" in README.md), or move \
+         {} away to start a new wiki",
+        db.display(),
+        files_dir.display(),
+        db.display(),
+        files_dir.display()
+    )
+}
+
+/// Asserts `serve`'s refusal of D144: exit 1 with the database path, the number of files and both ways out, and
+/// nothing of a serving server (no listener, no setup code).
 fn assert_refused(
     code: Option<i32>,
     log: &str,
@@ -761,17 +776,8 @@ fn assert_refused(
     database: &str,
     files: &str,
 ) {
-    let (db, files_dir) = (dir.join("wikanvas.db"), dir.join("files"));
     assert_eq!(code, Some(1), "{log}");
-    let expected = format!(
-        "refusing to start: the database {} {database}, but {} holds {files} (attachments and board images of an \
-         existing wiki); put that wiki's database in place as {} (see \"Backups and restore\" in README.md), or move \
-         {} away to start a new wiki",
-        db.display(),
-        files_dir.display(),
-        db.display(),
-        files_dir.display()
-    );
+    let expected = refusal(dir, "start", database, files);
     assert!(log.contains(&expected), "want {expected:?} in {log}");
     assert!(!log.contains("First-run setup"), "no setup code: {log}");
     assert!(!log.contains("is serving"), "{log}");
@@ -821,6 +827,90 @@ fn serve_starts_with_files_and_an_owner() {
         "{log}"
     );
     assert!(file.exists(), "younger than the orphan age");
+}
+
+async fn owners(dir: &std::path::Path) -> i64 {
+    let db = wikanvas_store::Db::open(
+        dir.join("wikanvas.db"),
+        wikanvas_store::DbOptions::default(),
+    )
+    .unwrap();
+    db.read(|c| {
+        Ok(
+            c.query_row("SELECT count(*) FROM users WHERE role = 'owner'", [], |r| {
+                r.get(0)
+            })?,
+        )
+    })
+    .await
+    .unwrap()
+}
+
+#[test]
+fn create_owner_refuses_files_without_a_database() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = put_file(dir.path(), b"an attachment", Duration::from_secs(7200));
+    let mut args = OWNER.to_vec();
+    args.push("--json");
+    let out = admin(dir.path(), &args, None);
+    assert_eq!(out.status.code(), Some(3), "{}", output_text(&out));
+    let err = error_line(&out);
+    assert_eq!(err["error"]["code"], "conflict");
+    assert_eq!(err["exit_code"], 3);
+    assert_eq!(
+        err["error"]["message"],
+        refusal(dir.path(), "create the owner", "does not exist", "1 file")
+    );
+    assert!(out.stdout.is_empty(), "no owner and no password printed");
+    assert!(
+        !dir.path().join("wikanvas.db").exists(),
+        "a refused create-owner creates no database"
+    );
+    assert!(file.exists());
+    // serve still refuses: nothing changed.
+    let (code, log) = serve_until_exit(dir.path());
+    assert_refused(code, &log, dir.path(), "does not exist", "1 file");
+}
+
+#[tokio::test]
+async fn create_owner_refuses_files_with_an_ownerless_database() {
+    let dir = tempfile::tempdir().unwrap();
+    serve_until_healthy(dir.path());
+    let file = put_file(dir.path(), b"a board image", Duration::from_secs(7200));
+    let out = admin(dir.path(), &OWNER, None);
+    assert_eq!(out.status.code(), Some(3), "{}", output_text(&out));
+    let expected = format!(
+        "wikanvas-server admin: {}",
+        refusal(dir.path(), "create the owner", "has no owner", "1 file")
+    );
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains(&expected),
+        "want {expected:?} in {}",
+        output_text(&out)
+    );
+    assert!(out.stdout.is_empty());
+    assert_eq!(owners(dir.path()).await, 0, "no owner row");
+    assert!(file.exists());
+    let (code, log) = serve_until_exit(dir.path());
+    assert_refused(code, &log, dir.path(), "has no owner", "1 file");
+}
+
+#[tokio::test]
+async fn create_owner_on_an_empty_data_dir_still_works() {
+    // An empty data directory, files/ with directories only: create-owner works as before, and serve then starts.
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("files").join("aa").join("bb")).unwrap();
+    let mut args = OWNER.to_vec();
+    args.push("--json");
+    let out = admin(dir.path(), &args, None);
+    ok(&out);
+    assert_eq!(stdout_json(&out)["user"]["role"], "owner");
+    assert_eq!(owners(dir.path()).await, 1);
+    let log = serve_until_healthy(dir.path());
+    assert!(
+        !log.contains("refusing") && !log.contains("First-run setup"),
+        "{log}"
+    );
 }
 
 #[test]

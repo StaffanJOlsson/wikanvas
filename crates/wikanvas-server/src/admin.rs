@@ -5,7 +5,8 @@
 //! server's owner-exists cache sees a new owner on its next request). Every command takes `--json`, uses the exit
 //! codes of §7.7, and prints secrets only to stdout or `--token-out`:
 //! - `create-owner`: the `POST /setup` transaction without the code (owner, workspace settings, the "Getting started"
-//!   seed unless `--no-seed`); exit 8 when an owner exists;
+//!   seed unless `--no-seed`); exit 8 when an owner exists, and exit 3 (`conflict`), with nothing created, while no
+//!   owner exists and `files/` holds any regular file (D144, as `serve` refuses to start);
 //! - `create-token`, `list-tokens`, `revoke-token (<id> | --all --yes)`: as the API, for the owner;
 //! - `reset-password --email E [--revoke-tokens]`: a random temporary password (printed once, must be changed), every
 //!   session revoked, and with `--revoke-tokens` every API token too (D35);
@@ -280,14 +281,29 @@ fn print_json(value: &impl Serialize) -> Result<(), Failure> {
     Ok(())
 }
 
-async fn open() -> Result<AppState, Failure> {
-    let config = Config::from_env().map_err(|e| Failure {
+fn config() -> Result<Config, Failure> {
+    Config::from_env().map_err(|e| Failure {
         error: ApiError::new(ErrorCode::Validation, e.to_string()),
         exit: ExitCode::Configuration,
-    })?;
+    })
+}
+
+async fn open_with(config: Config) -> Result<AppState, Failure> {
     AppState::open(config).await.map_err(|e| Failure {
         error: ApiError::new(ErrorCode::Internal, e.to_string()),
         exit: ExitCode::Unexpected,
+    })
+}
+
+async fn open() -> Result<AppState, Failure> {
+    open_with(config()?).await
+}
+
+/// The refusal of D144 for `create-owner` (exit 3, code `conflict`): files under `files/` while no owner exists.
+fn files_without_owner(refused: Result<(), String>) -> Result<(), Failure> {
+    refused.map_err(|message| Failure {
+        error: ApiError::new(ErrorCode::Conflict, message),
+        exit: ExitCode::Configuration,
     })
 }
 
@@ -326,7 +342,21 @@ async fn create_owner_command(args: CreateOwnerArgs, json: bool) -> Result<(), F
         (password, None)
     };
     state::check_password(&password)?;
-    let state = open().await?;
+    // D144: never the first owner over another database's files. Without a database, before one is created; with one,
+    // before the owner is (an owner that exists already still gives exit 8 below).
+    let config = config()?;
+    files_without_owner(crate::app::refuse_files_without_database(
+        &config,
+        "create the owner",
+    ))?;
+    let state = open_with(config).await?;
+    if !state.owner_exists().await? {
+        files_without_owner(crate::app::refuse_files_without_owner(
+            &state.config,
+            "create the owner",
+            "has no owner",
+        ))?;
+    }
     let password_hash = state.hash_password(password).await?;
     let now = state.now();
     let user = create_owner(
