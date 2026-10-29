@@ -3086,20 +3086,18 @@ stale, 4 the app did not become healthy.
 1. Before locking, `run` and `up` exit 3 when the `wikanvas-agent` project is already up. Then the script takes the
    build lock (§13.1), like `e2e.sh`, and calls `wikanvas_slice`: the app container counts against the build total.
 2. `WIKANVAS_NET_SUBNET=172.31.240.32/28 WIKANVAS_NET_RANGE=172.31.240.40/29 WIKANVAS_PROXY_IP=172.31.240.34 docker
-   compose --env-file /dev/null -p wikanvas-agent -f compose.yaml -f compose.e2e.yaml up -d --wait wikanvas` (plus `-f
-   compose.agent.yaml` with `--keep`, `up`, or `WIKANVAS_AGENT_CLI`), with a trap that runs `down
-   -v` unless the app is kept. Only `wikanvas` starts: the CLI talks to Wikanvas directly over plain HTTP (inside the
-   container, or on the loopback port), never through Caddy. The app keeps the compose runtime caps (2 CPUs, 1 GiB, no
-   swap) and joins `wikanvas-build.slice` through `compose.e2e.yaml` when the slice is installed; `/data` is a tmpfs, so
-   nothing persists.
+   compose --env-file /dev/null -p wikanvas-agent -f compose.yaml -f compose.e2e.yaml up -d --wait wikanvas` (plus
+   `-f compose.agent.yaml` with `--keep`, `up`, or `WIKANVAS_AGENT_CLI`), with a trap that runs `down -v` unless the app
+   is kept. Only `wikanvas` starts: the CLI talks to Wikanvas directly over plain HTTP (inside the container, or on the
+   loopback port), never through Caddy. The app keeps the compose runtime caps (2 CPUs, 1 GiB, no swap) and joins
+   `wikanvas-build.slice` through `compose.e2e.yaml` when the slice is installed; `/data` is a tmpfs, so nothing
+   persists.
 3. Provisioning, inside the container: `wikanvas admin create-owner --email agent@wikanvas.invalid --name Agent
-   --workspace "Agent test" --generate-password --json`, then `wikanvas admin
-   create-token` three times (scopes `read`, `write`, `admin`, `--expires 2d
-   --json`: the server caps a created token at its creator's `expires_at` to the millisecond, so a scenario's `token
-   create … --expires
-   1d` from a 1d parent made a moment earlier would be refused). The tokens stay in shell variables, are passed with
-   `docker exec -e WIKANVAS_TOKEN` (the value comes from the environment, never from argv), and are never printed. The
-   server sees the new owner on its next request (§8).
+   --workspace "Agent test" --generate-password --json`, then `wikanvas admin create-token` three times (scopes `read`,
+   `write`, `admin`, `--expires 2d --json`: the server caps a created token at its creator's `expires_at` to the
+   millisecond, so a scenario's `token create … --expires 1d` from a 1d parent made a moment earlier would be refused).
+   The tokens stay in shell variables, are passed with `docker exec -e WIKANVAS_TOKEN` (the value comes from the
+   environment, never from argv), and are never printed. The server sees the new owner on its next request (§8).
 4. Runs `e2e/agent/scenarios/NN-*.sh` in order (filtered by `--scenario`). Each scenario is a bash file that sources
    `e2e/agent/lib.sh` and uses its helpers:
    - `q [--as read|write|admin] <args…>`: runs `wikanvas --json <args…>` (by default `docker exec -i` into the
