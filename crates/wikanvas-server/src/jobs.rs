@@ -93,9 +93,11 @@ pub async fn prune_revisions(state: &AppState) -> Result<u64, ApiError> {
 pub struct HourlyReport {
     pub sessions_deleted: u64,
     pub tokens_deleted: u64,
+    /// Revoked and unused expired invites, 30 days on (D148).
+    pub invites_deleted: u64,
 }
 
-/// `PRAGMA optimize`, expired sessions, dead tokens and the limiters' idle keys.
+/// `PRAGMA optimize`, expired sessions, dead tokens and invites, and the limiters' idle keys.
 pub async fn hourly(state: &AppState) -> Result<HourlyReport, ApiError> {
     let now = state.now();
     let report = state
@@ -103,9 +105,11 @@ pub async fn hourly(state: &AppState) -> Result<HourlyReport, ApiError> {
         .write(move |tx| {
             let sessions_deleted = wikanvas_store::sessions::delete_expired(tx, now)?;
             let tokens_deleted = wikanvas_store::tokens::purge(tx, now)?;
+            let invites_deleted = wikanvas_store::invites::purge(tx, now)?;
             Ok(HourlyReport {
                 sessions_deleted,
                 tokens_deleted,
+                invites_deleted,
             })
         })
         .await?;

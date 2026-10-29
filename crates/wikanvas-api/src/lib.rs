@@ -15,6 +15,7 @@ pub mod page;
 pub mod token;
 pub mod tokens;
 pub mod tree;
+pub mod users;
 
 pub use auth::*;
 pub use boards::*;
@@ -27,6 +28,7 @@ pub use files::*;
 pub use page::{Page, PageQuery};
 pub use tokens::*;
 pub use tree::*;
+pub use users::*;
 
 /// The API version: the spec's `info.version`, `api_version` in `GET /api/v1/config`, and the `Wikanvas-Api-Version`
 /// header on every `/api/v1` response. Frozen at "1.0" until the first release; after that a release bumps the minor

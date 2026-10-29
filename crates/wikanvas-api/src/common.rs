@@ -102,7 +102,7 @@ string_enum! {
 }
 
 string_enum! {
-    /// A user's role (lookup table `user_roles`). M1 has a single owner.
+    /// A user's role (lookup table `user_roles`): one owner; admins, members and viewers join through invites (D148).
     pub enum Role {
         Owner = "owner",
         Admin = "admin",

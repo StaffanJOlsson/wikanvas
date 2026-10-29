@@ -2,6 +2,9 @@
 //! CRC32 of those 40, 51 characters in all. The checksum lets the CLI reject a mistyped token without a request and
 //! lets the server refuse a malformed one without a database lookup. No randomness here: the caller draws the bytes
 //! (`getrandom`) and stores only `sha256(token)` and the 12-character [`display_prefix`] (owner: W2).
+//!
+//! Invite links (D148) carry a token of the same shape with the prefix `qinv_` ([`encode_invite`],
+//! [`check_invite`]), so an invite can never pass for an API token, and the server stores only its sha256 too.
 
 use std::fmt;
 
@@ -17,6 +20,8 @@ pub const TOKEN_LEN: usize = PREFIX.len() + SECRET_LEN + CHECKSUM_LEN;
 pub const DISPLAY_PREFIX_LEN: usize = 12;
 /// Random bytes [`encode`] takes.
 pub const RANDOM_BYTES: usize = 32;
+/// Every invite token starts with this (D148): the last path segment of `<public URL>/invite/<token>`.
+pub const INVITE_PREFIX: &str = "qinv_";
 
 const ALPHABET: &[u8; 62] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
@@ -53,6 +58,15 @@ impl std::error::Error for TokenFormatError {}
 /// Builds a token from 32 random bytes: the bytes, read as one big-endian number, give the 40 secret characters
 /// (the number modulo 62⁴⁰; the bias is below 2⁻¹⁷), then the checksum is appended.
 pub fn encode(random: &[u8; RANDOM_BYTES]) -> String {
+    encode_with(PREFIX, random)
+}
+
+/// An invite token from 32 random bytes: [`encode`] with the prefix `qinv_` (51 characters).
+pub fn encode_invite(random: &[u8; RANDOM_BYTES]) -> String {
+    encode_with(INVITE_PREFIX, random)
+}
+
+fn encode_with(prefix: &str, random: &[u8; RANDOM_BYTES]) -> String {
     let mut n = *random;
     let mut secret = [0u8; SECRET_LEN];
     for slot in secret.iter_mut().rev() {
@@ -65,7 +79,7 @@ pub fn encode(random: &[u8; RANDOM_BYTES]) -> String {
         *slot = ALPHABET[rem as usize];
     }
     let mut token = String::with_capacity(TOKEN_LEN);
-    token.push_str(PREFIX);
+    token.push_str(prefix);
     token.extend(secret.iter().map(|&b| char::from(b)));
     token.push_str(&checksum(&secret));
     token
@@ -73,7 +87,16 @@ pub fn encode(random: &[u8; RANDOM_BYTES]) -> String {
 
 /// Checks prefix, length, alphabet and checksum (in that order). Nothing about whether the token exists.
 pub fn check(token: &str) -> Result<(), TokenFormatError> {
-    let rest = token.strip_prefix(PREFIX).ok_or(TokenFormatError::Prefix)?;
+    check_with(PREFIX, token)
+}
+
+/// [`check`] for an invite token (`qinv_`).
+pub fn check_invite(token: &str) -> Result<(), TokenFormatError> {
+    check_with(INVITE_PREFIX, token)
+}
+
+fn check_with(prefix: &str, token: &str) -> Result<(), TokenFormatError> {
+    let rest = token.strip_prefix(prefix).ok_or(TokenFormatError::Prefix)?;
     if token.len() != TOKEN_LEN {
         return Err(TokenFormatError::Length);
     }
@@ -200,6 +223,27 @@ mod tests {
         swapped.swap(i, i + 1);
         assert_eq!(
             check(std::str::from_utf8(&swapped).unwrap()),
+            Err(TokenFormatError::Checksum)
+        );
+    }
+
+    #[test]
+    fn invite_tokens_have_their_own_prefix() {
+        let t = encode_invite(&sample(9));
+        assert_eq!(t.len(), TOKEN_LEN);
+        assert!(t.starts_with("qinv_"));
+        assert_eq!(&t[5..], &encode(&sample(9))[5..]);
+        assert_eq!(check_invite(&t), Ok(()));
+        // An invite is never an API token, and the other way round.
+        assert_eq!(check(&t), Err(TokenFormatError::Prefix));
+        assert_eq!(
+            check_invite(&encode(&sample(9))),
+            Err(TokenFormatError::Prefix)
+        );
+        let mut b = t.into_bytes();
+        b[30] = if b[30] == b'A' { b'B' } else { b'A' };
+        assert_eq!(
+            check_invite(std::str::from_utf8(&b).unwrap()),
             Err(TokenFormatError::Checksum)
         );
     }

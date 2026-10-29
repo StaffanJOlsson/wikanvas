@@ -6906,7 +6906,7 @@
           },
           "multi_user": {
             "type": "boolean",
-            "description": "`false` in M1."
+            "description": "Whether more than one account can sign in (more than one user that is not disabled, D148)."
           },
           "openapi_url": {
             "type": "string",
@@ -8258,7 +8258,7 @@
       },
       "Role": {
         "type": "string",
-        "description": "A user's role (lookup table `user_roles`). M1 has a single owner.",
+        "description": "A user's role (lookup table `user_roles`): one owner; admins, members and viewers join through invites (D148).",
         "enum": [
           "owner",
           "admin",

@@ -154,7 +154,7 @@ pub struct Config {
     /// `/api/v1/openapi.json`.
     pub openapi_url: String,
     pub setup_required: bool,
-    /// `false` in M1.
+    /// Whether more than one account can sign in (more than one user that is not disabled, D148).
     pub multi_user: bool,
     /// `null` when no Inkboard build is embedded.
     pub inkboard: Option<InkboardInfo>,

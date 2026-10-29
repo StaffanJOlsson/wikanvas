@@ -93,6 +93,6 @@ mod tests {
     #[test]
     fn migrations_validate() {
         assert_eq!(migrations().validate(), Ok(()));
-        assert_eq!(latest(), 1);
+        assert_eq!(latest(), 2);
     }
 }

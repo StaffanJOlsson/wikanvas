@@ -10,6 +10,7 @@ pub mod docs;
 pub mod error;
 pub mod export;
 pub mod gc;
+pub mod invites;
 pub mod items;
 pub mod lists;
 pub mod migrate;

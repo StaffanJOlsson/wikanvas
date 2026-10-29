@@ -4,12 +4,12 @@
 //! `wikanvas.db`, and every blob file as `files/aa/bb/<sha256>`.
 //! - [`prepare_copy`] runs `VACUUM INTO '<data_dir>/tmp/export-….db'` on the maintenance connection (never `/tmp`, a
 //!   small tmpfs), then opens the copy on its own connection (not through the §5 PRAGMA path) with
-//!   `journal_mode=DELETE` and `secure_delete=ON`, deletes every session and API token and clears every password
-//!   hash (also the `sqlite_stat1` / `sqlite_stat4` rows of those tables: stat4 samples index keys, so it would keep
-//!   token and session hashes), and closes it, so no `-wal` or `-journal` file keeps the deleted rows. Then a second
-//!   `VACUUM INTO` writes the file that is exported from that copy's remaining rows, because unused page space of the
-//!   first copy can still hold older copies of deleted rows; the first copy is deleted. The returned [`ExportCopy`]
-//!   deletes the file when dropped.
+//!   `journal_mode=DELETE` and `secure_delete=ON`, deletes every session, API token and invite (D148: a pending
+//!   invite is a way in) and clears every password hash (also the `sqlite_stat1` / `sqlite_stat4` rows of those
+//!   tables: stat4 samples index keys, so it would keep token, session and invite hashes), and closes it, so no
+//!   `-wal` or `-journal` file keeps the deleted rows. Then a second `VACUUM INTO` writes the file that is exported
+//!   from that copy's remaining rows, because unused page space of the first copy can still hold older copies of
+//!   deleted rows; the first copy is deleted. The returned [`ExportCopy`] deletes the file when dropped.
 //! - [`write_tar`] writes the tar into any `Write`, reading the copy and each file through 256 KiB buffers; the server
 //!   hands it a writer that sends 256 KiB chunks through a 4-chunk channel (D25: at most about 1 MiB in flight).
 
@@ -43,7 +43,7 @@ pub struct Manifest {
     /// The database schema version (`user_version`).
     pub schema_version: u32,
     /// What was removed from the database copy.
-    pub without: [&'static str; 3],
+    pub without: [&'static str; 4],
 }
 
 impl Manifest {
@@ -56,7 +56,7 @@ impl Manifest {
             server_version: server_version.to_owned(),
             api_version: wikanvas_core::api::API_VERSION,
             schema_version,
-            without: ["sessions", "api_tokens", "password_hashes"],
+            without: ["sessions", "api_tokens", "invites", "password_hashes"],
         }
     }
 }
@@ -120,9 +120,10 @@ pub fn prepare_copy(db: &Db, tmp_dir: &Path) -> Result<ExportCopy> {
          DELETE FROM sessions;
          DELETE FROM api_token_scopes;
          DELETE FROM api_tokens;
+         DELETE FROM invites;
          UPDATE users SET password_hash = NULL;",
     )?;
-    // `PRAGMA optimize` (ANALYZE) keeps sample index keys in sqlite_stat4, token and session hashes included.
+    // `PRAGMA optimize` (ANALYZE) keeps sample index keys in sqlite_stat4, token, session and invite hashes included.
     for stat in ["sqlite_stat1", "sqlite_stat4"] {
         let exists: bool = conn.query_row(
             "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1)",
@@ -131,7 +132,7 @@ pub fn prepare_copy(db: &Db, tmp_dir: &Path) -> Result<ExportCopy> {
         )?;
         if exists {
             conn.execute(
-                &format!("DELETE FROM {stat} WHERE tbl IN ('sessions', 'api_tokens', 'api_token_scopes', 'users')"),
+                &format!("DELETE FROM {stat} WHERE tbl IN ('sessions', 'api_tokens', 'api_token_scopes', 'invites', 'users')"),
                 [],
             )?;
         }

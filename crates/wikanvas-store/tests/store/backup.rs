@@ -41,7 +41,8 @@ async fn pre_migration_vacuum_into_through_db_passes_quick_check() {
 async fn migrate_is_idempotent_and_refuses_a_newer_database() {
     let t = TestDb::new();
     let again = migrate::run(&t.db, t.data_dir(), NOW).unwrap();
-    assert_eq!((again.from, again.to, again.backup), (1, 1, None));
+    let latest = migrate::latest();
+    assert_eq!((again.from, again.to, again.backup), (latest, latest, None));
     assert!(!t.data_dir().join("backups").exists());
     migrate::migrations().validate().unwrap();
 

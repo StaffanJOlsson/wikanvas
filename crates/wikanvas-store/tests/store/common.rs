@@ -189,7 +189,10 @@ mod tests {
             })
             .await
             .unwrap();
-        assert_eq!((mode.as_str(), fk, version, query_only), ("wal", 1, 1, 0));
+        assert_eq!(
+            (mode.as_str(), fk, version, query_only),
+            ("wal", 1, i64::from(migrate::latest()), 0)
+        );
         let (reader_query_only, busy, trusted): (i64, i64, i64) = t
             .query(|c| {
                 c.query_row(

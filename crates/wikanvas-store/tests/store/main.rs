@@ -2,6 +2,7 @@
 
 mod common;
 
+mod accounts;
 mod auth;
 mod backup;
 mod blobs;

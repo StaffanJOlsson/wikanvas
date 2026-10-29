@@ -23,7 +23,7 @@ api_version: string,
  */
 openapi_url: string, setup_required: boolean, 
 /**
- * `false` in M1.
+ * Whether more than one account can sign in (more than one user that is not disabled, D148).
  */
 multi_user: boolean, 
 /**
