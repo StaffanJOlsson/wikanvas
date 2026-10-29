@@ -3165,7 +3165,7 @@ dependencies = [
 
 [[package]]
 name = "wikanvas-api"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "crc32fast",
  "serde",
@@ -3177,14 +3177,14 @@ dependencies = [
 
 [[package]]
 name = "wikanvas-assets"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "rust-embed",
 ]
 
 [[package]]
 name = "wikanvas-cli"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "assert_cmd",
  "base64",
@@ -3204,7 +3204,7 @@ dependencies = [
 
 [[package]]
 name = "wikanvas-core"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "base64",
  "comrak",
@@ -3223,7 +3223,7 @@ dependencies = [
 
 [[package]]
 name = "wikanvas-server"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "argon2",
  "axum",
@@ -3263,7 +3263,7 @@ dependencies = [
 
 [[package]]
 name = "wikanvas-store"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "base64",
  "bytes",
