@@ -29,7 +29,8 @@ pub fn router() -> OpenApiRouter<AppState> {
     responses(
         (status = 200, description = "The backup file", body = BackupResult),
         (status = 401, description = "`unauthenticated`, `invalid_token`", body = ErrorBody),
-        (status = 403, description = "`insufficient_scope`, `csrf_rejected`", body = ErrorBody),
+        (status = 403, description = "`insufficient_scope`, `forbidden` (a `member` or `viewer`), `csrf_rejected`",
+            body = ErrorBody),
         (status = 409, description = "`setup_required`", body = ErrorBody),
         (status = 429, description = "`rate_limited` (`reason: busy`)", body = ErrorBody),
         (status = 507, description = "`insufficient_storage`", body = ErrorBody),

@@ -190,7 +190,8 @@ async fn download_board(
         (status = 200, description = "Saved (or unchanged)", body = BoardPutResult,
             headers(("ETag" = String, description = "`\"r{rev}\"`, for the next `If-Match`"))),
         (status = 401, description = "`unauthenticated`, `invalid_token`", body = ErrorBody),
-        (status = 403, description = "`insufficient_scope`, `csrf_rejected`", body = ErrorBody),
+        (status = 403, description = "`insufficient_scope`, `forbidden` (a `viewer`), `csrf_rejected`",
+            body = ErrorBody),
         (status = 404, description = "`not_found`", body = ErrorBody),
         (status = 409, description = "`setup_required`, `read_only` (trashed or archived)", body = ErrorBody),
         (status = 412, description = "`rev_mismatch`: the board changed; `details {rev, etag}` name the current \

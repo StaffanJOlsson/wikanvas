@@ -267,7 +267,8 @@ async fn get_doc(
     responses(
         (status = 200, description = "Saved (or nothing new)", body = DocUpdateResult),
         (status = 401, description = "`unauthenticated`, `invalid_token`", body = ErrorBody),
-        (status = 403, description = "`insufficient_scope`, `csrf_rejected`", body = ErrorBody),
+        (status = 403, description = "`insufficient_scope`, `forbidden` (a `viewer`), `csrf_rejected`",
+            body = ErrorBody),
         (status = 404, description = "`not_found`", body = ErrorBody),
         (status = 409, description = "`missing_deps` (`details.state_vector`), `read_only`, `setup_required`",
             body = ErrorBody),
@@ -391,7 +392,8 @@ async fn get_markdown(
     responses(
         (status = 200, description = "Written (or already equal), with the new `ETag`", body = DocWriteResult),
         (status = 401, description = "`unauthenticated`, `invalid_token`", body = ErrorBody),
-        (status = 403, description = "`insufficient_scope`, `csrf_rejected`", body = ErrorBody),
+        (status = 403, description = "`insufficient_scope`, `forbidden` (a `viewer`), `csrf_rejected`",
+            body = ErrorBody),
         (status = 404, description = "`not_found`", body = ErrorBody),
         (status = 409, description = "`schema_too_new`, `read_only`, `setup_required`", body = ErrorBody),
         (status = 412, description = "`rev_mismatch` (`details {etag, mergeable}`)", body = ErrorBody),
@@ -538,7 +540,8 @@ async fn get_prosemirror(
     responses(
         (status = 200, description = "Written (or already equal), with the new `ETag`", body = DocWriteResult),
         (status = 401, description = "`unauthenticated`, `invalid_token`", body = ErrorBody),
-        (status = 403, description = "`insufficient_scope`, `csrf_rejected`", body = ErrorBody),
+        (status = 403, description = "`insufficient_scope`, `forbidden` (a `viewer`), `csrf_rejected`",
+            body = ErrorBody),
         (status = 404, description = "`not_found`", body = ErrorBody),
         (status = 409, description = "`schema_too_new`, `read_only`, `setup_required`", body = ErrorBody),
         (status = 412, description = "`rev_mismatch` (`details {etag, mergeable}`)", body = ErrorBody),
@@ -605,8 +608,9 @@ async fn put_prosemirror(
         (status = 409, description = "`setup_required`", body = ErrorBody),
     )
 )]
-async fn get_schema(_auth: Auth<Read>) -> Json<DocSchema> {
-    Json(wikanvas_core::schema::v1().doc_schema())
+async fn get_schema(auth: Auth<Read>) -> Result<Json<DocSchema>, ApiError> {
+    authz::require(&auth, Action::Read, Resource::Workspace)?;
+    Ok(Json(wikanvas_core::schema::v1().doc_schema()))
 }
 
 #[cfg(test)]

@@ -2,7 +2,8 @@
 //!
 //! §5 "Search query", D27, D46: full-text search with the quoted query builder, filters, snippets and cursor pages
 //! (offset, at most 1,000 results, for relevance; keyset for `sort=updated`), and the title search of the quick
-//! switcher and mentions.
+//! switcher and mentions. Both are Read (`authz::require`, §8): on the collection a search is limited to, otherwise
+//! on the workspace.
 
 use axum::Json;
 use axum::extract::{Query, State};
@@ -10,6 +11,7 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 use wikanvas_api::{ErrorBody, Page, SearchHit, SearchQuery, TitleHit, TitleSearchQuery};
 
+use crate::authz::{self, Action, Resource};
 use crate::error::ApiError;
 use crate::extract::{Auth, Read};
 use crate::state::AppState;
@@ -46,6 +48,10 @@ async fn search(
     State(state): State<AppState>,
     Query(q): Query<SearchQuery>,
 ) -> Result<Json<Page<SearchHit>>, ApiError> {
+    match q.collection_id {
+        Some(c) => authz::require(&auth, Action::Read, Resource::Collection(&c.to_string()))?,
+        None => authz::require(&auth, Action::Read, Resource::Workspace)?,
+    }
     let viewer = auth.viewer();
     let page = state
         .db
@@ -76,6 +82,7 @@ async fn search_titles(
     State(state): State<AppState>,
     Query(q): Query<TitleSearchQuery>,
 ) -> Result<Json<Vec<TitleHit>>, ApiError> {
+    authz::require(&auth, Action::Read, Resource::Workspace)?;
     let viewer = auth.viewer();
     let hits = state
         .db

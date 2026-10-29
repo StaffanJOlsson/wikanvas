@@ -39,7 +39,7 @@
             }
           },
           "403": {
-            "description": "`insufficient_scope`, `csrf_rejected`",
+            "description": "`insufficient_scope`, `forbidden` (a `member` or `viewer`), `csrf_rejected`",
             "content": {
               "application/json": {
                 "schema": {
@@ -251,7 +251,7 @@
             }
           },
           "403": {
-            "description": "`insufficient_scope`, `csrf_rejected`",
+            "description": "`insufficient_scope`, `forbidden` (a `viewer`), `csrf_rejected`",
             "content": {
               "application/json": {
                 "schema": {
@@ -1130,7 +1130,7 @@
             }
           },
           "403": {
-            "description": "`insufficient_scope`, `csrf_rejected`",
+            "description": "`insufficient_scope`, `forbidden` (a `viewer`), `csrf_rejected`",
             "content": {
               "application/json": {
                 "schema": {
@@ -1313,7 +1313,7 @@
             }
           },
           "403": {
-            "description": "`insufficient_scope`, `csrf_rejected`",
+            "description": "`insufficient_scope`, `forbidden` (a `viewer`), `csrf_rejected`",
             "content": {
               "application/json": {
                 "schema": {
@@ -1404,7 +1404,7 @@
             }
           },
           "403": {
-            "description": "`insufficient_scope`, `csrf_rejected`",
+            "description": "`insufficient_scope`, `forbidden` (a `viewer`), `csrf_rejected`",
             "content": {
               "application/json": {
                 "schema": {
@@ -1517,7 +1517,7 @@
             }
           },
           "403": {
-            "description": "`insufficient_scope`, `csrf_rejected`",
+            "description": "`insufficient_scope`, `forbidden` (a `viewer`), `csrf_rejected`",
             "content": {
               "application/json": {
                 "schema": {
@@ -1620,7 +1620,7 @@
             }
           },
           "403": {
-            "description": "`insufficient_scope`, `csrf_rejected`",
+            "description": "`insufficient_scope`, `forbidden` (a `viewer`), `csrf_rejected`",
             "content": {
               "application/json": {
                 "schema": {
@@ -2040,7 +2040,7 @@
             }
           },
           "403": {
-            "description": "`insufficient_scope`, `csrf_rejected` (a cookie request from elsewhere)",
+            "description": "`insufficient_scope`, `forbidden` (a `member` or `viewer`), `csrf_rejected` (a cookie request from elsewhere)",
             "content": {
               "application/json": {
                 "schema": {
@@ -2131,7 +2131,7 @@
             }
           },
           "403": {
-            "description": "`insufficient_scope`, `csrf_rejected`",
+            "description": "`insufficient_scope`, `forbidden` (a `viewer`), `csrf_rejected`",
             "content": {
               "application/json": {
                 "schema": {
@@ -2330,7 +2330,7 @@
             }
           },
           "403": {
-            "description": "`insufficient_scope`, `csrf_rejected`",
+            "description": "`insufficient_scope`, `forbidden` (a `viewer`), `csrf_rejected`",
             "content": {
               "application/json": {
                 "schema": {
@@ -2451,7 +2451,7 @@
             }
           },
           "403": {
-            "description": "`insufficient_scope`, `csrf_rejected`",
+            "description": "`insufficient_scope`, `forbidden` (a `viewer`), `csrf_rejected`",
             "content": {
               "application/json": {
                 "schema": {
@@ -2564,7 +2564,7 @@
             }
           },
           "403": {
-            "description": "`insufficient_scope`, `csrf_rejected`",
+            "description": "`insufficient_scope`, `forbidden` (a `viewer`), `csrf_rejected`",
             "content": {
               "application/json": {
                 "schema": {
@@ -2787,7 +2787,7 @@
             }
           },
           "403": {
-            "description": "`insufficient_scope`, `csrf_rejected`",
+            "description": "`insufficient_scope`, `forbidden` (a `viewer`), `csrf_rejected`",
             "content": {
               "application/json": {
                 "schema": {
@@ -3538,7 +3538,7 @@
             }
           },
           "403": {
-            "description": "`insufficient_scope`, `csrf_rejected`",
+            "description": "`insufficient_scope`, `forbidden` (a `viewer`), `csrf_rejected`",
             "content": {
               "application/json": {
                 "schema": {
@@ -3795,7 +3795,7 @@
             }
           },
           "403": {
-            "description": "`insufficient_scope`, `csrf_rejected`",
+            "description": "`insufficient_scope`, `forbidden` (a `viewer`), `csrf_rejected`",
             "content": {
               "application/json": {
                 "schema": {
@@ -3939,7 +3939,7 @@
             }
           },
           "403": {
-            "description": "`insufficient_scope`, `csrf_rejected`",
+            "description": "`insufficient_scope`, `forbidden` (a `viewer`), `csrf_rejected`",
             "content": {
               "application/json": {
                 "schema": {
@@ -4052,7 +4052,7 @@
             }
           },
           "403": {
-            "description": "`insufficient_scope`, `csrf_rejected`",
+            "description": "`insufficient_scope`, `forbidden` (a `viewer`), `csrf_rejected`",
             "content": {
               "application/json": {
                 "schema": {
@@ -4145,7 +4145,7 @@
             }
           },
           "403": {
-            "description": "`insufficient_scope`, `csrf_rejected`",
+            "description": "`insufficient_scope`, `forbidden` (a `viewer`), `csrf_rejected`",
             "content": {
               "application/json": {
                 "schema": {
@@ -4265,7 +4265,7 @@
             }
           },
           "403": {
-            "description": "`insufficient_scope`, `csrf_rejected`",
+            "description": "`insufficient_scope`, `forbidden` (a `viewer`), `csrf_rejected`",
             "content": {
               "application/json": {
                 "schema": {
@@ -4368,7 +4368,7 @@
             }
           },
           "403": {
-            "description": "`insufficient_scope`, `csrf_rejected`",
+            "description": "`insufficient_scope`, `forbidden` (a `viewer`), `csrf_rejected`",
             "content": {
               "application/json": {
                 "schema": {
@@ -4721,7 +4721,7 @@
             }
           },
           "403": {
-            "description": "`insufficient_scope`, `csrf_rejected`",
+            "description": "`insufficient_scope`, `forbidden` (a `viewer`), `csrf_rejected`",
             "content": {
               "application/json": {
                 "schema": {
@@ -4804,7 +4804,7 @@
             }
           },
           "403": {
-            "description": "`insufficient_scope`, `csrf_rejected`",
+            "description": "`insufficient_scope`, `forbidden` (a `viewer`), `csrf_rejected`",
             "content": {
               "application/json": {
                 "schema": {
@@ -6022,7 +6022,7 @@
             }
           },
           "403": {
-            "description": "`insufficient_scope`, `csrf_rejected`",
+            "description": "`insufficient_scope`, `forbidden` (a `member` or `viewer`), `csrf_rejected`",
             "content": {
               "application/json": {
                 "schema": {
@@ -6088,7 +6088,7 @@
             }
           },
           "403": {
-            "description": "`insufficient_scope`, `csrf_rejected`",
+            "description": "`insufficient_scope`, `forbidden` (a `member` or `viewer`), `csrf_rejected`",
             "content": {
               "application/json": {
                 "schema": {
@@ -6164,7 +6164,7 @@
             }
           },
           "403": {
-            "description": "`insufficient_scope`, `csrf_rejected`",
+            "description": "`insufficient_scope`, `forbidden` (a `member` or `viewer`), `csrf_rejected`",
             "content": {
               "application/json": {
                 "schema": {
@@ -6398,7 +6398,7 @@
             }
           },
           "403": {
-            "description": "`insufficient_scope`, `csrf_rejected`",
+            "description": "`insufficient_scope`, `forbidden` (a `member` or `viewer`), `csrf_rejected`",
             "content": {
               "application/json": {
                 "schema": {

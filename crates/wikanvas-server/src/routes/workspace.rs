@@ -66,7 +66,8 @@ async fn get_workspace(
     responses(
         (status = 200, description = "The workspace", body = Workspace),
         (status = 401, description = "`unauthenticated`, `invalid_token`", body = ErrorBody),
-        (status = 403, description = "`insufficient_scope`, `csrf_rejected`", body = ErrorBody),
+        (status = 403, description = "`insufficient_scope`, `forbidden` (a `member` or `viewer`), `csrf_rejected`",
+            body = ErrorBody),
         (status = 409, description = "`setup_required`", body = ErrorBody),
         (status = 415, description = "`unsupported_media_type`", body = ErrorBody),
         (status = 422, description = "`validation` (`field`: `name` or `logo_attachment_id`)", body = ErrorBody),

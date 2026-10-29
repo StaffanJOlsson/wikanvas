@@ -1374,7 +1374,13 @@ Reserved and not implemented in M1: `/api/v1/items/{id}/revisions*`, `/api/v1/bl
     one scope below the declared one, 403 `insufficient_scope`; on session-only routes, any token gets 403
     `session_required`; on token-only routes, a session gets 403 `forbidden`;
   - `security::public_operations_are_exactly` fails unless the operations with security `[]` are exactly
-    `GET /config`, `GET /openapi.json`, `GET /setup`, `POST /setup` and `POST /auth/login`.
+    `GET /config`, `GET /openapi.json`, `GET /setup`, `POST /setup` and `POST /auth/login`;
+  - `roles::every_operation_checks_the_role` calls every operation with the session of the owner, an `admin`, a
+    `member` and a `viewer` (inserted beside the owner; each role in its own app, on fixtures the owner made), with
+    real ids and bodies that would change something: an allowed call must succeed (2xx), a refused one must be 403
+    `forbidden` and leave every table (except `board_previews` and the last-seen and last-use columns) and every file
+    under `files/` and `backups/` as it was. `roles::the_matrix_names_every_operation_once` fails unless its table
+    names every operation of the spec with its action (§8).
 - utoipa's maps are ordered (`preserve_order` and `preserve_path_order` stay off), so the output does not depend on which route module registers
   first, and a merge conflict in the committed file is resolved by regenerating it (PLAN R4).
 - No interactive documentation UI in M1; any OpenAPI viewer can open the file.
@@ -1730,11 +1736,25 @@ From the host: `docker compose exec wikanvas wikanvas admin create-token --name 
 - **Rate limits.** Login and setup as above; per token (requests and body bytes) and per IP for failed bearer
   authentications (D47, §7.3).
 - **Authorization seam.** Every handler takes `Auth<S>` as its first extractor (D44), which yields the `Actor`, and calls
-  `authz::require(&actor, Action, Resource)` for single resources: the owner and `admin` may do everything, `member`
-  reads and writes, `viewer` reads (M1 has only the owner). List-shaped store functions take a `Viewer` and go through
-  `shared::visible_items` (§5). Store functions take `actor_id`; content writes take `WriteBy{user_id, token_id}` (D53).
-  `GET /api/v1/attachments/{id}` authorizes through the
-  items in `item_attachments` (M1: owner always allowed).
+  `authz::require(&actor, Action, Resource)` right after it, before it reads a body or touches the database. Every
+  handler with credentials does so, including the lists, the tree and search (on the workspace, or on the collection
+  the call is limited to), so a refused call is 403 `forbidden` and changes nothing. The token's scope and the
+  account's role are separate layers and a request needs both; a session has every scope, so for a session the role is
+  the only limit. The rule: the owner and `admin` may do everything, `member` reads and writes, `viewer` reads (M1 has
+  only the owner); the caller's own account (`Resource::OwnAccount`) is open to every role. The action per route group:
+
+  | Action | Routes |
+  |---|---|
+  | Read | Every GET of content and structure: items with `…/text` and `…/children`, documents, boards and their pages, attachments, collections, the tree, the sidebar, the lists, `GET /trash`, search, `GET /workspace`, `GET /schema/doc`. Also `PUT`/`DELETE /items/{id}/star` and `POST /items/{id}/view`, which change only the caller's own stars and views |
+  | Write | Creating, editing, moving (also `Write` on the target collection when `collection_id` is sent), duplicating, publishing and unpublishing, archiving and unarchiving, trashing and restoring items and collections, with `DELETE /items/{id}?discard_empty=true`; document and board content; uploads (on the `item_id` item, otherwise the workspace) |
+  | Admin | Purging (`DELETE /trash/items/{id}`, `/trash/collections/{id}` and `/trash`), `PATCH /workspace`, `GET /export`, `POST /admin/backup`; other users' tokens once a route can reach them |
+  | Read or Write on `OwnAccount` (every role) | `/auth/me`, `/auth/password`, `/auth/logout`, `/auth/sessions…`, `/tokens…`: the store scopes each one to the caller's `user_id` |
+
+  The public routes (`/config`, `/openapi.json`, `/setup`, `/auth/login`) have no actor.
+  `roles::every_operation_checks_the_role` (§7.4) holds every operation to this table. List-shaped store functions also
+  take a `Viewer` and go through `shared::visible_items` (§5), which is where per-item visibility will go. Store
+  functions take `actor_id`; content writes take `WriteBy{user_id, token_id}` (D53). Once per-item permissions exist,
+  `GET /api/v1/attachments/{id}` authorizes through the items in `item_attachments`; until then it is the role's Read.
 - **Uploads.** After the free-space check (D33), uploads stream to `/data/tmp` under the `upload_work` permit, hashed as
   they arrive (`BlobStore::stage_stream`), and are never buffered whole. The stored filename strips control characters (including CR and LF), `"`, `\` and `/`, is cut to 200
   characters, and defaults to `file`. Downloads send `Content-Disposition: <inline|attachment>; filename="<ASCII

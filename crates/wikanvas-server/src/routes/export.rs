@@ -79,8 +79,8 @@ impl Write for ChannelWriter {
         (status = 200, description = "The tar stream", content_type = "application/x-tar", body = Vec<u8>,
             headers(("Content-Disposition" = String, description = "attachment; filename=\"wikanvas-export-<time>.tar\""))),
         (status = 401, description = "`unauthenticated`, `invalid_token`", body = ErrorBody),
-        (status = 403, description = "`insufficient_scope`, `csrf_rejected` (a cookie request from elsewhere)",
-            body = ErrorBody),
+        (status = 403, description = "`insufficient_scope`, `forbidden` (a `member` or `viewer`), `csrf_rejected` (a \
+            cookie request from elsewhere)", body = ErrorBody),
         (status = 409, description = "`setup_required`", body = ErrorBody),
         (status = 429, description = "`rate_limited` (`reason: busy`)", body = ErrorBody),
         (status = 507, description = "`insufficient_storage`", body = ErrorBody),

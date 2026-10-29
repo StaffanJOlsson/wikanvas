@@ -3,7 +3,8 @@
 //! §7.2, §7.3, D42: list, create (with the caller's scope ceiling, no `admin` from a token, the calling token's
 //! expiry as a cap, the 100-live-token limit, and the password for a session's `admin` or never-expiring token),
 //! revoke (with the tokens it created) and revoke-current. The last-use writes and the per-token limiters run in
-//! `Auth<S>` (`crate::extract`).
+//! `Auth<S>` (`crate::extract`). Every route acts on the caller's own tokens only (the store checks `user_id`), so
+//! `authz::require` is on [`Resource::OwnAccount`], which every role may manage (§8).
 
 use axum::Json;
 use axum::extract::State;
@@ -14,6 +15,7 @@ use wikanvas_api::tokens::{MAX_EXPIRY_DAYS, NewToken};
 use wikanvas_api::{ApiToken, CreatedToken, ErrorBody, ErrorCode, Scope};
 use wikanvas_store::tokens::{CreatedVia, TokenRow};
 
+use crate::authz::{self, Action, Resource};
 use crate::error::ApiError;
 use crate::extract::{Actor, Admin, AnyToken, Auth, AuthMethod, IdPath};
 use crate::state::AppState;
@@ -48,6 +50,7 @@ async fn list_tokens(
     auth: Auth<Admin>,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<ApiToken>>, ApiError> {
+    authz::require(&auth, Action::Read, Resource::OwnAccount)?;
     let user_id = auth.into_actor().user_id;
     let now = state.now();
     let tokens = state
@@ -85,6 +88,7 @@ async fn create_token(
     State(state): State<AppState>,
     Json(new): Json<NewToken>,
 ) -> Result<(StatusCode, Json<CreatedToken>), ApiError> {
+    authz::require(&auth, Action::Write, Resource::OwnAccount)?;
     let actor = auth.into_actor();
     validate(&new)?;
     let now = state.now();
@@ -215,6 +219,7 @@ async fn revoke_current(
     auth: Auth<AnyToken>,
     State(state): State<AppState>,
 ) -> Result<StatusCode, ApiError> {
+    authz::require(&auth, Action::Write, Resource::OwnAccount)?;
     let actor = auth.into_actor();
     let token_id = actor.token_id().unwrap_or_default().to_owned();
     revoke(&state, actor.user_id, token_id).await
@@ -241,6 +246,7 @@ async fn revoke_token(
     State(state): State<AppState>,
     IdPath(id): IdPath,
 ) -> Result<StatusCode, ApiError> {
+    authz::require(&auth, Action::Write, Resource::OwnAccount)?;
     revoke(&state, auth.into_actor().user_id, id.to_string()).await
 }
 
