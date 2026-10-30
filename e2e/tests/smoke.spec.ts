@@ -1323,7 +1323,9 @@ test('smoke: setup to export (PLAN W7 steps 1-15, the review fixes, M1.1 board e
     await member.goto(secretUrl);
     await expect(member.getByText('You can read this collection but not change it.')).toBeVisible();
     await expect(editor(member).locator('p', { hasText: 'A pangolin budget.' })).toHaveCount(1);
-    await expect(member.locator('.wikanvas-editor [contenteditable="true"]')).toHaveCount(0);
+    // The editor element is .wikanvas-editor itself (TipTap puts the class on the contenteditable root).
+    await expect(member.locator('.wikanvas-editor[contenteditable="false"]')).toHaveCount(1);
+    await expect(member.locator('.wikanvas-editor[contenteditable="true"]')).toHaveCount(0);
     expect((await member.request.patch(`/api/v1/items/${secretId}`, { data: { title: 'Taken' } })).status()).toBe(403);
 
     // With Write, the member edits.
@@ -1332,6 +1334,7 @@ test('smoke: setup to export (PLAN W7 steps 1-15, the review fixes, M1.1 board e
     expect((await changed).status()).toBe(200);
     await member.reload();
     await expect(member.getByText('You can read this collection but not change it.')).toHaveCount(0);
+    await expect(member.locator('.wikanvas-editor[contenteditable="true"]')).toHaveCount(1);
     await editor(member).locator('p', { hasText: 'A pangolin budget.' }).click();
     await settle(member);
     await member.keyboard.press('End');
